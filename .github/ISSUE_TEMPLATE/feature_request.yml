@@ -1,0 +1,96 @@
+name: Feature request
+description: Propose something the plugin should observe, block, or report.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The single most useful thing you can tell us is **where the data would come from**.
+
+        Two modules were specified for this plugin and never built — `ratelimit_escalation` and
+        `cost_tracking`. Both are permanently blocked because the data they need reaches no hook: it
+        is assembled in exactly one place in the Claude Code binary, the status-line input builder,
+        and no hook event carries it. Building either would have produced code that can never fire,
+        which is the precise defect this plugin exists to catch, so both were removed from the
+        registry on 30 July 2026 and the evidence kept. See
+        [attempted and blocked](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/docs/modules.md#attempted-and-blocked-ratelimit_escalation-and-cost_tracking).
+
+        So a proposal that names its data source is one we can act on. A proposal that does not is
+        one we have to go and check first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: What goes wrong today, and how often. Concrete beats hypothetical.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What should the plugin do
+      description: Describe the behaviour, not the implementation.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Would this block, or warn?
+      description: >-
+        `gate` means it can stop a tool call. `observe` means it warns and never blocks. **Exactly
+        one module here is a gate** — `delegate_gate`, registered on `PreToolUse` and shipping
+        switched off — so proposing a gate is proposing the **second** one, not the first. Say so,
+        and say what it would deny. If what you want is a wider matcher or a different rule for the
+        gate that already exists, that is a change to `delegate_gate` rather than a new module, and
+        saying which of the two you mean is the useful part. Calling an advisory a gate inflates the
+        count that exists to be honest.
+      options:
+        - gate — it should be able to block the action
+        - observe — it should warn and never block
+        - Neither / not a module
+    validations:
+      required: true
+
+  - type: textarea
+    id: data
+    attributes:
+      label: Where would the data come from
+      description: >-
+        Which hook event, and which field of its payload? Or the transcript, or a file on disk, or a
+        subprocess? If you do not know, say so — that is a useful answer and we will check.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: event
+    attributes:
+      label: Which hook event, if you know
+      options:
+        - SessionStart
+        - PreToolUse
+        - PostToolUse
+        - PostToolUseFailure
+        - SubagentStart
+        - SubagentStop
+        - Stop
+        - StopFailure
+        - Not a hook — the status line, a command, or something else
+        - I do not know
+
+  - type: textarea
+    id: cost
+    attributes:
+      label: Cost considerations
+      description: >-
+        A hook registration cannot be made conditional, so a new hook is paid for by every user on
+        every matching event, including the ones who switch the module off — at roughly 250–280 ms
+        of Windows PowerShell 5.1 startup each. If your proposal needs a new hook rather than a new
+        module inside an existing one, say why the cost is worth it.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Including doing nothing, or configuring an existing module differently.

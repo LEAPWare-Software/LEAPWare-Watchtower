@@ -1,0 +1,109 @@
+# LW-WATCHTOWER keeps no mutable state in the repo - state lives in
+# $CLAUDE_PLUGIN_DATA (default ~/.claude/plugins/data/lw-watchtower/).
+# Anything matching below in a working tree is a bug, not an artifact.
+# That directory was ~/.claude/plugins/data/lw-gmhh/ before the 3 August 2026
+# rename; nothing migrates it - see `## [0.4.0]` in CHANGELOG.md.
+*.jsonl
+*.probe
+state/
+data/
+logs/
+
+# Claude Code's per-checkout directory. NOT ignored wholesale on purpose: a
+# shared .claude/settings.json or .claude/agents/ is a legitimate thing to
+# track, and a blanket ".claude/" would hide it from git status forever.
+# Only the two machine-local things that actually appear here are named.
+#
+# .claude/worktrees/ is where agent worktrees are checked out - each is a
+# full second copy of this repo, complete with its own .git file. A
+# "git add -A" run while agents are working would commit the repo into
+# itself, so this line is the one that has to be right.
+.claude/worktrees/
+# settings.local.json is a per-machine permission grant. Already covered by
+# *.local.json below; named here so the intent survives an edit to that rule.
+.claude/settings.local.json
+
+# Per-machine worker facts. context/worker_facts.md is TRACKED and therefore
+# ships identically to every install, so it may only state invariants; anything
+# true of one laptop only - an interpreter path, what resolves on PATH, the
+# local agent-name prefix, an owner's push preference - goes here instead, and
+# lib/subagent_start.ps1 appends it after the invariants when it exists. Named
+# as a full path rather than a *.local.md glob so that a deliberately tracked
+# .local.md elsewhere in the tree is not swallowed by it.
+context/worker_facts.local.md
+
+# credentials. This block is PROPHYLAXIS, NOT REMEDIATION, and it is worth
+# saying which it is. The pre-publication audit reported that it built the full
+# historical path set from the remote's whole reachable history - 110 paths -
+# and that none of these rules matched any of it. That measurement is QUOTED
+# rather than re-run here, so read it as "the audit found nothing", not as "this
+# comment checked". What was measured directly on 3 August 2026 is the working
+# tree: `git status --porcelain --untracked-files=all` carries nothing matching
+# any rule below.
+#
+# It is here because the three layers that would normally make it unnecessary
+# are all absent at once: GitHub secret scanning and push protection are OFF and
+# are not even settable while this repository is private, and the secret_scan
+# module that used to inspect writes was removed on 30 July 2026. Between a
+# contributor's working copy and a public commit there is currently this file
+# and nothing else.
+#
+# THE LIST IS NOT INVENTED. It is the secret-path set the removed gate matched
+# on, kept in tests/fixtures/deny_canonical.txt. That fixture was deleted with
+# tests/deny_parity.ps1 on the same day and this comment said so; it was
+# RESTORED to the tree from ef993bc on 3 August 2026 as the subject of a
+# deletion case, so it is readable again and the claim below is now checkable.
+#
+# IT DOES NOT CHECK OUT, AND THAT IS SAID HERE RATHER THAN LEFT TO BE FOUND.
+# This comment used to end "Reusing the project's own considered answer keeps
+# the two consistent if that list is ever revived." Compared line by line on
+# 3 August 2026 the two DIVERGE in both directions: the fixture refuses
+# id_dsa*, id_ecdsa* and hosts.yml, none of which the rules below ignore, and
+# the rules below ignore *.pfx and *.p12, which the fixture never named. The
+# divergence is not closed here. Two of the three are plain SSH private keys
+# and closing those is a defensible one-line change; hosts.yml is not, for the
+# same reason secrets.json is not - see the block below - and an ignore rule
+# that appears because a historical fixture was restored is a rule nobody
+# decided on. What this comment can honestly claim is narrower than what it
+# claimed: the list has a considered ORIGIN, not a maintained equality.
+#
+# WHAT IT DOES NOT DO: it names file CLASSES, not secrets. A token pasted into a
+# tracked .md, a key in a file called notes.txt, or a credential inside a
+# .json that is not *.local.json all walk straight past it. An ignore file
+# cannot read content, so nothing here should be read as "a credential cannot
+# be committed from this tree".
+#
+# TWO NAMES FROM THE ORIGINAL MEASUREMENT ARE STILL TRACKABLE ON PURPOSE, and
+# they are named here rather than left for someone to discover: `secrets.json`
+# and `creds.txt`. Neither was in the removed gate's list, both are ordinary
+# enough words that a rule for them would hide a legitimately tracked file, and
+# a `git check-ignore secrets.json` today still answers "not ignored". If that
+# is not acceptable, add the rule deliberately - do not assume this block
+# already did.
+.env
+# .env.* with the negation, and not a bare .env, because someone will want to
+# track a template later. Without the exception that costs a `git add -f`, and
+# what people actually do then is delete the ignore rule.
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+id_rsa*
+id_ed25519*
+*.credentials.json
+.npmrc
+
+# local scratch
+*.tmp
+*.bak
+*.local.json
+.junction-probe.tmp
+
+# editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+*.swp

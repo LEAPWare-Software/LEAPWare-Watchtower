@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.ps1 text eol=crlf
+# the installed copy of the status line is LF; pinning it here keeps a hash
+# comparison against ~/.claude/statusline.ps1 meaningful across a fresh clone
+statusline/statusline.ps1 text eol=lf
+*.sh text eol=lf
+*.json text
+*.md text

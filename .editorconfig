@@ -1,0 +1,48 @@
+# Editor defaults for LW-WATCHTOWER.
+#
+# The line-ending rules here MIRROR .gitattributes exactly; they are not a second
+# opinion about it. .gitattributes is what git enforces - every blob in the index
+# is LF regardless of what an editor writes. This file only stops an editor
+# producing something git would then have to normalise away, which is the thing
+# that turns a two-line diff into a whole-file rewrite.
+#
+# Everything below was measured against the tracked tree rather than assumed:
+# no file indents with a tab, no file has trailing whitespace, every file ends
+# with a newline, and no file carries a byte-order mark.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# .gitattributes: `*.ps1 text eol=crlf`. These are checked out CRLF and
+# normalised back to LF in the index on commit, so an editor writing either is
+# harmless - this only keeps the working tree matching what a checkout produced.
+# 4 is the measured indent: 4- and 8-column leading indents dominate every .ps1
+# in the tree.
+[*.ps1]
+end_of_line = crlf
+indent_size = 4
+
+# .gitattributes pins this one file back to `text eol=lf`, so a fresh clone
+# reproduces the installed ~\.claude\statusline.ps1 byte for byte and the
+# doctor's hash comparison keeps meaning something. It is the single .ps1
+# exception, in both files, and the two must not be allowed to disagree.
+[statusline/statusline.ps1]
+end_of_line = lf
+
+# .gitattributes: `*.sh text eol=lf`. Identical to the default above, restated so
+# the two files can be read side by side without inferring anything.
+[*.sh]
+end_of_line = lf
+
+# Markdown here uses no two-space hard line breaks - zero across all tracked .md -
+# so the trailing-whitespace trim above cannot silently eat a line break.
+# Line length is deliberately not capped: the tables run long on purpose.
+[*.md]
+max_line_length = off

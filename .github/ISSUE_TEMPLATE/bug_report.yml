@@ -1,0 +1,126 @@
+name: Bug report
+description: Something behaves differently from what the documentation says.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Stop if this is a security issue.** A credential leaking into this plugin's own logs,
+        state or output, or the installer damaging your `settings.json`, goes to
+        [SECURITY.md](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/SECURITY.md),
+        not here.
+
+        **Stop if it is a documented limitation.** Nine of the ten modules observe and report and
+        can block nothing at all: `destructive_gate` and `secret_scan` were removed on 30 July 2026
+        at the owner's instruction, nothing inspects a command, a path or a credential, and "it did
+        not stop X" about any of those nine is the documented state rather than a bug.
+
+        **One `PreToolUse` gate does ship, and a call it should have refused IS a bug.**
+        `delegate_gate` is registered on `PreToolUse` for `Edit`, `Write`, `NotebookEdit`, `Bash`
+        and `PowerShell`; it is **off by default**, and when `interaction.delegate` is on it refuses
+        those tools for any call that did not come from a subagent. If you armed it and something
+        reached the main thread anyway, that is exactly the kind of report this form is for. See
+        [docs/modules.md](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/docs/modules.md).
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before filing
+      options:
+        - label: This is not a security issue (no credential in a log or in output, no damaged settings.json).
+          required: true
+        - label: I have read the relevant section of `docs/` and this is not a documented limitation.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: What is affected
+      options:
+        - An end-of-turn advisory (context_pressure, verification_gate, docs_coupling, git_hygiene, mission_drift)
+        - An advisory fired when it should not have, or said something wrong
+        - failure_capture / log_rotation / self_health
+        - context_injection (what a subagent is told at dispatch)
+        - A hook that does not fire at all
+        - The SessionStart banner (module counts, mode word)
+        - The status line (HH / ORC segments)
+        - A slash command (/lw-watchtower:status, :doctor, :config, :sitrep)
+        - Setup or uninstall writing settings.json
+        - delegate_gate (a call reached the main thread that the armed gate should have refused)
+        - delegate_gate (it refused something it should not have, or the switch does not take)
+        - A test or the CI workflow
+        - Install / discovery
+        - Documentation
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw. Paste output verbatim rather than describing it.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+      description: If the documentation says otherwise, quote it and link the line.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: >-
+        The exact command, path or file content that triggers it — verbatim, not paraphrased. A
+        single character can change which file an advisory looks at, so do not tidy it up.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: rule
+    attributes:
+      label: Rule name from a denial message, if you saw one
+      description: >-
+        This plugin cannot deny anything. A denial you see today comes from the `permissions.deny`
+        rules in your own `settings.json` — which setup wrote before 30 July 2026 and never takes
+        back. Name the rule the message quoted; `/lw-watchtower:uninstall` is the only thing left that
+        can attribute it.
+      placeholder: e.g. recursive-delete
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of /lw-watchtower:doctor
+      description: >-
+        Or `powershell -NoProfile -ExecutionPolicy Bypass -File bin\lwg-doctor.ps1`. It also prints
+        the resolved state directory, which is where the logs are.
+      render: text
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines
+      description: >-
+        From `lw-watchtower.jsonl` or `health.jsonl` in the state directory. **Check them for secrets
+        before pasting** — the plugin redacts what it logs, but your commands and paths are yours.
+      render: text
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      value: |
+        - Claude Code version:
+        - LW-WATCHTOWER version (from the session banner):
+        - Windows version:
+        - $PSVersionTable.PSVersion:
+        - Install method (junction / marketplace):
+    validations:
+      required: true

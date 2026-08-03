@@ -1,0 +1,34 @@
+# Dependabot configuration.
+#
+# GITHUB-ACTIONS IS THE ONLY ECOSYSTEM DECLARED HERE, AND THAT IS THE WHOLE
+# LIST ON PURPOSE RATHER THAN AN OVERSIGHT.
+#
+# The sole external dependency this repository has is `actions/checkout` in
+# .github/workflows/ci.yml. Everything else it runs is Windows PowerShell 5.1,
+# which ships with the operating system and is not a dependency anything can
+# bump. There is no package.json, no requirements.txt, no .csproj and no
+# packages.config anywhere in the tree.
+#
+# So the other ecosystems are omitted rather than listed and left empty.
+# Declaring `npm` with no manifest behind it would add an update check that can
+# only ever pass - it would find nothing, report nothing, and read on this page
+# as broader dependency coverage than exists. That is the exact shape of
+# unearned assurance the rest of this project refuses, and it would be strange
+# to write one into the config that is meant to keep the supply chain honest.
+# When a manifest for another ecosystem genuinely lands, its entry goes in
+# beside this one, and not before.
+#
+# WHAT CHECKS A DEPENDABOT PR. It is a pull request against `main` like any
+# other, so it runs the CI workflow, and tests/workflow_guard.ps1 PARSES every
+# workflow file the PR touches - which is precisely the file class Dependabot
+# edits. A bump that introduced a self-hosted runner, `pull_request_target` or a
+# secret reference would fail the guard rather than merge on the strength of
+# coming from a bot.
+
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

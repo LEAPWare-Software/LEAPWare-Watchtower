@@ -1,0 +1,102 @@
+name: Security — do not file here
+description: Read this before reporting anything security-related. Vulnerability reports go through a private channel.
+title: "[Do not use this form for a vulnerability]"
+# `security`, and not `security-process`. This form declared `security-process`
+# from the day it was written; that label has never existed on this repository
+# or on its predecessor, and GitHub silently applies none of a label set it
+# cannot resolve - so every submission through the one form built to be triaged
+# differently arrived with no label at all, invisible to the maintainer's own
+# `label:security` query. Creating the missing label was the other way to close
+# it and was rejected: a label is server state that no tracked file can be held
+# to account for, whereas a form pointing at a label this repository documents
+# is something tests\doc_claims.ps1 can check on every run. The roster it checks
+# against is the table in CONTRIBUTING.md.
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        # Stop. This form does not accept vulnerability reports.
+
+        **Anything you type here is public the moment you submit it**, including to anyone running
+        an unpatched copy of this plugin.
+
+        ## Report privately instead
+
+        Use GitHub's private vulnerability reporting:
+
+        **[→ Report a vulnerability](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/security/advisories/new)**
+
+        That opens an advisory visible only to you and the maintainers. It needs no email address.
+
+        If that page is not available to you, use
+        **[Request a private channel for a security report](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/issues/new?template=private_channel_request.yml)**
+        — a form that asks for a channel and **no details whatsoever**. A maintainer will open a
+        private advisory and invite you to it.
+
+        That form exists because the instruction printed here until 3 August 2026 could not be
+        followed: it said "open a public issue", and blank issues are disabled on this repository, so
+        the only routes left were three forms each requiring an attestation a vulnerability reporter
+        would be making falsely — including **this** one, two boxes below.
+
+        ## What counts as a security report here
+
+        Read
+        [SECURITY.md](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/SECURITY.md)
+        for the full scope. **There is no security gate to bypass.** `destructive_gate` and then
+        `secret_scan` were both removed on 30 July 2026 at the owner's instruction, and the installer
+        writes no `permissions.deny` rules. Nothing here inspects a command, a path or a credential,
+        so "I got past it" is not a finding. One `PreToolUse` gate does ship — `delegate_gate`, which
+        keeps the main conversation for talking to you and is **off by default** — and it is not a
+        security control either: getting a call past it is a public bug report, not this form.
+
+        What is still security-relevant is this plugin handling *your* data badly, or damaging your
+        machine's configuration. Report privately if you have found:
+
+        - any route by which a credential reaches this plugin's log, its state files, the status
+          line, a `systemMessage` or an injected context block — a case `Get-LwgRedacted` does not
+          redact is exactly this;
+        - `bin/lwg-setup.ps1` or `bin/lwg-uninstall.ps1` corrupting, truncating or losing content
+          from a user's `settings.json`, or the uninstaller attributing and removing a rule that was
+          not this plugin's;
+        - code execution through `config.json`, `worker_facts.md`, a transcript or a hook payload;
+        - a hook or command writing outside the resolved state directory, or following a path it was
+          handed without canonicalising it;
+        - a documented control that does not actually exist, where the gap is security-relevant.
+
+        ## What is NOT a vulnerability
+
+        These are the documented state of the plugin, not findings — see
+        [docs/modules.md](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/docs/modules.md):
+
+        - a write carrying a live credential going through unchallenged;
+        - a write to a credential file going through unchallenged;
+        - any destructive command running — force push, hard reset, history rewrite, recursive
+          delete, GitHub repo deletion;
+        - an advisory failing to notice something, or failing open on error or timeout.
+
+        None of those has a control behind it any more. A **fix** — a proposal that puts a control
+        back, with the data source named — is a very welcome pull request. A report that one of them
+        happens is a report that the documentation is accurate; file it as a normal issue if you
+        like, but nothing is secret about it.
+
+  - type: checkboxes
+    id: acknowledge
+    attributes:
+      label: Confirm before continuing
+      options:
+        - label: I understand this form is public and I have put NO vulnerability details in it.
+          required: true
+        - label: I have read SECURITY.md and this is a question about the process, not a report.
+          required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question about the security process
+      description: >-
+        Scope, timelines, disclosure, or how to reach a maintainer. **No vulnerability details, no
+        proof of concept, no payloads.**
+      placeholder: e.g. "Is a false negative on X in scope?" — without describing X.
+    validations:
+      required: true

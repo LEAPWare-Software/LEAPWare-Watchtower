@@ -1,0 +1,47 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/security/advisories/new
+    about: >-
+      A credential reaching this plugin's logs, state, status line or injected context, or the
+      installer or uninstaller damaging your settings.json, is a SECURITY report, not a public
+      issue. Use private vulnerability reporting. Read SECURITY.md first for what is in and out of
+      scope — this plugin ships no security gate and no permissions.deny table, so there is nothing
+      here to bypass. The one gate it does ship, delegate_gate, is off by default and is not a
+      security control; report a way past it as a normal bug.
+  - name: Security policy (SECURITY.md)
+    url: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/SECURITY.md
+    about: Scope, response times, and how to report privately.
+  - name: Documentation
+    url: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/tree/main/docs
+    about: >-
+      Install, configuration, modules, commands, architecture, testing and troubleshooting. Nine of
+      the ten modules observe and can block nothing; the tenth, delegate_gate, is a PreToolUse gate
+      that ships switched off — read modules.md before filing a report that something was not
+      stopped, and read it especially if you armed that switch.
+  # BOTH NUMBERS BELOW ARE PHRASED IN A SHAPE tests\doc_claims.ps1 READS, and the
+  # exact wording is load-bearing rather than stylistic. "five of them test
+  # behaviour" is a phrasing that guard's behavioural-suite-count rule matches;
+  # "five of which test behaviour" is not, and would have been prose nothing
+  # checks - which is how this block went wrong in the first place. It said "the
+  # one check that remains" and "There is no test suite" until 3 August 2026;   <!-- doc-claims:ignore -->
+  # both of those are verbatim quotations of what was removed, frozen so the
+  # record of the wrong sentence survives, and the marker on that line says so.
+  # Both were leftovers from 30 July 2026, when the two gates were deleted and
+  # the portability scan was briefly the only thing left. Five behavioural
+  # suites landed after that, while the pull request template in this same
+  # directory went on requiring output from every file in tests\ - the chooser
+  # page and the PR template are rendered to the same person minutes apart, and
+  # they disagreed.
+  #
+  # This file was always inside doc_claims' scope: it enumerates every tracked
+  # .md/.json/.yml/.yaml with no path restriction. A sentence stating no quantity
+  # is simply invisible to a guard that matches quantities, so a future flat
+  # denial with no number in it would still go unread. That hole is real and is
+  # not closed here.
+  - name: Contributing guide
+    url: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/CONTRIBUTING.md
+    about: >-
+      Dev setup, the fork-and-PR flow, the exit-code contract, and what a good PR looks like. There
+      are eight files in `tests/`, five of them test behaviour, and a green run of all eight is a
+      narrower claim than it sounds — CONTRIBUTING.md says exactly how narrow.

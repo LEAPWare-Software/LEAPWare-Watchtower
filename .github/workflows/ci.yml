@@ -1,0 +1,947 @@
+name: CI
+
+# LW-WATCHTOWER is a Windows PowerShell 5.1 plugin and its checks are not portable.
+# tests\portability_scan.ps1 needs a binary literally named `powershell` (pwsh is
+# NOT the same thing) and -ExecutionPolicy, which is Windows-only. So: one OS, no
+# matrix, and every step runs under Windows PowerShell 5.1 rather than the `pwsh`
+# (PowerShell 7) that GitHub's Windows runners default to.
+#
+# THERE IS ONE JOB, AND FIVE OF ITS TEN CHECK STEPS TEST BEHAVIOUR. The
+# `gate-regression` job and tests\gate_regression.ps1 went on 30 July 2026 with
+# the destructive command gate; the `permissions.deny parity` step and
+# tests\deny_parity.ps1 went the same day with the secret gate. Neither is coming
+# back as it was - nothing here inspects a shell command or a credential, and the
+# installer writes no deny rules. What HAS come back is the half of the parity
+# test that was never about deny rules: the installer's merge behaviour, now
+# exercised on the statusline section by tests\setup_merge.ps1, which also covers
+# what the hooks section DECIDES - install-mode detection and root-independent
+# hook identity - and the status line's own plugin-root resolution.
+#
+# What runs now: every tracked .json and every .ps1 PARSE; no tracked file names
+# one machine; every file under .github\workflows\ is parsed and held to the
+# workflow guard's nine rules, and the rest of .github\ - dependabot.yml and the
+# issue-template files, which GitHub reads at run time and which no step here
+# read until 3 August 2026 - is PARSED ONLY, so a syntax error in one of them
+# fails the build while a schema mistake in one still does not; the guard is
+# also driven against fixtures built to violate each of its rules, because
+# until that date it had only ever been run on a clean tree, where the expected
+# answer is 0 and the branch that fires is never taken;
+# tests\gate_delegate.ps1 exercises delegate_gate, the one gate
+# this plugin ships, through a real pipe into a real child process; and
+# tests\setup_merge.ps1 drives bin\lwg-setup.ps1 against throwaway settings files
+# to check that the one thing in this plugin that WRITES to an operator's machine
+# preserves what it was not asked to touch; tests\stop_behaviour.ps1 runs
+# lib\stop_advisories.ps1 and lib\supervisor.ps1 in real child processes, which
+# is the first thing here to exercise an OBSERVING module rather than the gate;
+# tests\uninstall_footprint.ps1 drives bin\lwg-uninstall.ps1 against throwaway
+# data directories to check that the one thing in this plugin that DELETES
+# removes exactly what its footprint said it would, and refuses to report a
+# no-op deletion as a success; and tests\evidence_states.ps1 holds
+# bin\lwg-evidence.ps1 to the distinction the whole checklist rests on - a probe
+# that RAN and found nothing, versus a probe that never got to look - against a
+# plugin root with no .git, which is the marketplace install route and is where
+# that distinction shipped broken; and tests\doc_claims.ps1 holds every tracked
+# page to the tree on the quantities it states, because a count could be wrong
+# in ten files at once with nothing to catch it.
+# A green run says the repo is syntactically sound, portable, that no workflow
+# reaches a runner GitHub does not host, that the gate still refuses what it
+# declares, that the statusline merge still behaves, that those stop-path cases
+# still behave, that the uninstaller's state-data footprint is true, that the
+# checklist does not report a state it never observed, and that no page states a
+# recognised count the tree contradicts. It says nothing about the gate being
+# SOUND - see the note on that step, and docs\gates-removed.md Lesson 3.
+#
+# THE NEXT THREE CLAUSES WERE FLAT WRONG UNTIL 3 AUGUST 2026 and are narrowed
+# rather than deleted, because the narrow version is still worth saying. This
+# list read "nothing about the hooks or permissions sections of the installer,
+# which go through the same writer and are not exercised, nothing about the
+# uninstaller's settings.json edits or its restore path" - and the hooks half
+# contradicted line 17 of this same file, which says the merge suite covers what
+# that section DECIDES. What is true now: the hooks section's DECISIONS are
+# exercised (install-mode detection, root-independent hook identity, and that
+# the value the diff discloses is the value that lands); the permissions
+# section's DIFF is exercised and its MERGE is not; the uninstaller's RESTORE
+# path has two cases, and its deny-rule ATTRIBUTION is exercised in dry run
+# while the settings.json edit those rules imply is not. The byte-level WRITE
+# behaviour of every section other than statusline still rests on the fact that
+# they share one writer, which is an argument and not a test. Also: nothing
+# about the ATOMICITY of that write, which no case reaches. Nothing about whether a sentence
+# whose NUMBERS check out is true in any other respect, and nothing about the
+# three observing modules that stop_behaviour does not reach - verification_gate,
+# self_health and context_injection. It said SEVEN until 3 August 2026, when
+# cases for context_pressure, docs_coupling, git_hygiene and log_rotation landed
+# in that suite and this line was not swept with them.
+
+on:
+  push:
+    # THERE IS DELIBERATELY NO PATH FILTER HERE, AND ADDING ONE IS A REGRESSION.
+    # A filter sits on the trigger, not on a job, so when it matches it skips
+    # the ENTIRE workflow - every step, not just the ones the changed file
+    # plausibly affects. This trigger carried `paths-ignore: ['**.md']` until
+    # 31 July 2026, on the reasoning that a README edit changes no gate and no
+    # JSON. That reasoning went stale when the portability scan landed: the
+    # scan reads EVERY TRACKED FILE, .md included, and a machine-specific path
+    # turns up in prose more often than in code. The HANDOFF.md push of 30 July
+    # 2026 ran no CI at all - precisely the case the scan exists to catch.
+    #
+    # Narrowing the filter rather than deleting it would not be correct either.
+    # The scan's input is the whole tracked tree, so the only set of paths that
+    # provably reaches no check is the empty set; any filter is a list someone
+    # has to keep in step with what the steps read, which is the same drift the
+    # `git ls-files` enumerations below were written to avoid.
+    #
+    # pull_request has never had a path filter and must not be given one, for a
+    # different reason: a path filter there makes the job never report a status
+    # at all, which would leave a README-only PR blocked forever on a required
+    # check that never runs. PRs always run, so this check is always reportable.
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: powershell
+
+jobs:
+  # The whole workflow. It was one of two jobs until the gate regression suite
+  # was removed on 30 July 2026, and it stays one job now that FIVE behavioural
+  # suites are in it: a second job would buy parallelism this workflow does not
+  # need at the cost of a second required check to configure. The parse steps
+  # are still sub-second; the suites are the part that is not, because each
+  # spawns a child PowerShell process per case - the uninstaller one spawns two
+  # for several of its cases - and that is the point of them.
+  #
+  # THE TIMINGS BELOW WERE MEASURED, AND THE ONES THEY REPLACE WERE FOUR TIMES
+  # OUT. This comment said the gate suite ran "in about half a minute", the
+  # merge suite "in under a minute", the stop-hook suite "in about twenty
+  # seconds" and the parallel re-run "about a minute" - figures from when those
+  # suites were much smaller. Measured on 3 August 2026 by running all seven
+  # siblings the way the documentation-claim step drives them, one Start-Job
+  # each into a child powershell.exe, on ONE developer machine:
+  #
+  #     tests\setup_merge.ps1            248 s
+  #     tests\gate_delegate.ps1          179 s
+  #     tests\stop_behaviour.ps1         149 s
+  #     tests\uninstall_footprint.ps1    102 s
+  #     tests\evidence_states.ps1         17 s
+  #     tests\portability_scan.ps1         5 s
+  #     tests\workflow_guard.ps1           2 s
+  #     parallel wall clock              249 s
+  #
+  # ONE MACHINE, NOT THE RUNNER. These are not GitHub's hosted Windows numbers
+  # and nothing here has measured those; they are stated so the budget rests on
+  # an observation rather than on prose nobody re-ran. Read them as an order of
+  # magnitude and re-measure before tightening anything.
+  #
+  # So the five suites cost roughly 695 s IN SERIES as steps 5-9, and the
+  # documentation-claim step then re-runs the same seven in PARALLEL - costing
+  # the slowest, 249 s, not the sum. That is about 950 s of suite time before
+  # the parse steps, and the job budget was TEN MINUTES: the healthy path no
+  # longer fitted. Raising timeout-minutes is exactly what the previous version
+  # of this comment reserved for that case ("If this job ever does approach ten
+  # minutes, raise timeout-minutes"), and it has, so it is raised to 30 - which
+  # leaves room for a hosted runner slower than this machine without being so
+  # large that a hung job costs an hour.
+  #
+  # DO NOT make the documentation-claim step trust a number typed into it. The
+  # -SuiteTimeoutSec it is given is held BELOW this budget by a rule inside
+  # tests\doc_claims.ps1 that reads both numbers off this file, so raising one
+  # without the other fails the build rather than silently making that suite's
+  # documented abort unreachable again.
+  #
+  # THE JOB ID AND ITS DISPLAY NAME ARE BOTH DELIBERATELY UNCHANGED, and the
+  # display name is now narrower than what the job does. That is on purpose: a
+  # required status check on main is matched by this NAME, so renaming it would
+  # silently stop satisfying the requirement and leave every PR waiting on a
+  # check that can no longer report. Rename it only together with the branch
+  # protection setting - see checklist.json, P6-branch-protection.
+  fast-checks:
+    name: Fast checks (JSON + PowerShell parse)
+    runs-on: windows-latest
+    # 30, not 10 - see the measured timings above. tests\doc_claims.ps1 reads
+    # this number and refuses a -SuiteTimeoutSec that is not strictly inside it.
+    timeout-minutes: 30
+    steps:
+      # THE ONLY `uses:` IN THIS REPOSITORY, AND THE ONLY CODE HERE THAT COMES
+      # FROM SOMEBODY ELSE. Two properties of the old `actions/checkout@v4` line
+      # were worth closing even though neither was exploitable here:
+      #
+      #   * `@v4` IS A MUTABLE TAG, resolved at run time. Whoever controls that
+      #     repository - or anyone who compromises it - can repoint v4 at a
+      #     different tree, and every run from then on executes that tree.
+      #     Nothing in this repository recorded which commit it had run, so
+      #     `git log` here could not answer "what changed" when a green build
+      #     went red under a routine upstream release. The digest below is the
+      #     commit refs/tags/v4 pointed at on 3 August 2026, which is also
+      #     refs/tags/v4.4.0. Dependabot understands digest pins and keeps
+      #     proposing bumps with the tag in the trailing comment, so this costs
+      #     no maintenance - see .github\dependabot.yml.
+      #
+      #   * `persist-credentials` DEFAULTS TO TRUE, which writes an
+      #     AUTHORIZATION header into .git\config in the runner workspace where
+      #     it stays for the rest of the job - ten steps, nine of them invoking
+      #     powershell.exe against a script in tests\. Nothing after this step
+      #     uses git over the network: the checks run `git ls-files` and
+      #     `git tag -l`, which need no credential. Turning it off is free here.
+      #
+      # WHAT THIS DOES NOT BUY, so the pin is not read as more than it is. The
+      # blast radius was already small and that has not changed: `permissions:
+      # contents: read` above means the persisted token could only read a
+      # repository that is about to be public, and the runner is a disposable
+      # GitHub-hosted VM. A digest pins WHAT RUNS, not what that code does - it
+      # is not review of actions/checkout. And tests\workflow_guard.ps1 still
+      # does not check either property: its header says so under WHAT IT DOES
+      # NOT COVER, and a rule failing every non-digest `uses:` was deliberately
+      # NOT added, because a bare tag is a policy preference and that guard's
+      # exit-1 contract is reserved for real violations.
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: JSON validity
+        shell: powershell
+        run: |
+          # Every tracked .json, not a hardcoded list. The old list named three
+          # files by hand, so .claude-plugin/marketplace.json - added after it
+          # was written - went unvalidated, and a syntax error there would have
+          # reached main with this job green. `git ls-files` cannot drift from
+          # the repo: a new .json is covered the moment it is tracked, and .git
+          # is excluded by construction rather than by a filter someone has to
+          # remember to maintain.
+          $files = @(git ls-files -- '*.json' | Where-Object { $_ })
+          if ($files.Count -eq 0) {
+            # The enumeration returning nothing is itself a failure. Without
+            # this, a broken `git ls-files` would validate zero files and the
+            # step would report success - the empty-set pass this repo has
+            # already been bitten by once.
+            Write-Host "::error::no tracked .json files found - the enumeration is broken, not the repo"
+            exit 1
+          }
+          $bad = 0
+          foreach ($f in $files) {
+            if (-not (Test-Path -LiteralPath $f -PathType Leaf)) {
+              Write-Host "::error file=$f::missing"
+              $bad++
+              continue
+            }
+            $raw = Get-Content -Raw -LiteralPath $f
+            if ([string]::IsNullOrWhiteSpace($raw)) {
+              # ConvertFrom-Json accepts a null pipeline input silently, so an
+              # empty file would otherwise pass this check.
+              Write-Host "::error file=$f::empty"
+              $bad++
+              continue
+            }
+            try {
+              $null = $raw | ConvertFrom-Json
+              Write-Host "  ok    $f"
+            } catch {
+              Write-Host "::error file=$f::not valid JSON - $($_.Exception.Message)"
+              $bad++
+            }
+          }
+          if ($bad -gt 0) {
+            Write-Host "JSON validity: $bad of $($files.Count) file(s) FAILED"
+            exit 1
+          }
+          Write-Host "JSON validity: all $($files.Count) file(s) parsed"
+
+      - name: PowerShell parse check
+        shell: powershell
+        run: |
+          $root = (Get-Location).Path
+          $files = @(
+            Get-ChildItem -LiteralPath $root -Recurse -Filter *.ps1 -File |
+              Where-Object { $_.FullName -notmatch '\\\.git\\' } |
+              Sort-Object FullName
+          )
+          if ($files.Count -eq 0) {
+            Write-Host "::error::no .ps1 files found - the glob is broken, not the repo"
+            exit 1
+          }
+          $bad = 0
+          foreach ($f in $files) {
+            $rel = $f.FullName.Substring($root.Length + 1) -replace '\\', '/'
+            $tokens = $null
+            $errors = $null
+            $null = [System.Management.Automation.Language.Parser]::ParseFile(
+              $f.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors -and $errors.Count -gt 0) {
+              $bad++
+              foreach ($e in $errors) {
+                Write-Host ("::error file={0},line={1},col={2}::{3}" -f `
+                  $rel, $e.Extent.StartLineNumber, $e.Extent.StartColumnNumber, $e.Message)
+              }
+            } else {
+              Write-Host "  ok    $rel"
+            }
+          }
+          if ($bad -gt 0) {
+            Write-Host "PowerShell parse check: $bad of $($files.Count) file(s) FAILED to parse"
+            exit 1
+          }
+          Write-Host "PowerShell parse check: all $($files.Count) file(s) parsed"
+
+      - name: Workflow guard
+        shell: powershell
+        run: |
+          # THIS STEP GUARDS THE FILE IT IS WRITTEN IN. Every file under
+          # .github\workflows\ is parsed - not grepped - and fails the build if
+          # it names a runner GitHub does not host, uses pull_request_target,
+          # reaches a secret, or cannot be parsed at all.
+          #
+          # IT RUNS TWICE, AND THE SECOND RUN IS THE ONE WITH EVIDENCE BEHIND
+          # IT. Until 3 August 2026 nothing in this repository ever ran the
+          # guard against a workflow that violates any of its rules - the
+          # checklist probe, this step and every invocation in CONTRIBUTING.md
+          # pointed it at a clean tree, where the expected answer is 0. So the
+          # branch that FIRES had no evidence at all, on the rule this project
+          # ranks highest-consequence and describes in four places as something
+          # that fails the build. -SelfTest writes one deliberately violating
+          # workflow per rule into a throwaway directory under the temp root,
+          # re-invokes the guard against it in a child process, and asserts each
+          # rule fired on the file it was planted in; it also asserts the two
+          # ends of the exit contract no live run reaches - a clean directory
+          # exits 0, an empty or absent one exits 2.
+          #
+          # It is a second INVOCATION rather than a second STEP on purpose. A
+          # tenth check step would move the ci-check-steps count that
+          # tests\doc_claims.ps1 derives from this file and holds four documents
+          # to, for no gain: both runs are the same guard and one failure of
+          # either has to fail this step.
+          #
+          # WHAT THE SELF-TEST DOES NOT ESTABLISH: each rule is proved to fire
+          # on ONE shape of input. The matrix branch is proved on a list of
+          # literal labels, not on an include: entry or a fromJSON; the label
+          # branch on one unknown label, not on the space of spellings. A rule
+          # demonstrated to fire once is a floor, not a proof of correctness.
+          #
+          # The live run also now PARSES the rest of .github\ - dependabot.yml
+          # and the five issue-template files, which GitHub reads at run time
+          # and which no step here read until now. The nine rules are NOT
+          # applied to them and parsing is not schema validation: it catches a
+          # list item indented out of its sequence, not a `type:` value GitHub
+          # does not recognise.
+          #
+          # The self-hosted rule is the reason it exists: this project's
+          # maintainer has self-hosted runners registered, and a workflow that
+          # reaches one hands whoever can trigger it code execution on a real
+          # machine. It REPLACED an evidence rule that only required this file
+          # to contain the string "self-hosted", which a comment satisfied -
+          # and which would have gone on passing while a self-hosted runner was
+          # introduced.
+          #
+          # It enumerates by globbing the directory rather than naming files,
+          # for the same reason the JSON step above uses `git ls-files`.
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly. stderr is deliberately not merged with 2>&1 - in Windows
+          # PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $guard = 'tests\workflow_guard.ps1'
+
+          if (-not (Test-Path -LiteralPath $guard -PathType Leaf)) {
+            Write-Host "::error::$guard is missing - no workflow was checked, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # The self-test, run only when the live scan was clean. Running it
+          # regardless would put two unrelated diagnostics in one step's output
+          # and make the exit code ambiguous; a live violation is the thing to
+          # read first, and it is reported with the label below.
+          if ($code -eq 0) {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard -SelfTest
+            $selfCode = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+            if ($selfCode -ne 0) {
+              Write-Host "::error title=Workflow guard self-test::The guard reported the live tree clean, but at least one of its nine rules did NOT fire on input planted to trip it, or its exit contract did not hold (self-test exit $selfCode). A clean run from a guard that cannot fire is the exact false assurance this file replaced. Read the per-case lines above."
+              if ($env:GITHUB_STEP_SUMMARY) {
+                Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Workflow guard:** SELF-TEST FAILED (exit $selfCode) - the live scan was clean but the guard was not shown able to fire."
+              }
+              exit $selfCode
+            }
+            Write-Host "workflow guard self-test: PASS - every rule fired on the shape planted for it, a clean fixture directory exited 0, and an empty or absent one exited 2. That is one shape per rule, not proof that any rule is right in general."
+          }
+
+          # Exit-code contract of tests\workflow_guard.ps1. There is
+          # deliberately no "passed with a caveat": a workflow either reaches
+          # one of these things or it does not, and a file that could not be
+          # parsed is reported as a violation rather than as a clean file.
+          #   0  every workflow file parsed and no rule fired
+          #   1  at least one hit, or at least one file that would not parse
+          #   2  the guard aborted; the workflows were NOT checked. An
+          #      enumeration returning zero files is an abort, never a pass.
+          $label = switch ($code) {
+            0       { 'PASS - no workflow names a non-hosted runner, uses pull_request_target, or reaches a secret, every file under .github\ that GitHub reads at run time parses, and the guard was demonstrated able to fire on all nine rules. That is a statement about the FILES IN THIS REPOSITORY only: an action pulled from another repository runs code this guard never sees, and parsing dependabot.yml or an issue form is not validating it against GitHub''s schema.' }
+            1       { 'FAIL (exit 1) - a workflow reaches a runner GitHub does not host, uses pull_request_target, uses a secret, or could not be parsed. Read the file:line list above. Do NOT add an allowlist entry to silence it unless the use is genuinely necessary and the reason is stated on the entry.' }
+            2       { 'ABORT (exit 2) - the guard did not complete, so nothing about these workflows was established by this run.' }
+            255     { 'NOT RUN (exit 255) - tests\workflow_guard.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "workflow guard: $label"
+          } else {
+            Write-Host "::error title=Workflow guard::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Workflow guard:** $label"
+          }
+          exit $code
+
+      # THE permissions.deny PARITY STEP WAS REMOVED ON 30 JULY 2026, together
+      # with tests\deny_parity.ps1 and its two fixtures, when the last gate went.
+      # bin\lwg-setup.ps1 now writes NO deny rules at all - Get-DenyGroups is
+      # empty - so there is no table to hold to a fixture. A step asserting that
+      # an empty table is still empty would report "deny parity: PASS" on every
+      # run, which reads as a verified protection and is the precise class of
+      # false assurance this repo exists to refuse. That half is settled and is
+      # not coming back.
+      #
+      # THE OTHER HALF HAS BEEN PUT BACK. That file was also the only check on
+      # the installer's MERGE behaviour - unrelated top-level keys preserved,
+      # exactly one backup holding the original bytes, a stale BaseHash refused,
+      # idempotence, rollback - and from 30 July 2026 until the step below
+      # landed, nothing tested it while /lw-watchtower:setup went on writing into real
+      # settings.json files. "Installer merge suite" is that harness re-targeted
+      # at the STATUSLINE section, which still writes. It is not a revival of
+      # the deny fixtures and asserts nothing about a deny table.
+
+      - name: Delegate gate regression suite
+        shell: powershell
+        run: |
+          # One of the five tests of behaviour in this repository, and the only
+          # one that tests a GATE. The parse and scan steps ask whether files are
+          # well formed; this asks whether the one gate this plugin ships refuses
+          # what it says it refuses. The installer merge suite, the stop-hook
+          # behaviour suite, the uninstaller footprint suite and the
+          # evidence-state suite below are the other four.
+          #
+          # This sentence said THREE and named the wrong two until 3 August 2026,
+          # 279 lines below this file's own header saying FIVE. It survived
+          # because tests\doc_claims.ps1 had no pattern for the `N of the M tests
+          # of behaviour` shape - the quantity is the SECOND number there, and
+          # every other shape in that guard captures the first one it sees. The
+          # shape is read now, so this line cannot go stale again in silence.
+          #
+          # It runs each case through a real pipe into a real child process -
+          # `type payload.json | powershell -File lib\gate_delegate.ps1` - because
+          # a PowerShell object pipe never reaches [Console]::In, which is where
+          # a hook reads its payload. Nothing real is touched: every case points
+          # CLAUDE_PLUGIN_ROOT and CLAUDE_PLUGIN_DATA at a throwaway directory.
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly, and stderr is deliberately not merged with 2>&1 - in
+          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\gate_delegate.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - the gate was never exercised, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\gate_delegate.ps1. There is deliberately
+          # no "passed with a caveat", and an abort is never reported as a pass.
+          #   0  every case passed
+          #   1  at least one case failed
+          #   2  the suite aborted; the gate was NOT exercised. Zero cases run
+          #      is an abort, never an empty-set pass.
+          $label = switch ($code) {
+            0       { 'PASS - every case behaved. That is "these cases still behave", NOT "the gate is sound": the last gate here was 67/67 green with five bypasses open. See docs\gates-removed.md, Lesson 3.' }
+            1       { 'FAIL (exit 1) - the gate did not behave as declared. Read the per-case lines above; a DENY case that exited 0 or 1 is a gate that has silently failed open.' }
+            2       { 'ABORT (exit 2) - the suite did not complete, so nothing about the gate was established by this run.' }
+            255     { 'NOT RUN (exit 255) - tests\gate_delegate.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "delegate gate suite: $label"
+          } else {
+            Write-Host "::error title=Delegate gate suite::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Delegate gate suite:** $label"
+          }
+          exit $code
+
+      - name: Installer merge suite
+        shell: powershell
+        run: |
+          # The second step in this job that tests behaviour, and the only one
+          # that tests a WRITE. bin\lwg-setup.ps1 merges into the operator's
+          # real settings.json - the file holding every other setting they have
+          # - and this exercises that merge on the statusline section: keys it
+          # was not asked to touch keep their values AND their order, exactly
+          # one backup is taken and it holds the original bytes, a stale
+          # BaseHash is refused rather than merged over, a second run writes
+          # nothing at all, and rollback restores byte for byte.
+          #
+          # THE STEP NAME IS NOW NARROWER THAN THE SUITE, and this comment said
+          # only the above until 3 August 2026, when four sections that are not
+          # about the installer at all landed in the same file: the status line
+          # driven byte-exactly through a real child process, bin\lwg-sitrep.ps1
+          # and lib\resolve.ps1 against a scratch state directory, and
+          # bin\lwg-update.ps1 - which had no coverage of any kind before that
+          # day - against a local bare repository. They are here because this
+          # file already owned the only harness that runs any of them for real.
+          # The NAME is deliberately not changed: it is matched by a required
+          # status check on main, so renaming it stops satisfying the
+          # requirement - the same reason recorded against the job name above.
+          #
+          # IT NOW NEEDS `git` ON PATH, WHICH NO OTHER STEP HERE DOES. The
+          # update section ABORTS the whole suite with exit 2 if git is absent
+          # rather than skipping, because a suite that quietly drops the only
+          # coverage bin\lwg-update.ps1 has is the empty-set pass this repo has
+          # been bitten by. GitHub's windows-latest image ships git, so this is
+          # a statement about what the step depends on, not a risk it manages -
+          # on a runner without git the abort below reports it as an abort.
+          #
+          # Nothing real is touched. Every case runs against a throwaway tree
+          # under the temp directory, with -SettingsPath pointed into it and
+          # $env:USERPROFILE swapped around each call and restored afterwards -
+          # the two-knob sandbox contract documented in the installer's own
+          # header - and the four sections above add CLAUDE_PLUGIN_DATA and a
+          # bare repository built under the temp root, so no case reaches a
+          # network and every "remote" is local. No case runs elevated or
+          # constructs a destructive command.
+          #
+          # WHAT IT DOES NOT COVER is named in the suite header rather than
+          # left to be inferred, and the list has grown with the file: the
+          # backup-collision suffix (clock-dependent, so a case for it would be
+          # flaky), the post-write auto-restore (unreachable without fault
+          # injection, since the merged JSON is parse-checked before the
+          # write), the ATOMICITY of the write, the permissions MERGE, and the
+          # enabled/disabled distinction. Read the header rather than this list
+          # if the two ever disagree - the header is beside the cases and this
+          # is not. Neither is faked to make a number look better.
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly, and stderr is deliberately not merged with 2>&1 - in
+          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\setup_merge.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - the installer's merge was never exercised, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\setup_merge.ps1, the same three this
+          # repo's other suites use. An abort is never reported as a pass.
+          #   0  every case passed
+          #   1  at least one case failed
+          #   2  the suite aborted; the merge was NOT exercised. Zero cases run
+          #      is an abort, never an empty-set pass.
+          $label = switch ($code) {
+            0       { 'PASS - the statusline merge still preserves unrelated keys and their order, backs up once, refuses a stale BaseHash, is idempotent and rolls back byte for byte. That is a statement about the STATUSLINE section only: the hooks and permissions sections go through the same writer and are not exercised here.' }
+            1       { 'FAIL (exit 1) - the installer''s merge did not behave as declared. Read the per-case lines above. A failure here means /lw-watchtower:setup can damage a real settings.json, so treat it as blocking rather than as a flaky test.' }
+            2       { 'ABORT (exit 2) - the suite did not complete, so nothing about the merge was established by this run.' }
+            255     { 'NOT RUN (exit 255) - tests\setup_merge.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "installer merge suite: $label"
+          } else {
+            Write-Host "::error title=Installer merge suite::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Installer merge suite:** $label"
+          }
+          exit $code
+
+      - name: Stop-hook behaviour suite
+        shell: powershell
+        run: |
+          # The step that exercises the two hooks that run at EVERY turn end.
+          # Until it landed, mission_drift ran on every install with no test of
+          # any kind - it was switched on by default on 30 July 2026 with its
+          # trigger never validated - and lib\supervisor.ps1 carried two
+          # comments describing bugs that had already shipped, a dedupe that
+          # stopped deduping and a one-element failed-task list logging
+          # "failed_tasks":null, with no case pinning either fix.
+          #
+          # It runs each case through a real pipe into a real child process -
+          # `type payload.json | powershell -File lib\stop_advisories.ps1` -
+          # because a PowerShell object pipe never reaches [Console]::In, which
+          # is where a hook reads its payload. A multi-turn case is several
+          # child runs with the transcript grown and the edit list extended in
+          # between, because mission_drift's whole behaviour is carried in state
+          # files from one turn to the next. Nothing real is touched: every case
+          # points CLAUDE_PLUGIN_ROOT and CLAUDE_PLUGIN_DATA at a throwaway
+          # directory under the temp root and every path it names is invented.
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly, and stderr is deliberately not merged with 2>&1 - in
+          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\stop_behaviour.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - the Stop hooks were never exercised, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\stop_behaviour.ps1, the same three this
+          # repo's other suites use. An abort is never reported as a pass.
+          #   0  every case passed
+          #   1  at least one case failed
+          #   2  the suite aborted; the Stop hooks were NOT exercised. Zero
+          #      cases run is an abort, never an empty-set pass.
+          $label = switch ($code) {
+            0       { 'PASS - mission_drift still fires on unaccounted work, still stays quiet after a pivot, and the supervisor still dedupes its alerts and counts one failed task as 1. That is "these cases still behave", NOT "the trigger is right": no case here can tell a correct warning from one an operator would call noise.' }
+            1       { 'FAIL (exit 1) - a Stop hook did not behave as declared. Read the per-case lines above. A mission_drift case that spoke when it should have been silent is a false positive shipped to every install; one that stayed silent when it should have spoken means the module is inert.' }
+            2       { 'ABORT (exit 2) - the suite did not complete, so nothing about the Stop hooks was established by this run.' }
+            255     { 'NOT RUN (exit 255) - tests\stop_behaviour.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "stop-hook behaviour suite: $label"
+          } else {
+            Write-Host "::error title=Stop-hook behaviour suite::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Stop-hook behaviour suite:** $label"
+          }
+          exit $code
+
+      - name: Uninstaller footprint suite
+        shell: powershell
+        run: |
+          # The step that exercises the only thing in this plugin that DELETES.
+          # It landed on 31 July 2026 with the defect it pins: bin\lwg-uninstall
+          # .ps1 hardcoded ~\.claude\plugins\data and never read
+          # CLAUDE_PLUGIN_DATA, so with the data dir redirected the doctor
+          # reported five live files, the uninstaller reported `state-data
+          # absent`, and `-RemoveData -ConfirmToken DELETE-MY-LWG-LOGS` printed
+          # `APPLIED: 0 change(s), 0 failure(s)` and exited 0 with all five
+          # files still there. An operator typed a destructive confirmation
+          # token and was told a deletion had happened that had not.
+          #
+          # The cases assert on the FILESYSTEM as well as on the report, because
+          # a suite that only read the text could be satisfied by a script that
+          # prints well and deletes nothing - which is what shipped. They also
+          # pin the distinction the defect turned on: "I looked and there is
+          # nothing" exits 0, "I could not work out where to look" exits 2.
+          #
+          # Every case runs the real script in a real child process against a
+          # throwaway tree under the temp root, with $env:USERPROFILE and
+          # $env:CLAUDE_PLUGIN_DATA redirected around each call. Apply-mode
+          # cases pass the real confirmation token, and the only directories any
+          # of them can reach are ones the case created seconds earlier - see
+          # TEST SAFETY in the suite header before adding a case.
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly, and stderr is deliberately not merged with 2>&1 - in
+          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\uninstall_footprint.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - the uninstaller's deletions were never exercised, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\uninstall_footprint.ps1, the same three
+          # this repo's other suites use. An abort is never reported as a pass.
+          #   0  every case passed
+          #   1  at least one case failed
+          #   2  the suite aborted; the uninstaller was NOT exercised. Zero
+          #      cases run is an abort, never an empty-set pass.
+          $label = switch ($code) {
+            0       { 'PASS - the footprint names the state data wherever CLAUDE_PLUGIN_DATA points it, deletes exactly what it listed, and exits 2 rather than 0 when it cannot resolve where to look. That is the state-data half only: the settings.json edits, the restore path and the junction row are not exercised here.' }
+            1       { 'FAIL (exit 1) - the uninstaller did not behave as declared. Read the per-case lines above. A case reporting a surviving directory after a confirmed deletion means the script tells an operator it removed data it did not remove, so treat it as blocking.' }
+            2       { 'ABORT (exit 2) - the suite did not complete, so nothing about the uninstaller was established by this run.' }
+            255     { 'NOT RUN (exit 255) - tests\uninstall_footprint.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "uninstaller footprint suite: $label"
+          } else {
+            Write-Host "::error title=Uninstaller footprint suite::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Uninstaller footprint suite:** $label"
+          }
+          exit $code
+
+      - name: Evidence-state suite
+        shell: powershell
+        run: |
+          # The step that asks whether the checklist can tell a probe that RAN
+          # AND FOUND THE THING ABSENT from a probe that NEVER GOT TO LOOK.
+          # Those render as `[ ] NOT STARTED` and `[?] UNVERIFIED`, the product
+          # documents them as different states, and until 31 July 2026 the
+          # `command` evaluator in bin\lwg-evidence.ps1 could not tell them
+          # apart: on the MARKETPLACE install route the plugin directory has no
+          # .git, so every git-backed rule exited 128 having read nothing and
+          # was scored as a finding. Two rows then told a consumer that the
+          # owner's personal address WAS left in history and that the private
+          # sibling project's name IS in the tree - the opposite of the truth,
+          # about facts nothing had measured. It was found by adversarial UAT
+          # on the install route the maintainer does not use.
+          #
+          # Half the suite is the mirror: probes that genuinely ran and
+          # genuinely failed must STAY findings. Answering "unverified" to
+          # everything would be a worse defect than the one it replaced.
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly, and stderr is deliberately not merged with 2>&1 - in
+          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\evidence_states.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - the evidence engine was never exercised, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\evidence_states.ps1, the same three this
+          # repo's other suites use. An abort is never reported as a pass.
+          #   0  every case passed
+          #   1  at least one case failed
+          #   2  the suite aborted; the engine was NOT exercised. Zero cases
+          #      run is an abort, never an empty-set pass.
+          $label = switch ($code) {
+            0       { 'PASS - a probe that could not run still renders UNVERIFIED and a probe that ran and failed still renders NOT STARTED. That is a statement about the five could-not-run signals the suite lists, NOT that the engine can always tell the two apart.' }
+            1       { 'FAIL (exit 1) - the evidence engine mis-states what it observed. Read the per-case lines above. A case expecting UNVERIFIED that reported a finding means the checklist asserts something about a fact it never measured, which is the defect this whole plugin exists to catch.' }
+            2       { 'ABORT (exit 2) - the suite did not complete, so nothing about the evidence engine was established by this run.' }
+            255     { 'NOT RUN (exit 255) - tests\evidence_states.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "evidence-state suite: $label"
+          } else {
+            Write-Host "::error title=Evidence-state suite::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Evidence-state suite:** $label"
+          }
+          exit $code
+
+      - name: Portability scan
+        shell: powershell
+        run: |
+          # This plugin is written on one machine and runs on others, and three
+          # shipped defects were one laptop's private facts stated as universal
+          # truth: a status line that rendered "not installed" forever wherever
+          # the layout differed, machine facts injected verbatim into every
+          # subagent, and a security module whose agent-name arrays matched
+          # nothing on a fresh install. Each was caught by an audit - a person
+          # remembering to look. tests\portability_scan.ps1 is the same check
+          # run by a machine on every build. The mandate is docs\portability.md.
+          #
+          # It enumerates with `git ls-files` for the same reason the JSON step
+          # above does: a hardcoded file list is the exact defect the scan
+          # exists to prevent.
+          #
+          # Same capture pattern as the step above: a nonzero native exit code
+          # does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly. stderr is deliberately not merged with 2>&1 - in Windows
+          # PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $scan = 'tests\portability_scan.ps1'
+
+          if (-not (Test-Path -LiteralPath $scan -PathType Leaf)) {
+            Write-Host "::error::$scan is missing - the portability scan never ran, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scan
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\portability_scan.ps1. There is
+          # deliberately no "passed with a caveat": a tracked file either
+          # carries a local environment dependency or it does not - and a
+          # tracked file the scan could not READ is neither, which is why it
+          # goes to 2 and not to 1.
+          #   0  every tracked file was read, nothing machine-specific found
+          #   1  at least one violation
+          #   2  the scan aborted, OR a tracked file was not fully read - not
+          #      on disk, unreadable as text, or behind an unclosed exempt
+          #      region. Two channels used to print a line about that and then
+          #      leave the exit code alone, so exit 0 asserted "every tracked
+          #      file was scanned" about runs that had skipped files. An
+          #      enumeration returning zero files is an abort, never an
+          #      empty-set pass, and 2 takes precedence over 1.
+          $label = switch ($code) {
+            0       { 'PASS - every tracked file was read and none carries a local environment dependency.' }
+            1       { 'FAIL (exit 1) - a tracked file names a machine: an account, a host, a profile path, an absolute interpreter path or a hardcoded install location. Fix the file. Do NOT add an allowlist entry unless the match is genuinely portable, and if it is, state the reason on the entry - see docs\portability.md.' }
+            2       { 'ABORT (exit 2) - the scan did not read every tracked file, so it cannot say the tree is clean. Read the NOT SCANNED / PARTLY SCANNED lines above: each names the file and the reason. A UTF-16 file - which is what > and Out-File write by default in Windows PowerShell 5.1 - lands here and should be re-saved as UTF-8, not exempted. Violations found alongside are still listed and still real.' }
+            255     { 'NOT RUN (exit 255) - tests\portability_scan.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "portability scan: $label"
+          } else {
+            Write-Host "::error title=Portability scan::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Portability scan:** $label"
+          }
+          exit $code
+
+      - name: Documentation claims
+        shell: powershell
+        run: |
+          # THE ONLY STEP HERE THAT CHECKS THE PROSE. Every other step asks
+          # whether the code is right; this asks whether the pages are, because
+          # on this repository the pages ARE the product - its single promise is
+          # that it never overstates itself.
+          #
+          # It exists because a checkable quantity could be wrong in ten tracked
+          # files at once with nothing to catch it. Two adversarial UAT passes
+          # found README.md contradicting ITSELF six lines apart on test
+          # coverage, three pages stating a doctor check count the doctor does
+          # not have, and a limitations page whose own table refuted its own
+          # conclusion in the next paragraph. Every one of them was written by
+          # somebody reading a sibling sentence rather than the tree.
+          #
+          # NOTHING IN THE SUITE IS HARDCODED, and that is the point: a guard
+          # carrying its own copy of the expected numbers is a ninth place for
+          # them to be wrong. It counts tests/ and commands/ with git ls-files,
+          # counts the `shell: powershell` steps in THIS FILE, parses
+          # $LwgModuleRegistry out of lib\common.ps1, runs bin\lwg-doctor.ps1 to
+          # read its check count, and RUNS every sibling suite to read the case
+          # tally each one prints about itself - which is also how it decides
+          # which of them are behavioural at all, rather than being told.
+          #
+          # THAT RE-RUN IS DELIBERATE AND ITS COST IS BOUNDED. The suites run in
+          # parallel, each in its own child process against its own GUID scratch
+          # tree under the temp root, so the wall cost is the SLOWEST suite
+          # rather than the sum - about a minute, against roughly two and a half
+          # if they ran in series. Reading a number the suites already printed in
+          # the steps above was rejected: it would mean either editing those
+          # steps to export it or hardcoding it here, and both put the answer
+          # somewhere it can drift from the suite that owns it.
+          #
+          # A sentence that is genuinely a record of a date is exempted by a
+          # marker in the file itself: an HTML comment carrying doc-claims:ignore
+          # on the offending line or the one above it, or the same token with
+          # -file appended anywhere in a file that is a record end to end.
+          # CHANGELOG.md and docs\uat-report.md carry the file-level form and say
+          # why at the top. The delimiters are required precisely so that this
+          # comment, which NAMES the markers, does not thereby invoke them - it
+          # exempted this whole file the first time it was written without them.
+          # Reach for a marker only when the number is FROZEN HISTORY.
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly, and stderr is deliberately not merged with 2>&1 - in
+          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\doc_claims.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - no documentation claim was checked, which is not the same as passing"
+            exit 1
+          }
+
+          # -SuiteTimeoutSec IS PASSED, AND IT IS NOT A STYLE CHOICE. This suite
+          # waits that long for its parallel sibling run and, on expiry, aborts
+          # with exit 2 naming the suite that did not finish. Its default was
+          # 900 s against this job's ten-minute cap, so the cap always won: the
+          # step is marked CANCELLED rather than failed, the `exit $code` line
+          # below is never reached, no ::error annotation is emitted and nothing
+          # is written to the job summary. The build went red either way - what
+          # was lost was every word of the diagnostic, on a repository whose
+          # exit-code tables are written out three times over for that moment.
+          #
+          # 600 s against a 1800 s job budget. The healthy parallel run was
+          # MEASURED at 249 s on one developer machine on 3 August 2026 - see the
+          # table in the job comment above - so this is roughly 2.4x the observed
+          # time, which is headroom for a hosted runner slower than that machine
+          # without being so loose that the abort never fires. It is NOT the 240
+          # first written here: that was picked from this file's own stale prose
+          # saying the parallel run took "about a minute", and 240 s would have
+          # aborted a HEALTHY tree by nine seconds. Re-measure before tightening
+          # it, and remember the suites are still growing. The two numbers are
+          # now BOUND rather than merely consistent:
+          # tests\doc_claims.ps1 reads timeout-minutes out of this file and this
+          # argument out of this line, and fails if the wait is not strictly
+          # inside the budget. Raising one without the other is caught.
+          #
+          # WHAT THIS DOES NOT FIX: a hang in any of the eight steps ABOVE. Those
+          # still burn the job budget and still end in a cancellation with no
+          # diagnostic. Per-step timeout-minutes is the general answer and is not
+          # done here - a timed-out step is killed before its own `exit $code`
+          # runs, so it names the step in the UI but still loses the script's
+          # message, which is a different fix for a different problem.
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite -SuiteTimeoutSec 600
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\doc_claims.ps1, the same three this repo's
+          # other suites use. An abort is never reported as a pass, and neither is
+          # a run that skipped the suite tallies.
+          #   0  every recognised claim agrees with the tree
+          #   1  at least one claim disagrees
+          #   2  a derivation failed, a PATTERN checked nothing, or -SkipSuites
+          #      was passed; the claims were NOT checked. Zero claims found is an
+          #      abort, never an empty-set pass - a pattern set that matches
+          #      nothing is broken, not clean, and since 3 August 2026 that is
+          #      enforced per PATTERN rather than only on the grand total. Seven
+          #      of its thirty-seven patterns were dead at that point and the
+          #      total never noticed, because reaching zero needed every rule in
+          #      the file to go blind at once.
+          $label = switch ($code) {
+            0       { 'PASS - no documented count of suites, cases, CI steps, doctor checks, commands or modules disagrees with the tree, every pattern in the guard checked at least one claim, and the non-quantity rules held. That is a statement about the PHRASINGS THIS GUARD RECOGNISES, listed in the suite header: a new way of writing "there are five suites" is invisible to it until a pattern is added, and no number here is evidence that the sentence around it is true.' }
+            1       { 'FAIL (exit 1) - a tracked document states a quantity the tree contradicts, or one of the non-quantity rules failed. Read the file:line list above; each one prints what the page says, what the tree says, and how the tree''s answer was derived. Fix the SENTENCE. If it is a record of what was true on a date, mark that line doc-claims:ignore and leave the number alone - do NOT edit the guard.' }
+            2       { 'ABORT (exit 2) - the guard did not complete, so nothing about the documentation was established by this run. Two causes read differently and the output says which: a sibling suite that exited nonzero aborts this one on purpose, because a case tally from a failing suite is not a fact; and a pattern that checked no claim anywhere is reported dead by name, because a rule that cannot fire is not a rule. Repoint or delete the pattern - do not allowlist it.' }
+            255     { 'NOT RUN (exit 255) - tests\doc_claims.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "documentation claims: $label"
+          } else {
+            Write-Host "::error title=Documentation claims::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Documentation claims:** $label"
+          }
+          exit $code

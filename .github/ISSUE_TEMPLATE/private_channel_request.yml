@@ -1,0 +1,55 @@
+name: Request a private channel for a security report
+description: Use this when GitHub's private advisory page returns 404 for you. It asks for a channel, not for the finding.
+title: "[security] requesting a private channel"
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        # Do not describe the vulnerability here.
+
+        **Anything you type on this form is public the moment you submit it**, including to anyone
+        running an unpatched copy of this plugin. This form exists for one sentence: *"I have
+        something to report and I cannot reach the private page."*
+
+        ## Try the private page first
+
+        **[→ Report a vulnerability](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/security/advisories/new)**
+
+        That opens an advisory visible only to you and the maintainers, needs no email address, and
+        is the channel [SECURITY.md](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/SECURITY.md)
+        asks for. If it returns a 404 — because you are signed out, or because private vulnerability
+        reporting is not enabled on this repository — this form is the documented fallback and it is
+        the only one. Blank issues are disabled here, and the other three forms all require an
+        attestation you would be making falsely: the bug report needs *"this is not a security
+        issue"*, and the security form needs *"this is a question about the process, not a report"*.
+
+        ## What happens next
+
+        A maintainer (`@LEAPWare-HQ`) opens a private advisory and invites you to it. Put the finding
+        there.
+
+  - type: checkboxes
+    id: acknowledge
+    attributes:
+      label: Confirm before submitting
+      description: >-
+        Both of these are true for someone with a real vulnerability to report. That is the point of
+        this form — every other route on this repository asks a reporter in your position to tick
+        something untrue.
+      options:
+        - label: I have put NO vulnerability details in this issue — no description, no file, no path, no payload, no proof of concept.
+          required: true
+        - label: I tried the private advisory page above and could not use it.
+          required: true
+
+  - type: input
+    id: contact
+    attributes:
+      label: How to reach you (optional)
+      description: >-
+        A GitHub handle is enough and is what the invite goes to. Leave this blank and the invite
+        goes to the account that opened the issue. **Not** a place to hint at the finding.
+      placeholder: "@your-github-handle"
+    validations:
+      required: false
