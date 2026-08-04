@@ -183,24 +183,37 @@ because no suite reaches those three — see below.
 
 ## There is a test suite, and it is narrower than it sounds
 
-`tests/` holds **eight files, five of which test behaviour**, and every one of them runs in the
+`tests/` holds **twelve files, nine of which test behaviour**, and every one of them runs in the
 `fast-checks` CI job on every push and every PR:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1       # delegate_gate, 93 cases
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\setup_merge.ps1         # the installer's statusline + hooks merge, 124
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1      # the two turn-end hooks, 169
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\uninstall_footprint.ps1 # the uninstaller's footprint and deletions, 22
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1      # the two turn-end hooks, 177
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\uninstall_footprint.ps1 # the uninstaller's footprint and deletions, 27
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\evidence_states.ps1     # the evidence engine, 47
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1    # two of the doctor's nine checks, 16
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\toggle_behaviour.ps1    # the toggle's write to config.json, 26
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1       # the SubagentStart fast path, 6
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1       # every tracked file, as shipped payload, 15
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\workflow_guard.ps1      # every workflow file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\portability_scan.ps1    # every tracked file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doc_claims.ps1          # every tracked page's counts
 ```
 
 The last three assert **nothing about behaviour**: two check the contents of tracked files and the
-third checks that the documentation's numbers match the tree. All eight share one exit contract:
+third checks that the documentation's numbers match the tree. All twelve share one exit contract:
 `0` passed, `1` a check failed, `2` the harness aborted and **nothing was checked**. There is no
 "passed with a caveat" code, and a suite that ran zero cases exits `2`, never `0`.
+
+**"Nine of which test behaviour" is a classification, not a compliment, and one of the nine is a
+borderline case worth naming.** `tests/doc_claims.ps1` decides which suites are behavioural by
+RUNNING each of them and reading what each says about itself: a suite that tallies `N of M case(s)`
+is counted behavioural, one that tallies violations is a scan. `tests/payload_guard.ps1` reads
+tracked files rather than running any of this plugin's code, but it reports cases, so the derived
+count includes it. That is the guard observing the tree instead of being told about it — which is the
+property the whole file exists for — and the honest reading of "nine" is "nine suites tally cases",
+of which eight drive this plugin's code in a real process and one scans the payload.
 
 **Two suites were deleted on 30 July 2026 and neither is coming back.**
 `tests/gate_regression.ps1` — 233 cases over both `PreToolUse` gates — went with the
@@ -265,9 +278,11 @@ So, for every bug fix:
 3. Apply the fix. Run it again. It must **pass**.
 4. Say both results in the PR, with the case ID.
 
-**If your fix is inside what one of the five behavioural suites covers, add the case to that suite**
+**If your fix is inside what one of the nine behavioural suites covers, add the case to that suite**
 — the gate, the installer's `statusline` merge, either turn-end hook, the uninstaller's state-data
-deletions, or the evidence engine. Each already runs its cases through a real pipe into a real child
+deletions, the evidence engine, either of the two doctor checks that are driven, the toggle's write
+to `config.json`, the `SubagentStart` fast path, or what the shipped payload discloses. Each already
+runs its cases through a real pipe into a real child
 process, and each has a `Add-Result` shape to follow.
 
 **If it is anywhere else, there is no harness to hang the case on**, and that is the honest state of
@@ -407,8 +422,9 @@ That applies to your PR description and to any documentation you touch:
 - **Never document a command, flag or behaviour that does not exist.** If you are unsure, check, and
   if it does not exist, leave it out.
 - **Every number in the docs must come from a file you read or a measurement you took.** Say which.
-- **Do not claim coverage you do not have.** Exactly five behavioural suites exist in this repo, and
-  between them they reach one gate, one writer, one deleter, one reporting engine and two of the nine
+- **Do not claim coverage you do not have.** Exactly nine behavioural suites exist in this repo, and
+  between them they reach one gate, two writers, one deleter, one reporting engine, two of the
+  doctor's nine checks, one hook's fast path, the shipped payload, and seven of the nine
   observing modules — so unless your change lands inside one of those, "tested" means an assertion
   you wrote and included. "Verified by inspection" is a legitimate and welcome statement — write that
   instead, exactly as the existing docs do.

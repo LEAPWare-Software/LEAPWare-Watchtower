@@ -224,6 +224,15 @@ $CommonPath = Join-Path $Root 'lib\common.ps1'
 # against, because the two answering differently is the defect this whole
 # repository is an argument about.
 $TogglePath = Join-Path $Root 'bin\lwg-toggle.ps1'
+# bin\lwg-toggle.ps1 DOT-SOURCES this as of the #103 fix, for Read-LwgTextFile
+# and Save-LwgTextFile. A scratch root without it makes every section-K case
+# exit 3 on a missing file - which is what happened, and it is worth saying how
+# it was missed: the fixture and the toggle live in different files, so no
+# file-level ownership boundary couples them, and the suite's tally is "N of M"
+# with M unchanged at 93, so `doc_claims` reads the M and every "93 of 93" in
+# the tree stayed green while eight cases were failing. Add a file here
+# whenever the toggle grows a dot-source.
+$CmdlibPath = Join-Path $Root 'bin\lwg-cmdlib.ps1'
 # The OTHER reporter. /lw-watchtower:status renders the gate's switch and the file
 # behind it, and section P is the only thing in this tree that reads what it
 # actually prints.
@@ -616,8 +625,9 @@ function New-LwgToggleRoot {
     $dir = New-LwgRawRoot -Base $Base -Name $Name -Json $Json
     [void][IO.Directory]::CreateDirectory((Join-Path $dir 'bin'))
     [void][IO.Directory]::CreateDirectory((Join-Path $dir 'lib'))
-    [IO.File]::Copy($TogglePath, (Join-Path $dir 'bin\lwg-toggle.ps1'), $true)
-    [IO.File]::Copy($CommonPath, (Join-Path $dir 'lib\common.ps1'),     $true)
+    [IO.File]::Copy($TogglePath, (Join-Path $dir 'bin\lwg-toggle.ps1'),  $true)
+    [IO.File]::Copy($CmdlibPath, (Join-Path $dir 'bin\lwg-cmdlib.ps1'), $true)
+    [IO.File]::Copy($CommonPath, (Join-Path $dir 'lib\common.ps1'),      $true)
     return $dir
 }
 
@@ -1119,8 +1129,31 @@ try {
     #    SENTINELS, and that is measured rather than reasoned: all four were run
     #    against fd8d023 - the tree with the hole - and all four PASSED. They
     #    pin that the gate's rule treats the second shell like the first, which
-    #    is worth having and is not what was broken. The cases that went RED
-    #    there are the registration case in section A and M1.
+    #    is worth having and is not what was broken.
+    #
+    #    THE RED-FIRST PROOF FOR THIS DEFECT IS M1 ALONE, AND ONLY INJECTED -
+    #    which is the qualification that makes the sentence true, not a hedge
+    #    on it: M1 and $script:GateMatcher do not exist at fd8d023, so M1
+    #    cannot be run against that tree as it stands. Injected into a snapshot,
+    #    it fails because the matcher there is "Edit|Write|NotebookEdit|Bash",
+    #    so Invoke-GateAsCli's selection step never invokes the gate and M1
+    #    fails on $m1.invoked.
+    #
+    #    SECTION A IS NOT PART OF THAT PROOF, and this comment named it until
+    #    3 August 2026. Neither section-A case the old sentence could have meant
+    #    fails at fd8d023: that tree's PreToolUse array holds exactly one entry
+    #    naming gate_delegate.ps1, so the registration case passes, and its
+    #    $GatedTools is @('Edit','Write','NotebookEdit','Bash') - the same four
+    #    names its matcher spells - so $missing and $surplus are both empty and
+    #    the coverage case passes too. That coverage case can only fail on a
+    #    MIXED tree, this wave's widened $GatedTools against the unwidened
+    #    hooks.json, and no such tree is claimed here.
+    #
+    #    WHAT THE LAST TWO PARAGRAPHS REST ON, since it is not the same source
+    #    as the sentence above them: M1's failure and both section-A readings
+    #    are DERIVED BY READING fd8d023's FILES, not measured by running this
+    #    suite against that tree. That is weaker than the "all four PASSED"
+    #    above, and it is said rather than blurred.
     foreach ($tool in $GatedTools) {
         # A payload shaped the way that tool's really is. The two shell ones
         # name an INVENTED command on purpose, in the invented flag spelling

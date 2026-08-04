@@ -28,8 +28,8 @@ contact_links:
   # both of those are verbatim quotations of what was removed, frozen so the
   # record of the wrong sentence survives, and the marker on that line says so.
   # Both were leftovers from 30 July 2026, when the two gates were deleted and
-  # the portability scan was briefly the only thing left. Five behavioural
-  # suites landed after that, while the pull request template in this same
+  # the portability scan was briefly the only thing left. Behavioural
+  # suites landed after that - five of them at first and nine today - while the pull request template in this same
   # directory went on requiring output from every file in tests\ - the chooser
   # page and the PR template are rendered to the same person minutes apart, and
   # they disagreed.
@@ -43,5 +43,5 @@ contact_links:
     url: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/CONTRIBUTING.md
     about: >-
       Dev setup, the fork-and-PR flow, the exit-code contract, and what a good PR looks like. There
-      are eight files in `tests/`, five of them test behaviour, and a green run of all eight is a
+      are twelve files in `tests/`, nine of them test behaviour, and a green run of all twelve is a
       narrower claim than it sounds — CONTRIBUTING.md says exactly how narrow.

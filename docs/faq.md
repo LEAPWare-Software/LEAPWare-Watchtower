@@ -516,7 +516,7 @@ Two related distinctions worth knowing:
 
 ## Can I run the tests myself?
 
-Yes. All eight, from the repo root — the same eight the `fast-checks` CI job runs:
+Yes. All twelve, from the repo root — the same twelve the `fast-checks` CI job runs:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1        # the one gate
@@ -524,33 +524,45 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\setup_merge.ps1       
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1       # the two turn-end hooks
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\uninstall_footprint.ps1  # the uninstaller's deletions
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\evidence_states.ps1      # the evidence engine
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1     # two of the doctor's nine checks
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\toggle_behaviour.ps1     # the toggle's write to config.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1        # the SubagentStart fast path
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1        # every tracked file, as shipped payload
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\workflow_guard.ps1       # every workflow file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\portability_scan.ps1     # every tracked file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doc_claims.ps1           # every tracked page's counts
 ```
 
-**The first five test behaviour.** Each spawns a child PowerShell process per case, through a real
+**The first nine tally cases; eight of them drive this plugin's code.** Each of those eight spawns a
+child PowerShell process per case, through a real
 pipe, because a PowerShell object pipe never reaches `[Console]::In`, which is where a hook reads its
 payload. Nothing real is touched: every case builds a throwaway tree under the temp directory, and no
-case constructs a destructive command even as a string it never runs. Together they take about two
-and a half minutes.
+case constructs a destructive command even as a string it never runs. `tests\payload_guard.ps1` is
+the ninth and is the odd one — it reads tracked files rather than running anything, but it reports
+cases, so the documentation guard classifies it as behavioural. Run one after another the nine take
+about ten minutes on one developer machine.
 
 **The last three take seconds and assert nothing about behaviour.** Two scan the contents of tracked
 files; the third checks that the counts written in the documentation still match the tree, and it
-re-runs the five behavioural suites in parallel to derive them rather than trusting a number typed
+re-runs the eleven other suites in parallel to derive them rather than trusting a number typed
 into it.
 
-All eight share one exit contract: `0` all passed, `1` at least one failed, `2` aborted — **and zero
+All twelve share one exit contract: `0` all passed, `1` at least one failed, `2` aborted — **and zero
 cases run is an abort, never a pass**.
 
-**What a green run of all eight does not mean:** that the other **seven** observing modules work.
-Only `mission_drift` and `failure_capture` are exercised at all, and only in the cases somebody
-thought to write. See [Testing § what is not covered](testing.md#what-is-not-covered).
+**What a green run of all twelve does not mean:** that the other **two** observing modules work.
+`verification_gate` and `self_health` are exercised by nothing at all, the seven that are exercised
+are exercised only in the cases somebody
+thought to write, and for five of the seven that is one to three cases on at most two properties.
+This sentence said **seven** and named only `mission_drift` and `failure_capture` as covered until
+the wave that added `tests/subagent_scan.ps1`; the count has now moved three times and nothing
+derives it, so read [Testing § what is not covered](testing.md#what-is-not-covered) rather than
+trusting the number here.
 
 ## Why is there no CI badge in the README?
 
 Two reasons, both deliberate. The repository is **private**, so a badge would not render for most
-viewers. And a green badge covering one gate and two of the nine observing modules would read as far
+viewers. And a green badge covering one gate and seven of the nine observing modules would read as far
 broader assurance than it is — which is the exact overstatement this project exists to avoid.
 
 ## What version is this? Is there a release?

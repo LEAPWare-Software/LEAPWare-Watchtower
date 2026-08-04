@@ -26,7 +26,7 @@ from running it, it says so.
 | Does it install any `permissions.deny` rule? | **No.** The installer's rule table is empty. |
 | Can it block anything at all? | **One thing**, and it ships switched off — see [`delegate_gate`](#the-one-gate-blocks-one-thing-and-ships-off). |
 | Can it block assistant text? | **No.** There is no hook between the model and the transcript. |
-| How many of its ten modules are tested? | **Seven** — the gate, and six of the nine observing ones, only in the cases somebody thought to write and for four of them only one or two properties apiece. The other three — `verification_gate`, `self_health`, `context_injection` — are exercised by nothing. |
+| How many of its ten modules are tested? | **Eight** — the gate, and seven of the nine observing ones, only in the cases somebody thought to write and for five of them only one or two properties apiece. The other two — `verification_gate`, `self_health` — are exercised by nothing. |
 | Does it run anywhere but Windows PowerShell 5.1? | **No**, and it does not pretend to. |
 
 ---
@@ -420,39 +420,46 @@ holds it there in CI. **Three things that fix does not close, stated so they are
 
 ## What no test covers
 
-**Five suites in this repository establish a behaviour of this plugin, and between them they reach
-one gate, one writer, one deleter, one reporting engine and two of the nine observing modules.**
+**Nine suites in this repository establish a behaviour of this plugin, and between them they reach
+one gate, two writers, one deleter, one reporting engine, two of the doctor's nine checks, one
+hook's fast path, the shipped payload, and seven of the nine observing modules.**
 
 | Suite | What it establishes |
 | --- | --- |
 | `tests/gate_delegate.ps1` | 93 cases through a real pipe into a real child process: that `delegate_gate` refuses what it declares, and that the gate and the command that reports it give the same answer for the same config. |
 | `tests/evidence_states.ps1` | 47 cases against `bin/lwg-evidence.ps1`: that a probe which could not run renders `UNVERIFIED` and a probe which ran and failed still renders `NOT STARTED`; that a manifest path is read only from inside the plugin root; and that the shipped rules for the delegate gate's registration, the line-ending agreement and the installer's caveat test what their titles claim. Fifteen of them require an answer to **stay** an answer — a `pass`, a `fail`, or a rendered `NOT STARTED` where answering "unverified" to everything would have been green. |
-| `tests/stop_behaviour.ps1` | 169 cases, the helpers in process and the hooks in real child processes: pinned behaviours of `mission_drift` and `failure_capture`, including two supervisor bugs that had already shipped, the redaction helper every module's error text passes through, and that `mission_drift` puts no part of a credential pasted into a prompt into its state file or its advisory. |
-| `tests/uninstall_footprint.ps1` | 22 cases against `bin/lwg-uninstall.ps1`, asserting on the filesystem as well as on the report: that the state-data footprint names what it deletes, deletes what it named, and exits non-zero rather than calling a no-op deletion a success; that what it attributes to this plugin really is this plugin's, including all 181 `permissions.deny` rules the pre-30-July installer wrote; and that what it refuses — a reparse point, a directory holding none of this plugin's files, a `settings.json` it could not parse — it names and counts as un-removed. The only suite that tests a **deletion**. |
+| `tests/stop_behaviour.ps1` | 177 cases, the helpers in process and the hooks in real child processes: pinned behaviours of `mission_drift` and `failure_capture`, including two supervisor bugs that had already shipped, the redaction helper every module's error text passes through, and that `mission_drift` puts no part of a credential pasted into a prompt into its state file or its advisory. |
+| `tests/uninstall_footprint.ps1` | 27 cases against `bin/lwg-uninstall.ps1`, asserting on the filesystem as well as on the report: that the state-data footprint names what it deletes, deletes what it named, and exits non-zero rather than calling a no-op deletion a success; that what it attributes to this plugin really is this plugin's, including all 181 `permissions.deny` rules the pre-30-July installer wrote; and that what it refuses — a reparse point, a directory holding none of this plugin's files, a `settings.json` it could not parse — it names and counts as un-removed. The only suite that tests a **deletion**. |
 | `tests/setup_merge.ps1` | 124 cases. Against `bin/lwg-setup.ps1`: that the installer's merge preserves settings it was not asked to touch, takes one backup, is idempotent and rolls back; that it recognises a marketplace install and a registration of its own scripts under another root. The only suite that tests a **write**. Its last four sections are not about the installer — they are the only coverage the **reporting surfaces** have: `statusline/statusline.ps1` (payload decoding, the three states a number can be in, the `HH` fault gauge, the reset clock, the paths and the config it reads), `bin/lwg-sitrep.ps1` (both governance counts and the command they point at), `lib/resolve.ps1` (an append that failed) and `bin/lwg-update.ps1` (`-Offline` with `-Apply`, a diverged branch, the exit-4 attribution, the junction route). Nothing exercised `bin/lwg-update.ps1` in any form before that. |
+| `tests/doctor_behaviour.ps1` | 16 cases driving `bin/lwg-doctor.ps1` from a scratch copy of the whole plugin tree against seeded configs and seeded `settings.json` files: that `config-registry` refuses a switch whose value is not a real `[bool]` rather than passing it for being present, and that `statusline` asks whose file a status line is before diagnosing it as a stale copy of this plugin's. **Two of the doctor's nine checks and no others**, and seven of the sixteen are `CONTROL` cases that pass before the fix too. A byte-identical or token-bearing foreign status line is a stated limit, not something these cases catch. |
+| `tests/toggle_behaviour.ps1` | 26 cases against `bin/lwg-toggle.ps1`'s write to `config.json`, in real child processes against a byte copy of `bin/` and `lib/`: that the write takes a backup, re-checks that the file on disk is still the one it read, keeps a BOM, refuses a config it cannot read back, and never reports exit `3` — *"config.json was not changed"* — for a run that changed it. The only suite besides the merge one that tests a **write to a file an operator owns**. `-Scope repo` is reached by no case, and that is a gap rather than a decision. |
+| `tests/subagent_scan.ps1` | 6 cases piping payloads into the real `lib/subagent_start.ps1`: that its raw-text fast path answers the **global** `modules` flag whatever order the top-level keys appear in, and agrees with the slow path it exists to avoid. The only coverage `context_injection` has. Every case asserting silence re-runs the same fixture with one bit changed and requires the injection to appear, because a bare negative is satisfied by a hook that crashed. It asserts on answers, **not on the milliseconds** the fast path exists to save. |
+| `tests/payload_guard.ps1` | 15 cases over every file `git ls-files` reports — which is the whole shipped payload, because `marketplace.json` declares `"source": "./"` and that form has no exclusion mechanism: that no tracked file carries a pull-ref narrative, a former personal address, a plan file's name, a release-plan heading, or a containment claim that inverts when visibility changes. It reads files rather than running this plugin's code, and it is a statement about **the shapes it carries**, not about everything a reader would rather not ship. |
 | `tests/portability_scan.ps1` | That no tracked file names a machine. **Nothing about behaviour** — a file can be perfectly portable and completely broken. |
 | `tests/workflow_guard.ps1` | That no workflow definition reaches a runner GitHub does not host. A *file* check, not a behaviour. |
 | `tests/doc_claims.ps1` | That no tracked page states a count — of suites, cases, CI steps, doctor checks, commands or modules — that the tree contradicts. A check on the *documentation*, not on anything this plugin does. |
 
-**Three of the ten modules are still exercised by nothing at all**, and the seven that are covered are
+**Two of the ten modules are still exercised by nothing at all**, and the eight that are covered are
 covered in the cases somebody thought to write, not in general. `stop_behaviour.ps1` reaching
-`mission_drift` and `failure_capture` moved the count from zero to two on 31 July 2026, and the
+`mission_drift` and `failure_capture` moved the count from zero to two on 31 July 2026, the
 `context_pressure`, `docs_coupling`, `git_hygiene` and `log_rotation` cases added on 3 August 2026
-moved it to six; none of that made the observing half tested, and for four of the six at most two
-properties are the whole of it. Read [Testing and CI](testing.md) for the current inventory rather than trusting a count
+moved it to six, and `subagent_scan.ps1` moved it to seven by reaching `context_injection`; none of
+that made the observing half tested, and for four of the seven at most two
+properties are the whole of it — for `context_injection` it is exactly one. Read [Testing and CI](testing.md) for the current inventory rather than trusting a count
 transcribed here.
 
 **A green CI run therefore says that tracked files parse, that no tracked file names a machine, that
-no tracked page states a count the tree contradicts, and that the five suites in the table above
-still behave as their cases declare. It is not evidence that this plugin is sound, and for three of
+no tracked page states a count the tree contradicts, and that the nine suites in the table above
+still behave as their cases declare. It is not evidence that this plugin is sound, and for two of
 the nine observing modules it is not evidence of anything at all, because nothing exercises them.**
 
 Uncovered, item by item, because an absence nobody writes down reads as coverage:
 
-- **Three of the nine observing modules, and thin coverage of four more.** Six are reached by
+- **Two of the nine observing modules, and thin coverage of five more.** Six are reached by
   `tests/stop_behaviour.ps1`, in the cases somebody thought to write: `mission_drift` and
   `failure_capture` since 31 July 2026, and `context_pressure`, `docs_coupling`, `git_hygiene` and
-  `log_rotation` since 3 August 2026. **This list said seven were exercised by nothing until that
+  `log_rotation` since 3 August 2026; the seventh, `context_injection`, is reached by
+  `tests/subagent_scan.ps1` on one property only. **This list said seven were exercised by nothing until that
   second set landed and named four of them by name — it was the coverage claim itself going stale,
   which is the failure this page exists to prevent, and nothing in `tests/` checks it.** What the
   four new ones actually amount to, counted on 3 August 2026: `context_pressure` has TWO cases, on
@@ -460,8 +467,10 @@ Uncovered, item by item, because an absence nobody writes down reads as coverage
   `log_rotation` has THREE — the on/off pair and the tail-carry; `docs_coupling` has TWO, and only
   one of them is about `docs_coupling` itself (that its advisory is bounded), the other being about
   the write that feeds it; `git_hygiene` has ONE, that an UNKNOWN tree state is repeated at every
-  turn end rather than once. None of them establishes that its module advises the right thing. The three
-  reached by nothing at all are `verification_gate`, `self_health` and `context_injection` —
+  turn end rather than once. None of them establishes that its module advises the right thing.
+  `context_injection` has ONE, that the fast scan answers the global flag whatever order the
+  top-level keys are written in; what the hook does with `worker_facts.md` has no case at all. The two
+  reached by nothing at all are `verification_gate` and `self_health` —
   and `verification_gate` is a near miss rather than a clean absence: the class resolver it reads
   has cases in section A, while the module that consumes them has none.
 - **The installer's WRITER outside `statusline`.** `tests/setup_merge.ps1` establishes, for the
@@ -546,7 +555,12 @@ Full list: [Testing § what is not covered](testing.md#what-is-not-covered).
 
 **Branch protection is a live hazard, not a hypothetical.** Any rule on `main` that still requires the
 `gate-regression` context will block every merge, because that job was deleted and can never report
-again. `fast-checks` is the only requirable context now. The checklist probe can see that a
+again. `fast-checks` is not the context to put in its place: that is the YAML job id, and a required
+status check is matched by the check run's **name**, so requiring the id blocks every merge exactly as
+requiring `gate-regression` does. The only requirable string is the surviving job's display name,
+quoted verbatim under [Branch protection](testing.md#branch-protection) — the page the
+documentation-claim guard holds to that string, deriving it from `ci.yml`. It is not repeated here,
+because nothing holds this page to it. The checklist probe can see that a
 protection object exists but not which contexts it names — and on this repository it cannot see even
 that, because the API returns 403 for a private repo on the current plan. See
 [Branch protection](testing.md#branch-protection).

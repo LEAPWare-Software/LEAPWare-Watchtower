@@ -221,6 +221,185 @@ function Test-DataTargetRefusal {
     return ("REFUSED - CLAUDE_PLUGIN_DATA names this directory, but its leaf is neither '$Name' nor '$Name-*' and it holds none of the files this plugin writes (" + ($OwnFiles -join ', ') + "). It holds $($files.Count) other item(s), so it is somebody's data and this script will not delete it on the strength of one environment variable")
 }
 
+function Get-PluginHookLeaves {
+    <#
+      The .ps1 LEAF NAMES this plugin registers, lower-cased, as a hashtable used
+      as a set. Read out of hooks/hooks.json rather than spelled out here, so a
+      hook added to that file is recognised by this script the day it lands.
+
+      WHY A LEAF AND NOT A PATH. A hand-added registration is written on the
+      machine that wrote it, against the root that machine had. The root is
+      exactly the thing that varies between that machine and the one running the
+      uninstaller - a second clone, a moved clone, a colleague's path in a shared
+      settings.json - and it is the reason the root-shaped needle this scan used
+      to carry was load-bearing for nobody. bin/lwg-setup.ps1's Get-HookIdentity
+      keys a registration on the same thing for the same reason.
+
+      WHAT IT COSTS, stated rather than glossed: a script of somebody else's that
+      happens to be called supervisor.ps1 is attributed to this plugin. Nothing
+      on disk distinguishes them. That is why the match REASON travels with every
+      hit and is printed - the operator is told which signal fired, and a
+      leaf-only hit says so in as many words instead of being presented as
+      certainty.
+    #>
+    param([string]$PluginRoot)
+
+    $leaves = @{}
+    try {
+        $hj = Join-Path $PluginRoot 'hooks\hooks.json'
+        if (Test-Path -LiteralPath $hj) {
+            $raw = Get-Content -LiteralPath $hj -Raw
+            foreach ($m in [regex]::Matches($raw, '(?i)[^\\/"'':\s]+\.ps1')) {
+                $leaves[$m.Value.ToLowerInvariant()] = $true
+            }
+        }
+    } catch { }
+    return $leaves
+}
+
+function Get-HookRefReason {
+    <#
+      WHY this hook command belongs to this plugin, or '' when nothing says it
+      does. Strongest signal first, and the string it returns is printed to the
+      operator - so it has to name the evidence, not assert the conclusion.
+    #>
+    param([string]$Text, [string]$RootNorm, [string]$NameNorm, [hashtable]$Leaves)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
+
+    # ONE SPELLING FOR COMPARISON. A registration may be written with either
+    # slash and in any case; bin/lwg-setup.ps1 writes forward slashes and the
+    # operator's own editor writes whatever they typed. .Contains is ordinal and
+    # is deliberately not -like: a path holding [ or ] is a wildcard to -like and
+    # a plain character to this.
+    $norm = $Text.Replace('\', '/').ToLowerInvariant()
+
+    if ($RootNorm -ne '' -and $norm.Contains($RootNorm)) {
+        return 'its command names this clone directly'
+    }
+    if ($Text.Contains('CLAUDE_PLUGIN_ROOT')) {
+        return 'its command still carries an unsubstituted CLAUDE_PLUGIN_ROOT, which only this plugin''s own hooks.json spells'
+    }
+    if ($NameNorm -ne '' -and $norm.Contains($NameNorm)) {
+        return "its command names '$NameNorm'"
+    }
+    if ($null -ne $Leaves -and $Leaves.Count -gt 0) {
+        # The same three legal spellings bin/lwg-setup.ps1's Get-HookScriptPaths
+        # reads: a double-quoted path (which a path containing a space forces), a
+        # single-quoted one, and a bare run of non-space characters (which is
+        # what a trailing argument like -HookEvent Stop leaves behind).
+        #
+        # (?i) IS LOAD-BEARING AND WAS MISSING UNTIL 3 AUGUST 2026. Windows file
+        # names are case-insensitive, so `Supervisor.PS1` and `supervisor.ps1`
+        # name the same file and either spelling can be what an operator - or
+        # another tool - actually wrote into settings.json. Measured in
+        # isolation without it:
+        #
+        #     powershell -File "C:\some\other\lib\Supervisor.PS1"   0 matches
+        #     powershell -File "C:\some\other\lib\supervisor.ps1"   1 match
+        #
+        # so a live registration in the first spelling was reported as 0
+        # reference(s) - this scan's founding defect surviving in narrow form.
+        # Get-PluginHookLeaves already compiled its own extraction with (?i) and
+        # the leaf set is a PowerShell hashtable, whose comparer is
+        # case-insensitive, so this line was the only case-sensitive step in the
+        # chain.
+        foreach ($mm in [regex]::Matches($Text, '(?i)"([^"]+\.ps1)"|''([^'']+\.ps1)''|([^\s"'']+\.ps1)')) {
+            $v = if     ($mm.Groups[1].Success) { $mm.Groups[1].Value }
+                 elseif ($mm.Groups[2].Success) { $mm.Groups[2].Value }
+                 else                           { $mm.Groups[3].Value }
+            $leaf = @($v.Replace('\', '/').Split('/'))[-1].ToLowerInvariant()
+            if ($Leaves.ContainsKey($leaf)) {
+                return "it runs $leaf, one of the scripts this plugin ships, from a path that is not this clone"
+            }
+        }
+    }
+    return ''
+}
+
+function Get-SettingsHookRefs {
+    <#
+      Every hook COMMAND ENTRY under settings.json's `hooks` that names this
+      plugin, as objects @{ Command; Why }.
+
+      WHAT A REFERENCE IS, DEFINED ONCE AND HERE: one object under `hooks`
+      carrying a `command` member. That is one registration and it fires once
+      per matching event. Two identical registrations are two references,
+      because both of them fire.
+
+      THE OBJECT IS WALKED, NOT SERIALISED, and that is the fix rather than an
+      implementation preference. This scan used to run ConvertTo-Json over the
+      block and match needles against the text, which put three escaping regimes
+      - a .NET replacement string, a JSON escape, and a -like wildcard - into one
+      expression. The plugin-root needle came out with FOUR backslashes per
+      separator where ConvertTo-Json emits TWO and could not match anything, ever.
+      Working on the DESERIALISED strings, a path is just a path.
+
+      BOTH SHAPES OF PATH ARE READ, and the sentence is narrower than it was on
+      purpose. hooks.json spells the script into an `args` ARRAY; a hand-added
+      settings.json entry almost always puts it in the `command` STRING. Both
+      are matched - but `args` is only ever appended to a `command` that is
+      already present, so an entry carrying args and NO command matches nothing.
+      That is not a gap: `"type": "command"` requires `command`, so an args-only
+      entry is not a registration the CLI would run either. What would be a
+      defect is missing the args of a real entry, and that is what is covered -
+      a reader that knew only the command string would tell an operator that a
+      registration copied out of hooks.json does not exist.
+    #>
+    param($Hooks, [string]$Name, [string]$PluginRoot, [hashtable]$Leaves)
+
+    $hits = New-Object System.Collections.ArrayList
+    if ($null -eq $Hooks) { return $hits }
+
+    $rootNorm = ''
+    if (-not [string]::IsNullOrWhiteSpace($PluginRoot)) {
+        $rootNorm = $PluginRoot.Replace('\', '/').TrimEnd('/').ToLowerInvariant()
+    }
+    $nameNorm = ''
+    if (-not [string]::IsNullOrWhiteSpace($Name)) { $nameNorm = $Name.ToLowerInvariant() }
+
+    # A QUEUE, NOT A STACK, AND THAT IS THE OPERATOR'S DOING. What this returns
+    # is printed under LEFT BEHIND as a list for somebody to work through against
+    # their own settings.json. A depth-first stack hands it to them in reverse
+    # document order; breadth-first walks the events in the order they are
+    # written in the file. Nothing else here depends on the order.
+    $queue = New-Object System.Collections.Queue
+    $queue.Enqueue($Hooks)
+    while ($queue.Count -gt 0) {
+        $n = $queue.Dequeue()
+        if ($null -eq $n) { continue }
+        # A string is IEnumerable under .NET, so it has to be turned away before
+        # the collection test or every command would be walked character by
+        # character.
+        if ($n -is [string] -or $n -is [ValueType]) { continue }
+        if ($n -is [System.Collections.IEnumerable]) {
+            foreach ($i in $n) { $queue.Enqueue($i) }
+            continue
+        }
+
+        $props = @()
+        try { $props = @($n.PSObject.Properties) } catch { continue }
+
+        $cmd = $null
+        foreach ($p in $props) { if ($p.Name -eq 'command') { $cmd = $p.Value } }
+        if ($null -ne $cmd) {
+            $text = [string]$cmd
+            foreach ($p in $props) {
+                if ($p.Name -eq 'args' -and $null -ne $p.Value) {
+                    $text += ' ' + ((@($p.Value) | ForEach-Object { [string]$_ }) -join ' ')
+                }
+            }
+            $why = Get-HookRefReason -Text $text -RootNorm $rootNorm -NameNorm $nameNorm -Leaves $Leaves
+            if ($why -ne '') { [void]$hits.Add([pscustomobject]@{ Command = $text.Trim(); Why = $why }) }
+            # A registration is a leaf. Descending into it would count its own
+            # fields as further registrations.
+            continue
+        }
+        foreach ($p in $props) { $queue.Enqueue($p.Value) }
+    }
+    return $hits
+}
+
 function Test-MirroredDeny {
     <#
       Is this permissions.deny entry one of the rules bin/lwg-setup.ps1 writes?
@@ -447,17 +626,35 @@ try {
     # rather than on $settingsErr.
     $settingsUnread = ($settingsErr -ne '') -and (-not $settingsMissing)
 
-    $hookRefs = 0
+    # THREE DEFECTS LIVED IN THE FIVE LINES THIS REPLACED, and all three are
+    # named here because the row below prints a NUMBER and a zero from a broken
+    # scan reads exactly like a zero from a clean file.
+    #
+    #   1. The plugin-root needle was ($pluginRoot -replace '\\', '\\\\'). In a
+    #      .NET replacement string a backslash is literal - there is no escape
+    #      processing - so that produced FOUR backslashes per separator where
+    #      ConvertTo-Json emits TWO. Measured under Windows PowerShell 5.1:
+    #      needle `C:\\\\repos\\\\governance` (25 chars) against JSON
+    #      `C:\\repos\\governance` (21 chars), -like False. It could not match
+    #      any settings.json that has ever been written.
+    #   2. `$hookRefs++` ran at most once per needle over a three-element array,
+    #      so it counted needle KINDS with a ceiling of 3 however many entries
+    #      existed - and the row printed it as a count of references.
+    #   3. Nothing carried a hit into LEFT BEHIND, so the one thing this scan
+    #      exists to warn about was the one thing the operator was never told.
+    #
+    # The escaping regime is GONE rather than corrected. Get-SettingsHookRefs
+    # walks the deserialised object, where a path is a path; the definition of a
+    # `reference` lives in its docstring and nowhere else.
+    $hookHits = @()
     if ($null -ne $settingsObj) {
         try {
-            $json = ($settingsObj.hooks | ConvertTo-Json -Depth 12 -Compress)
-            if ($json) {
-                foreach ($needle in @($name, 'CLAUDE_PLUGIN_ROOT', ($pluginRoot -replace '\\', '\\\\'))) {
-                    if ($json -like "*$needle*") { $hookRefs++ }
-                }
-            }
+            $hookHits = @(Get-SettingsHookRefs -Hooks $settingsObj.hooks -Name $name `
+                                               -PluginRoot $pluginRoot `
+                                               -Leaves (Get-PluginHookLeaves -PluginRoot $pluginRoot))
         } catch { }
     }
+    $hookRefs = $hookHits.Count
     $hookCount = 0
     try {
         $hj = Join-Path $pluginRoot 'hooks\hooks.json'
@@ -466,8 +663,37 @@ try {
             $hookCount = @($h.hooks.PSObject.Properties.Name).Count
         }
     } catch { }
-    Add-PlanRow -Id 'hooks' -State "$hookCount event(s)" -Action 'removed WITH the junction' `
-              -Detail "declared in hooks/hooks.json inside the plugin, not in settings.json. settings.json holds $hookRefs reference(s) to this plugin under `hooks`."
+    # `0 reference(s)` ABOUT A FILE THIS RUN NEVER INSPECTED is an assertion, not
+    # a finding - the same untruth as the phantom permissions.deny entry this
+    # script used to report, wearing the opposite sign. $settingsUnread is the
+    # flag that separates "there is no settings.json", which really does hold no
+    # hook entries, from "there is one and I could not read it".
+    if ($settingsUnread) {
+        $hookDetail = "declared in hooks/hooks.json inside the plugin, not in settings.json. settings.json could not be read or parsed ($settingsErr), so it was NOT inspected for hook entries naming this plugin."
+    } else {
+        $hookDetail = "declared in hooks/hooks.json inside the plugin, not in settings.json. settings.json holds $hookRefs reference(s) to this plugin under `hooks`."
+        if ($hookRefs -gt 0) { $hookDetail += ' Every one of them is listed under LEFT BEHIND.' }
+    }
+    Add-PlanRow -Id 'hooks' -State "$hookCount event(s)" -Action 'removed WITH the junction' -Detail $hookDetail
+
+    # THE ORDER IS THE WARNING. Section 1 above prints the exact
+    # `cmd /c rmdir "<link>"` that removes the junction, and an operator reads
+    # this report top to bottom before running it. Once the junction is gone, a
+    # settings.json entry pointing into the clone fires on every event of every
+    # session and finds nothing - so this has to be in front of them BEFORE that
+    # command, not discoverable afterwards in docs/install.md.
+    if ($hookRefs -gt 0) {
+        $shown  = @($hookHits | Select-Object -First 12)
+        $listed = @($shown | ForEach-Object { "`n        - $($_.Command)`n          ($($_.Why))" }) -join ''
+        $more   = if ($hookRefs -gt $shown.Count) { "`n        ... and $($hookRefs - $shown.Count) more of the same shape." } else { '' }
+        Add-Left -What "$hookRefs settings.json hook registration(s) naming this plugin" `
+                 -Why ("this script never edits the hooks block of settings.json, so they are all still there in $SettingsPath. REMOVE THEM BEFORE you remove the junction - after it is gone they fire on every event of every session pointing at a script that is no longer loaded, and a hook that fails on every event is worse than the plugin was." +
+                       $listed + $more +
+                       "`n        A registration recognised only by its SCRIPT LEAF NAME - the reason says so - may belong to a different checkout of this plugin, or to a script of your own that shares the name. Read it before you delete it.")
+    } elseif ($settingsUnread) {
+        Add-Left -What 'the settings.json hook registration(s), however many there are' `
+                 -Why "settings.json could not be read or parsed ($settingsErr), so it was never inspected for hook entries naming this plugin. Any that are there survive the junction's removal and then fail on every event."
+    }
 
     # ---------------------------------------------------------------------
     # 3. status line - a settings.json key AND a copied file

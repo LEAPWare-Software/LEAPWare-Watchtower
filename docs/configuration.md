@@ -10,6 +10,48 @@ you edit *is* the file that runs.
 `disableAllHooks` is all-or-nothing, and turning it on would also take down the status line and the
 health supervisor. So every module gates itself on `config.json` instead.
 
+## Configuring the plugin dirties this checkout
+
+**Read this before running your first configuring command.** `config.json` is a **tracked** file in
+this repository and it is **not** ignored, and the four commands that configure the plugin rewrite it
+in place:
+
+| command | script | writes |
+| --- | --- | --- |
+| `/lw-watchtower:delegate` | `bin/lwg-toggle.ps1` | `interaction.delegate` |
+| `/lw-watchtower:plain` | `bin/lwg-toggle.ps1` | `interaction.plain` |
+| `/lw-watchtower:verbosity` | `bin/lwg-toggle.ps1` | `interaction.verbosity` |
+| `/lw-watchtower:config` | `bin/lwg-config.ps1` | any `modules` flag, global or per-repo |
+
+Both scripts resolve the file as `Join-Path $pluginRoot 'config.json'`, and `$pluginRoot` is
+`Split-Path -Parent $PSScriptRoot` — the checkout root, not the state directory. So the first action
+this documentation asks a new operator to take, `/lw-watchtower:delegate on`, leaves
+`git status --porcelain` reporting ` M config.json`. Measured, in a throwaway clone.
+
+**What that costs.** `/lw-watchtower:update` will not pull over an uncommitted change — deliberately,
+and the refusal is correct on its own terms — so it raises a `[FAIL] worktree` row and stops. It
+reports *"N uncommitted change(s)"* without naming the file, which reads as your own work in
+progress. It does not clear with time, a new session, or a reinstall of the same checkout.
+
+**Neither obvious escape is good.** `git checkout -- config.json` restores the updater by discarding
+your configuration, including the gate you just armed. Committing the change puts a commit on local
+`main` that `origin/main` does not have, and the next upstream commit turns the `--ff-only` pull into
+a divergence — the same permanent refusal wearing a different message.
+
+**What actually works today:** copy the value out, `git checkout -- config.json`, run the update, then
+set it again. That is a workaround for a defect, not a workflow, and it is written here because
+nothing else in these pages warns about it.
+
+**No test covers this, and none is shipped with this page.** `checklist.json`'s nearest row,
+`P5-setup`, only checks that two files exist. A harness named `tests/tree_cleanliness.ps1` was
+written for it and run — it drives the command in a throwaway clone and reads `git status` — and its
+two substantive rows, *the checkout stays clean* and *`config.json` is not a tracked unignored file*,
+fail at the current commit and failed identically at `fd8d023`, so the defect predates this release.
+**That file is not in this repository**: `tests/doc_claims.ps1` runs every tracked `tests/*.ps1` and
+aborts on any nonzero exit, so committing a suite that is honestly red would fail a CI step. Do not
+go looking for it in a clone — the check lands with the fix, not before it. `docs/architecture.md`
+states the rule this breaks under [State directory](architecture.md#state-directory).
+
 ## `modules` — the switchboard
 
 ```jsonc

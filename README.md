@@ -85,20 +85,26 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   [Architecture](docs/architecture.md#mission_drift-which-is-switched-on-by-default). It shipped
   `false` for want of that validation; the owner switched it on anyway on 30 July 2026, and what that
   accepts is stated at [`mission_drift`](docs/modules.md#mission_drift).
-- **Five suites test a behaviour, and three of the ten modules have none.**
-  `tests/gate_delegate.ps1` runs 93 cases against the gate, `tests/stop_behaviour.ps1` runs 169
+- **Nine suites test a behaviour, and two of the ten modules have none.**
+  `tests/gate_delegate.ps1` runs 93 cases against the gate, `tests/stop_behaviour.ps1` runs 177
   against six of the nine observing modules — `mission_drift`, `failure_capture`, `context_pressure`,
   `docs_coupling`, `git_hygiene` and `log_rotation` — `tests/setup_merge.ps1` runs 124 against the
   installer's `statusline` and `hooks` merge **and against the reporting surfaces** — the status
   line, the sitrep, resolve and update, which have no suite of their own —
-  `tests/uninstall_footprint.ps1` runs 22 against the uninstaller's
-  footprint, attribution and state-data deletions, and `tests/evidence_states.ps1` runs 47 against the evidence engine the
-  checklist rests on — all through a real pipe into a real child process. **The other three observing
-  modules — `verification_gate`, `self_health` and `context_injection` — are exercised by nothing,
-  anywhere**, and four of the six that are covered are covered by one to three cases each, on at most
+  `tests/uninstall_footprint.ps1` runs 27 against the uninstaller's
+  footprint, attribution and state-data deletions, `tests/evidence_states.ps1` runs 47 against the evidence engine the
+  checklist rests on, `tests/doctor_behaviour.ps1` runs 16 against two of the doctor's nine checks,
+  `tests/toggle_behaviour.ps1` runs 26 against the toggle's write to `config.json`,
+  `tests/subagent_scan.ps1` runs 6 against the `SubagentStart` fast path — the only coverage
+  `context_injection` has — and `tests/payload_guard.ps1` runs 15 against what the shipped payload
+  discloses; the behavioural ones all go through a real pipe or a real child process. **The other two observing
+  modules — `verification_gate` and `self_health` — are exercised by nothing,
+  anywhere**, and four of the seven that are covered are covered by one to three cases each, on at most
   two properties apiece — counted on 3 August 2026: `context_pressure` 2, `docs_coupling` 2,
   `log_rotation` 3, `git_hygiene` 1, which is only that an UNKNOWN tree state is repeated at every
-  turn end. Read that as "these modules are no longer untouched", not as "these modules are tested".
+  turn end. `context_injection` is thinner still — one property of it is run, and its
+  `worker_facts.md` handling has no case at all.
+  Read that as "these modules are no longer untouched", not as "these modules are tested".
   (`verification_gate` is the awkward one: the class resolver it reads has cases, the module itself
   has none.) The 233-case gate suite went with the destructive
   gate and the `permissions.deny` parity test went with `secret_scan`; neither came back, and nothing
@@ -322,7 +328,7 @@ Exit codes and reporting rules: [Commands](docs/commands.md).
 | [Commands](docs/commands.md) | All twelve slash commands, their exit codes, and which preference commands are enforced |
 | [Roles](docs/roles.md) | The six agent roles the plugin ships, and when each is dispatched |
 | [Architecture](docs/architecture.md) | Layout, hooks, measured costs, state, failure policy |
-| [Testing and CI](docs/testing.md) | **Eight files in `tests/`, five of which test behaviour** — what each one covers, and what is uncovered |
+| [Testing and CI](docs/testing.md) | **Twelve files in `tests/`, nine of which test behaviour** — what each one covers, and what is uncovered |
 | [Portability](docs/portability.md) | The no-local-environment-dependencies mandate, and the scan that enforces it |
 | [Output styles](docs/output-styles.md) | The three verbosity levels and `plain`, and what they cannot do |
 | [Troubleshooting](docs/troubleshooting.md) | Symptom-first index |
@@ -339,9 +345,11 @@ how an existing `config.json` is read, which is why the next number is `0.4.0` a
 refs. See [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-releases) for the rule and for the part the
 guard cannot see.
 
-CI runs on `windows-latest` under Windows PowerShell 5.1, in **one job with ten check steps**:
+CI runs on `windows-latest` under Windows PowerShell 5.1, in **one job with fourteen check steps**:
 JSON validity, PowerShell parse, the workflow guard, the delegate gate suite, the installer merge
 suite, the stop-hook behaviour suite, the uninstaller footprint suite, the evidence-state suite, the
+doctor behaviour suite, the toggle write-path suite, the `SubagentStart` fast-scan suite, the payload
+disclosure guard, the
 portability scan, and the documentation-claim guard. The `gate-regression` job and the
 233-case suite behind it were deleted on 30 July 2026 with the destructive command gate; the
 `permissions.deny` parity step and `tests/deny_parity.ps1` went the same day with `secret_scan`.
@@ -355,10 +363,15 @@ not one of them is exercised by anything — and for four of the six that are, i
 most two properties apiece and no more.** See [Testing and CI](docs/testing.md).
 
 If branch protection on `main` still requires the `gate-regression` context, it has to be removed —
-that job can never report again. Only `fast-checks` remains requirable.
+that job can never report again. `fast-checks` is not the replacement: that is the YAML job id, and a
+required status check is matched by the check run's **name**, so requiring the id blocks every merge
+for the same reason. The one requirable string is the surviving job's display name, quoted verbatim in
+[Testing § Branch protection](docs/testing.md#branch-protection). It is not repeated here on purpose:
+that page is held to the string by the documentation-claim guard, which derives it from `ci.yml`, and
+this page is not.
 
 There is no status badge here, deliberately: the repository is private, so a badge would not render
-for most viewers, and a green badge covering one gate and two of the nine observing modules would
+for most viewers, and a green badge covering one gate and seven of the nine observing modules would
 read as far broader assurance than it is.
 
 ## Contributing

@@ -32,7 +32,7 @@ Closes #
 
 **Paste real output. A summary of a run is not a run.**
 
-### The eight files in `tests\`
+### The twelve files in `tests\`
 
 ```
 <!-- The RESULT: and EXIT: lines from each of
@@ -41,28 +41,37 @@ Closes #
      powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1
      powershell -NoProfile -ExecutionPolicy Bypass -File tests\uninstall_footprint.ps1
      powershell -NoProfile -ExecutionPolicy Bypass -File tests\evidence_states.ps1
+     powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1
+     powershell -NoProfile -ExecutionPolicy Bypass -File tests\toggle_behaviour.ps1
+     powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1
+     powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1
      powershell -NoProfile -ExecutionPolicy Bypass -File tests\workflow_guard.ps1
      powershell -NoProfile -ExecutionPolicy Bypass -File tests\portability_scan.ps1
      powershell -NoProfile -ExecutionPolicy Bypass -File tests\doc_claims.ps1 -->
 ```
 
-- [ ] All eight exit `0`.
+- [ ] All twelve exit `0`.
 - [ ] Not all run — and I have said which, why, and what that leaves unverified.
 
 <!-- 1 and 2 are not passes. 2 means the harness aborted and NOTHING was checked. -->
 
-<!-- FIVE SUITES TEST BEHAVIOUR, each through a real pipe into a real child process:
+<!-- NINE SUITES TEST BEHAVIOUR, each through a real pipe into a real child process:
      tests\gate_delegate.ps1 covers delegate_gate (93 cases), tests\setup_merge.ps1 covers the
      installer's statusline and hooks merge AND the reporting surfaces (124),
-     tests\stop_behaviour.ps1 covers six of the nine observing modules (169),
+     tests\stop_behaviour.ps1 covers six of the nine observing modules (177),
      tests\uninstall_footprint.ps1 covers the uninstaller's state-data deletions and its
-     attribution (22), tests\evidence_states.ps1 covers the evidence engine (47). Three of the
-     ten modules are covered by nothing.
-     THESE FIVE NUMBERS ARE IN PARENTHESES AND tests\doc_claims.ps1 CANNOT READ THEM. That is a
+     attribution (25), tests\evidence_states.ps1 covers the evidence engine (47),
+     tests\doctor_behaviour.ps1 covers two of the doctor's nine checks (16),
+     tests\toggle_behaviour.ps1 covers the toggle's write to config.json (26),
+     tests\subagent_scan.ps1 covers the SubagentStart fast path and is the only coverage
+     context_injection has (5), tests\payload_guard.ps1 covers what the shipped payload
+     discloses (15). Two of the ten modules are covered by nothing.
+     THESE NINE NUMBERS ARE IN PARENTHESES AND tests\doc_claims.ps1 CANNOT READ THEM. That is a
      named hole in its header, not an oversight, and this block is what fell down it: three of
-     the five sat at 81, 153 and 10 through the wave that moved them to 124, 169 and 22, while
-     every quantity the guard DOES recognise was swept. If you change a suite's case count,
-     change it here by hand - nothing will tell you.
+     the five sat at 81, 153 and 10 through the wave that moved them to 124, 169 and 22, and
+     two of them then sat at 169 and 22 through the wave that moved them to 177 and 25, while
+     every quantity the guard DOES recognise was swept both times. If you change a suite's case
+     count, change it here by hand - nothing will tell you.
      THE OTHER THREE ASSERT NOTHING THIS PLUGIN DOES: workflow_guard parses every file under
      .github\workflows\; portability_scan scans tracked files for machine-specific literals;
      doc_claims checks that the counts stated in tracked pages match the tree, and will fail
@@ -83,9 +92,10 @@ against the parent commit.
       results:
 
 ```
-<!-- If your fix is inside what one of the five behavioural suites covers - the gate, the
+<!-- If your fix is inside what one of the nine behavioural suites covers - the gate, the
      installer's statusline merge, either turn-end hook, the uninstaller's state-data deletions,
-     or the evidence engine - ADD THE CASE TO THAT SUITE and paste its per-case line from before
+     the evidence engine, either driven doctor check, the toggle's write, the SubagentStart fast
+     path, or what the shipped payload discloses - ADD THE CASE TO THAT SUITE and paste its per-case line from before
      and after. Anywhere else there is no harness to hang a case on, so include the script you
      wrote. e.g.
      my_case.ps1 against <parent sha>: EXIT: 1 (case failed - the defect was present)
@@ -113,11 +123,15 @@ section exists has not changed.
      file names a machine, delegate_gate still refuses what it declares, the installer's statusline
      merge still preserves what it was not asked to touch, the pinned turn-end cases still behave for
      the six observing modules stop_behaviour.ps1 reaches, the uninstaller deletes exactly the state
-     data it listed, the evidence engine does not report a state it never observed, and no page
+     data it listed, the evidence engine does not report a state it never observed, two of the
+     doctor's nine checks ask the question they claim to, the toggle backs up and re-checks the file
+     it replaces, the SubagentStart fast path answers the global modules flag, no tracked file
+     carries a disclosure the payload guard knows the shape of, and no page
      states a count the tree contradicts. That is the WHOLE list. It says nothing about the other
-     three observing modules - verification_gate, self_health and context_injection - nothing about
-     whether the six it does reach advise the RIGHT thing (four of them have one to three cases on
-     at most two properties), and nothing about the SessionStart banner, the status line, the installer's
+     two observing modules - verification_gate and self_health - nothing about
+     whether the seven it does reach advise the RIGHT thing (four of them have one to three cases on
+     at most two properties, and context_injection has exactly one property run), and nothing about
+     the SessionStart banner, the status line, the installer's
      hooks section, or the uninstaller's settings.json attribution. Be explicit about the difference
      between "I verified this" and "I read the source and believe this". -->
 

@@ -3,6 +3,33 @@ description: "LW-WATCHTOWER plan checklist - every item's state derived from a c
 allowed-tools: "Bash(powershell:*)"
 ---
 
+## Read this before running it: whose plan this is
+
+**This command reports on the LW-WATCHTOWER plugin project's own release plan. It does not report
+on the user's repository, and nothing it prints is a finding about their work.**
+
+`checklist.json` is this plugin's internal release audit, and it ships inside the plugin because the
+whole repository root is the payload — `.claude-plugin/marketplace.json` declares `"source": "./"`,
+and that form has no exclusion mechanism. So a user who installed the plugin from the marketplace
+and ran the obvious-looking command gets forty rows about a project that is not theirs, each one
+formatted exactly like a finding about their own tree.
+
+The script prints that disclosure itself, at the top of its output, on every run. **Do not omit
+those lines, do not summarise them away, and do not reword them into something softer.** They are
+the part of the output most likely to be dropped as boilerplate and the part a reader most needs.
+
+If the user reads a row as a task for them, correct it: say plainly that the checklist describes
+this plugin's development and that they have nothing outstanding on it. **Never turn a row into a
+suggestion for the user's repository** — an item that says a file is missing means missing from
+*this plugin*, not from theirs.
+
+**Two rows make authenticated network calls, as the user, about a repository that is not theirs.**
+`P6-branch-protection` and `P8-visibility` shell out to `gh` against the maintainer's own repository,
+so a `403` or a `not found` from them is a permissions answer about somebody else's private repo and
+is **not** a finding about the user's environment or credentials. Report them as unverified and say
+why. `module_config.git_hygiene.use_gh: false` switches all four `gh` call sites off; `docs/install.md`
+records that these calls exist and whose repository they are about.
+
 Run this command and show the user its output **verbatim**:
 
 ```
@@ -57,7 +84,7 @@ outstanding, and never total `done / (done + not started)` in a way that silentl
 
 ## What the source of truth is, and how it goes stale
 
-The item list comes from **`checklist.json`, tracked in this repo** — not from the plan file
+The item list comes from **`checklist.json`, tracked in this plugin** — not from the plan file
 under `~/.claude/plans`, which is per-machine, untracked, ships with nothing, and whose
 checkboxes are hand-ticked; and not from the session task list, which is ephemeral, unreachable
 from a script and carries no evidence at all. A tracked file is reviewable in a pull request and
@@ -70,10 +97,14 @@ it is present, and the run says so plainly when it is not. **The third is not de
 automated means**, which is why every `DONE` row prints its evidence — judge the rule, do not
 trust the tick.
 
-**The plan file is on one laptop, so drift is measurable on one laptop.** Its path is under a
-single user profile and it is neither tracked nor shipped, so the `STALENESS MEASURED` line can
-only ever appear on the machine that holds it. Everywhere else the run prints `STALENESS NOT
-MEASURED` with the reason — which is the command working, and is **not** the same as no drift.
+**The plan file is on one laptop, so drift is measurable on one laptop.** It is neither tracked nor
+shipped, so the `STALENESS MEASURED` line can only ever appear on the machine that holds it.
+**Its path is no longer recorded in the manifest**, deliberately: the manifest ships to every
+consumer, so a literal path ending in the plan's own file name put a maintainer's personal file name
+on every installer's screen and helped none of them. `source_plan.path_env` names an environment
+variable instead — set `$env:LWG_SOURCE_PLAN` on the machine that holds the plan and the measurement
+works exactly as before. Everywhere else the run prints `STALENESS NOT MEASURED` with the reason —
+which is the command working, and is **not** the same as no drift.
 Report it that way: on a second machine an untranscribed plan item is undetectable, so the list
 can be short an item and look complete. `STALENESS NOT MEASURED` means *nobody here can tell you
 whether the plan and this file agree*, and it must never be summarised as "no drift" or omitted

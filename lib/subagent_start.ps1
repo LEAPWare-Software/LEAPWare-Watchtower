@@ -177,54 +177,124 @@ function Get-LwgJsonObjectSpan {
       stepping character by character. On config.json that is about 60 native
       calls rather than several thousand PowerShell loop iterations, and it is
       the difference between ~2 ms and ~70 ms on a hook that runs per dispatch.
+
+      ONLY A MEMBER OF THE ROOT OBJECT MATCHES, and until 3 August 2026 there was
+      no notion of depth here at all. The needle search was a bare
+      $Text.IndexOf('"modules"'), so the FIRST occurrence in DOCUMENT ORDER won
+      at ANY nesting level - and config.json's `repos` block is documented to
+      hold per-repo `modules` objects. Measured, by running the real hook against
+      a config.json holding
+
+          { "repos": { "<a repo>": { "modules": { "docs_coupling": false } } },
+            "modules": { "context_injection": false } }
+
+      the scan returned the PER-REPO block as the global one, found no
+      context_injection in it, kept its fail-open default of $true and injected
+      into every dispatch while the module was switched off. The escalation two
+      dozen lines below cannot save that: it fires only when the `repos` span
+      names THIS module, and this one names a different one. The same bytes in
+      the shipped key order answered correctly, which is the whole defect - a
+      raw-text scanner whose correctness depended on which of two sibling keys
+      came first in a file the $comment invites operators to hand-edit, with
+      nothing anywhere asserting that order.
+
+      Depth is now carried by the SAME jump loop that was already there rather
+      than by a second pass: braces outside strings move it, and a member name is
+      a candidate only while it stands at depth 1. The cost is real and is
+      measured rather than waved at: every string in the file is now walked to
+      its closing quote instead of being jumped past by a single IndexOf for the
+      needle. Both versions were AST-extracted unmodified and run against this
+      repository's own config.json (33,175 chars) under Windows PowerShell 5.1,
+      200 calls in a warmed process:
+
+          -Key 'modules'   before  0.168 ms/call     after  0.764 ms/call
+
+      Both return the identical span on that file - start 12519, end 12774 -
+      as do both for 'repos'. Half a millisecond against a budget the header
+      above sets in tens of milliseconds, to stop the scan silently answering
+      about the wrong object.
+
+      A note on the escape at the top of the loop: OUTSIDE a string a backslash
+      is not meaningful JSON and advances by ONE. Skipping two there - which is
+      right inside a string, where a backslash escapes the next character - could
+      step over a brace and corrupt the depth count, which is the one thing this
+      function now depends on.
     #>
     param([string]$Text, [string]$Key)
 
     if ([string]::IsNullOrEmpty($Text) -or [string]::IsNullOrEmpty($Key)) { return $null }
 
-    $needle = '"' + $Key + '"'
-    $i = $Text.IndexOf($needle, [StringComparison]::Ordinal)
-    while ($i -ge 0) {
-        # Whitespace is skipped with Substring().Trim() rather than a
-        # character-stepping while loop. Both are correct; only one of them
-        # costs PowerShell a loop body to compile, and compilation - not the
-        # work - is what this script's budget is actually spent on.
-        $after = $i + $needle.Length
-        $colon = $Text.IndexOf(':', $after)
-        if ($colon -ge 0 -and $Text.Substring($after, ($colon - $after)).Trim().Length -eq 0) {
-            $j = $Text.IndexOf('{', $colon + 1)
-            if ($j -ge 0 -and $Text.Substring(($colon + 1), ($j - $colon - 1)).Trim().Length -eq 0) {
-                $depth = 0
-                $inStr = $false
-                $k     = $j
-                while ($k -ge 0 -and $k -lt $Text.Length) {
-                    $k = $Text.IndexOfAny($script:LwgScanChars, $k)
-                    if ($k -lt 0) { break }
-                    $c = $Text[$k]
-                    if ($inStr) {
-                        # A backslash inside a string escapes the next character,
-                        # including a quote - skip both, or \" would be read as
-                        # the end of the string.
-                        if ($c -eq '\') { $k += 2; continue }
-                        if ($c -eq '"') { $inStr = $false }
-                        $k++
-                        continue
+    $len   = $Text.Length
+    $depth = 0
+    $k     = 0
+    while ($k -ge 0 -and $k -lt $len) {
+        $k = $Text.IndexOfAny($script:LwgScanChars, $k)
+        if ($k -lt 0) { break }
+        $c = $Text[$k]
+        if ($c -eq '{') { $depth++; $k++; continue }
+        if ($c -eq '}') { $depth--; $k++; continue }
+        # A backslash outside a string is not meaningful JSON - ONE character.
+        if ($c -ne '"') { $k++; continue }
+
+        # A string starts here. Find its end with the same jumping, so the whole
+        # of a $comment paragraph costs one IndexOfAny per interesting character
+        # in it rather than one loop body per character.
+        $p   = $k + 1
+        $end = -1
+        while ($p -ge 0 -and $p -lt $len) {
+            $p = $Text.IndexOfAny($script:LwgScanChars, $p)
+            if ($p -lt 0) { break }
+            $ch = $Text[$p]
+            # Inside a string a backslash escapes the next character, including
+            # a quote - skip both, or \" would be read as the end of the string.
+            if ($ch -eq '\') { $p += 2; continue }
+            if ($ch -eq '"') { $end = $p; break }
+            $p++
+        }
+        # An unterminated string is not JSON and there is nothing to be said
+        # about a member of it.
+        if ($end -lt 0) { return $null }
+
+        if ($depth -eq 1 -and ($end - $k - 1) -eq $Key.Length -and
+            [string]::CompareOrdinal($Text, ($k + 1), $Key, 0, $Key.Length) -eq 0) {
+            # Whitespace is skipped with Substring().Trim() rather than a
+            # character-stepping while loop. Both are correct; only one of them
+            # costs PowerShell a loop body to compile, and compilation - not the
+            # work - is what this script's budget is actually spent on.
+            $colon = $Text.IndexOf(':', $end + 1)
+            if ($colon -ge 0 -and $Text.Substring(($end + 1), ($colon - $end - 1)).Trim().Length -eq 0) {
+                $j = $Text.IndexOf('{', $colon + 1)
+                if ($j -ge 0 -and $Text.Substring(($colon + 1), ($j - $colon - 1)).Trim().Length -eq 0) {
+                    $d     = 0
+                    $inStr = $false
+                    $m     = $j
+                    while ($m -ge 0 -and $m -lt $len) {
+                        $m = $Text.IndexOfAny($script:LwgScanChars, $m)
+                        if ($m -lt 0) { break }
+                        $cc = $Text[$m]
+                        if ($inStr) {
+                            if ($cc -eq '\') { $m += 2; continue }
+                            if ($cc -eq '"') { $inStr = $false }
+                            $m++
+                            continue
+                        }
+                        if ($cc -eq '"') { $inStr = $true; $m++; continue }
+                        if ($cc -eq '{') { $d++;           $m++; continue }
+                        if ($cc -eq '}') {
+                            $d--
+                            if ($d -le 0) { return @{ start = $j; end = ($m + 1) } }
+                            $m++
+                            continue
+                        }
+                        $m++
                     }
-                    if ($c -eq '"') { $inStr = $true; $k++; continue }
-                    if ($c -eq '{') { $depth++;       $k++; continue }
-                    if ($c -eq '}') {
-                        $depth--
-                        if ($depth -le 0) { return @{ start = $j; end = ($k + 1) } }
-                        $k++
-                        continue
-                    }
-                    # A backslash outside a string is not meaningful JSON.
-                    $k++
+                    return $null
                 }
-                return $null
             }
         }
-        $i = $Text.IndexOf($needle, $i + 1, [StringComparison]::Ordinal)
+        # Not the member, or its value is not an object. Carry on from after the
+        # string - the depth is unchanged, because a string cannot move it.
+        $k = $end + 1
     }
     return $null
 }

@@ -45,11 +45,11 @@ perfectly configured and completely switched off. To find out what is broken, us
 
 A gate count of `0` means no gate is **live**, not that none exists. One ships — `delegate_gate` —
 and it is switched off by default, which is why `SHIPPED` and `LIVE` are reported as separate
-numbers. Its blocking *is* tested, by `tests/gate_delegate.ps1` — one of five behavioural suites in
-`tests/`, and the only one that covers a gate. Of the modules this banner counts, six are exercised
+numbers. Its blocking *is* tested, by `tests/gate_delegate.ps1` — one of nine behavioural suites in
+`tests/`, and the only one that covers a gate. Of the modules this banner counts, seven are exercised
 by something — `mission_drift`, `failure_capture`, `context_pressure`, `docs_coupling`,
 `git_hygiene` and `log_rotation`, the last four by one to three cases apiece on at most two
-properties —
-and the other three, `verification_gate`, `self_health` and `context_injection`, are exercised by
+properties, and `context_injection` on one property only —
+and the other two, `verification_gate` and `self_health`, are exercised by
 nothing. What the banner reports is which modules are loaded and observing, and nothing more than
 that — a module can be counted here and be completely broken.

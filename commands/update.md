@@ -61,18 +61,20 @@ Rules for reporting it:
   the repo copy is installed on top of it, and nothing else on this machine compares the two.
 
 `/lw-watchtower:doctor` is what this runs afterwards, and it checks wiring only. **Much of what a pull can
-change is covered by no behavioural test.** `tests/` holds eight files, five of them behavioural:
+change is covered by no behavioural test.** `tests/` holds twelve files, nine of them behavioural:
 `gate_delegate.ps1` covers `delegate_gate`, `setup_merge.ps1` covers the installer's `statusline`
 merge and what its `hooks` section decides — **and, in four sections that are not about the
 installer, the reporting surfaces: `statusline/statusline.ps1`, `bin/lwg-sitrep.ps1`,
 `lib/resolve.ps1` and this command, `bin/lwg-update.ps1`, which nothing exercised in any form before
 3 August 2026** — `stop_behaviour.ps1` covers the stop path —
 `mission_drift` anchoring and the supervisor —
-`uninstall_footprint.ps1` covers the uninstaller's state-data deletions, and `evidence_states.ps1`
-covers the evidence engine the checklist rests on. The other three, `workflow_guard.ps1`,
+`uninstall_footprint.ps1` covers the uninstaller's state-data deletions, `evidence_states.ps1`
+covers the evidence engine the checklist rests on, `doctor_behaviour.ps1` covers two of the doctor's
+nine checks, `toggle_behaviour.ps1` covers the toggle's write to `config.json`, `subagent_scan.ps1`
+covers the `SubagentStart` fast path, and `payload_guard.ps1` covers what the shipped payload
+discloses. The other three, `workflow_guard.ps1`,
 `portability_scan.ps1` and `doc_claims.ps1`, check the tree and the documentation rather than
-behaviour. **Nothing covers the remaining three observing modules — `verification_gate`,
-`self_health` and `context_injection` — the context injected into
-subagents, the installer's `hooks` section or the uninstaller's `settings.json` edits**, so a pull
+behaviour. **Nothing covers the remaining two observing modules — `verification_gate` and
+`self_health` — the installer's `hooks` section or the uninstaller's `settings.json` edits**, so a pull
 that changes any of those is covered by review and by nothing else — say that rather than implying
 the doctor validated the change.

@@ -337,6 +337,34 @@ function Get-StateDataRow {
     return ''
 }
 
+function Get-LeftBehind {
+    <#
+      The LEFT BEHIND block of the report, as one string, or '' when there is
+      no such block. It runs from the `LEFT BEHIND` heading to the
+      `AND WHAT THIS SCRIPT CANNOT SEE` heading below it.
+
+      SCOPED RATHER THAN SWEPT, because "the report mentions it somewhere" and
+      "the report lists it under what was left behind" are different claims and
+      the whole subject of the hook cases is that the second one was never true.
+      A -match against the whole of stdout would be satisfied by the plan row,
+      which is exactly the thing that was already there.
+    #>
+    param([string]$Out)
+
+    $lines = @($Out -split "`r?`n")
+    $from = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^\s*LEFT BEHIND\s*$') { $from = $i + 1; break }
+    }
+    if ($from -lt 0) { return '' }
+    $out = @()
+    for ($i = $from; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^\s*AND WHAT THIS SCRIPT CANNOT SEE\s*$') { break }
+        $out += $lines[$i]
+    }
+    return ($out -join "`n")
+}
+
 # ---------------------------------------------------------------------------
 # CASES
 # ---------------------------------------------------------------------------
@@ -769,6 +797,353 @@ function Test-MissingDenyKeyInventsNoEntry {
                -Ok ($bad.Count -eq 0) -Detail ($bad -join '; ')
 }
 
+function New-HookSettings {
+    <#
+      A settings.json whose `hooks` block holds one group per supplied command
+      string, each in the canonical CLI shape:
+
+          "hooks": { "<event>": [ { "hooks": [ { "type": "command",
+                                                 "command": "<the string>" } ] } ] }
+
+      One group per command, and each group gets its own invented event name, so
+      the number of REGISTRATIONS in the file is exactly the number of strings
+      handed in. That is the number the footprint has to report, and a helper
+      that packed several commands into one group could not express the
+      difference between a count of entries and a count of anything else.
+
+      Written as TEXT rather than through ConvertTo-Json for the reason the
+      header gives for Set-CaseSettings, and because one shape below is a
+      settings.json that does not parse.
+    #>
+    param([string[]]$Commands)
+
+    $groups = @()
+    $i = 0
+    foreach ($c in $Commands) {
+        $i++
+        $esc = $c.Replace('\', '\\').Replace('"', '\"')
+        $groups += ("  `"LwgTestEvent$i`": [`r`n" +
+                    "    {`r`n      `"hooks`": [`r`n" +
+                    "        { `"type`": `"command`", `"command`": `"$esc`" }`r`n" +
+                    "      ]`r`n    }`r`n  ]")
+    }
+    return ("{`r`n  `"hooks`": {`r`n" + ($groups -join ",`r`n") + "`r`n  }`r`n}`r`n")
+}
+
+function Test-HookRegistrationInSettingsIsDetectedAndCounted {
+    <#
+      THE SCAN IN SECTION 2 EXISTS FOR ONE PURPOSE, stated in the script beside
+      it: "a hand-added entry pointing at these scripts would survive the
+      junction's removal and then fail on every event." It found nothing.
+
+      Three defects in five lines, all of them live until this case:
+
+        1. The plugin-root needle was `($pluginRoot -replace '\\', '\\\\')`. In
+           a .NET replacement string a backslash is literal, so that is FOUR
+           backslashes per separator where ConvertTo-Json emits TWO. Measured
+           under Windows PowerShell 5.1: needle `C:\\\\repos\\\\governance`
+           (len 25) against JSON `C:\\repos\\governance` (len 21), -like False.
+           The needle could not match any settings.json ever written.
+        2. `$hookRefs++` ran at most once per needle over a three-element array,
+           so it counted needle KINDS with a ceiling of 3 - and the row printed
+           it as a count of references.
+        3. Nothing carried a hit into LEFT BEHIND.
+
+      THE CLONE PATH IS THE WHOLE POINT of the first needle failing too. This
+      repository is checked out wherever it is checked out; the junction is what
+      supplies the plugin's name, not the directory. So needle 1 ($name) misses
+      unless the checkout path happens to contain it, needle 2
+      (CLAUDE_PLUGIN_ROOT) misses because bin\lwg-setup.ps1 substitutes the
+      literal before writing, and needle 3 could not match at all. The operator
+      was told `0 reference(s)`, removed the junction on the script's own
+      instruction, and every one of those entries then fired on every event of
+      every session pointing at an unloaded script.
+
+      FIVE REGISTRATIONS, FOUR OF THEM THIS PLUGIN'S, in the four spellings a
+      hand-added entry can legally take:
+
+        * an absolute path into THIS checkout naming a script hooks.json
+          registers - the case needle 3 was for;
+        * an absolute path into THIS checkout naming a script hooks.json does
+          NOT register. THIS ONE IS ONLY REACHABLE BY THE ROOT, and it is here
+          because without it the leaf rule below would cover for a broken root
+          rule and needle 3's successor would have no case of its own. Running
+          the doctor from a SessionStart hook is the realistic shape.
+        * an unsubstituted ${CLAUDE_PLUGIN_ROOT} - the case needle 2 was for -
+          POINTED AT A SCRIPT hooks.json DOES NOT REGISTER, for exactly the same
+          reason. It named lib/session_start.ps1 until 3 August 2026, which is a
+          shipped leaf, so the leaf rule covered for the CLAUDE_PLUGIN_ROOT rule
+          and that branch could be deleted whole with this case still green.
+          bin/lwg-sitrep.ps1 is in this plugin and is not a hook, so only the
+          CLAUDE_PLUGIN_ROOT signal can reach it.
+        * an absolute path into a DIFFERENT checkout, recognisable only by the
+          script leaf name, which is the shape bin\lwg-setup.ps1's own
+          Get-HookIdentity keys on because the root is exactly the thing that
+          varies between the machine that wrote the entry and the machine
+          reading it.
+
+      The fifth names a .ps1 this plugin does not ship, from a path that is
+      neither checkout, and must NOT be counted or named: a scan that claims
+      everything is a scan that says nothing.
+
+      THE NAMING ASSERTIONS GO THROUGH Get-LeftBehind, not through the whole of
+      stdout. Every one of these paths appears in the report the moment the
+      script echoes the settings file it read, so a sweep of $r.out would be
+      satisfied by output no operator could act on - and it coupled this case to
+      the Add-Left call, whose own case is below. "The report mentions it" and
+      "the report lists it under LEFT BEHIND" are different claims and this file
+      has a helper for the second one.
+    #>
+    $t = New-CaseTree 'hooks-detect'
+    $mine  = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $Root 'lib\gate_delegate.ps1') + '"'
+    $notAHook = Join-Path $Root 'bin\lwg-doctor.ps1'
+    $rootOnly = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $notAHook + '"'
+    $unsub = 'powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/bin/lwg-sitrep.ps1"'
+    $other = Join-Path $t.elsewhere 'another-checkout\lib\supervisor.ps1'
+    $far   = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $other + '" -HookEvent Stop'
+    $alien = Join-Path $t.elsewhere 'some-other-tool\bin\unrelated_thing.ps1'
+    $decoy = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $alien + '"'
+    [void](Set-CaseSettings -Tree $t -Text (New-HookSettings -Commands @($mine, $rootOnly, $unsub, $far, $decoy)))
+
+    $r = Invoke-Uninstall -Tree $t
+    $left = Get-LeftBehind $r.out
+
+    $bad = @()
+    if ($r.code -ne 0) { $bad += "exit $($r.code), expected 0" }
+    if ($r.out -notmatch 'holds 4 reference\(s\) to this plugin') {
+        $m = [regex]::Match($r.out, 'holds (\d+) reference\(s\)')
+        $bad += "the hooks row does not report 4 references - it reports '$(if ($m.Success) { $m.Value } else { '<no such row>' })'"
+    }
+    if ($left -notlike "*$(Join-Path $Root 'lib\gate_delegate.ps1')*") {
+        $bad += 'LEFT BEHIND never names the registration that points into this checkout, so the operator cannot find it'
+    }
+    if ($left -notlike "*$notAHook*")        { $bad += 'LEFT BEHIND never names the registration that only the clone root can identify - a script in this checkout that hooks.json does not register' }
+    if ($left -notlike "*$other*")           { $bad += 'LEFT BEHIND never names the registration from another checkout, which the leaf name identifies' }
+    if ($left -notmatch 'lwg-sitrep\.ps1')   { $bad += 'LEFT BEHIND never names the unsubstituted ${CLAUDE_PLUGIN_ROOT} registration, which nothing but that signal can reach' }
+    if ($left -like "*$alien*")              { $bad += "a .ps1 this plugin does not ship was attributed to it: $alien" }
+
+    Add-Result -Name 'dry run: hand-added settings.json hook registrations are found in all three spellings, and a foreign one is not' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
+}
+
+function Test-HookLeafMatchIsCaseInsensitive {
+    <#
+      `Supervisor.PS1` AND `supervisor.ps1` ARE THE SAME FILE ON WINDOWS, and
+      the leaf extraction did not know it. Get-PluginHookLeaves compiled its own
+      extraction with (?i) and the leaf set is a PowerShell hashtable, whose
+      comparer is case-insensitive - so the ONE case-sensitive step in the chain
+      was the extraction inside Get-HookRefReason. Measured in isolation:
+
+          powershell -File "C:\some\other\lib\Supervisor.PS1"   0 matches
+          powershell -File "C:\some\other\lib\supervisor.ps1"   1 match
+
+      End to end that is a live registration reported as `0 reference(s)`, which
+      is this scan's founding defect surviving in a narrow form. An operator
+      typing the path by hand, a tool that title-cases, or a settings.json
+      carried from a machine where it was written that way all produce it.
+
+      TWO SHAPES. An upper-cased SHIPPED leaf must be found; an upper-cased leaf
+      this plugin does NOT ship must still not be, so the fix is a case rule and
+      not a loosening that makes every .ps1 ours.
+    #>
+    $bad = @()
+
+    $t1 = New-CaseTree 'hooks-case-ours'
+    $mixed = Join-Path $t1.elsewhere 'another-checkout\lib\Supervisor.PS1'
+    [void](Set-CaseSettings -Tree $t1 -Text (New-HookSettings -Commands @(
+        'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $mixed + '" -HookEvent Stop')))
+    $r1 = Invoke-Uninstall -Tree $t1
+    $left1 = Get-LeftBehind $r1.out
+
+    if ($r1.code -ne 0) { $bad += "ours: exit $($r1.code), expected 0" }
+    if ($r1.out -notmatch 'holds 1 reference\(s\) to this plugin') {
+        $m = [regex]::Match($r1.out, 'holds (\d+) reference\(s\)')
+        $bad += "ours: a registration naming Supervisor.PS1 reports '$(if ($m.Success) { $m.Value } else { '<no such row>' })' - the leaf match is case-sensitive"
+    }
+    if ($left1 -notlike "*$mixed*") { $bad += 'ours: LEFT BEHIND does not name the upper-cased registration' }
+
+    $t2 = New-CaseTree 'hooks-case-theirs'
+    $alien = Join-Path $t2.elsewhere 'some-other-tool\bin\Unrelated_Thing.PS1'
+    [void](Set-CaseSettings -Tree $t2 -Text (New-HookSettings -Commands @(
+        'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $alien + '"')))
+    $r2 = Invoke-Uninstall -Tree $t2
+    $left2 = Get-LeftBehind $r2.out
+
+    if ($r2.code -ne 0) { $bad += "theirs: exit $($r2.code), expected 0" }
+    if ($r2.out -notmatch 'holds 0 reference\(s\) to this plugin') { $bad += 'theirs: an upper-cased .ps1 this plugin does not ship was attributed to it' }
+    if ($left2 -match '(?i)hook registration') { $bad += 'theirs: LEFT BEHIND warns about a registration that is not this plugin''s' }
+
+    Add-Result -Name 'a hook registration naming a shipped script in a different CASE is found; a foreign one in any case is not' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exits $($r1.code)/$($r2.code)")
+}
+
+function Test-HookPathInArgsArrayIsRead {
+    <#
+      THE SHAPE hooks.json ITSELF USES, and it had no case. This plugin's
+      hooks/hooks.json writes `"command": "powershell"` with the script path in
+      an `args` ARRAY, so a copy-paste out of it into settings.json - which is
+      exactly how an operator reproduces a registration by hand - puts the only
+      identifying string somewhere the `command` member never sees.
+      bin\lwg-setup.ps1 documents the same split at :1433 and :1453 and its own
+      Get-HookScriptPaths walks for it rather than reading a known field.
+
+      Proved non-equivalent rather than assumed: with the args append removed
+      from Get-SettingsHookRefs, this fixture drops from 1 reference to 0 while
+      every other case in this file stays green.
+
+      THE PATH IS AN ABSOLUTE ONE INTO THIS CHECKOUT, naming a script hooks.json
+      does not register. That is deliberate for the same reason as the two
+      fixtures above: an args array holding ${CLAUDE_PLUGIN_ROOT} or a shipped
+      leaf would be found by a scan that never looked at args at all.
+
+      The negative half is the same shape with an args array naming somebody
+      else's script, so this pins reading args rather than counting any entry
+      that happens to have them.
+    #>
+    $bad = @()
+
+    $t1 = New-CaseTree 'hooks-args-ours'
+    $ours = (Join-Path $Root 'bin\lwg-status.ps1')
+    $j1 = "{`r`n  `"hooks`": {`r`n    `"LwgTestEvent1`": [`r`n      {`r`n        `"hooks`": [`r`n" +
+          "          { `"type`": `"command`", `"command`": `"powershell`", `"args`": [ `"-NoProfile`", `"-File`", `"" +
+          $ours.Replace('\', '\\') + "`" ] }`r`n        ]`r`n      }`r`n    ]`r`n  }`r`n}`r`n"
+    [void](Set-CaseSettings -Tree $t1 -Text $j1)
+    $r1 = Invoke-Uninstall -Tree $t1
+    $left1 = Get-LeftBehind $r1.out
+
+    if ($r1.code -ne 0) { $bad += "ours: exit $($r1.code), expected 0" }
+    if ($r1.out -notmatch 'holds 1 reference\(s\) to this plugin') {
+        $m = [regex]::Match($r1.out, 'holds (\d+) reference\(s\)')
+        $bad += "ours: a registration whose path is in an args array reports '$(if ($m.Success) { $m.Value } else { '<no such row>' })' - args is not being read"
+    }
+    if ($left1 -notlike "*$ours*") { $bad += 'ours: LEFT BEHIND does not name the script, which is only in the args array' }
+
+    $t2 = New-CaseTree 'hooks-args-theirs'
+    $theirs = Join-Path $t2.elsewhere 'some-other-tool\bin\unrelated_thing.ps1'
+    $j2 = "{`r`n  `"hooks`": {`r`n    `"LwgTestEvent1`": [`r`n      {`r`n        `"hooks`": [`r`n" +
+          "          { `"type`": `"command`", `"command`": `"powershell`", `"args`": [ `"-NoProfile`", `"-File`", `"" +
+          $theirs.Replace('\', '\\') + "`" ] }`r`n        ]`r`n      }`r`n    ]`r`n  }`r`n}`r`n"
+    [void](Set-CaseSettings -Tree $t2 -Text $j2)
+    $r2 = Invoke-Uninstall -Tree $t2
+
+    if ($r2.code -ne 0) { $bad += "theirs: exit $($r2.code), expected 0" }
+    if ($r2.out -notmatch 'holds 0 reference\(s\) to this plugin') { $bad += 'theirs: an args array naming somebody else''s script was attributed to this plugin' }
+
+    Add-Result -Name 'a registration whose script path is in the args array - the shape hooks.json itself uses - is read' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exits $($r1.code)/$($r2.code)")
+}
+
+function Test-HookRefsCountsEntriesNotNeedleKinds {
+    <#
+      THE CEILING. `foreach ($needle in @(a, b, c)) { if (match) { $hookRefs++ } }`
+      increments once per needle, so the largest number that construct could
+      ever print was 3 - and line 470 printed it as "settings.json holds
+      $hookRefs reference(s) to this plugin under `hooks`".
+
+      Seven registrations, every one of them an absolute path into THIS
+      checkout, is the specimen that separates a count of references from a
+      count of needle kinds: the two agree at 0 and at 1 and part company here.
+      Seven is also realistic - bin\lwg-setup.ps1 -HookMode standalone writes a
+      registration per event, and hooks\hooks.json declares eight.
+
+      The number is asserted EXACTLY. "At least one" would be satisfied by the
+      broken construct the moment any needle matched, which is the state this
+      case exists to tell apart from a correct one.
+    #>
+    $t = New-CaseTree 'hooks-count'
+    $events = @('SessionStart', 'PreToolUse', 'PostToolUse', 'SubagentStart',
+                'SubagentStop', 'Stop', 'StopFailure')
+    $cmds = @($events | ForEach-Object {
+        'powershell -NoProfile -ExecutionPolicy Bypass -File "' +
+        (Join-Path $Root 'lib\supervisor.ps1') + '" -HookEvent ' + $_
+    })
+    [void](Set-CaseSettings -Tree $t -Text (New-HookSettings -Commands $cmds))
+
+    $r = Invoke-Uninstall -Tree $t
+
+    $bad = @()
+    if ($r.code -ne 0) { $bad += "exit $($r.code), expected 0" }
+    if ($r.out -notmatch "holds $($cmds.Count) reference\(s\) to this plugin") {
+        $m = [regex]::Match($r.out, 'holds (\d+) reference\(s\)')
+        $bad += "$($cmds.Count) registrations are reported as '$(if ($m.Success) { $m.Value } else { '<no such row>' })' - the count is of needle kinds, not of references"
+    }
+
+    Add-Result -Name "dry run: $($events.Count) hook registrations are counted as $($events.Count), not capped at the number of needles" `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
+}
+
+function Test-HookRegistrationReachesLeftBehind {
+    <#
+      THE ONE THING THE SCAN WAS WRITTEN TO WARN ABOUT WAS THE ONE THING THAT
+      NEVER REACHED THE WARNING LIST. Add-Left is called for the junction, the
+      unattributable statusLine key, permissions, the data directories and the
+      clone; there was no call anywhere for a surviving settings.json hook
+      entry, and none guarded by the count.
+
+      ORDER IS THE PART THAT MATTERS. Section 1 prints the exact
+      `cmd /c rmdir "<link>"` that removes the junction. Once the junction is
+      gone, a settings.json entry pointing into the clone fires on every event
+      and finds nothing - so the warning has to be in front of the operator
+      BEFORE they run that command, not discoverable afterwards in
+      docs/install.md.
+
+      THREE SHAPES, because an unconditional warning is not a finding:
+
+        present    one registration into this checkout - it must be named in
+                   LEFT BEHIND, with the ordering instruction.
+        absent     a settings.json whose hooks block holds only a foreign
+                   registration - the row must say 0 and LEFT BEHIND must not
+                   invent an entry. This is the half that stops the fix being
+                   "always warn", which would be the same defect wearing the
+                   opposite sign.
+        unreadable a settings.json that reads but does not parse. `0
+                   reference(s)` there is an assertion about a file this run
+                   never inspected - the same class of untruth as the phantom
+                   permissions.deny entry two cases below - so it must say it
+                   did not look, and say so in LEFT BEHIND too.
+    #>
+    $bad = @()
+
+    # --- present -----------------------------------------------------------
+    $t1 = New-CaseTree 'hooks-left-present'
+    $cmd1 = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $Root 'lib\post_edit.ps1') + '"'
+    [void](Set-CaseSettings -Tree $t1 -Text (New-HookSettings -Commands @($cmd1)))
+    $r1 = Invoke-Uninstall -Tree $t1
+    $left1 = Get-LeftBehind $r1.out
+
+    if ($r1.code -ne 0)                                     { $bad += "present: exit $($r1.code), expected 0" }
+    if ($left1 -eq '')                                      { $bad += 'present: the run printed no LEFT BEHIND block at all' }
+    if ($left1 -notmatch '(?i)hook registration')           { $bad += 'present: LEFT BEHIND does not mention the surviving hook registration' }
+    if ($left1 -notlike "*$(Join-Path $Root 'lib\post_edit.ps1')*") { $bad += 'present: LEFT BEHIND does not name the entry, so the operator cannot find it' }
+    if ($left1 -notmatch '(?i)BEFORE you remove the junction') { $bad += 'present: LEFT BEHIND does not say to remove the entry BEFORE the junction, which is the order that matters' }
+
+    # --- absent ------------------------------------------------------------
+    $t2 = New-CaseTree 'hooks-left-absent'
+    $alien = Join-Path $t2.elsewhere 'some-other-tool\bin\unrelated_thing.ps1'
+    [void](Set-CaseSettings -Tree $t2 -Text (New-HookSettings -Commands @(
+        'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $alien + '"')))
+    $r2 = Invoke-Uninstall -Tree $t2
+    $left2 = Get-LeftBehind $r2.out
+
+    if ($r2.code -ne 0)                           { $bad += "absent: exit $($r2.code), expected 0" }
+    if ($r2.out -notmatch 'holds 0 reference\(s\) to this plugin') { $bad += 'absent: the hooks row does not report 0 references for a file holding none' }
+    if ($left2 -match '(?i)hook registration')    { $bad += 'absent: LEFT BEHIND warns about a hook registration that does not exist' }
+
+    # --- unreadable --------------------------------------------------------
+    $t3 = New-CaseTree 'hooks-left-unreadable'
+    # The trailing comma is the whole fixture: it READS and does not PARSE.
+    [void](Set-CaseSettings -Tree $t3 -Text ("{`r`n  `"hooks`": {`r`n    `"LwgTestEvent1`": []`r`n  },`r`n}`r`n"))
+    $r3 = Invoke-Uninstall -Tree $t3
+    $left3 = Get-LeftBehind $r3.out
+
+    if ($r3.out -match 'holds 0 reference\(s\) to this plugin') { $bad += 'unreadable: the hooks row asserts 0 references about a settings.json it could not parse' }
+    if ($r3.out -notmatch '(?i)not inspected for hook')         { $bad += 'unreadable: the hooks row does not say the file was never inspected' }
+    if ($left3 -notmatch '(?i)hook registration')               { $bad += 'unreadable: LEFT BEHIND does not name the hook entries it could not look for' }
+
+    Add-Result -Name 'a surviving settings.json hook registration reaches LEFT BEHIND - and is not invented when there is none' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exits $($r1.code)/$($r2.code)/$($r3.code)")
+}
+
 function Test-ThirdPartyStatusLineIsNotOurs {
     <#
       A status line the operator keeps at <ClaudeHome>\ccusage.ps1, with
@@ -1115,6 +1490,11 @@ try {
     Test-PlanMatchesDeletion
     Test-CanonicalDenyRulesAllAttributed
     Test-MissingDenyKeyInventsNoEntry
+    Test-HookRegistrationInSettingsIsDetectedAndCounted
+    Test-HookLeafMatchIsCaseInsensitive
+    Test-HookPathInArgsArrayIsRead
+    Test-HookRefsCountsEntriesNotNeedleKinds
+    Test-HookRegistrationReachesLeftBehind
     Test-ThirdPartyStatusLineIsNotOurs
     Test-StatusLineFileKeptWhenKeyHalfCannotRun
     Test-ReparseStateDirIsRefused

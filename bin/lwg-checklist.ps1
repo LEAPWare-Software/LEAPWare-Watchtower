@@ -114,6 +114,25 @@ try {
 
     $now = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')
     Write-Output "LW-WATCHTOWER checklist - $([string]$manifest.plan_version)"
+    # WHOSE PLAN THIS IS, SAID FIRST AND SAID EVERY TIME.
+    #
+    # checklist.json is the LW-WATCHTOWER project's own release plan. The whole
+    # repository root is the plugin payload - .claude-plugin/marketplace.json
+    # declares "source": "./" and that form has no exclusion - so the manifest
+    # ships to every consumer, and commands/checklist.md tells the model to print
+    # this output verbatim. A stranger who installs the plugin and runs the
+    # obvious-looking command therefore gets forty rows of somebody else's audit,
+    # every one of them formatted exactly like a finding about their own tree.
+    #
+    # Nothing about that is fixed by wording, and this banner does not pretend
+    # otherwise: it is a disclosure, not a boundary. It is printed unconditionally
+    # - not only when the manifest looks foreign, because there is no way to tell
+    # - and above the rows rather than below them, because a caveat under forty
+    # lines of output is read after the reader has already drawn a conclusion.
+    Write-Output '  THIS IS THE LW-WATCHTOWER PROJECT''S OWN RELEASE PLAN. IT IS NOT A REPORT ON YOUR'
+    Write-Output '  REPOSITORY. Every row below is a claim about this plugin''s development, derived'
+    Write-Output '  from this plugin''s own files - not from the repository you are working in, and not'
+    Write-Output '  from anything you have done. Nothing here is an action for you.'
     Write-Output "  $($rows.Count) items from checklist.json (tracked); evidence gathered $now UTC"
     # Printed on every run, including runs with no qualified rows, for the same
     # reason the UNVERIFIED sentence below is: a legend a reader only ever sees
@@ -168,10 +187,46 @@ try {
     Write-Output '  could not be checked at all, and may or may not be finished. Do not count them either way.'
 
     # --- staleness of the source of truth -----------------------------------
-    $drift = Measure-LwgPlanDrift -PlanPath ([string]$manifest.source_plan.path) -Items $items
+    # WHERE THE PLAN PATH COMES FROM, AND WHY IT IS NO LONGER IN THE MANIFEST.
+    #
+    # checklist.json used to carry the plan file's literal path - directory AND
+    # file name - under one user profile. That file is untracked and ships with
+    # nothing, so the name was of no use to any reader; but the manifest ships to
+    # every consumer, and this command printed the path on every run, so the name
+    # reached the screen of everyone who installed the plugin. That is disclosure
+    # with no beneficiary, which is the cheapest kind to remove.
+    #
+    # The capability it served did NOT go with it. `source_plan.path_env` names an
+    # environment variable; the operator who actually holds the plan sets it on
+    # that machine and drift is measured there exactly as before. Everywhere else
+    # the variable is unset, the path is empty, and Measure-LwgPlanDrift returns
+    # available=false with a reason - which is precisely what this command already
+    # printed on every machine but one. The honest report of a gap is not the gap
+    # being closed, and it was never claimed to be; see the manifest's own note.
+    #
+    # `path` is still read as a fallback so a maintainer-only checkout that wants
+    # the literal back has a place to put it without a code change.
+    $planEnv  = [string]$manifest.source_plan.path_env
+    $planPath = ''
+    if (-not [string]::IsNullOrWhiteSpace($planEnv)) {
+        $planPath = [string][Environment]::GetEnvironmentVariable($planEnv)
+    }
+    if ([string]::IsNullOrWhiteSpace($planPath)) { $planPath = [string]$manifest.source_plan.path }
+
+    $drift = Measure-LwgPlanDrift -PlanPath $planPath -Items $items
     Write-Output ''
     Write-Output '  SOURCE OF TRUTH: checklist.json, tracked in this repo. It is transcribed BY HAND from'
-    Write-Output "  the plan at $([string]$manifest.source_plan.path), which is not tracked and does not ship."
+    if ([string]::IsNullOrWhiteSpace($planPath)) {
+        Write-Output '  a plan file that is NOT tracked and does not ship. Its path is deliberately not'
+        if (-not [string]::IsNullOrWhiteSpace($planEnv)) {
+            Write-Output "  recorded in the manifest - set `$env:$planEnv on the machine that holds the plan"
+            Write-Output '  to make drift measurable there.'
+        } else {
+            Write-Output '  recorded in the manifest, so drift cannot be measured from here.'
+        }
+    } else {
+        Write-Output "  the plan at $planPath, which is not tracked and does not ship."
+    }
     if (-not $drift.available) {
         Write-Output "  STALENESS NOT MEASURED: $($drift.why)."
         Write-Output '  So an item added to the plan and never transcribed here would be missing from the list'

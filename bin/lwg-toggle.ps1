@@ -66,12 +66,74 @@
          a level name for `verbosity` - or the scope could not be used.
          Nothing was written. Usage was printed.
       3  the toggle could not complete - config.json could not be read, could
-         not be written, or would not have parsed afterwards. Nothing was
-         written; whatever is printed above is a fragment, not a result.
+         not be written, would not have parsed afterwards, or was refused
+         because it is not the file this command read. Nothing was written;
+         whatever is printed above is a fragment, not a result.
 
   2 is separate from 3 deliberately: "you asked for something I do not accept"
   and "I could not do the thing you asked" are different statements, and a
   caller that collapses them cannot tell a typo from a broken config.
+
+  EXIT 3 MEANS THE BYTES ARE AS THEY WERE, on every path this file reaches
+  deterministically, and until 3 August 2026 that was false on two of them.
+  commands\delegate.md, commands\plain.md and commands\verbosity.md all state it
+  as well, so it is a claim made in four places about a file on disk.
+
+  The first false path: a config.json that is valid JSON but carries no
+  top-level `modules` block made Get-LwgConfig fall back to the built-in
+  defaults (lib\common.ps1:452), so the value written here read back as the
+  default, the read-back check threw, and this script wrote the file and THEN
+  exited 3. Three things now hold that invariant up, in this order:
+
+    1. a write is REFUSED outright when Get-LwgConfig is on built-in defaults -
+       the same refusal bin\lwg-config.ps1:262-269 already makes, for the same
+       reason, in nearly the same words. Nothing is written and the message
+       names which of the two states the file is in: it does not parse, or it
+       parses and has no `modules` block.
+    2. the edited TEXT is resolved through this file's own accessors BEFORE the
+       write, so an edit that would not read back is refused with the file
+       untouched rather than discovered afterwards.
+    3. the write goes through Save-LwgTextFile, so a copy of the file as it was
+       exists before anything is replaced, and its path is printed.
+
+  The second false path, found by review on 3 August 2026 and NOT introduced by
+  the three fixes above - `-Flag plain on` with USERPROFILE unset wrote the file
+  and exited 3 at fd8d023 and at 19bb85d as well. The write was fine; the REPORT
+  after it threw, because the ACTIVATION block builds a settings path out of an
+  environment variable this plugin does not own, and every throw in this file
+  lands in one handler that exits 3. The handler now asks whether the write
+  completed and was verified first, and exits 0 when it did, naming the
+  reporting fault. See the catch at the bottom.
+
+  THE ONE STATE STILL NOT COVERED, named rather than left to be discovered: if
+  something else writes config.json AFTER this command's write and BEFORE its
+  read-back, the read-back can disagree on a file that WAS changed, and the exit
+  is 3. It is not put back automatically - restoring over another writer's file
+  is the lost update the SHA check exists to prevent - and the message says
+  which of the two states the file is in and where the backup is. Nothing
+  deterministic reaches that state and no case in tests\toggle_behaviour.ps1
+  constructs one. It is the only path on which exit 3 and "the bytes are as they
+  were" can still disagree, and the three commands\*.md exit-code lines describe
+  it not at all.
+
+  A READ IS NOT A WRITE. Running with no argument on a broken config.json still
+  reports, and still says the state shown is the built-in fallback - refusing to
+  answer "what is this set to" would be a worse answer than the fallback.
+
+  THE WRITE ITSELF GOES THROUGH bin\lwg-cmdlib.ps1, which this file dot-sources
+  for Read-LwgTextFile and Save-LwgTextFile and nothing else. It was a bare
+  [IO.File]::WriteAllText until 3 August 2026: no backup, no check that the file
+  on disk was still the one that had been read, and a hardcoded no-BOM encoding
+  that silently stripped a byte-order mark another tool had written. The four
+  lifecycle commands had all three; this one edits the same file and did not.
+  Dot-sourcing cmdlib here does not violate its quarantine rule
+  (bin\lwg-cmdlib.ps1:8-21): nothing on a hook path may reach a process spawner,
+  and this file is a bin\ command an operator typed.
+
+  A PARSER MESSAGE IS NEVER INTERPOLATED WHOLE. Windows PowerShell 5.1's
+  ConvertFrom-Json embeds its entire input in its error text - measured at 33,228
+  characters for a 33,175-byte config.json - so every parser message that reaches
+  the operator here goes through Get-LwgBriefParseError first.
 
   WHAT THIS SCRIPT DOES NOT DO, and says so on every run:
 
@@ -133,10 +195,28 @@ param(
     # `global` writes the default for every repo; `repo` writes an override
     # under repos['owner/name'] that applies here and nowhere else.
     [ValidateSet('global', 'repo')]
-    [string]$Scope = 'global'
+    [string]$Scope = 'global',
+
+    # Point at a copy instead of the live config - used by the tests, and the
+    # only way to exercise the write path without changing this machine. Same
+    # parameter, same wording and same purpose as bin\lwg-config.ps1:66-67;
+    # tests\toggle_behaviour.ps1 drives a copied tree rather than this seam for
+    # its regression cases, because a copied tree also runs against the commit
+    # the defects were filed against.
+    [string]$ConfigPath
 )
 
 $ErrorActionPreference = 'Stop'
+
+# --- what the handler at the bottom is allowed to say about the file --------
+# Set on the write path, read by the catch-all. They are script-scoped rather
+# than local because the handler runs outside the scope that sets them, and a
+# handler that cannot tell "written" from "not written" can only guess - which
+# is how a documented "nothing was written" exit 3 came to be printed over a
+# file that had just been rewritten.
+$script:LwgWrote    = $false   # Save-LwgTextFile completed
+$script:LwgVerified = $false   # ...and the file on disk reads back as asked
+$script:LwgBackup   = ''       # the copy taken before that write
 
 # Everything printed below is ASCII. These commands are the ones an operator
 # reaches for when the session is already behaving oddly.
@@ -633,6 +713,41 @@ function Write-Wrapped {
     if ($line -ne '') { Write-Output ($Indent + $line) }
 }
 
+function Get-LwgBriefParseError {
+    <#
+      A parser message the operator can read, out of one that may be the whole
+      file. Windows PowerShell 5.1's ConvertFrom-Json puts its ENTIRE input into
+      the exception message - 33,228 characters for a 33,175-byte config.json,
+      measured on this machine on 3 August 2026 - and this script used to
+      interpolate that straight into the line it printed.
+
+      First line, then a hard character bound, because a minified file has no
+      first line. The same shape as the one already used for subprocess stderr
+      in bin\lwg-cmdlib.ps1:505.
+    #>
+    param([string]$Message, [int]$MaxLength = 160)
+    $s = ([string]$Message) -replace "`r", ''
+    $s = (($s -split "`n") | Where-Object { $_.Trim() -ne '' } | Select-Object -First 1)
+    if ($null -eq $s) { return 'no message' }
+    $s = $s.Trim()
+    if ($s.Length -gt $MaxLength) { return ($s.Substring(0, $MaxLength) + ' ...') }
+    return $s
+}
+
+function Write-LwgToggleRefusal {
+    <#
+      A refusal, in the shape /lw-watchtower:config prints one
+      (bin\lwg-config.ps1:74-80). It is a separate voice from the catch-all at
+      the bottom of this file on purpose: a refusal is a decision this command
+      made and can explain, and "could not complete" is what is left when it
+      cannot. Both exit 3 and both leave config.json exactly as it was.
+    #>
+    param([string[]]$Lines)
+    Write-Output ''
+    Write-Output 'REFUSED - nothing was written.'
+    foreach ($l in $Lines) { Write-Output "  $l" }
+}
+
 function Show-Usage {
     param([string]$FlagName, [string]$Bad, [string]$Axis = 'bool')
     if ($null -ne $Bad -and $Bad -ne '') {
@@ -678,6 +793,9 @@ function Show-Usage {
 try {
     $pluginRoot = Split-Path -Parent $PSScriptRoot
     . (Join-Path $pluginRoot 'lib\common.ps1')
+    # Read-LwgTextFile and Save-LwgTextFile, and nothing else from it. See the
+    # header for why a bin\ command may reach this file and a hook may not.
+    . (Join-Path $PSScriptRoot 'lwg-cmdlib.ps1')
 
     $spec  = $script:LwgFlags[$Flag]
     $block = $spec.block
@@ -712,8 +830,17 @@ try {
         }
     }
 
-    $cfgPath = Join-Path $pluginRoot 'config.json'
+    $cfgPath = if ([string]::IsNullOrWhiteSpace($ConfigPath)) { Join-Path $pluginRoot 'config.json' } else { $ConfigPath }
     $cfg     = Get-LwgConfig -Path $cfgPath
+    # The TEXT, its SHA and whether it carries a BOM, captured together and
+    # here - before anything else this script does can take time - so that the
+    # SHA handed to Save-LwgTextFile is the state of the file at the moment its
+    # content was read, and a change made after that is caught rather than
+    # overwritten. A read is not a write, so a failure to read is only fatal
+    # when a write was asked for; the report path below still works off
+    # Get-LwgConfig's fallback and says that is what it is doing.
+    $file = Read-LwgTextFile -Path $cfgPath
+
     # Outside a hook there is no payload, so repo identity comes from the cwd -
     # which is what Get-LwgRepo does with a payload anyway.
     $repoInfo = Get-LwgRepoInfo -Path (Get-Location).Path
@@ -732,6 +859,55 @@ try {
         exit 2
     }
 
+    # --- refuse to write on top of a config this command cannot read back ----
+    # Get-LwgConfig fails OPEN: an unreadable, unparseable or modules-less
+    # config.json returns the built-in defaults (lib\common.ps1:447-459), and
+    # every operator ON/OFF choice in that file is ALREADY being ignored. Two
+    # things follow, and this script used to do neither.
+    #
+    # Writing here would edit text this command cannot read back - which is
+    # exactly what produced the write-then-exit-3 path: the value landed on disk,
+    # the re-read returned the defaults again, and the read-back check threw.
+    # /lw-watchtower:config refuses the same input at bin\lwg-config.ps1:262-269
+    # and the two commands must not disagree about what a broken config.json
+    # means.
+    #
+    # And the cause is NAMED. Blaming the edit for a file that was already broken
+    # sends the operator to report a bug in a command that did nothing wrong, and
+    # the parser message that would have been quoted at them is the whole file.
+    # `does not parse` and `parses but has no modules block` are different
+    # states with the same fallback, so the message says which one it found.
+    if ($null -ne $want -and $cfg._source -ne 'file') {
+        $why = 'could not be loaded'
+        if (-not $file.ok) {
+            $why = ("could not be read - {0}" -f (Get-LwgBriefParseError -Message $file.error))
+        }
+        elseif ([string]::IsNullOrWhiteSpace($file.text)) {
+            $why = 'is empty'
+        }
+        else {
+            try {
+                $probe = $file.text | ConvertFrom-Json -ErrorAction Stop
+                if ($null -eq $probe) {
+                    $why = 'holds no JSON object'
+                } elseif ($null -eq $probe.modules) {
+                    $why = 'parses, but has no top-level "modules" block - which is what Get-LwgConfig requires before it will use the file at all (lib\common.ps1:452)'
+                }
+            } catch {
+                $why = ("does not parse - {0}" -f (Get-LwgBriefParseError -Message $_.Exception.Message))
+            }
+        }
+        Write-LwgToggleRefusal @(
+            ("{0} {1}," -f $cfgPath, $why),
+            'so the plugin is running on BUILT-IN DEFAULTS and every operator ON/OFF choice in that file is already being ignored.',
+            'Writing here would edit text this command cannot read back, and would destroy the evidence of what broke.',
+            'Fix the JSON first - /lw-watchtower:doctor names this as the config-registry check.',
+            '',
+            ("Run /lw-watchtower:{0} with no argument to see what is in effect while it is broken." -f $Flag)
+        )
+        exit 3
+    }
+
     $beforeGlobal = Get-LwgPrefGlobal -Config $cfg -Block $block -Key $key -Default $spec.default -Axis $axis
     $beforeRepo   = Get-LwgPrefRepo   -Config $cfg -Repo $repo -Block $block -Key $key -Axis $axis
     $beforeEff    = if ($null -ne $beforeRepo) { $beforeRepo } else { $beforeGlobal }
@@ -739,6 +915,9 @@ try {
     # --- write, if we were asked to ----------------------------------------
     $changeLine = 'nothing was written - no value was given, so this is a report only'
     $leaf       = ''
+    # Set by the write below. Named here so the report block can print it on
+    # every path without knowing which one it came down.
+    $backup     = ''
     if ($null -ne $want) {
         $path = if ($Scope -eq 'repo') { @('repos', $repo, $block, $key) } else { @($block, $key) }
         $wasHere = if ($Scope -eq 'repo') { $beforeRepo } else { $beforeGlobal }
@@ -774,36 +953,120 @@ try {
             }
         }
 
-        $original = [IO.File]::ReadAllText($cfgPath)
+        # The text that was read at the top, with the SHA and the BOM flag that
+        # belong to it. Not a second ReadAllText: two reads are two states, and
+        # the one that matters is the one the SHA describes.
+        if (-not $file.ok) { throw ("config.json could not be read ({0}); nothing was written" -f (Get-LwgBriefParseError -Message $file.error)) }
+        $original = $file.text
         $updated  = Set-JsonLiteralAtPath -Raw $original -Path $path -Leaf $leaf
 
         # The file is only replaced if the NEW text parses. A preference command
         # that can corrupt config.json would take both live gates down with it,
         # because Get-LwgConfig fails open and every module would switch on.
-        try { $null = $updated | ConvertFrom-Json -ErrorAction Stop }
-        catch { throw "the edited config.json would not parse ($($_.Exception.Message)); the file was left untouched" }
+        #
+        # This message may now blame the edit, and could not before: the refusal
+        # above has already established that $original parsed and carried a
+        # `modules` block, so text that does not parse is this command's doing.
+        # The parser message is still bounded - see Get-LwgBriefParseError.
+        $parsed = $null
+        try { $parsed = $updated | ConvertFrom-Json -ErrorAction Stop }
+        catch { throw ("the edit this command made would not parse ({0}); the file was left untouched, and config.json parsed before the edit, so this is a fault in this script rather than in the file" -f (Get-LwgBriefParseError -Message $_.Exception.Message)) }
 
+        # --- prove the edit reads back BEFORE it is written ------------------
+        # The check that used to run after the write, run against the TEXT
+        # instead. Get-LwgConfig's own rule first - a file with no `modules` is
+        # not used at all - then this script's own accessors, which are what the
+        # report below and the gate itself read. A refusal here costs nothing;
+        # the same disagreement discovered after the write is what made a
+        # documented "nothing was written" exit 3 untrue.
+        if ($null -eq $parsed.modules) {
+            throw 'the edit would leave config.json without a top-level "modules" block, so every reader would fall back to the built-in defaults and this setting would be ignored; nothing was written'
+        }
+        $wouldGlobal = Get-LwgPrefGlobal -Config $parsed -Block $block -Key $key -Default $spec.default -Axis $axis
+        $wouldRepo   = Get-LwgPrefRepo   -Config $parsed -Repo $repo -Block $block -Key $key -Axis $axis
+        $wouldHere   = if ($Scope -eq 'repo') { $wouldRepo } else { $wouldGlobal }
+        if ($axis -eq 'level') {
+            if ([string]$wouldHere -ne [string]$want) {
+                throw "the edited text does not read back as '$want' - it reads as '$wouldHere' - so nothing was written"
+            }
+        }
+        else {
+            if ((Test-LwgFlagOn -Spec $spec -Value $wouldHere) -ne $want) {
+                throw ("the edited text does not read back as {0} - so nothing was written" -f $(if ($want) { 'on' } else { 'off' }))
+            }
+        }
+
+        # --- the write -------------------------------------------------------
+        # Through Save-LwgTextFile, which takes a backup FIRST, refuses if the
+        # file on disk is no longer the one that was read, and writes with the
+        # BOM the file already had. See the header, and bin\lwg-cmdlib.ps1:362-406.
+        $backup = ''
+        $wroteSha = ''
         if ($updated -ne $original) {
-            [IO.File]::WriteAllText($cfgPath, $updated, [Text.UTF8Encoding]::new($false))
+            $save = Save-LwgTextFile -Path $cfgPath -Text $updated -ExpectedSha $file.sha -Bom $file.bom -BackupTag 'lwg-toggle'
+            if (-not $save.ok) {
+                # A refusal, not a failure. CHANGED UNDER US means somebody
+                # else's write landed between this command's read and this line,
+                # and replacing the file would discard it silently.
+                Write-LwgToggleRefusal @(
+                    ("the write did not happen: {0}" -f $save.reason),
+                    'Nothing was discarded and config.json is as whoever wrote it last left it.',
+                    ("Run /lw-watchtower:{0} with no argument to see the state now, then decide again." -f $Flag)
+                )
+                exit 3
+            }
+            $backup   = $save.backup
+            $wroteSha = $save.sha
+            # Read by the handler at the bottom of this file, which has to know
+            # whether the bytes moved before it can say anything true about them.
+            $script:LwgWrote  = $true
+            $script:LwgBackup = $save.backup
         }
 
         # Re-read from disk rather than trusting the in-memory edit: the value
-        # reported below is then the value a hook would actually load.
+        # reported below is then the value a hook would actually load. The text
+        # was already resolved above, so this can only disagree if the bytes on
+        # disk are no longer the ones this command wrote.
         $cfg          = Get-LwgConfig -Path $cfgPath
         $afterGlobal  = Get-LwgPrefGlobal -Config $cfg -Block $block -Key $key -Default $spec.default -Axis $axis
         $afterRepo    = Get-LwgPrefRepo   -Config $cfg -Repo $repo -Block $block -Key $key -Axis $axis
         $writtenHere  = if ($Scope -eq 'repo') { $afterRepo } else { $afterGlobal }
-        if ($axis -eq 'level') {
-            if ([string]$writtenHere -ne [string]$want) {
-                throw "config.json was written but $key reads back as '$writtenHere' rather than '$want'"
-            }
+        $readBackBad  = if ($axis -eq 'level') {
+            ([string]$writtenHere -ne [string]$want)
+        } else {
+            ((Test-LwgFlagOn -Spec $spec -Value $writtenHere) -ne $want)
         }
-        else {
-            $readBackOn = Test-LwgFlagOn -Spec $spec -Value $writtenHere
-            if ($readBackOn -ne $want) {
-                throw "config.json was written but $Flag reads back as $(if ($readBackOn) { 'on' } else { 'off' }) rather than $(if ($want) { 'on' } else { 'off' })"
+        if ($readBackBad) {
+            # WHAT THIS DOES NOT DO, AND WHY THERE IS NO AUTOMATIC ROLLBACK.
+            # A restore-from-backup lived here for one day, on 3 August 2026, and
+            # was removed the same day: with the pre-write resolution above in
+            # place, the only way these bytes can fail to read back is that they
+            # are no longer the bytes this command wrote - and putting the backup
+            # on top of somebody else's write is exactly the lost update the SHA
+            # check exists to prevent. A restore that can only fire when firing
+            # it would be wrong is a switch wired to nothing, and no case in
+            # tests\toggle_behaviour.ps1 could reach it. So this branch REPORTS
+            # instead: whether the file on disk is still the one this command
+            # wrote, and where the copy taken before the write is.
+            $stillOurs = $false
+            if ($backup) {
+                try { $stillOurs = ((Get-FileHash -LiteralPath $cfgPath -Algorithm SHA256).Hash -eq $wroteSha) } catch { $stillOurs = $false }
             }
+            $tail = if (-not $backup) {
+                'nothing was written'
+            } elseif ($stillOurs) {
+                "config.json WAS written by this command and still holds those bytes; the copy taken before the write is at $backup, and restoring it by hand is a one-line copy"
+            } else {
+                "config.json WAS written by this command and has been written again by something else since; the copy taken before this command's write is at $backup"
+            }
+            $reads = if ($axis -eq 'level') { "'$writtenHere'" } else { $(if (Test-LwgFlagOn -Spec $spec -Value $writtenHere) { 'on' } else { 'off' }) }
+            $asked = if ($axis -eq 'level') { "'$want'" } else { $(if ($want) { 'on' } else { 'off' }) }
+            throw "$Flag reads back as $reads rather than $asked after the write; $tail"
         }
+        # The write happened AND the file on disk resolves to what was asked for.
+        # Anything that throws after this point is a fault in the REPORTING, and
+        # the handler at the bottom must not call that "nothing was written".
+        $script:LwgVerified = $true
     } else {
         $afterGlobal = $beforeGlobal
         $afterRepo   = $beforeRepo
@@ -842,6 +1105,12 @@ try {
     }
     Write-Output ("  effective here : {0}" -f $(if ($axis -eq 'level') { "'$afterEff'" } elseif ($afterEffOn) { 'ON' } else { 'OFF' }))
     Write-Output ("  stored in      : {0} -> {1}.{2}" -f $cfgPath, $block, $key)
+    if ($backup) {
+        # Printed for the same reason /lw-watchtower:config prints it
+        # (bin\lwg-config.ps1:443): a backup nobody is told about is not a
+        # recovery mechanism. Nothing deletes these, ever.
+        Write-Output ("  backup         : {0}   [the file as it was before this run]" -f $backup)
+    }
     Write-Output ("  config source  : {0}" -f $(if ($cfg._source -eq 'file') { 'config.json' } else { 'BUILT-IN DEFAULTS - config.json is unreadable, so what you see is the fallback' }))
 
     # A value this script cannot read is NAMED, on either axis, and on a bool
@@ -1045,8 +1314,34 @@ try {
     exit 0
 
 } catch {
+    if ($script:LwgVerified) {
+        # THE WRITE HAPPENED AND WAS VERIFIED; WHAT FAILED IS THE REPORT AFTER IT.
+        # Exit 3 here would state, in the words of this file's own table and of
+        # all three command documents, that config.json was not changed - and it
+        # was. Until 3 August 2026 that is exactly what happened: with
+        # USERPROFILE unset, `Join-Path $env:USERPROFILE '.claude\settings.json'`
+        # in the ACTIVATION block threw under $ErrorActionPreference='Stop' and
+        # /lw-watchtower:plain exited 3 on a file it had just rewritten.
+        #
+        # The class is guarded rather than that one line, and deliberately: the
+        # report reads a settings file whose path comes from an environment this
+        # plugin does not own, and hardening one Join-Path leaves the next
+        # environment-fed line to reopen the same hole. What a caller needs from
+        # the exit code is whether the file changed; it did, so this is 0, and
+        # the reporting fault is named rather than swallowed.
+        Write-Output ''
+        Write-Output ("The {0} change WAS MADE: config.json was written and re-read from disk, and it" -f $Flag)
+        Write-Output 'holds the value that was asked for. The exit code is 0 because the file changed.'
+        Write-Output ("What failed is the report printed after the write: {0}" -f (Get-LwgBriefParseError -Message $_.Exception.Message))
+        if ($script:LwgBackup) { Write-Output ("The copy taken before the write is at {0}" -f $script:LwgBackup) }
+        Write-Output ("Anything above this line is incomplete rather than wrong. Run /lw-watchtower:{0}" -f $Flag)
+        Write-Output 'with no argument for the state; nothing needs to be run again.'
+        exit 0
+    }
     Write-Output ("The {0} command could not complete: {1}" -f $Flag, $_.Exception.Message)
-    Write-Output 'Nothing above should be read as the current state, and config.json was not'
-    Write-Output 'changed unless a line above says it was.'
+    Write-Output 'Nothing above should be read as the current state. config.json is as it was'
+    Write-Output 'unless a line above says otherwise in as many words - every check that can'
+    Write-Output 'refuse runs before the write, and the one place that cannot says which of the'
+    Write-Output 'two states the file is in.'
     exit 3
 }
