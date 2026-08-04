@@ -1,4 +1,41 @@
 #requires -version 5
+# LWG-STATUSLINE-IDENTITY v1
+#
+# PROVENANCE MARKER. THE FORMAT IS: the exact token LWG-STATUSLINE-IDENTITY,
+# followed by a version word, on a comment line inside the FIRST 4096 BYTES of
+# this file. The token is what is matched; the version word is for a human and
+# nothing parses it.
+#
+# WHO READS IT: bin\lwg-doctor.ps1, check 7, and nothing else today. That check
+# pulls whatever .ps1 is wired into settings.json's statusLine.command and used
+# to hash-compare it against this file with no test of whose file it was, so a
+# status line the operator wrote themselves was diagnosed as a stale copy of
+# this one and the printed remedy was to overwrite it. The marker is how the
+# check now establishes provenance BEFORE it diagnoses drift. bin\lwg-uninstall.ps1
+# needs the same answer before it removes anything and does not read this yet -
+# see issue #17.
+#
+# WHY THE TOKEN DOES NOT CARRY THE PRODUCT NAME. This plugin was renamed from
+# lw-gmhh to lw-watchtower on 3 August 2026. A marker spelling the product would
+# have moved with that rename, and every copy already installed on a machine
+# would have stopped being recognisable as ours - which is the same "not our
+# file" answer the marker exists to make trustworthy. LWG is the file prefix
+# every script in this repo already carries and it survived the rename.
+#
+# DO NOT REMOVE IT FROM AN INSTALLED COPY. A copy of this file with this line
+# deleted is, correctly, not identifiable as this plugin's status line, and the
+# doctor will report it as somebody else's.
+#
+# WHAT IT IS NOT: IT IS FORGEABLE, AND THAT IS A LIMIT AND NOT AN OVERSIGHT.
+# Any file carrying this string in its first 4096 bytes is taken to be this
+# plugin's status line, and would then be told it has drifted and to re-copy
+# over itself. A content token cannot be made unforgeable and this one does not
+# try. It answers one question - "was this file derived from ours, or is it an
+# unrelated status line that simply happens to be wired up" - and that is the
+# question the doctor was getting wrong on every machine that had its own
+# status line. It is not a signature and proves nothing against a file that
+# copied this comment.
+#
 # Claude Code status line. All percentages are USED.
 #
 #   row 1  model  HH  ORC  ctx  5h  7d  #branch  PR#  owner/repo

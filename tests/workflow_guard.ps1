@@ -415,6 +415,14 @@ function Split-LwgFlowItems {
 # rather than guessed at: anchors and aliases (&a / *a), merge keys (<<),
 # multiple documents (---), and tab indentation. GitHub Actions rejects the
 # first three outright, so a file using one is broken before this scan sees it.
+#
+# A DUPLICATE KEY IN ONE MAPPING IS ALSO `unparseable`, and it is a REFUSAL
+# rather than a gap - see Add-LwgKeyOnce. The lookups below return the first
+# entry for a key, so a mapping holding a key twice is one this reader cannot
+# resolve; reporting it clean would be reporting on a file it did not fully
+# read. That is not a hypothetical: a second `runs-on:` hid `self-hosted` from
+# every rule, and a second `jobs:` hid a whole job, both measured against this
+# guard before the check existed.
 # ---------------------------------------------------------------------------
 
 $script:PLines = @()
@@ -424,6 +432,80 @@ $script:PErr = $null
 function Add-LwgParseError {
     param([int]$Line, [string]$Message)
     [void]$script:PErr.Add(@{ line = $Line; msg = $Message })
+}
+
+function Add-LwgKeyOnce {
+    <#
+      A DUPLICATE KEY IN ONE MAPPING IS A PARSE ERROR, AND THAT IS THE ONLY
+      HONEST ANSWER TO IT.
+
+      Get-LwgMapValue and Get-LwgMapEntry walk `entries` and return the FIRST
+      match. Before this, a mapping carrying the same key twice was parsed in
+      full, stored in full, and then half-discarded at every lookup - so a job
+      written
+
+          runs-on: ubuntu-latest
+          runs-on: self-hosted
+
+      was reported `RESULT: 0 violation(s)`, `EXIT: 0`, with no parse error and
+      no warning, for a tracked file whose text says `self-hosted`. CI then
+      printed `workflow guard: PASS` and checklist.json rendered
+      P6-workflow-guard DONE. The same thing one level up hid an entire second
+      `jobs:` block. Measured against the unmodified guard, both.
+
+      RETURNING THE LAST MATCH INSTEAD WOULD NOT BE A FIX. It moves which of
+      the two values is invisible - the duplicate `jobs:` case would then hide
+      a violation in the FIRST block rather than the second - and it invents an
+      answer to a question the file does not answer. Whether GitHub Actions
+      itself honours the first or the last is deliberately not claimed here and
+      is not what this rests on: the guard must not report zero violations
+      about a file it did not fully read. A contradictory file is REFUSED, and
+      `unparseable` already fails the build, so every rule benefits at once
+      without a tenth rule or a second exit code.
+
+      SCOPED TO ONE MAPPING. $Seen is created per mapping, never script-wide:
+      every job declares `runs-on:` and every step declares `run:`, so a check
+      with a longer memory would condemn every workflow ever written, this
+      repository's own ci.yml first.
+
+      CASE-INSENSITIVE, DELIBERATELY, and it is the conservative direction
+      rather than the correct-YAML one. YAML keys are case-sensitive, so
+      `runs-on:` and `Runs-On:` are two different keys to GitHub. But `-eq` in
+      the two lookups above is case-INSENSITIVE, so this reader cannot tell
+      them apart and would hand back whichever came first for either spelling.
+      A PowerShell hashtable is case-insensitive for string keys and therefore
+      matches the lookups exactly: what is refused here is precisely the set of
+      files the lookups cannot resolve. Narrowing this to ordinal without also
+      fixing both lookups would put the two back out of step and reopen the
+      hole for one spelling.
+
+      THAT IS NOT LEFT AS AN ARGUMENT. The self-test's `dup-runs-on-case`
+      fixture is the pin for it: swapping this set for an ordinal comparer was
+      measured to leave every case green while `runs-on:` followed by
+      `Runs-On: self-hosted` went back to exit 0. A property defended only in a
+      comment is certified by nothing, which is the finding this file was fixed
+      for in the first place.
+
+      THE PRICE, STATED RATHER THAN DISCOVERED. Case-insensitivity is strictly
+      conservative, so it refuses a file GitHub would accept: an `env:` block
+      holding `Foo: 1` and `foo: 2` declares two genuinely distinct variables,
+      and this reports it as a duplicate. That is the intended direction - the
+      lookups cannot tell those two apart either, so the tree this reader built
+      does not represent the file - and it costs nothing on this repository,
+      where there are zero instances. Refusing a file that is fine is a build
+      failure someone reads; passing a file that hides a self-hosted runner is
+      not.
+    #>
+    param($Seen, $Key, [int]$Line)
+    $k = [string]$Key
+    if ($Seen.ContainsKey($k)) {
+        Add-LwgParseError -Line $Line -Message (
+            "duplicate key '$k' in one mapping - already declared on line $($Seen[$k]). " +
+            'A key held twice means two values were parsed and every lookup can see only one of them, ' +
+            'so this file cannot be read as written. It is refused rather than half-read.')
+        return
+    }
+    $Seen[$k] = $Line
 }
 
 function Skip-LwgBlank {
@@ -466,12 +548,21 @@ function ConvertTo-LwgInline {
             return @{ t = 'scalar'; line = $Line; value = $t; raw = $t }
         }
         $entries = @()
+        # A flow mapping builds `entries` exactly as a block mapping does and is
+        # read back through the same first-match lookups, so it is blind in the
+        # same way: `runs-on: {group: hosted, group: self-hosted}` is one line
+        # with two values and one of them invisible. Same refusal, same reason.
+        $seenFlow = @{}
         foreach ($p in (Split-LwgFlowItems $t.Substring(1, $close - 1))) {
             $kv = Split-LwgKeyValue $p.Trim()
             if ($null -eq $kv) {
-                $entries += ,@{ key = (Expand-LwgScalar $p); keyLine = $Line; value = $null }
+                $fk = (Expand-LwgScalar $p)
+                Add-LwgKeyOnce -Seen $seenFlow -Key $fk -Line $Line
+                $entries += ,@{ key = $fk; keyLine = $Line; value = $null }
             } else {
-                $entries += ,@{ key = (Expand-LwgScalar $kv.key); keyLine = $Line
+                $fk = (Expand-LwgScalar $kv.key)
+                Add-LwgKeyOnce -Seen $seenFlow -Key $fk -Line $Line
+                $entries += ,@{ key = $fk; keyLine = $Line
                                 value = (ConvertTo-LwgInline -Text $kv.value -Line $Line) }
             }
         }
@@ -517,6 +608,9 @@ function Read-LwgMap {
     param([int]$Indent)
     $entries = New-Object System.Collections.ArrayList
     $firstLine = 0
+    # Per mapping, never script-scoped - see Add-LwgKeyOnce. A nested map gets
+    # its own, because this function recurses through Read-LwgNode.
+    $seenKeys = @{}
     while ($true) {
         Skip-LwgBlank
         if ($script:PIdx -ge $script:PLines.Count) { break }
@@ -533,6 +627,7 @@ function Read-LwgMap {
             Add-LwgParseError -Line $r.n -Message 'YAML merge key (<<) - GitHub Actions does not support it and this reader does not resolve it'
         }
         $keyLine = $r.n
+        Add-LwgKeyOnce -Seen $seenKeys -Key $key -Line $keyLine
         $val = $kv.value
         $script:PIdx++
 
@@ -949,6 +1044,20 @@ if ($SelfTest) {
            body = "name: fixture external reusable`non:`n  workflow_dispatch:`njobs:`n  call:`n    uses: an-invented-owner/an-invented-repo/.github/workflows/build.yml@main`n" }
         @{ file = 'r9-unparseable.yml';  expect = 'unparseable'
            body = "- this document is a sequence, not the mapping a workflow has to be`n" }
+        # A DUPLICATE KEY IS A CONTRADICTION, AND THE READER MUST REFUSE IT
+        # RATHER THAN PICK A HALF. Get-LwgMapValue and Get-LwgMapEntry return
+        # the FIRST entry for a key, so before this was a parse error a second
+        # `runs-on:` was parsed, stored, and then never looked at: the whole
+        # rule set ran against the first value and reported the file clean
+        # while its text said `self-hosted`. Returning the LAST entry instead
+        # would not fix it - it would move which half is invisible, which is
+        # why the fix is in the parser and not in the lookup.
+        @{ file = 'r10-dup-runs-on.yml'; expect = 'unparseable'
+           body = "name: fixture duplicate runs-on`non:`n  workflow_dispatch:`njobs:`n  build:`n    runs-on: ubuntu-latest`n    runs-on: self-hosted`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n" }
+        # The same defect one level up: a second top-level `jobs:` hid an
+        # ENTIRE job, self-hosted runner and all, behind a benign first one.
+        @{ file = 'r11-dup-jobs.yml';    expect = 'unparseable'
+           body = "name: fixture duplicate jobs`non:`n  workflow_dispatch:`njobs:`n  build:`n    runs-on: ubuntu-latest`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`njobs:`n  build:`n    runs-on: self-hosted`n    steps:`n      - name: Nothing`n        run: Write-Output pwned`n" }
     )
 
     try {
@@ -987,6 +1096,77 @@ if ($SelfTest) {
             Add-LwgCase ("rule {0} fires on {1}" -f $f.expect, $f.file) $ok `
                 "no line reported $($f.file) under rule $($f.expect). Output: $($r.Out)"
         }
+
+        # --- the duplicate key, ALONE in its own directory -----------------
+        # The two fixtures above ride in $dirty alongside nine others that
+        # already force exit 1, so `rule unparseable fires on r10` proves the
+        # rule fired but NOT that this file alone would have failed the build.
+        # That is the whole finding: a repository whose only workflow carries a
+        # duplicate `runs-on:` was reported as `RESULT: 0 violation(s)`,
+        # `EXIT: 0`, with no parse error and no warning, while its text said
+        # `self-hosted`. CI printed `workflow guard: PASS` for it. So each
+        # shape is also run on its own, and the assertion is the exit code the
+        # build reads plus the file-and-rule line that says why.
+        $dupPairs = @(
+            @{ dir = 'dup-runs-on'; file = 'only.yml'; key = 'runs-on'
+               what = 'a lone workflow whose job declares runs-on: twice, the second self-hosted'
+               body = "name: only`non:`n  workflow_dispatch:`njobs:`n  build:`n    runs-on: ubuntu-latest`n    runs-on: self-hosted`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n" }
+            @{ dir = 'dup-jobs'; file = 'only.yml'; key = 'jobs'
+               what = 'a lone workflow with two top-level jobs: blocks, the second self-hosted'
+               body = "name: only`non:`n  workflow_dispatch:`njobs:`n  build:`n    runs-on: ubuntu-latest`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`njobs:`n  build:`n    runs-on: self-hosted`n    steps:`n      - name: Nothing`n        run: Write-Output pwned`n" }
+            # THE SPELLING THAT DIFFERS ONLY IN CASE, AND IT IS HERE BECAUSE
+            # THE ARGUMENT FOR IT WAS ONCE ONLY AN ARGUMENT. Add-LwgKeyOnce
+            # explains at length why its seen-set must be case-INSENSITIVE:
+            # `-eq` in Get-LwgMapValue and Get-LwgMapEntry is case-insensitive,
+            # so `runs-on:` and `Runs-On:` are one key to every lookup and the
+            # first one found wins. That reasoning was prose and nothing
+            # certified it. Measured: swapping the seen-set for an ORDINAL
+            # comparer left the suite reporting every case passed, while
+            #
+            #     runs-on: ubuntu-latest
+            #     Runs-On: self-hosted
+            #
+            # went back to `RESULT: 0 violation(s)`, `EXIT: 0` - #137's exact
+            # bypass, one capital letter apart, behind a green build. A
+            # property asserted in a comment and pinned by no case is the
+            # defect this whole file is about. This row is the pin.
+            @{ dir = 'dup-runs-on-case'; file = 'only.yml'; key = 'Runs-On'
+               what = 'a lone workflow declaring runs-on: then Runs-On: self-hosted, differing only in case'
+               body = "name: only`non:`n  workflow_dispatch:`njobs:`n  build:`n    runs-on: ubuntu-latest`n    Runs-On: self-hosted`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n" }
+        )
+        foreach ($d in $dupPairs) {
+            $dd = Join-Path $fx $d.dir
+            $null = New-Item -ItemType Directory -Path $dd -Force
+            Set-Content -LiteralPath (Join-Path $dd $d.file) -Encoding ASCII -Value $d.body
+            $r = Invoke-LwgGuard -Dir $dd
+            Add-LwgCase ("{0} exits 1" -f $d.what) ($r.Code -eq 1) `
+                ("expected exit 1, got $($r.Code). A duplicate key means the reader stored two values and every lookup can only see one of them, so the file was NOT fully read - reporting it clean is the false assurance this guard exists to refuse. Output: $($r.Out)")
+            # Paired with the exit code on purpose. `exit 1` alone is satisfied
+            # by any rule firing for any reason; this pins the rule AND names
+            # the duplicated key, so a fix that fails the file for some other
+            # reason cannot pass this row.
+            $named = ($r.Out -match ([regex]::Escape($d.file) + ':\d+:[^\r\n]*' + [regex]::Escape($d.key) + '[^\r\n]*- unparseable:'))
+            Add-LwgCase ("{0} is reported as unparseable, naming the duplicated key" -f $d.what) $named `
+                ("no line reported $($d.file) under rule unparseable naming '$($d.key)'. Output: $($r.Out)")
+        }
+
+        # --- the other arm: a repeated key in DIFFERENT mappings is legal ---
+        # The paired half of the two cases above, and it is not decoration. The
+        # duplicate check has to be scoped to the one mapping being built: every
+        # job declares `runs-on:` and `steps:`, and every step declares `name:`
+        # and `run:`, so a check that remembered keys across siblings would
+        # condemn every workflow in existence - including this repository's own
+        # ci.yml. Without this row, "make everything unparseable" passes both
+        # cases above.
+        $legit = Join-Path $fx 'repeated-keys-ok'
+        $null = New-Item -ItemType Directory -Path $legit -Force
+        Set-Content -LiteralPath (Join-Path $legit 'ok.yml') -Encoding ASCII -Value `
+            "name: fixture repeated keys in sibling mappings`non:`n  workflow_dispatch:`njobs:`n  one:`n    runs-on: windows-latest`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n      - name: Nothing`n        run: Write-Output fixture`n  two:`n    runs-on: windows-latest`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n"
+        $r = Invoke-LwgGuard -Dir $legit
+        Add-LwgCase 'two jobs each declaring runs-on:, and repeated step keys, still exit 0' ($r.Code -eq 0) `
+            "expected exit 0, got $($r.Code). The duplicate-key check must be scoped to one mapping; a key repeated in SIBLING mappings is ordinary YAML and every workflow does it. Output: $($r.Out)"
+        Add-LwgCase 'two jobs each declaring runs-on: report zero violations' ($r.Out -match 'RESULT: 0 violation\(s\)') `
+            "expected a RESULT line reporting 0 violations, got: $($r.Out)"
 
         # --- the abort end of the contract ---------------------------------
         # Both of these are exit 2 and NEITHER is reachable from a live run, so

@@ -11,7 +11,7 @@
 | [Commands](commands.md) | All twelve slash commands, their exit codes, and which of the three preference commands is enforced |
 | [Roles](roles.md) | The six agent roles the plugin ships, and when each is dispatched |
 | [Architecture](architecture.md) | File layout, hook registrations, measured costs, state directory, status line, failure policy |
-| [Testing and CI](testing.md) | **Eight files in `tests/`, five of which test behaviour** — what each one establishes, the exit-code contract they share, the ten CI check steps, and what is therefore uncovered |
+| [Testing and CI](testing.md) | **Twelve files in `tests/`, nine of which test behaviour** — what each one establishes, the exit-code contract they share, the fourteen CI check steps, and what is therefore uncovered |
 | [UAT report (v0.3.0)](uat-report.md) | All twelve commands and the adversarial cases, run from a throwaway profile — per-item verdicts, the two installer defects it found, and **what a green UAT still does not establish** |
 | [Portability](portability.md) | The no-local-environment-dependencies mandate, the scan that enforces it, and the allowlist rules |
 | [Output styles](output-styles.md) | The three verbosity levels and `plain` — and the four things they cannot do |

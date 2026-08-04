@@ -223,6 +223,36 @@ try {
     # module's switch real - and it is the one that catches a typo in the
     # declared key, which would otherwise leave the gate permanently and
     # silently off with everything reporting healthy.
+    #
+    # PRESENCE WAS NOT ENOUGH, AND THE SENTENCE ABOVE IS WHY. Until 3 August
+    # 2026 both halves of this check asked only whether a KEY was there: the
+    # switch loop tested `$null -eq $v` and stopped, and the `modules` half read
+    # .PSObject.Properties.Name and never looked at a value at all. So a typo in
+    # the VALUE produced exactly the state that sentence promises to prevent.
+    #
+    #     "interaction": { "delegate": "true" }
+    #
+    # is non-null, so the check passed and the doctor said healthy - while
+    # Test-LwgFlag, which is what lib\gate_delegate.ps1 actually reads, requires
+    # `$g -is [bool]`, ignored the string, and left the only gate this plugin
+    # ships on its registry default of $false. A monitor reporting green over a
+    # switch wired to nothing is the founding defect this file exists to catch,
+    # spelled by the file that exists to catch it.
+    #
+    # THE RULE APPLIED BELOW IS THE READER'S RULE AND NOT A THIRD ONE. It is
+    # `-isnot [bool]` against the same `$cfg.$b.$k` lookup Test-LwgFlag makes
+    # and the same `$cfg.modules.<name>` lookup Test-LwgModule makes, both in
+    # lib\common.ps1. A checker that decided for itself what counts as a valid
+    # flag would be a second answer to a question the reader already answers,
+    # which is the reporter/reader divergence Test-LwgFlag's own docstring
+    # records bin\lwg-toggle.ps1 shipping.
+    #
+    # BOTH ARE FAIL, NOT WARN, AND THE POLARITY DIFFERS BETWEEN THEM. An ignored
+    # switch value leaves a gate OFF while the file says on; an ignored `modules`
+    # value leaves a module ON while the file says off. Neither is a caveat -
+    # in both the operator's written choice is not in effect - so each row says
+    # which way the module actually ended up rather than leaving it to be
+    # inferred from the word "boolean".
     Invoke-Check -Id 'config-registry' -Body {
         $cfg = Get-LwgConfig
         if ($cfg._source -ne 'file') {
@@ -264,19 +294,49 @@ try {
             if ($null -eq $v) {
                 $bits += "registry entry '$m' declares its switch as $b.$k, and config.json has no such key - the module falls back to its built-in default ($($sw.default)) and nothing in the file can change it"
             }
+            elseif ($v -isnot [bool]) {
+                # The key is there and holds something that is not a setting.
+                # Test-LwgFlag skips the level rather than coercing, so the
+                # written value is not a vote either way - it is not a value at
+                # all, and the registry default stands.
+                $bits += "registry entry '$m' declares its switch as $b.$k, and config.json holds a $($v.GetType().Name) there ('$v') rather than a boolean - Test-LwgFlag ignores anything that is not a real boolean, so the module is running on its built-in default ($($sw.default)) and the value written in the file is doing nothing"
+            }
+        }
+
+        # The `modules` block, VALUES this time. The parity test above reads
+        # .PSObject.Properties.Name, which is the right question for parity and
+        # cannot see this: Test-LwgModule applies the same boolean-only rule to
+        # this block, and an ignored value here leaves the module RUNNING. Its
+        # docstring records that "modules": { "docs_coupling": "false" } ENABLED
+        # docs_coupling, because [bool] on a non-empty string is $true in
+        # PowerShell - so this is the same class as the switch above with the
+        # polarity reversed, and the row says which one it is.
+        #
+        # Every property is read, including names the registry has never heard
+        # of. Those already produce their own bit above; a filter here would
+        # hide a second, different fault about the same key.
+        foreach ($p in @($cfg.modules.PSObject.Properties)) {
+            $mv = $p.Value
+            if ($mv -isnot [bool]) {
+                $tn = if ($null -eq $mv) { 'null' } else { $mv.GetType().Name }
+                $bits += "config.json's modules.$($p.Name) holds a $tn ('$mv') rather than a boolean - Test-LwgModule ignores anything that is not a real boolean and an unreadable modules flag defaults on, so that module STAYS ON whatever this line says"
+            }
         }
 
         if ($bits.Count -gt 0) {
             Add-Row -Id 'config-registry' -Status 'FAIL' -Detail ($bits -join '; ')
             return
         }
+        # "each on a key that exists" was the whole claim until the value test
+        # above landed, and it was true and was not the question. The wording
+        # now states what was actually checked.
         $extra = if ($own.Count -gt 0) {
-            "; $($own.Count) module(s) switched from outside that block, each on a key that exists: " +
+            "; $($own.Count) module(s) switched from outside that block, each on a key that exists and holds a real boolean: " +
             (($own | ForEach-Object {
                 $s = $script:LwgModuleRegistry[$_].switch
                 "$_ -> $($s.block).$($s.key)" }) -join ', ')
         } else { '' }
-        Add-Row -Id 'config-registry' -Status 'PASS' -Detail "parses; all $($inConfig.Count) module flags match the registry exactly$extra"
+        Add-Row -Id 'config-registry' -Status 'PASS' -Detail "parses; all $($inConfig.Count) module flags match the registry exactly and every one holds a real boolean$extra"
     }
 
     # ---------------------------------------------------------------------
@@ -407,10 +467,92 @@ try {
             return
         }
 
-        # The installed copy is a COPY. docs/install.md is explicit that the
-        # two can drift and that nothing else detects it. This detects it.
+        # PROVENANCE FIRST, THEN DRIFT, AND THE ORDER IS THE FIX.
+        #
+        # The token scan above takes the first token ending in .ps1 with no path
+        # and no name constraint, which is correct - the operator may have
+        # installed this plugin's status line anywhere. What was NOT correct was
+        # what came next: until 3 August 2026 the target was hash-compared
+        # against this repo's copy unconditionally, and a mismatch printed
+        # "stale or locally modified; re-copy it". Two hashes differing is
+        # consistent with three things - our file out of date, our file locally
+        # modified, or NOT OUR FILE - and the row asserted the first two by name
+        # while the remedy destroyed the third. A status line belonging to
+        # somebody else is the normal state of any machine where this plugin's
+        # was never installed, which the preamble above already says the plugin
+        # cannot assume.
+        #
+        # THE IDENTITY TEST is the token LWG-STATUSLINE-IDENTITY on a comment
+        # line inside the first 4096 bytes of the target. statusline\statusline.ps1
+        # carries it and states the format there; this is the only reader.
+        # Content, not path: ~\.claude is not evidence of ownership either, and
+        # issue #17 records bin\lwg-uninstall.ps1 being too loose for exactly
+        # that reason.
+        #
+        # IT IS FORGEABLE AND THAT IS STATED RATHER THAN LEFT TO BE FOUND. A
+        # file that merely CONTAINS the token is claimed here as ours and would
+        # then be told it has drifted and to re-copy over itself - the same harm
+        # this branch exists to prevent, reachable by a file that copied one
+        # comment line. No content marker can be made unforgeable. What this
+        # test buys is the case an operator actually hits: an UNRELATED status
+        # line, never derived from ours and with no reason to carry the token,
+        # is no longer diagnosed as a stale copy of a file it has never seen.
+        # It buys nothing against a file that quotes the marker, and it is not
+        # offered as if it did.
+        #
+        # THREE ANSWERS, NOT TWO, and the third is the doctor's own distinction
+        # at the top of this file: "I found a fault" and "I could not look" are
+        # different statements. A target that cannot be read is neither ours nor
+        # somebody else's - it is unestablished - and it gets a WARN that says so
+        # and no remedy at all. Absence of the marker is NOT that case: it is a
+        # readable file that is not this plugin's, which is a legitimate
+        # configuration and a PASS.
+        #
+        # PASS RATHER THAN WARN FOR THE MARKER-ABSENT CASE IS A JUDGEMENT AND IS
+        # ARGUABLE. The operator has no HH segment either way, which is what the
+        # FAIL two branches up is about. It is a PASS because the row above it
+        # already reports the wiring, because nothing here is broken, and because
+        # the alternative makes every machine with its own status line report a
+        # caveat forever. The detail states the consequence so the reader can
+        # disagree with the status and still have the fact.
         $repoCopy = Join-Path $pluginRoot 'statusline\statusline.ps1'
-        $drift    = ''
+        $marker   = 'LWG-STATUSLINE-IDENTITY'
+
+        # $null means "could not look". Bounded to the head of the file: the
+        # marker is required to be there, and a status line is not a file this
+        # should read in full on a health check.
+        $isOurs = $null
+        $why    = ''
+        try {
+            $fs = [IO.File]::Open($target, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+            try {
+                $buf  = New-Object byte[] 4096
+                $n    = $fs.Read($buf, 0, $buf.Length)
+                # A target that is not UTF-8 decodes to something the token
+                # cannot appear in, which yields "not ours". That is the safe
+                # direction: it declines to claim the file rather than claiming
+                # it and printing an overwrite.
+                $head = [Text.Encoding]::UTF8.GetString($buf, 0, $n)
+            } finally { $fs.Dispose() }
+            $isOurs = $head.Contains($marker)
+        } catch {
+            $why = $_.Exception.Message
+        }
+
+        if ($null -eq $isOurs) {
+            Add-Row -Id 'statusline' -Status 'WARN' -Detail "wired to $target, which exists but could NOT be read ($why) - so whether it is this plugin's status line was not established. Nothing here says it has drifted and nothing here says to replace it"
+            return
+        }
+        if (-not $isOurs) {
+            Add-Row -Id 'statusline' -Status 'PASS' -Detail "wired to $target, which carries no $marker marker in its first 4096 bytes - it is not this plugin's status line, which is a legitimate configuration. The HH segment will not be rendered, and this file is NOT a stale copy of statusline/statusline.ps1: do not overwrite it"
+            return
+        }
+
+        # Marker present. NOW the installed copy is a COPY of this repo's file,
+        # docs/install.md is explicit that the two can drift and that nothing
+        # else detects it, and a hash mismatch means what this row has always
+        # said it means. The text and the remedy are unchanged.
+        $drift = "; carries the $marker marker"
         if (Test-Path -LiteralPath $repoCopy) {
             $a = (Get-FileHash -LiteralPath $target   -Algorithm SHA256).Hash
             $b = (Get-FileHash -LiteralPath $repoCopy -Algorithm SHA256).Hash
@@ -418,7 +560,7 @@ try {
                 Add-Row -Id 'statusline' -Status 'WARN' -Detail "wired to $target, but it DIFFERS from statusline/statusline.ps1 in this repo - the installed copy is stale or locally modified; re-copy it to make the repo's version live"
                 return
             }
-            $drift = '; matches the repo copy'
+            $drift = "; carries the $marker marker and matches the repo copy"
         }
         Add-Row -Id 'statusline' -Status 'PASS' -Detail "wired to $target$drift"
     }

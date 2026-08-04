@@ -246,11 +246,14 @@ These are not vulnerabilities in this project.
 We prefer coordinated disclosure. Once a fix is on `main`, we will publish a GitHub Security
 Advisory describing the issue, the affected behaviour, and the commit that fixed it — including a
 check that **fails against the commit before the fix**. A finding without such a check is not
-considered closed. Five suites in this repo establish a behaviour, and between them they reach the
+considered closed. Nine suites in this repo establish a behaviour, and between them they reach the
 one gate (`tests/gate_delegate.ps1`), the installer's `statusline` merge and `hooks` decisions
 (`tests/setup_merge.ps1`),
 the two turn-end hooks (`tests/stop_behaviour.ps1`), the uninstaller's state-data deletions
-(`tests/uninstall_footprint.ps1`) and the evidence engine (`tests/evidence_states.ps1`). The 233-case
+(`tests/uninstall_footprint.ps1`), the evidence engine (`tests/evidence_states.ps1`), two of the
+doctor's nine checks (`tests/doctor_behaviour.ps1`), the toggle's write to `config.json`
+(`tests/toggle_behaviour.ps1`), the `SubagentStart` fast path (`tests/subagent_scan.ps1`) and what
+the shipped payload discloses (`tests/payload_guard.ps1`). The 233-case
 gate suite went with `destructive_gate` and the `permissions.deny` parity harness went with
 `secret_scan`, and **nothing replaced what either covered** — nothing here inspects a command, a path
 or a credential to have a harness for. So unless your finding lands inside one of those five, closing

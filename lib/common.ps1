@@ -2983,6 +2983,217 @@ function Add-LwgMissionAnchors {
             $t = $tok.Trim().Trim('.', ':', '-', '_')
             if ($t.Length -lt 3) { continue }
 
+            # --- THE REDACTOR'S OWN MARKER IS NOT SOMETHING ANYONE NAMED -----
+            # '[' and ']' are separators here, so a value that Get-LwgRedacted
+            # masked upstream arrives as the bare token REDACTED - which matches
+            # the ordinary-word pattern below and is in no stop list. Measured
+            # before this line existed: the word set came back holding
+            # 'redacted', a word no prompt contained, written to
+            # advisory-<sessionkey>.json and standing ready to EXCUSE any file
+            # whose stem happens to be 'redacted'.
+            #
+            # Ordinal and case-sensitive, matching how the marker is emitted, so
+            # a prompt that genuinely discusses "redacted output" in lower case
+            # still anchors. The prefix form covers '[REDACTED:<id>]' too, whose
+            # inner token would not match the word pattern anyway - it is here so
+            # that the rule does not depend on that accident.
+            if ($t.StartsWith('REDACTED', [StringComparison]::Ordinal)) { continue }
+
+            # --- SHAPE FILTER: A CREDENTIAL IS NOT A NAME --------------------
+            # WHY THIS EXISTS WHEN THE PROMPT IS ALREADY REDACTED. The caller in
+            # lib\stop_advisories.ps1 puts the whole prompt through
+            # Get-LwgRedacted before it reaches here, and that is the right
+            # place - it is the only point where the sentence is still intact.
+            # But that helper works from an ENUMERATED pattern list plus a
+            # keyword list, and it says so in its own header: a credential in a
+            # shape nobody enumerated, with no key name in front of it, arrives
+            # at this loop untouched.
+            #
+            # AND TOKENISING IS NOT REDACTION. What arrives untouched does not
+            # merely survive. '/' is in the base64 alphabet and this function
+            # reads '/' as a PATH SEPARATOR, so key material is PROMOTED into
+            # the path set - the anchor kind the advisory QUOTES BACK in its
+            # systemMessage - displacing the file the operator actually named.
+            # Measured at 19bb85d on the prompt in issue #5: one AWS secret
+            # access key contributed three path anchors and took two of the four
+            # quoted slots.
+            #
+            # BY SHAPE, NEVER BY VENDOR. A vendor list is what already failed
+            # here; adding a sixth prefix to it would fix the shapes someone
+            # thought of and nothing else. The question asked instead is the
+            # module's own question: could this token plausibly NAME something -
+            # a file, a directory, or a word?
+            #
+            # IT DECOMPOSES THE TOKEN RATHER THAN JUDGING IT WHOLE, and that is
+            # a CORRECTION of the first version of this filter rather than a
+            # refinement of it. That version tested the token as one string and
+            # exempted anything containing ':' or '@', on the reasoning that a
+            # drive letter or a URL is a shape it is not competent to judge.
+            # MEASURED, that exemption was a hole wide enough to drive issue #5's
+            # own specimen through:
+            #
+            #   this presigned url 403s: https://s3.example.com/wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY - why?
+            #
+            # One ':' in the scheme waved the whole token past the filter, and
+            # the advisory rendered "you named: bpxrficyexamplekey, https:,
+            # k7mdeng, s3.example". A 'C:/' prefix did the same. The exemption
+            # also turned out to be protecting almost nothing - of fourteen
+            # ':'/'@' tokens checked, thirteen survive the rest of the filter
+            # without it - so it is gone rather than patched.
+            #
+            # WHAT REPLACES IT. The token is split on '/' AND '\', each segment
+            # is classified, and only a MAXIMAL RUN of consecutive
+            # credential-shaped segments is dropped - the surviving segments are
+            # rejoined and go on to anchor normally. That is why the URL above
+            # keeps 'https:' and 's3.example.com' and loses only the three
+            # segments that are the key. Judging the token whole cannot do this:
+            # 'https' and 'example' are word-like, so a whole-token test reads
+            # the entire URL as a name and keeps the key with it.
+            #
+            # A SEGMENT IS CREDENTIAL-SHAPED when it is 3 characters or more,
+            # contains a capital, is not a short all-caps acronym (API, DTO,
+            # HTTP), does not match the filename pattern used below, and carries
+            # no run of five or more lowercase letters containing a vowel. That
+            # last clause is the discriminator: real names are made of WORDS -
+            # getUserAuthenticationToken has 'uthentication',
+            # HTTPServerConnectionPool has 'onnection', workspace has all of
+            # itself. Base64 does not; measured, the AWS specimen's longest
+            # lowercase run is 3 and the JWT specimen's is 2.
+            #
+            # A RUN IS DROPPED only when the concatenation is at least
+            # $minShape characters, is genuinely mixed case - two or more of
+            # each - and is itself free of a word-like lowercase run. The
+            # mixed-case clause is what saves docs/CONFIGURATION/DEPLOYMENT,
+            # whose two SCREAMING_CASE segments concatenate to 23 characters of
+            # pure capitals.
+            #
+            # ONE THRESHOLD, USED TWICE, and deliberately a variable rather than
+            # two literals: the cheap integer gate on the whole token and the
+            # test on the run have to move together, or lowering one silently
+            # leaves the other pinning nothing.
+            #
+            # MEASURED AGAINST REAL PATHS, because the cost direction here is
+            # the module going permanently silent. Every tracked path in this
+            # repository, in all three spellings a prompt actually pastes
+            # (relative, absolute with '/', absolute with '\'), plus a
+            # hand-built corpus of CamelCase-heavy .NET, Java, PHP, Swift and
+            # React paths - 296 tokens - was run through this function twice,
+            # once with the filter live and once with $minShape raised past
+            # every input, and the two anchor sets DIFFER ON EXACTLY ONE TOKEN:
+            # the AppData/Local/Temp case named at the bottom of this block.
+            # That is the false-positive rate, measured rather than asserted.
+            #
+            # WHAT THIS DOES NOT CATCH, and each one is measured rather than
+            # reasoned about, because a filter that reads as though it were
+            # complete is the overstatement this repository exists to remove:
+            #
+            #   * A SINGLE-CASE TOKEN. The run test requires both cases present,
+            #     so a 32-character lowercase hex API key and an ALL-CAPS key are
+            #     both untouched. That is not a gap issue #5 enumerates - the
+            #     issue text does not mention hex at all; the claim lives in
+            #     lib\stop_advisories.ps1 and is unverified there. It is stated
+            #     here because it is true of THIS code, not because a document
+            #     says so.
+            #   * A RANDOM KEY THAT HAPPENS TO CONTAIN A WORD-LIKE RUN, which is
+            #     a RATE rather than an absolute. MEASURED by driving this
+            #     function over 10,000 random strings per length per alphabet and
+            #     counting how many left an anchor that is part of the string:
+            #
+            #                        base64 (A-Za-z0-9+/)   alnum-62 (A-Za-z0-9)
+            #         length 20           11.9%                    8.4%
+            #         length 32           11.6%                   13.7%
+            #         length 40           12.7%                   16.5%
+            #
+            #     ALNUM-62 IS THE WORSE NUMBER AT 32 AND 40 AND IS THE ONE TO
+            #     PLAN AGAINST: without '+' and '/' the characters are letters
+            #     more often, so a five-letter lowercase run turns up more often.
+            #     Its rate RISES with length - 8.4 to 16.5 - where base64's is
+            #     flat; a longer key is not a safer one. Roughly one random
+            #     40-character alphanumeric key in six still gets through.
+            #
+            #     AND THIS IS NOT AN IMPROVEMENT ON WHAT IT REPLACED. The
+            #     whole-token filter measured 12.9% at base64 length 40 against
+            #     this one's 12.7%, which is the same number. Decomposing the
+            #     token closed the URL bypass and made the two path separators
+            #     agree; it did not make the entropy test better, and nothing
+            #     here should be read as claiming it did.
+            #   * A CREDENTIAL SHORTER THAN $minShape, or one carried in a token
+            #     shorter than that. The floor is what buys the false-positive
+            #     margin above and it cuts both ways.
+            #   * A RUN OF LEGITIMATE CamelCase DIRECTORY SEGMENTS that reaches
+            #     $minShape characters with no word-like lowercase run in any of
+            #     them. Measured on the corpora above this did not occur, but
+            #     <profile>/AppData/Local/Temp/XYZAbcDefGhi is a real shape
+            #     that loses its tail - three of those four segments are in
+            #     $script:LwgMissionStopSegments and were being discarded anyway,
+            #     so the cost there is one generated directory name.
+            $minShape = 20
+            if ($t.Length -ge $minShape) {
+                $segs = $t.Split([char[]]@('/', '\'), [StringSplitOptions]::RemoveEmptyEntries)
+                $n    = $segs.Count
+                if ($n -gt 0) {
+                    $cred = New-Object 'bool[]' $n
+                    for ($si = 0; $si -lt $n; $si++) {
+                        $s = $segs[$si]
+                        # A one- or two-character segment CONTINUES a run rather
+                        # than breaking it. It names nothing on its own and
+                        # Get-LwgPathSegments discards it anyway, but as a run
+                        # BREAK it was splitting key material into pieces that
+                        # each fell under the floor: measured, a 20-character
+                        # base64 run leaked 17.8% of the time while these broke
+                        # runs and 11.9% once they stopped. A drive letter is the
+                        # visible case and it costs nothing - 'C:' is discarded
+                        # downstream whether this drops it or not.
+                        if ($s.Length -lt 3)                { $cred[$si] = $true; continue }
+                        if ($s -cnotmatch '[A-Z]')          { continue }
+                        if ($s -cmatch '^[A-Z0-9]{1,5}$')   { continue }
+                        if ($s -match '^[A-Za-z0-9_+\-][\w.+\-]*\.[A-Za-z][A-Za-z0-9]{0,5}$') { continue }
+                        $sw = $false
+                        foreach ($m in [regex]::Matches($s, '[a-z]{5,}')) {
+                            if ($m.Value -match '[aeiouy]') { $sw = $true; break }
+                        }
+                        if (-not $sw) { $cred[$si] = $true }
+                    }
+
+                    $drop = New-Object 'bool[]' $n
+                    $si = 0
+                    while ($si -lt $n) {
+                        if (-not $cred[$si]) { $si++; continue }
+                        $sj = $si
+                        while ($sj -lt $n -and $cred[$sj]) { $sj++ }
+                        # Rejoined WITH the separator, for two reasons that both
+                        # bite. Length: a run has to be measured as it appears
+                        # in the prompt, and dropping the separators shortened
+                        # every multi-segment run below the floor - measured on
+                        # 10,000 random 20-character base64 strings, leakage was
+                        # 31.6% joined bare and 17.8% joined this way. Word-runs:
+                        # concatenating 'abc' and 'de' manufactures a
+                        # five-letter lowercase run that never existed and
+                        # rescues the credential that contains it.
+                        $joined = ($segs[$si..($sj - 1)] -join '/')
+                        if ($joined.Length -ge $minShape -and
+                            $joined -cmatch '[A-Z][^A-Z]*[A-Z]' -and
+                            $joined -cmatch '[a-z][^a-z]*[a-z]') {
+                            $jw = $false
+                            foreach ($m in [regex]::Matches($joined, '[a-z]{5,}')) {
+                                if ($m.Value -match '[aeiouy]') { $jw = $true; break }
+                            }
+                            if (-not $jw) { for ($sk = $si; $sk -lt $sj; $sk++) { $drop[$sk] = $true } }
+                        }
+                        $si = $sj
+                    }
+
+                    $anyDrop = $false
+                    foreach ($d in $drop) { if ($d) { $anyDrop = $true; break } }
+                    if ($anyDrop) {
+                        $keptSegs = @()
+                        for ($sk = 0; $sk -lt $n; $sk++) { if (-not $drop[$sk]) { $keptSegs += $segs[$sk] } }
+                        $t = ($keptSegs -join '/')
+                        if ($t.Length -lt 3) { continue }
+                    }
+                }
+            }
+
             $isPath = ($t.Contains('/') -or $t.Contains('\'))
             # The dot test is a guard, not a shortcut. Without it the filename
             # pattern is compiled the first time any ordinary word reaches this

@@ -15,7 +15,7 @@ fails on a `/lw-watchtower:<name>` reference with no command file behind it — 
 live-looking reference to a deleted command is a signpost to nothing.
 
 - `lw-watchtower:verify` ran the gate regression suite and went with the destructive command gate that
-  suite mostly covered. **No command tests behaviour.** Five suites test behaviour and only one of
+  suite mostly covered. **No command tests behaviour.** Nine suites test behaviour and only one of
   them covers the gate — see [Testing](testing.md).
 - `lw-watchtower:tripped` listed open gate trips and went with the trip ledger it read: both gates were
   already gone, so no trip could be recorded, and the ledger files it read were then backed up and
@@ -170,10 +170,11 @@ ships switched off, so on a default install nothing here blocks anything. The sc
 blind spots on every run, including the green ones.
 
 **No command tests behaviour.** The one that did — `lw-watchtower:verify`, over a 233-case suite — was
-removed with the destructive command gate. Five behavioural test files survive it —
-[`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) for `delegate_gate`, and four more covering
-the installer's `statusline` and hooks merge, the two `Stop` hooks, the uninstaller's deletions and
-the evidence engine — and every one of them is run by CI and by hand, while **no command reaches any
+removed with the destructive command gate. Nine behavioural test files survive it —
+[`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) for `delegate_gate`, and eight more covering
+the installer's `statusline` and hooks merge, the two `Stop` hooks, the uninstaller's deletions,
+the evidence engine, two of the doctor's nine checks, the toggle's write to `config.json`, the
+`SubagentStart` fast path and what the shipped payload discloses — and every one of them is run by CI and by hand, while **no command reaches any
 of them.** So a green doctor is the only automated statement any *command* here makes about this
 plugin, and it is a statement about wiring alone. Do not fill that gap with an inference.
 
@@ -181,7 +182,24 @@ plugin, and it is a statement about wiring alone. Do not fill that gap with an i
 
 ## `/lw-watchtower:checklist`
 
-Renders [`checklist.json`](../checklist.json) with **every item's state derived from evidence** by
+**This command reports on the LW-WATCHTOWER project's own release plan. It does not report on your
+repository, and no row it prints is a finding about your work.**
+
+[`checklist.json`](../checklist.json) is this plugin's internal release audit. It ships inside the
+plugin because the whole repository root is the payload — `.claude-plugin/marketplace.json` sets
+`"source": "./"`, and that form has no exclusion mechanism — so if you installed LW-WATCHTOWER from
+the marketplace, you received it, and running this command renders it on your machine. Forty rows
+about somebody else's project, each formatted exactly like a finding about your own tree, is a
+confusing thing to be handed; the command now says so in its own first four lines of output, on
+every run. Read a `NOT STARTED` row as work outstanding *on this plugin*, never on your repository.
+
+**Two of its rows make an authenticated `gh` request, as you, about a repository that is not
+yours.** `P6-branch-protection` and `P8-visibility` query the maintainer's own repository, so a
+`403` from either is a permissions answer about a repository you have nothing to do with — not a
+problem with your credentials or your environment. Set `module_config.git_hygiene.use_gh` to
+`false` to switch all four `gh` call sites off; [`install.md`](install.md) records the requirement.
+
+Every item's state is **derived from evidence** by
 [`bin/lwg-evidence.ps1`](../bin/lwg-evidence.ps1) — a commit, a file on disk, an exit code, or a CI
 conclusion — never from a claim written into the plan.
 

@@ -482,6 +482,143 @@ try {
         ($an5.total -eq 2 -and ($an5.paths.Count + $an5.words.Count) -eq 2) `
         "five distinct words with MaxAnchors 2 must leave a set of exactly 2; got total $($an5.total)"
 
+    # --- the tokeniser's own shape filter (issue #5, recommendation 2) -----
+    # REDACTION AT THE PROMPT IS NOT THE WHOLE DEFENCE, and these cases exist
+    # because the half that was landed reads as though it were. Get-LwgRedacted
+    # runs on the whole prompt before it reaches this function
+    # (lib\stop_advisories.ps1), and it works from an ENUMERATED pattern list
+    # plus a keyword list - so a credential in a shape nobody enumerated, with
+    # no keyword in front of it, arrives here intact.
+    #
+    # TOKENISING IS NOT REDACTION. What arrives intact does not merely survive:
+    # a token containing '/' is read as a PATH, and path anchors are the kind
+    # the advisory QUOTES BACK in its systemMessage. So the tokeniser can
+    # PROMOTE key material into the one anchor set that is printed to the
+    # operator, displacing the file they actually named.
+    #
+    # These cases drive Add-LwgMissionAnchors DIRECTLY rather than through the
+    # hook, deliberately: the property under test belongs to the tokeniser, and
+    # a case routed through the entry redaction would pass for a reason that has
+    # nothing to do with the filter it is meant to pin.
+    #
+    # A specimen is never a literal in a tracked file - see the note above
+    # $script:LwgSecretPatterns. All three below are assembled at runtime.
+
+    # An AWS secret access key: 40 characters of base64, and '/' is in the
+    # base64 alphabet. MEASURED against the tokeniser as it stood at 19bb85d
+    # (byte-identical to fd8d023), this ONE value contributed THREE path anchors
+    # - wjalrxutnfemi | k7mdeng | bpxrficyexamplekey - and took two of the four
+    # slots in the advisory's "you named:" list.
+    $anS1 = New-LwgMissionAnchors
+    $sAws = 'wJalrXUtnFEMI' + '/' + 'K7MDENG' + '/' + 'bPxRfiCYEXAMPLEKEY'
+    [void](Add-LwgMissionAnchors -Text ('rotate the secret ' + $sAws + ' today') -Anchors $anS1 -Scope $aScope)
+    $sAwsLower = $sAws.ToLowerInvariant()
+    $s1Leak = @(@(@($anS1.paths) + @($anS1.words)) | Where-Object { $sAwsLower.Contains($_) })
+    Add-Result 'anchors: an AWS secret access key contributes no anchor, whole or in pieces' `
+        ($s1Leak.Count -eq 0) `
+        ("no anchor may be any part of a credential. Splitting on '/' is not redaction - it turns 40 characters of key material into PATH anchors, which are persisted to advisory-<sessionkey>.json AND quoted back in the systemMessage. leaked: " + ($s1Leak -join ', ') + " | all paths: " + (@($anS1.paths) -join ', ') + " | all words: " + (@($anS1.words) -join ', '))
+
+    # A JWT header segment: one unbroken alphanumeric run, so it passes the
+    # separator split whole and matches the ordinary-word pattern. Word anchors
+    # reach the state file only, not the systemMessage - which is why this one
+    # is asserted against the word set as well as the path set rather than
+    # instead of it.
+    $anS2 = New-LwgMissionAnchors
+    $sJwt = 'eyJhbGciOiJIUzI1NiIs' + 'InR5cCI6IkpXVCJ9'
+    [void](Add-LwgMissionAnchors -Text ('the jwt ' + $sJwt + ' keeps failing') -Anchors $anS2 -Scope $aScope)
+    $sJwtLower = $sJwt.ToLowerInvariant()
+    $s2Leak = @(@(@($anS2.paths) + @($anS2.words)) | Where-Object { $sJwtLower.Contains($_) })
+    Add-Result 'anchors: a JWT segment contributes no anchor, whole or in pieces' `
+        ($s2Leak.Count -eq 0) `
+        ("a JWT survives the separator split as ONE token and matches the word pattern, so it is stored - lowercased and complete - in advisory-<sessionkey>.json for the life of the session. leaked: " + ($s2Leak -join ', ') + " | all words: " + (@($anS2.words) -join ', '))
+
+    # THE REDACTOR'S OWN MARKER MUST NOT BECOME AN ANCHOR. '[' and ']' are
+    # separators here, so a value the entry redaction masked arrives as the bare
+    # token REDACTED - which matches the ordinary-word pattern and is in no stop
+    # list. MEASURED at 19bb85d: the word set came back containing 'redacted'.
+    # That is the redaction leaving a fingerprint of itself in the state file and
+    # standing ready to EXCUSE any file whose stem is 'redacted'.
+    $anS3 = New-LwgMissionAnchors
+    [void](Add-LwgMissionAnchors -Text ('the key is [' + 'REDACTED' + '] now') -Anchors $anS3 -Scope $aScope)
+    Add-Result 'anchors: the redaction marker itself is not an anchor' `
+        (-not $anS3.words.Contains('redacted') -and -not $anS3.paths.Contains('redacted')) `
+        ("the marker is this plugin's own output, not something the operator named. Anchoring on it writes a word to the state file that no prompt contained. got words: " + (@($anS3.words) -join ', '))
+
+    # THE COST BOUND, and it is the half a shape filter gets wrong. A filter
+    # that drops credentials by dropping everything long and mixed-case takes
+    # ordinary paths with it, and mission_drift with no path anchor has no
+    # standing to speak at all - the module goes permanently silent, which is a
+    # failure that looks exactly like success.
+    #
+    # ACRONYM-HEAVY PATHS ARE THE BOUNDARY, chosen on purpose: they are long,
+    # genuinely mixed-case, and carry no long lowercase word run, so they sit
+    # closest to the credential side of any entropy test. THIS CASE DOES NOT GO
+    # RED AT fd8d023 - the unfiltered tokeniser passes everything, so it cannot.
+    # It goes red the moment a filter is too broad, which is the failure the two
+    # cases above cannot see.
+    $anS4 = New-LwgMissionAnchors
+    $addedS4 = Add-LwgMissionAnchors -Text 'update C:/lwg-fixture-hq/workspace/docs/API/v2/README.md and src/UI/API/DTO/Xyz.cs' -Anchors $anS4 -Scope $aScope
+    $s4Want = @('workspace', 'docs', 'api', 'readme.md', 'readme', 'src', 'dto', 'xyz.cs')
+    $s4Miss = @($s4Want | Where-Object { -not $anS4.paths.Contains($_) })
+    Add-Result 'anchors: acronym-heavy real paths still anchor on every segment' `
+        ($addedS4 -gt 0 -and $s4Miss.Count -eq 0) `
+        ("a shape filter that cannot tell docs/API/v2/README.md from key material costs this module its standing: with zero path anchors mission_drift never speaks again. missing: " + ($s4Miss -join ', ') + " | got: " + (@($anS4.paths) -join ', '))
+
+    # THE SAME KEY INSIDE A URL, which is where a presigned link puts it and
+    # which the first version of this filter waved straight through: it exempted
+    # any token containing ':' or '@' from the shape test entirely, so ONE
+    # character of scheme carried the whole key past. Measured against that
+    # version, the advisory rendered "you named: bpxrficyexamplekey, https:,
+    # k7mdeng, s3.example" - issue #5's own specimen in issue #5's own second
+    # destination. The scheme and the host must SURVIVE, or the fix has just
+    # traded a leak for the module's standing, so both halves are asserted here.
+    $anS5 = New-LwgMissionAnchors
+    $sUrl = 'https://s3.example.com/' + $sAws
+    [void](Add-LwgMissionAnchors -Text ('this presigned url 403s: ' + $sUrl + ' - why?') -Anchors $anS5 -Scope $aScope)
+    $s5Leak = @(@(@($anS5.paths) + @($anS5.words)) | Where-Object { $sAwsLower.Contains($_) })
+    Add-Result 'anchors: a credential inside a URL is dropped while the scheme and host survive' `
+        ($s5Leak.Count -eq 0 -and $anS5.paths.Contains('s3.example.com')) `
+        ("a token must be DECOMPOSED and its segments filtered one at a time. Judged whole, 'https' and 'example' read as words and the key rides along on their word-likeness. leaked: " + ($s5Leak -join ', ') + " | got: " + (@($anS5.paths) -join ', '))
+
+    # THE FLOOR IS A REAL DECISION AND HAS TO BE PINNED FROM BOTH SIDES. The
+    # cases above only pin that something long enough is dropped; nothing in
+    # them fails if the threshold slides down onto ordinary identifiers. These
+    # two are 15 and 18 characters, are mixed case, and carry no five-letter
+    # lowercase run - so they sit on the credential side of every test here
+    # EXCEPT the length floor, and they are what that floor is buying.
+    $anS6 = New-LwgMissionAnchors
+    [void](Add-LwgMissionAnchors -Text 'please fix XmlRpcApiDtoMap and getXmlRpcApiDtoUrl today' -Anchors $anS6 -Scope $aScope)
+    Add-Result 'anchors: short mixed-case identifiers are below the shape floor and still anchor' `
+        ($anS6.words.Contains('xmlrpcapidtomap') -and $anS6.words.Contains('getxmlrpcapidtourl')) `
+        ("15 and 18 characters. Lower the floor and these go, along with every other acronym-run symbol name a prompt mentions. got words: " + (@($anS6.words) -join ', '))
+
+    # SCREAMING_CASE DIRECTORIES ARE REAL and they are the reason the run test
+    # demands BOTH cases. CONFIGURATION and DEPLOYMENT are each too long to be
+    # read as an acronym and carry no lowercase at all, so they concatenate to 23
+    # characters that fail every other clause; only the two-lowercase
+    # requirement keeps them.
+    $anS7 = New-LwgMissionAnchors
+    [void](Add-LwgMissionAnchors -Text 'see docs/CONFIGURATION/DEPLOYMENT/README.md for the steps' -Anchors $anS7 -Scope $aScope)
+    $s7Miss = @(@('docs', 'configuration', 'deployment', 'readme.md') | Where-Object { -not $anS7.paths.Contains($_) })
+    Add-Result 'anchors: an ALL-CAPS directory run is a name, not key material' `
+        ($s7Miss.Count -eq 0) `
+        ("a run of capitals is how projects spell doc directories; dropping it costs real path anchors and buys nothing, because a credential is mixed case. missing: " + ($s7Miss -join ', ') + " | got: " + (@($anS7.paths) -join ', '))
+
+    # ONE PATH, TWO SPELLINGS, ONE ANSWER. This is a Windows-only plugin and a
+    # prompt pastes both separators freely. The first version of this filter
+    # split on neither - it tested the raw token against an alphabet that
+    # contained '/' but not '\' - so src/UI/API/DTO/Enums yielded nothing and
+    # src\UI\API\DTO\Enums yielded four anchors. Same path, opposite verdict.
+    $anS8a = New-LwgMissionAnchors
+    $anS8b = New-LwgMissionAnchors
+    [void](Add-LwgMissionAnchors -Text 'look at src/UI/API/DTO/Enums' -Anchors $anS8a -Scope $aScope)
+    [void](Add-LwgMissionAnchors -Text 'look at src\UI\API\DTO\Enums' -Anchors $anS8b -Scope $aScope)
+    $s8a = @(@($anS8a.paths) | Sort-Object) -join ','
+    $s8b = @(@($anS8b.paths) | Sort-Object) -join ','
+    Add-Result 'anchors: the two separator spellings of one path give the same anchors' `
+        ($s8a -eq $s8b -and $anS8a.paths.Contains('enums')) `
+        ("a filter that reads only one separator gives a Windows path a different verdict depending on which key the operator typed. forward: [$s8a] back: [$s8b]")
+
     # --- Test-LwgPathUnder ------------------------------------------------
     Add-Result 'pathUnder: a sibling sharing a prefix is NOT under' `
         (-not (Test-LwgPathUnder -Path 'C:/lwg-fixture/repo-two/file.ps1' -Root 'C:/lwg-fixture/repo')) `

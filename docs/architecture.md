@@ -136,13 +136,13 @@ lib/resolve.ps1              appends a Resolved marker. NOT invoked directly:
                              /lw-watchtower:resolve run
 tests/gate_delegate.ps1      93 cases against lib/gate_delegate.ps1, each run
                              through a real pipe into a real child process. One
-                             of FIVE behavioural suites, and the only one that
+                             of NINE behavioural suites, and the only one that
                              covers a gate - see docs/testing.md
-tests/stop_behaviour.ps1     169 cases against mission_drift and failure_capture:
+tests/stop_behaviour.ps1     177 cases against mission_drift and failure_capture:
                              helpers in process, lib/stop_advisories.ps1 and
-                             lib/supervisor.ps1 in real child processes. The only
-                             suite that reaches an OBSERVING module - and it
-                             reaches two of the nine
+                             lib/supervisor.ps1 in real child processes. The
+                             suite that reaches the most OBSERVING modules - six
+                             of the nine
 tests/setup_merge.ps1        124 cases driving bin/lwg-setup.ps1 against throwaway
                              settings files. The only suite that tests a WRITE.
                              The writer properties are established on the
@@ -157,7 +157,7 @@ tests/setup_merge.ps1        124 cases driving bin/lwg-setup.ps1 against throwaw
                              local bare repo. Sections 23-26, and they are not
                              about the installer
 tests/uninstall_footprint.ps1
-                             22 cases driving bin/lwg-uninstall.ps1 against
+                             27 cases driving bin/lwg-uninstall.ps1 against
                              throwaway data directories and throwaway
                              settings.json files, asserting on the FILESYSTEM as
                              well as on the report: what the footprint says it
@@ -169,6 +169,30 @@ tests/evidence_states.ps1    47 cases against bin/lwg-evidence.ps1: that a probe
                              which could not run renders UNVERIFIED and one that
                              ran and failed still renders NOT STARTED. The only
                              suite that covers a REPORTING command
+tests/doctor_behaviour.ps1   16 cases driving bin/lwg-doctor.ps1 from a scratch
+                             copy of the whole plugin tree, against seeded
+                             configs and seeded settings.json files. It drives
+                             TWO of the doctor's nine checks - config-registry
+                             and statusline - and no others. Seven of its cases
+                             are labelled CONTROL and pass before the fix too
+tests/toggle_behaviour.ps1   26 cases driving bin/lwg-toggle.ps1's WRITE to
+                             config.json against a byte copy of bin/ and lib/
+                             under a scratch plugin root. The only suite besides
+                             setup_merge that tests a write to a file an operator
+                             owns. -Scope repo is reached by no case
+tests/subagent_scan.ps1      6 cases piping payloads into lib/subagent_start.ps1,
+                             holding its raw-text fast path to the GLOBAL modules
+                             block whatever order the top-level keys appear in.
+                             The only coverage context_injection has. It asserts
+                             on answers, not on the milliseconds the fast path
+                             exists to save
+tests/payload_guard.ps1      15 cases over every file git ls-files reports, which
+                             is the whole shipped payload because
+                             marketplace.json declares "source": "./". The only
+                             suite that asks what a STRANGER receives. It tallies
+                             cases rather than violations, so doc_claims counts
+                             it behavioural, but it reads files rather than
+                             running this plugin's code
 tests/workflow_guard.ps1     every file under .github/workflows/, PARSED into a
                              tree rather than grepped, against 9 rules about
                              runners, pull_request_target and secrets. Asserts
@@ -180,12 +204,15 @@ tests/doc_claims.ps1         every tracked .md/.json/.yml, against counts DERIVE
                              suites, per-suite cases, CI check steps, doctor
                              checks, commands, modules. Asserts nothing about
                              behaviour either; it checks the pages, not the code
-.github/workflows/ci.yml     CI - one job, TEN check steps: JSON validity,
+.github/workflows/ci.yml     CI - one job, FOURTEEN check steps: JSON validity,
                              PowerShell parse, workflow guard, delegate gate
                              suite, installer merge suite, stop-hook behaviour
                              suite, uninstaller footprint suite, evidence-state
-                             suite, portability scan, documentation claims. Five
-                             of the ten test BEHAVIOUR; the other five ask
+                             suite, doctor behaviour suite, toggle write-path
+                             suite, SubagentStart fast-scan suite, payload
+                             disclosure guard, portability scan, documentation
+                             claims. Nine
+                             of the fourteen test BEHAVIOUR; the other five ask
                              whether files are well formed or whether the docs
                              agree with the tree. The job's DISPLAY
                              NAME is deliberately unchanged and now understates
@@ -523,8 +550,32 @@ unreachable, which is precisely the defect this plugin exists to catch. Cost on 
 
 ## State directory
 
-Mutable state lives in `$CLAUDE_PLUGIN_DATA`. Nothing is ever written into the plugin root — it is a
-git working tree, and writing there would dirty the repo.
+Mutable state lives in `$CLAUDE_PLUGIN_DATA`, and nothing on the *hook* path is ever written into
+the plugin root — it is a git working tree, and writing there dirties the repo.
+
+**That rule has one live exception, and it is a defect rather than a carve-out.** This paragraph used
+to read *"Nothing is ever written into the plugin root"* with no qualifier, and that was false as
+written. `config.json` is **tracked** and **not ignored**, and four shipped commands rewrite it in
+place inside `$pluginRoot`: `/lw-watchtower:delegate`, `:plain` and `:verbosity` through
+`bin/lwg-toggle.ps1`, and `:config` through `bin/lwg-config.ps1`. Measured in a throwaway clone —
+`/lw-watchtower:delegate on` exits 0 and `git status --porcelain` then reports ` M config.json`.
+
+The cost is not cosmetic. `bin/lwg-update.ps1` raises a `[FAIL] worktree` row on any uncommitted
+change and refuses to pull, so arming the one gate this plugin ships disables its own updater — and
+the message an operator reads is a generic *"N uncommitted change(s)"* that looks like their own work
+in progress. The only clean escape, `git checkout -- config.json`, throws away the configuration
+including the armed gate. See [Configuration](configuration.md#configuring-the-plugin-dirties-this-checkout).
+
+**There is no regression check for this in the tree, and that is a second, smaller defect.** A
+harness was written for it — `tests/tree_cleanliness.ps1`, which stands `bin/lwg-toggle.ps1` in a
+throwaway plugin root that is a real git repository, arms the gate, and reads `git status
+--porcelain`. **It is deliberately not committed, so a clone of this repository does not contain it**
+and the paragraph above is the only record of what it measured. It cannot be committed while the
+defect is open: `tests/doc_claims.ps1` enumerates every **tracked** `tests/*.ps1`, runs them, and
+aborts on any nonzero exit, so a suite that is honestly red would take a CI step down with it.
+Closing the defect needs a seed-if-missing path in the two writing commands, or an override file
+under `Get-LwgStateDir` merged by `Get-LwgConfig`. Neither has been made, and neither is a change to
+this document.
 
 Only a plugin **hook** is given that variable. The status line is a `settings.json` command,
 `lib/resolve.ps1` is run by an agent, and a test run is neither — none of the three receives it, and
@@ -875,7 +926,7 @@ whatever that flag says, because "nothing can be blocked" is the larger fact and
 the banner.
 
 The rule now bites on `mission_drift` in a different place, and the place moved on 31 July 2026 when
-`tests/stop_behaviour.ps1` landed. It is **no longer untested**: the suite is 169 cases, and the ones
+`tests/stop_behaviour.ps1` landed. It is **no longer untested**: the suite is 177 cases, and the ones
 that reach this module run it end to end — the fire condition, `min_files`, `require_outside_root`,
 `max_scan_bytes`, the pivot path — through a real pipe into a real child process. What is still true, and is the part the rule bites on, is that
 **its trigger has never been validated against real sessions**: a test can establish that the trigger

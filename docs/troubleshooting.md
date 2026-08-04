@@ -273,12 +273,15 @@ command gate. There is no replacement, and no command in this plugin tests behav
 is a sub-second **wiring** check — use it, while being clear that wiring is not behaviour. See
 [Testing](testing.md).
 
-The `permissions.deny` parity test went the same day with `secret_scan`. **Eight test files remain**,
-and **five of them test behaviour**: `tests/gate_delegate.ps1` (the one gate), `tests/setup_merge.ps1`
+The `permissions.deny` parity test went the same day with `secret_scan`. **Twelve test files remain**,
+and **nine of them test behaviour**: `tests/gate_delegate.ps1` (the one gate), `tests/setup_merge.ps1`
 (the installer's `statusline` merge and what its `hooks` section decides),
 `tests/stop_behaviour.ps1` (the two turn-end hooks),
-`tests/uninstall_footprint.ps1` (the uninstaller's state-data deletions) and
-`tests/evidence_states.ps1` (the evidence engine). The other three — `tests/workflow_guard.ps1`,
+`tests/uninstall_footprint.ps1` (the uninstaller's state-data deletions),
+`tests/evidence_states.ps1` (the evidence engine), `tests/doctor_behaviour.ps1` (two of the doctor's
+nine checks), `tests/toggle_behaviour.ps1` (the toggle's write to `config.json`),
+`tests/subagent_scan.ps1` (the `SubagentStart` fast path) and `tests/payload_guard.ps1` (what the
+shipped payload discloses). The other three — `tests/workflow_guard.ps1`,
 `tests/portability_scan.ps1` and `tests/doc_claims.ps1` — check tracked files and their stated
 counts, and assert nothing about behaviour. **None of the eight is reachable from a command**; they
 are run by CI and by hand, which is why no command here can tell you whether this plugin works.
