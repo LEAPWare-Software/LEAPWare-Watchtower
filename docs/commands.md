@@ -15,7 +15,7 @@ fails on a `/lw-watchtower:<name>` reference with no command file behind it — 
 live-looking reference to a deleted command is a signpost to nothing.
 
 - `lw-watchtower:verify` ran the gate regression suite and went with the destructive command gate that
-  suite mostly covered. **No command tests behaviour.** Nine suites test behaviour and only one of
+  suite mostly covered. **No command tests behaviour.** Ten suites test behaviour and only one of
   them covers the gate — see [Testing](testing.md).
 - `lw-watchtower:tripped` listed open gate trips and went with the trip ledger it read: both gates were
   already gone, so no trip could be recorded, and the ledger files it read were then backed up and
@@ -170,7 +170,7 @@ ships switched off, so on a default install nothing here blocks anything. The sc
 blind spots on every run, including the green ones.
 
 **No command tests behaviour.** The one that did — `lw-watchtower:verify`, over a 233-case suite — was
-removed with the destructive command gate. Nine behavioural test files survive it —
+removed with the destructive command gate. Ten behavioural test files survive it —
 [`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) for `delegate_gate`, and eight more covering
 the installer's `statusline` and hooks merge, the two `Stop` hooks, the uninstaller's deletions,
 the evidence engine, two of the doctor's nine checks, the toggle's write to `config.json`, the

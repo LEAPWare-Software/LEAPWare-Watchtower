@@ -55,6 +55,23 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "SendMessage",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell",
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "${CLAUDE_PLUGIN_ROOT}/lib/gate_send.ps1"
+            ],
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -134,7 +151,28 @@
               "-HookEvent",
               "SubagentStop"
             ],
-            "timeout": 15
+            "timeout": 15,
+            "asyncRewake": true,
+            "rewakeMessage": "Health supervisor detected background task failure:",
+            "rewakeSummary": "Background task failed"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell",
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "${CLAUDE_PLUGIN_ROOT}/lib/gate_stop.ps1",
+              "-HookEvent",
+              "SubagentStop"
+            ],
+            "timeout": 10
           }
         ]
       }
@@ -172,6 +210,22 @@
               "Bypass",
               "-File",
               "${CLAUDE_PLUGIN_ROOT}/lib/stop_advisories.ps1"
+            ],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell",
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "${CLAUDE_PLUGIN_ROOT}/lib/gate_stop.ps1"
             ],
             "timeout": 10
           }

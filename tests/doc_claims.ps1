@@ -1247,7 +1247,7 @@ Test-Claim -Rule 'observing-module-count' -Expected $moduleObserving `
 Test-Claim -Rule 'gate-module-count' -Expected $moduleGates `
     -Source '$LwgModuleRegistry entries of kind gate' -Patterns @(
     '(?i)exactly\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules?\s+in\s+the\s*\n?\s*registry\s+is\s+`?kind',
-    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+module\s+is\s+of\s+kind\s+`gate`'
+    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules?\s+(?:is|are)\s+of\s+kind\s+`gate`'
 )
 
 # --- the declared version ---------------------------------------------------

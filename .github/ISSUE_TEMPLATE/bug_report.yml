@@ -10,7 +10,7 @@ body:
         [SECURITY.md](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/SECURITY.md),
         not here.
 
-        **Stop if it is a documented limitation.** Nine of the ten modules observe and report and
+        **Stop if it is a documented limitation.** Ten of the thirteen modules observe and report and
         can block nothing at all: `destructive_gate` and `secret_scan` were removed on 30 July 2026
         at the owner's instruction, nothing inspects a command, a path or a credential, and "it did
         not stop X" about any of those nine is the documented state rather than a bug.

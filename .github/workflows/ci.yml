@@ -6,7 +6,7 @@ name: CI
 # matrix, and every step runs under Windows PowerShell 5.1 rather than the `pwsh`
 # (PowerShell 7) that GitHub's Windows runners default to.
 #
-# THERE IS ONE JOB, AND NINE OF ITS FOURTEEN CHECK STEPS TEST BEHAVIOUR. The
+# THERE IS ONE JOB, AND TEN OF ITS FIFTEEN CHECK STEPS TEST BEHAVIOUR. The
 # `gate-regression` job and tests\gate_regression.ps1 went on 30 July 2026 with
 # the destructive command gate; the `permissions.deny parity` step and
 # tests\deny_parity.ps1 went the same day with the secret gate. Neither is coming
@@ -475,7 +475,7 @@ jobs:
       - name: Delegate gate regression suite
         shell: powershell
         run: |
-          # One of the nine tests of behaviour in this repository, and the only
+          # One of the ten tests of behaviour in this repository, and the only
           # one that tests a GATE. The parse and scan steps ask whether files are
           # well formed; this asks whether the one gate this plugin ships refuses
           # what it says it refuses. The installer merge suite, the stop-hook
@@ -1205,6 +1205,73 @@ jobs:
           }
           if ($env:GITHUB_STEP_SUMMARY) {
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Payload disclosure guard:** $label"
+          }
+          exit $code
+
+      - name: Supervision suite
+        shell: powershell
+        run: |
+          # The step that exercises the three completion-integrity modules -
+          # send_liveness_gate, completion_audit and orphan_watch - all of which
+          # SHIP SWITCHED OFF. Cases here arm them against throwaway fixtures;
+          # nothing in this step changes what the tree ships, and the suite
+          # asserts that too: three cases read the real config.json and require
+          # all three switches to be false.
+          #
+          # It is anchored on the measured failure the modules were built from:
+          # a SendMessage to a recipient dead for 28m45s must be DENIED, a turn
+          # whose final message claims completed work after a queued send must
+          # be BLOCKED, and an orphan must alert EXACTLY ONCE rather than on
+          # every subsequent turn end.
+          #
+          # completion_audit's SubagentStop mode is covered here and is not
+          # cosmetic: on that event the payload's transcript_path is the PARENT'S
+          # transcript and the subagent's own is agent_transcript_path, so a gate
+          # reading the former blocks a worker for what the ORCHESTRATOR said.
+          # Run against the pre-fix code those cases reproduce as a real exit 2.
+          #
+          # WHAT IT DOES NOT COVER: whether a real agent that has gone quiet is
+          # actually dead. The orphan verdict is INFERRED FROM SILENCE, that
+          # inference has been measured calling a live agent dead, and no case
+          # in this suite can settle it - the judgement is not in the code.
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly, and stderr is deliberately not merged with 2>&1 - in
+          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\supervision.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - the supervision modules were never exercised, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\supervision.ps1, the same three this
+          # repo's other suites use. An abort is never reported as a pass.
+          #   0  every case passed
+          #   1  at least one case failed
+          #   2  the suite aborted; the modules were NOT exercised. Zero cases
+          #      run is an abort, never an empty-set pass.
+          $label = switch ($code) {
+            0       { 'PASS - the dead recipient is denied, the claim-after-queued-send turn is blocked, the orphan alerts once, and all three switches ship OFF. That is a statement about the RULES only: nothing here establishes that an agent inferred dead from silence actually was.' }
+            1       { 'FAIL (exit 1) - read the per-case lines above. A failure in the ships-OFF cases means this tree would arm a blocking gate on install.' }
+            2       { 'ABORT (exit 2) - the suite did not complete, so nothing about the supervision modules was established by this run.' }
+            255     { 'NOT RUN (exit 255) - tests\supervision.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "supervision suite: $label"
+          } else {
+            Write-Host "::error title=Supervision suite::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Supervision suite:** $label"
           }
           exit $code
 

@@ -33,7 +33,7 @@ counted as coverage** — a `true` flag is a forward-declaration, not evidence t
 | `context_injection` | observe | **implemented** | Hand every subagent facts that are current at *dispatch* time, because `CLAUDE.md` is snapshotted at session start. |
 | `delegate_gate` | **gate** | **implemented** | Refuse `Edit`/`Write`/`NotebookEdit`/`Bash`/`PowerShell` for calls that did not come from a subagent, so the chat session is reserved for talking to the operator. **The only module that can block anything, and it ships OFF** — see [below](#delegate_gate). |
 
-## Caveats on the nine that only observe
+## Caveats on the ten that only observe
 
 Read these before treating any module as coverage. Every one of the nine below **observes**; not one
 of them can stop anything. `delegate_gate` is the tenth and is the exception, with
@@ -233,7 +233,7 @@ must be selected, `Agent` and `Read` must not.
 Windows and nothing else, where the CLI offers both shell tools. An armed gate could be walked round
 by asking for the other shell while `/lw-watchtower:status` reported it live. What an enumeration still
 cannot cover — `mcp__*` tools whose names are not knowable from this repository, and any tool the CLI
-adds later — is in [Limitations](limitations.md#the-one-gate-blocks-one-thing-and-ships-off) rather
+adds later — is in [Limitations](limitations.md#the-three-gates-block-little-and-all-ship-off) rather
 than papered over here.
 
 It does read `payload.tool_name` — once, *after* the decision to refuse has been made, to name the

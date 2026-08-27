@@ -273,8 +273,8 @@ command gate. There is no replacement, and no command in this plugin tests behav
 is a sub-second **wiring** check — use it, while being clear that wiring is not behaviour. See
 [Testing](testing.md).
 
-The `permissions.deny` parity test went the same day with `secret_scan`. **Twelve test files remain**,
-and **nine of them test behaviour**: `tests/gate_delegate.ps1` (the one gate), `tests/setup_merge.ps1`
+The `permissions.deny` parity test went the same day with `secret_scan`. **Thirteen test files remain**,
+and **ten of them test behaviour**: `tests/gate_delegate.ps1` (the one gate), `tests/setup_merge.ps1`
 (the installer's `statusline` merge and what its `hooks` section decides),
 `tests/stop_behaviour.ps1` (the two turn-end hooks),
 `tests/uninstall_footprint.ps1` (the uninstaller's state-data deletions),

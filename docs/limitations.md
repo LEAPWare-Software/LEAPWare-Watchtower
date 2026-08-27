@@ -24,9 +24,9 @@ from running it, it says so.
 | Can it refuse a destructive command? | **No.** Nothing inspects a shell command. |
 | Can it stop a credential reaching disk? | **No.** Nothing inspects written content, and nothing inspects a path in order to refuse it — one hook reads an edited path *after* the write, to feed two advisories. |
 | Does it install any `permissions.deny` rule? | **No.** The installer's rule table is empty. |
-| Can it block anything at all? | **One thing**, and it ships switched off — see [`delegate_gate`](#the-one-gate-blocks-one-thing-and-ships-off). |
+| Can it block anything at all? | **Three things**, and it ships switched off — see [`delegate_gate`](#the-one-gate-blocks-one-thing-and-ships-off). |
 | Can it block assistant text? | **No.** There is no hook between the model and the transcript. |
-| How many of its ten modules are tested? | **Eight** — the gate, and seven of the nine observing ones, only in the cases somebody thought to write and for five of them only one or two properties apiece. The other two — `verification_gate`, `self_health` — are exercised by nothing. |
+| How many of its thirteen modules are tested? | **Eleven** — all three gates, and eight of the ten observing ones, only in the cases somebody thought to write and for five of them only one or two properties apiece. The other two — `verification_gate`, `self_health` — are exercised by nothing. |
 | Does it run anywhere but Windows PowerShell 5.1? | **No**, and it does not pretend to. |
 
 ---
@@ -35,7 +35,7 @@ from running it, it says so.
 
 - [The plugin blocks almost nothing](#the-plugin-blocks-almost-nothing)
 - [Why the gates went](#why-the-gates-went)
-- [The one gate blocks one thing, and ships off](#the-one-gate-blocks-one-thing-and-ships-off)
+- [The three gates block little, and all ship off](#the-three-gates-block-little-and-all-ship-off)
 - [The advisory modules advise; they do not enforce](#the-advisory-modules-advise-they-do-not-enforce)
 - [`mission_drift` is on, tested, and still unvalidated](#mission_drift-is-on-tested-and-still-unvalidated)
 - [The gate costs ~330 ms on every edit and command, on or off](#the-gate-costs-330-ms-on-every-edit-and-command-on-or-off)
@@ -124,7 +124,7 @@ listed at
 the ledger format, the writer, the acknowledge path, the turn-end sweep and the indicator. That is
 most of the work of adding a gate, and this repository no longer contains any of it.
 
-## The one gate blocks one thing, and ships off
+## The three gates block little, and all ship off
 
 `delegate_gate` ([`lib/gate_delegate.ps1`](../lib/gate_delegate.ps1)) is the only thing in this plugin
 that can refuse a tool call. Its limits:
@@ -177,7 +177,7 @@ Full detail: [`delegate_gate`](modules.md#delegate_gate).
 
 ## The advisory modules advise; they do not enforce
 
-Nine of the ten modules are kind `observe`. **Not one of them can stop, delay or alter anything** —
+Ten of the thirteen modules are kind `observe`. **Not one of them can stop, delay or alter anything** —
 they warn at turn end, or write a log record, and the action happens regardless. The advisory handler
 exits 0 on every path and its only stdout is a `systemMessage` envelope with no `decision` field.
 *That was a property of the source, established by reading it, until 31 July 2026. It is now run:
@@ -206,7 +206,7 @@ runs a **heuristic**. Both are advisory; only the first is telling you something
 | `mission_drift` | **heuristic** — word, stem and path-segment overlap | See the next section. It is the weakest of the nine and it is on by default. |
 
 Blind spots per module, in the modules' own words:
-[Caveats on the nine that only observe](modules.md#caveats-on-the-nine-that-only-observe).
+[Caveats on the ten that only observe](modules.md#caveats-on-the-ten-that-only-observe).
 
 ## `mission_drift` is on, tested, and still unvalidated
 
@@ -420,15 +420,15 @@ holds it there in CI. **Three things that fix does not close, stated so they are
 
 ## What no test covers
 
-**Nine suites in this repository establish a behaviour of this plugin, and between them they reach
+**Ten suites in this repository establish a behaviour of this plugin, and between them they reach
 one gate, two writers, one deleter, one reporting engine, two of the doctor's nine checks, one
-hook's fast path, the shipped payload, and seven of the nine observing modules.**
+hook's fast path, the shipped payload, and eight of the ten observing modules.**
 
 | Suite | What it establishes |
 | --- | --- |
 | `tests/gate_delegate.ps1` | 93 cases through a real pipe into a real child process: that `delegate_gate` refuses what it declares, and that the gate and the command that reports it give the same answer for the same config. |
 | `tests/evidence_states.ps1` | 47 cases against `bin/lwg-evidence.ps1`: that a probe which could not run renders `UNVERIFIED` and a probe which ran and failed still renders `NOT STARTED`; that a manifest path is read only from inside the plugin root; and that the shipped rules for the delegate gate's registration, the line-ending agreement and the installer's caveat test what their titles claim. Fifteen of them require an answer to **stay** an answer — a `pass`, a `fail`, or a rendered `NOT STARTED` where answering "unverified" to everything would have been green. |
-| `tests/stop_behaviour.ps1` | 177 cases, the helpers in process and the hooks in real child processes: pinned behaviours of `mission_drift` and `failure_capture`, including two supervisor bugs that had already shipped, the redaction helper every module's error text passes through, and that `mission_drift` puts no part of a credential pasted into a prompt into its state file or its advisory. |
+| `tests/stop_behaviour.ps1` | 178 cases, the helpers in process and the hooks in real child processes: pinned behaviours of `mission_drift` and `failure_capture`, including two supervisor bugs that had already shipped, the redaction helper every module's error text passes through, and that `mission_drift` puts no part of a credential pasted into a prompt into its state file or its advisory. |
 | `tests/uninstall_footprint.ps1` | 27 cases against `bin/lwg-uninstall.ps1`, asserting on the filesystem as well as on the report: that the state-data footprint names what it deletes, deletes what it named, and exits non-zero rather than calling a no-op deletion a success; that what it attributes to this plugin really is this plugin's, including all 181 `permissions.deny` rules the pre-30-July installer wrote; and that what it refuses — a reparse point, a directory holding none of this plugin's files, a `settings.json` it could not parse — it names and counts as un-removed. The only suite that tests a **deletion**. |
 | `tests/setup_merge.ps1` | 124 cases. Against `bin/lwg-setup.ps1`: that the installer's merge preserves settings it was not asked to touch, takes one backup, is idempotent and rolls back; that it recognises a marketplace install and a registration of its own scripts under another root. The only suite that tests a **write**. Its last four sections are not about the installer — they are the only coverage the **reporting surfaces** have: `statusline/statusline.ps1` (payload decoding, the three states a number can be in, the `HH` fault gauge, the reset clock, the paths and the config it reads), `bin/lwg-sitrep.ps1` (both governance counts and the command they point at), `lib/resolve.ps1` (an append that failed) and `bin/lwg-update.ps1` (`-Offline` with `-Apply`, a diverged branch, the exit-4 attribution, the junction route). Nothing exercised `bin/lwg-update.ps1` in any form before that. |
 | `tests/doctor_behaviour.ps1` | 16 cases driving `bin/lwg-doctor.ps1` from a scratch copy of the whole plugin tree against seeded configs and seeded `settings.json` files: that `config-registry` refuses a switch whose value is not a real `[bool]` rather than passing it for being present, and that `statusline` asks whose file a status line is before diagnosing it as a stale copy of this plugin's. **Two of the doctor's nine checks and no others**, and seven of the sixteen are `CONTROL` cases that pass before the fix too. A byte-identical or token-bearing foreign status line is a stated limit, not something these cases catch. |
@@ -439,7 +439,7 @@ hook's fast path, the shipped payload, and seven of the nine observing modules.*
 | `tests/workflow_guard.ps1` | That no workflow definition reaches a runner GitHub does not host. A *file* check, not a behaviour. |
 | `tests/doc_claims.ps1` | That no tracked page states a count — of suites, cases, CI steps, doctor checks, commands or modules — that the tree contradicts. A check on the *documentation*, not on anything this plugin does. |
 
-**Two of the ten modules are still exercised by nothing at all**, and the eight that are covered are
+**Two of the thirteen modules are still exercised by nothing at all**, and the eleven that are covered are
 covered in the cases somebody thought to write, not in general. `stop_behaviour.ps1` reaching
 `mission_drift` and `failure_capture` moved the count from zero to two on 31 July 2026, the
 `context_pressure`, `docs_coupling`, `git_hygiene` and `log_rotation` cases added on 3 August 2026
@@ -449,13 +449,13 @@ properties are the whole of it — for `context_injection` it is exactly one. Re
 transcribed here.
 
 **A green CI run therefore says that tracked files parse, that no tracked file names a machine, that
-no tracked page states a count the tree contradicts, and that the nine suites in the table above
+no tracked page states a count the tree contradicts, and that the ten suites in the table above
 still behave as their cases declare. It is not evidence that this plugin is sound, and for two of
-the nine observing modules it is not evidence of anything at all, because nothing exercises them.**
+the ten observing modules it is not evidence of anything at all, because nothing exercises them.**
 
 Uncovered, item by item, because an absence nobody writes down reads as coverage:
 
-- **Two of the nine observing modules, and thin coverage of five more.** Six are reached by
+- **Two of the ten observing modules, and thin coverage of five more.** Six are reached by
   `tests/stop_behaviour.ps1`, in the cases somebody thought to write: `mission_drift` and
   `failure_capture` since 31 July 2026, and `context_pressure`, `docs_coupling`, `git_hygiene` and
   `log_rotation` since 3 August 2026; the seventh, `context_injection`, is reached by

@@ -136,9 +136,9 @@ lib/resolve.ps1              appends a Resolved marker. NOT invoked directly:
                              /lw-watchtower:resolve run
 tests/gate_delegate.ps1      93 cases against lib/gate_delegate.ps1, each run
                              through a real pipe into a real child process. One
-                             of NINE behavioural suites, and the only one that
+                             of TEN behavioural suites, and the only one that
                              covers a gate - see docs/testing.md
-tests/stop_behaviour.ps1     177 cases against mission_drift and failure_capture:
+tests/stop_behaviour.ps1     178 cases against mission_drift and failure_capture:
                              helpers in process, lib/stop_advisories.ps1 and
                              lib/supervisor.ps1 in real child processes. The
                              suite that reaches the most OBSERVING modules - six
@@ -204,7 +204,7 @@ tests/doc_claims.ps1         every tracked .md/.json/.yml, against counts DERIVE
                              suites, per-suite cases, CI check steps, doctor
                              checks, commands, modules. Asserts nothing about
                              behaviour either; it checks the pages, not the code
-.github/workflows/ci.yml     CI - one job, FOURTEEN check steps: JSON validity,
+.github/workflows/ci.yml     CI - one job, FIFTEEN check steps: JSON validity,
                              PowerShell parse, workflow guard, delegate gate
                              suite, installer merge suite, stop-hook behaviour
                              suite, uninstaller footprint suite, evidence-state
@@ -926,7 +926,7 @@ whatever that flag says, because "nothing can be blocked" is the larger fact and
 the banner.
 
 The rule now bites on `mission_drift` in a different place, and the place moved on 31 July 2026 when
-`tests/stop_behaviour.ps1` landed. It is **no longer untested**: the suite is 177 cases, and the ones
+`tests/stop_behaviour.ps1` landed. It is **no longer untested**: the suite is 178 cases, and the ones
 that reach this module run it end to end — the fire condition, `min_files`, `require_outside_root`,
 `max_scan_bytes`, the pivot path — through a real pipe into a real child process. What is still true, and is the part the rule bites on, is that
 **its trigger has never been validated against real sessions**: a test can establish that the trigger

@@ -1,6 +1,6 @@
 # Testing and CI
 
-## Twelve files in `tests/`, and nine of them test behaviour
+## Thirteen files in `tests/`, and ten of them test behaviour
 
 Read this before anything else on this page.
 
@@ -16,7 +16,7 @@ needs `git` on `PATH` and ABORTS the suite without it** — not running is not t
 which is the one external binary any suite here depends on besides `powershell` itself; every
 "remote" it builds is a local bare repository under the temp directory and no case reaches a network.
 `tests/stop_behaviour.ps1` runs the two hooks that fire at every turn end —
-`lib/stop_advisories.ps1` and `lib/supervisor.ps1` — with 177 cases, and covers more
+`lib/stop_advisories.ps1` and `lib/supervisor.ps1` — with 178 cases, and covers more
 **observing** modules than anything else here. `tests/uninstall_footprint.ps1` drives `bin/lwg-uninstall.ps1` against
 throwaway data directories and throwaway `settings.json` files with 27 cases, and is the only one
 that covers a **deletion**.
@@ -38,7 +38,7 @@ check the contents of tracked files and assert nothing about this plugin's behav
 
 So the coverage statement is narrow and exact: **the only behaviour any test in this repository
 establishes is that the gate refuses what it declares, that the installer's statusline merge
-preserves what it was not asked to touch, that seven of the nine observing modules behave as
+preserves what it was not asked to touch, that eight of the ten observing modules behave as
 documented in the cases written for them, that the uninstaller's state-data footprint
 names what it deletes and refuses to call a no-op deletion a success, that the evidence engine
 does not report a state it never observed, that two of the doctor's nine checks ask the question
@@ -79,7 +79,7 @@ nothing here inspects a shell command, a path or a credential any more.
 `tests/workflow_guard.ps1` came after it, and replaced an evidence rule rather than a test: see
 [The workflow guard](#the-workflow-guard).
 
-A green CI run now means exactly fourteen things: every tracked JSON file parses, every `.ps1` file
+A green CI run now means exactly fifteen things: every tracked JSON file parses, every `.ps1` file
 parses, no workflow file reaches a runner GitHub does not host or a secret — and every other YAML
 file under `.github/` at least *parses*, and the guard was shown able to fire on each of its rules
 rather than only shown to say nothing — `delegate_gate` still
@@ -113,7 +113,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\portability_scan.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doc_claims.ps1
 ```
 
-Twelve files, all in the `fast-checks` CI job. Each behavioural suite spawns a child PowerShell process
+Thirteen files, all in the `fast-checks` CI job. Each behavioural suite spawns a child PowerShell process
 per case, and that is the point of them; the parse steps, the guard and the scan are seconds at most.
 Measured on **3 August 2026** on **one developer machine** — not on a GitHub runner, which nothing here
 has timed — run one after another the way the CI steps drive them:
@@ -956,8 +956,8 @@ page can carry every count correctly and still describe a plugin that does not e
 
 ## What is not covered
 
-Everything except the fourteen CI check steps named above — which is every module in the plugin bar
-two, since the nine behavioural suites cover the gate, one section of the installer, the two hooks
+Everything except the fifteen CI check steps named above — which is every module in the plugin bar
+two, since the ten behavioural suites cover the gate, one section of the installer, the two hooks
 that run at turn end, one command's deletions, the evidence engine the two reporting commands share,
 two of the doctor's nine checks, the toggle's write to `config.json`, the `SubagentStart` fast path,
 and what the shipped payload discloses.
@@ -1069,7 +1069,7 @@ Rename it only together with the branch-protection setting.
 | Workflow guard | `tests\workflow_guard.ps1` — **the step that guards the file it is written in.** Every file under `.github\workflows\` is parsed and held to the rules in [The workflow guard](#the-workflow-guard). A missing guard file fails the build, since not running is not the same as passing. |
 | Delegate gate suite | `tests\gate_delegate.ps1` — one of the nine steps that test behaviour, and the only one that tests a **gate**. A missing suite file fails the build, since not running is not the same as passing. An abort (exit 2) is reported as an abort, never as a pass. |
 | Installer merge suite | `tests\setup_merge.ps1` — the only step that tests a **write to settings.json**. It drives `bin\lwg-setup.ps1` against throwaway settings files under the temp directory. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
-| Stop-hook behaviour suite | `tests\stop_behaviour.ps1` — the step that reaches **six of the nine observing modules**, more than anything else here. It runs `lib\stop_advisories.ps1` and `lib\supervisor.ps1` in real child processes against throwaway plugin roots under the temp directory. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
+| Stop-hook behaviour suite | `tests\stop_behaviour.ps1` — the step that reaches **six of the ten observing modules**, more than anything else here. It runs `lib\stop_advisories.ps1` and `lib\supervisor.ps1` in real child processes against throwaway plugin roots under the temp directory. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Uninstaller footprint suite | `tests\uninstall_footprint.ps1` — the only step that tests a **deletion**. It drives `bin\lwg-uninstall.ps1` against throwaway data directories under the temp directory, with `$env:USERPROFILE` and `$env:CLAUDE_PLUGIN_DATA` redirected around every call, and asserts on the filesystem as well as on the report. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Evidence-state suite | `tests\evidence_states.ps1` — the only step that tests a **reporting command**. It holds `bin\lwg-evidence.ps1` to the difference between a probe that ran and found nothing and a probe that never got to look, against a throwaway plugin root with no `.git` — the marketplace install route. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Doctor behaviour suite | `tests\doctor_behaviour.ps1` — the step that runs the component whose job is to notice a switch wired to nothing. It copies the plugin tree to a scratch directory and drives the copy's own `bin\lwg-doctor.ps1` against seeded configs and seeded `settings.json` files, on **two of its nine checks and no others**. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
@@ -1077,7 +1077,7 @@ Rename it only together with the branch-protection setting.
 | SubagentStart fast-scan suite | `tests\subagent_scan.ps1` — the only coverage of any kind that `context_injection` has. It pipes payloads into the real `lib\subagent_start.ps1` and holds its raw-text fast path to the **global** `modules` block whatever order the top-level keys appear in. It asserts on answers, not on milliseconds. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Payload disclosure guard | `tests\payload_guard.ps1` — the only step that asks what a **stranger receives**. Every file `git ls-files` reports is the shipped payload, because `marketplace.json` declares `"source": "./"`, and each one is read and matched against the detection rules. A ledger'd hit is printed with its issue number, never folded into a pass. A missing guard file fails the build; an abort (exit 2) is reported as an abort, and a run that could not read every tracked file exits 2 rather than 0. |
 | Portability scan | `tests\portability_scan.ps1` — every tracked file, against the mandate in [Portability](portability.md). A missing scan file fails the build, since not running is not the same as passing. |
-| Documentation claims | `tests\doc_claims.ps1` — **the only step that checks the prose.** Every tracked `.md`, `.json` and `.yml` is held to counts derived from the tree at run time, including a parallel re-run of the nine behavioural suites to read the tally each prints about itself. A missing guard file fails the build; an abort (exit 2) is reported as an abort, and so is a run that found no claims at all. |
+| Documentation claims | `tests\doc_claims.ps1` — **the only step that checks the prose.** Every tracked `.md`, `.json` and `.yml` is held to counts derived from the tree at run time, including a parallel re-run of the ten behavioural suites to read the tally each prints about itself. A missing guard file fails the build; an abort (exit 2) is reported as an abort, and so is a run that found no claims at all. |
 
 **No step was replaced with a weaker one.** In particular there is no step asserting that the
 installer's now-empty deny table is still empty: it would print a pass on every run, which reads as a
@@ -1127,6 +1127,6 @@ setting, so a correctly worded page and a correctly configured `main` remain two
 only the first of them is checked here.
 
 **There is no status badge in the README**, deliberately: the repository is private, so a badge would
-not render for most viewers — and a green badge covering one gate and seven of the nine observing
+not render for most viewers — and a green badge covering three gates and eight of the ten observing
 modules would read as far broader assurance than it is, which would be the
 exact overstatement this project exists to avoid.
