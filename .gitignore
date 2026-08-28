@@ -41,12 +41,20 @@ context/worker_facts.local.md
 # tree: `git status --porcelain --untracked-files=all` carries nothing matching
 # any rule below.
 #
-# It is here because the three layers that would normally make it unnecessary
-# are all absent at once: GitHub secret scanning and push protection are OFF and
-# are not even settable while this repository is private, and the secret_scan
-# module that used to inspect writes was removed on 30 July 2026. Between a
-# contributor's working copy and a public commit there is currently this file
-# and nothing else.
+# It is here because when it was written the three layers that would normally
+# make it unnecessary were absent at once: GitHub secret scanning and push
+# protection were OFF and were not even settable on the plan and visibility then
+# in force, and the secret_scan module that used to inspect writes was removed on
+# 30 July 2026. TWO OF THE THREE CAME BACK ON 2026-08-28. The repository went
+# public that day and secret scanning and push protection were switched on -
+# read from `gh api repos/LEAPWare-Software/LEAPWare-Watchtower` under
+# security_and_analysis, both `enabled`. The secret_scan module is still gone and
+# is not coming back. KEEP THIS FILE ANYWAY, and the reason is not inertia: push
+# protection fires at the push, on the server, after the secret is already in a
+# local commit and in the reflog, and it knows only the patterns GitHub ships.
+# These rules stop the file being staged at all, on the machine, for path shapes
+# GitHub has no pattern for. The two catch different things at different moments,
+# which is why one is not a substitute for the other.
 #
 # THE LIST IS NOT INVENTED. It is the secret-path set the removed gate matched
 # on, kept in tests/fixtures/deny_canonical.txt. That fixture was deleted with

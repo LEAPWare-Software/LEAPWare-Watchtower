@@ -351,17 +351,26 @@ project exists to refuse.
   the new cases establish is one clause of the promise, not the promise — see Added.
 
 - **`checklist.json` and `HANDOFF.md` claimed the identity rewrite reached *every ref*, and one ref it
-  cannot reach still serves the old history (2026-07-31, after `v0.3.0` was tagged).** Final
+  could not reach still served the old history (2026-07-31, after `v0.3.0` was tagged).** Final
   verification of the release found the overclaim, and the correction deliberately lands **after** the
-  tag rather than being folded into it — the release said what it said, and this postdates it. GitHub
-  serves `refs/pull/1/head`, the head of a closed Dependabot pull request at `db74ec2`, whose ancestry
-  carries all **76 pre-rewrite commits** with the owner's personal address on author and committer. A
-  pull ref survives any force-push and is not garbage-collected when the PR closes, so no rewrite
-  could have reached it. It sits outside the default fetch refspec, so a fresh clone still shows
-  exactly one identity, and the repository is private. The scope word is now **branch** wherever the
-  rewrite is claimed; `P8-visibility`'s `blocked_reason` makes resolving it a **precondition of going
-  public** — a GitHub Support sensitive-data purge, or deleting and recreating the repository, both
-  owner actions — and `HANDOFF.md` carries it as an open item.
+  tag rather than being folded into it — the release said what it said, and this postdates it. The
+  rewrite covered every commit reachable from every branch. What it could not cover was a ref GitHub
+  owns rather than this project: such a ref survives any force-push, is not garbage-collected, and its
+  ancestry still carried the pre-rewrite author and committer identities. It sat outside the default
+  fetch refspec, so a fresh clone showed exactly one identity throughout. The scope word is now
+  **branch** wherever the rewrite is claimed, and `P8-visibility` made resolving the exposure a
+  **precondition of going public**. That precondition was met — see the paragraph below.
+
+  **RESOLVED 2026-08-28, by destruction rather than by mitigation.** The predecessor repository that
+  served the ref was permanently deleted, and a ref cannot outlive the repository serving it.
+  Measured on the day: `gh api repos/LEAPWare-Software/LEAPWare-GMHH-private-history` answers
+  `404 Not Found`, and `git ls-remote origin` against this repository lists no such ref. **This entry
+  no longer names the ref path, its tip commit, or the commit count**, and that removal is
+  deliberate: those three were the retrieval instructions rather than the record. A changelog can say
+  a history was rebuilt, that one ref was out of the rewrite's reach, and how that ended, without
+  republishing the way back to it. **What is NOT claimed here:** that no copy exists off GitHub.
+  Anyone who fetched that ref while it was served keeps what they fetched, and nothing in this
+  repository can reach or attest to that.
 
 - **`PE-sitrep`'s evidence was a commit-subject match, which any commit mentioning the word satisfies
   (2026-07-31).** The rule required a subject on `main` matching `(?i)sitrep`, so a commit that
@@ -380,8 +389,10 @@ project exists to refuse.
   `docs/modules.md`. `HANDOFF.md` still says `0.3.0` in that form and is **left alone on purpose** —
   it is titled *Handoff — 31 July 2026 (v0.3.0 release)* and that sentence is a record of the day,
   not a claim about today.
-- **The `refs/pull/1/head` exposure is unresolved** and remains a precondition of making the
-  repository public. Both remedies are owner actions.
+- **The identity exposure this list carried as unresolved was resolved on 2026-08-28**, before this
+  section was released, by deleting the predecessor repository that served the ref. The bullet is
+  restated rather than deleted so the list does not silently lose an item it once carried; the
+  resolution and what it does **not** cover are recorded in full under Fixed above.
 
 ## [0.3.0] — 2026-07-31
 
