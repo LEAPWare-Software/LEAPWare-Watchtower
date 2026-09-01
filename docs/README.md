@@ -18,6 +18,7 @@
 | [Troubleshooting](troubleshooting.md) | Symptom-first index |
 | [Style compliance check](style-compliance-check.md) | Design note for an **unbuilt** check: what it could and could not measure |
 | [Monitors feasibility spike](monitors-spike.md) | Can any hook receive rate-limit or cost data? Method, evidence and **verdict: negative** — re-confirms and refines the [Modules](modules.md#attempted-and-blocked-ratelimit_escalation-and-cost_tracking) record on the same CLI build |
+| [Session transition and the effort daemon](session-transition-spec.md) | **Spec for an unbuilt capability**, written around the negative verdict above: the status line is the only process that receives rate-limit data and it currently discards it. A signal bridge, an effort ledger, an out-of-process daemon and a transition skill — with the trigger keyed to budget **times exposure** rather than budget alone |
 
 Project-level files live at the repo root: [README](../README.md),
 [CONTRIBUTING](../CONTRIBUTING.md), [SECURITY](../SECURITY.md),
