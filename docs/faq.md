@@ -460,9 +460,10 @@ than used silently. `/lw-watchtower:doctor`'s `state-dir` check prints the resol
 whether a write probe succeeded.
 
 What is in there: `lw-watchtower.jsonl` (the append-only event log), `health.jsonl` (failures), and
-per-session `advisory-*.json` and `edits-*.txt` files, plus a cross-session `context_windows.json`.
-Both `.jsonl` files roll at 5 MB carrying their last 500 records forward. Full table:
-[State directory](architecture.md#state-directory).
+per-session `advisory-*.json` and `edits-*.txt` files, plus a cross-session `context_windows.json`
+and `signals/ratelimit.json` — the last written by the **status line** rather than by a hook, because
+it is the only process the CLI hands rate-limit data to. Both `.jsonl` files roll at 5 MB carrying
+their last 500 records forward. Full table: [State directory](architecture.md#state-directory).
 
 **Two install routes mean two data directories, and state written under one is invisible to a session
 resolving the other.** No rule inside the resolution code can fix that; the durable fix is to install
