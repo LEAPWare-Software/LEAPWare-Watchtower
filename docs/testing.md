@@ -1122,11 +1122,15 @@ with this setting — see the comment above the job in
 [`ci.yml`](../.github/workflows/ci.yml), and `checklist.json`'s `P6-branch-protection`, whose probe
 can see that a protection object exists but not which contexts it names. `tests/doc_claims.ps1`
 derives the job's `name:` from the workflow and fails if this section does not quote it verbatim.
-**That is the page half only.** Nothing in this repository can read the live branch-protection
-setting, so a correctly worded page and a correctly configured `main` remain two separate claims and
-only the first of them is checked here.
+**That is the page half only.** Nothing in this repository reads *which contexts* the live setting
+requires — `P6-branch-protection`'s probe asks only whether a protection object exists, and until
+**2026-08-28** the API refused it even that with a `403` — so a correctly worded page and a correctly
+configured `main` remain two separate claims and only the first of them is checked here. The flip
+lifted the `403`; it did not give any probe here the second claim.
 
-**There is no status badge in the README**, deliberately: the repository is private, so a badge would
-not render for most viewers — and a green badge covering one gate and seven of the nine observing
-modules would read as far broader assurance than it is, which would be the
-exact overstatement this project exists to avoid.
+**There is no status badge in the README**, deliberately: a green badge covering one gate and seven
+of the nine observing modules would read as far broader assurance than it is, which would be the
+exact overstatement this project exists to avoid. A second reason — that a badge would not render for
+most viewers of a repository they cannot read — stood until the visibility flip on **2026-08-28** and
+no longer applies. It is recorded rather than quietly dropped, because the surviving objection is the
+one that was always the real one, and a badge would still have to answer it.
