@@ -673,6 +673,7 @@ cannot write to both.
 | `edits-<sessionkey>.txt` | `lib/post_edit.ps1` | per session; capped at 256 KB |
 | `rule_stats.json` | **nothing, since 30 July 2026** — written by the Stop trip sweep | **cross-session**; per-rule false-positive counts. Historical; left in place |
 | `context_windows.json` | `context_pressure` | cross-session; observed window sizes |
+| `signals/ratelimit.json` | the **status line**, not a hook | cross-session; overwritten every render. The only on-disk copy of `rate_limits` and `context_window` — see [The signal bridge](#the-signal-bridge) |
 
 `trips-<sessionkey>.json` was a seventh row here — the per-session trip ledger, and the **state**
 behind the status line's `GM` segment. Both gates were removed on 30 July 2026 so nothing could write
@@ -744,6 +745,71 @@ write a ledger, and once the ledger files themselves were removed the segment co
 dim — one reachable value, which is no information. It was deleted rather than left as decoration,
 and row 2's outstanding-trip line went with it. A future gate has to rebuild both; see
 [Gates were removed deliberately](gates-removed.md).
+
+### The signal bridge
+
+**This process is the only one on the machine that receives `rate_limits` and `context_window`, and
+until now it rendered them and threw them away.** It now writes them to
+`signals/ratelimit.json` in the state directory before rendering.
+
+**This is not a re-attempt of a blocked module, and the record it works around is unchanged.**
+[Modules](modules.md#attempted-and-blocked-ratelimit_escalation-and-cost_tracking) records
+`ratelimit_escalation` and `cost_tracking` as unbuildable: verified against the `claude-code 2.1.220`
+binary across all 31 hook events, those fields are assembled in exactly one place — the status-line
+input builder — and **no hook event carries any of them**. That finding stands, and no hook reads
+`rate_limits` after this change either. What changed is only that the process which already has the
+data writes it down, so something else can read a *file*. Neither blocked name is back in the
+`modules` block.
+
+| | |
+| --- | --- |
+| **Written to** | `signals/ratelimit.json` under **every** discovered data directory |
+| **Write discipline** | `ratelimit.json.<PID>.tmp`, then `Move-Item -Force` |
+| **Schema** | `schema`, `written_utc`, `session_id`, `five_hour`, `seven_day`, `context_window`, `unparsed` |
+| **Not written** | `cost` — dollars are out of scope, and this file has never read `$d.cost` |
+
+**Every data directory, not one.** This script is a `settings.json` command and **not** a plugin
+hook, so it is never given `CLAUDE_PLUGIN_DATA` — the same fact that once had it reading a directory
+the live plugin had stopped writing to. The consumers of this file *are* hooks, and they do get that
+variable. A single path would therefore split producer from consumer on exactly the machines the
+[three-data-directory problem](#three-data-directories-and-why-picking-between-them-is-not-the-fix)
+describes. Writing to all of them cannot pick the wrong one — the same argument this file already
+makes for *reading* the health logs.
+
+**The temp name carries the PID** because every concurrent session runs its own copy of this script
+against the same directory. A fixed `.tmp` name would mean two processes writing one temp file and
+one of them publishing the other's half-written bytes — reintroducing the tear the rename exists to
+prevent.
+
+**A field the CLI did not supply is absent from the file — never `0`, never `null`.** A reader must
+be able to tell *"not supplied"* from *"the value is 0"*; writing a default is the
+`payload.workspace.repo` defect recorded in [Modules](modules.md), and it is not repeated here.
+There are **three** input states, not two, and the row already renders them differently: absent,
+usable, and present-but-unparseable — the purple `??`. An unparseable figure is omitted from its
+block **and** named in `unparsed`, so a consumer can distinguish *the CLI said nothing* from *the CLI
+said something that would not parse*.
+
+`written_utc` is mandatory and formatted under the invariant culture; if it cannot be produced,
+nothing is written. Consumers are required to treat a stale file as **no signal**, never as a last
+known value. `resets_at` is passed through verbatim rather than localised — converting it here would
+bake this machine's offset into a file another process reads.
+
+**Cost, measured rather than assumed, on this machine in a fresh PowerShell 5.1:** **1.87 ms** per
+render at one data directory, 3.48 ms at two, 6.19 ms at four — about 1.5 ms per additional
+directory, since the write is one small file each. Against the ~178 ms the first `Get-ChildItem` in
+this same function already pays, that is roughly **1%** of a cost this file already accepts. **No
+throttle is shipped**, and this measurement is the reason; a 5 s throttle was specified as available
+*if* the write proved measurable, and it did not. The number scales with the directory count, which
+grows by one on every plugin-id change.
+
+**The bridge cannot cost the row.** A nonzero exit or empty stdout blanks the whole status line, so
+every write is wrapped, emits nothing, and one unwritable directory does not stop the others.
+Verified under load: **136,057 concurrent reads during continuous renders, zero torn and zero empty**,
+with `written_utc` advancing throughout — a reader that never observes a new timestamp would mean the
+writes were not happening, which a parse-failure count alone cannot detect.
+
+**If the status line stops running** — a different one configured, the CLI upgraded — the file simply
+goes stale, and **every consumer is required to notice that rather than trust the last value**.
 
 ### The trip ledger — REMOVED, and recorded here as a design
 

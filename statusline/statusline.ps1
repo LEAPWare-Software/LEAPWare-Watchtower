@@ -220,6 +220,132 @@ function LwgDataDirs {
 }
 $gmDataDirs = @(LwgDataDirs)
 
+# THE SIGNAL BRIDGE. This process is the ONLY one on the machine that receives
+# rate_limits and context_window, and until now it rendered them and threw them
+# away.
+#
+# WHY THAT MATTERS, and why this is not a re-attempt of a blocked module.
+# docs/modules.md records ratelimit_escalation and cost_tracking as unbuildable:
+# verified against the claude-code 2.1.220 binary across all 31 hook events,
+# rate_limits / context_window / cost are assembled in exactly ONE place - the
+# status-line input builder - and NO HOOK EVENT CARRIES ANY OF THEM. That record
+# stands and nothing here disturbs it. No hook reads rate_limits after this
+# change either. What changes is only that the one process which already has the
+# data writes it down, so that something else can read a FILE. The blocked names
+# stay out of the modules block; see docs/session-transition-spec.md section 0.
+#
+# WRITTEN TO EVERY DATA DIR, NOT ONE, and that is a correction to the spec rather
+# than an embellishment of it. section 3.1 names a single path,
+# $CLAUDE_PLUGIN_DATA/signals/ratelimit.json. But this file is a settings.json
+# command and NOT a plugin hook, so it is never given CLAUDE_PLUGIN_DATA at all -
+# the comment above LwgDataDirs records that exact fallback having once made this
+# script read a directory the live plugin had stopped writing to. The CONSUMERS
+# of this file are hooks, and they DO get the variable. A single literal path
+# would therefore split producer from consumer on precisely the machines the
+# union above exists to survive. Writing to all of them cannot pick the wrong
+# one, and it is the same argument LwgDataDirs already makes for reading.
+#
+# THE TEMP NAME CARRIES THE PID. section 3.1 says write to .tmp then Move-Item
+# -Force, and a FIXED .tmp name reintroduces the very tear it is there to
+# prevent: every concurrent session runs its own copy of this script against the
+# same directory, so two processes would write one temp file and one of them
+# would publish the other's half-written bytes.
+#
+# NOTHING HERE MAY REACH THE PIPELINE. The header of this file is explicit that a
+# nonzero exit or empty stdout blanks the whole row, so every statement below is
+# void-cast or assigned, and the whole function is wrapped so that a failed write
+# costs the operator nothing. A status line that vanishes because a monitoring
+# write failed would be a worse defect than the one this closes.
+#
+# ABSENT IS ABSENT. A field the CLI did not supply is OMITTED, never written as 0
+# or null - a reader must be able to tell "not supplied" from "the value is 0".
+# That is the Get-LwgRepo / payload.workspace.repo defect docs/modules.md
+# records, and it is not repeated one directory over. AsNum answers three ways,
+# not two: $null absent, [double] usable, 'bad' present-and-unparseable. The row
+# already renders the third as a purple '??' rather than a green figure, so
+# collapsing it into "absent" here would throw away a distinction this file
+# argues for 600 lines above. An unparseable field is omitted AND named in
+# `unparsed`, so a consumer can tell "the CLI said nothing" from "the CLI said
+# something I could not read".
+#
+# NOT WRITTEN: cost. The spec's section 9 puts dollars out of scope - token
+# counts only - and this file has never read $d.cost. Persisting it would make
+# this the first reader of a field the whole modules record calls a dead end.
+function WriteSignal {
+    param($Payload, [string[]]$Dirs)
+
+    try {
+        $sig = [ordered]@{ schema = 1 }
+
+        # InvariantCulture, and the same reasoning as Stamp further down: a
+        # timestamp formatted under whatever culture the machine happens to run
+        # is not a timestamp another process can parse. Consumers treat a stale
+        # file as no signal at all, so this field is mandatory - if it cannot be
+        # produced, nothing is written.
+        $sig.written_utc = ([datetime]::UtcNow).ToString(
+            "yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+
+        $sid = [string]$Payload.session_id
+        if (-not [string]::IsNullOrWhiteSpace($sid)) { $sig.session_id = $sid }
+
+        $unparsed = @()
+
+        # resets_at is passed through VERBATIM and deliberately not through
+        # ResetTime. That helper converts to LOCAL time for display; baking this
+        # machine's offset into a file another process reads would make the
+        # value wrong the moment it is read anywhere else.
+        foreach ($w in @(
+            @{ key = 'five_hour'; lim = $Payload.rate_limits.five_hour },
+            @{ key = 'seven_day'; lim = $Payload.rate_limits.seven_day }
+        )) {
+            if ($null -eq $w.lim) { continue }
+            $n = AsNum $w.lim.used_percentage
+            if ($null -eq $n) { continue }
+            if ($n -isnot [double]) { $unparsed += "$($w.key).used_percentage"; continue }
+            $block = [ordered]@{ used_percentage = $n }
+            if ($null -ne $w.lim.resets_at) { $block.resets_at = $w.lim.resets_at }
+            $sig[$w.key] = $block
+        }
+
+        $cw = AsNum $Payload.context_window.used_percentage
+        if ($null -ne $cw) {
+            if ($cw -is [double]) { $sig.context_window = [ordered]@{ used_percentage = $cw } }
+            else                  { $unparsed += 'context_window.used_percentage' }
+        }
+
+        # Omitted entirely when empty: an always-present empty array reads as a
+        # field the writer forgot to fill in.
+        if ($unparsed.Count -gt 0) { $sig.unparsed = $unparsed }
+
+        $json = ($sig | ConvertTo-Json -Depth 5 -Compress)
+
+        # LwgDataDirs ENUMERATES existing directories and creates none, so before
+        # this plugin's first hook run there is nothing to write to. The bare
+        # fallback is created for that case only, and it is self-correcting: any
+        # consumer holding CLAUDE_PLUGIN_DATA has a directory Get-LwgStateDir
+        # made, which the union picks up on the next render.
+        $targets = @($Dirs)
+        if ($targets.Count -eq 0) {
+            $targets = @([IO.Path]::Combine($env:USERPROFILE, '.claude\plugins\data', 'lw-watchtower'))
+        }
+
+        foreach ($dir in $targets) {
+            try {
+                $sigDir = [IO.Path]::Combine($dir, 'signals')
+                [void][IO.Directory]::CreateDirectory($sigDir)
+                $final = [IO.Path]::Combine($sigDir, 'ratelimit.json')
+                $tmp   = [IO.Path]::Combine($sigDir, "ratelimit.json.$PID.tmp")
+                [IO.File]::WriteAllText($tmp, $json, (New-Object Text.UTF8Encoding($false)))
+                Move-Item -LiteralPath $tmp -Destination $final -Force -ErrorAction Stop
+            } catch {
+                # One unwritable directory must not cost the others, and none of
+                # them may cost the row.
+                try { if ($tmp -and (Test-Path -LiteralPath $tmp)) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } } catch { }
+            }
+        }
+    } catch { }
+}
+
 # Every LW-WATCHTOWER plugin ROOT, in the order the presence probes below try them.
 #
 # The same argument as LwgDataDirs, applied to the code instead of the state: a
@@ -1077,6 +1203,12 @@ if ($cfg) {
         $Tbad += $k.s                               # present and unusable: say so
     }
 }
+
+# Persist before rendering. The order is deliberate: the write is wrapped so it
+# cannot throw, and doing it first means a signal is recorded even if a later
+# segment fails. It emits nothing - see WriteSignal's header on why a monitoring
+# write must never be able to blank the row.
+WriteSignal -Payload $d -Dirs $gmDataDirs
 
 $model = if ($d.model.display_name) { $d.model.display_name } else { 'Claude' }
 $ctx   = AsNum $d.context_window.used_percentage
