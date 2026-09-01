@@ -254,10 +254,41 @@ jobs:
       # NOT COVER, and a rule failing every non-digest `uses:` was deliberately
       # NOT added, because a bare tag is a policy preference and that guard's
       # exit-1 contract is reserved for real violations.
+      # FETCH-DEPTH 0, AND IT IS A CORRECTNESS FIX RATHER THAN A CONVENIENCE.
+      # The default is 1, and on a `pull_request` event the ref checked out is
+      # GitHub's ephemeral MERGE COMMIT - so at depth 1 the entire history the
+      # job can see is one commit that GitHub itself authored:
+      #
+      #     $ git log --all --format='%h %ae %ce'
+      #     43bad86 49699333+dependabot[bot]@users... noreply@github.com
+      #
+      # tests\evidence_states.ps1's case B1 drives checklist.json's P3-identity,
+      # whose probe is `git log --all --format=%ae%n%ce` matched against the
+      # owner's chosen address. That address is on no line of a one-commit
+      # history, so the probe exited 0, the match failed, and the rule returned
+      # 'fail' - which the checklist renders as `[ ] NOT STARTED`, the product's
+      # phrasing for "a probe RAN and found the thing absent". On a rule about
+      # identity that reads as "the personal address was left in history".
+      # NOTHING MEASURED THAT: the probe never saw the history it is about.
+      #
+      # It failed on EVERY pull request and is why #149 was never mergeable.
+      # A depth-1 clone of `main` passes - main's tip is the owner's own commit -
+      # which is exactly what kept this invisible: reproducing it needs a PR
+      # merge ref, not merely a shallow clone.
+      #
+      # WHAT 0 COSTS: the whole history, which is 3 revs here. WHAT IT DOES NOT
+      # FIX: #153's other direction, where a worktree sharing the predecessor's
+      # object store sees PRE-REWRITE identities and trips the same rule's
+      # stdout_not_match half. That one is not reachable from this file - it
+      # needs the probe to tell "I could not see the history" from "the history
+      # is bad" - and no depth setting here changes it. Measured on the
+      # published remote, every ref, at full depth: three identities, none of
+      # them the pre-rewrite address.
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: JSON validity
         shell: powershell
