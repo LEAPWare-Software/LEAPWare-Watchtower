@@ -15,9 +15,9 @@ contact_links:
   - name: Documentation
     url: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/tree/main/docs
     about: >-
-      Install, configuration, modules, commands, architecture, testing and troubleshooting. Nine of
-      the ten modules observe and can block nothing; the tenth, delegate_gate, is a PreToolUse gate
-      that ships switched off — read modules.md before filing a report that something was not
+      Install, configuration, modules, commands, architecture, testing and troubleshooting. Ten of
+      the thirteen modules observe and can block nothing; the other three are PreToolUse and Stop gates
+      that all ship switched off — read modules.md before filing a report that something was not
       stopped, and read it especially if you armed that switch.
   # BOTH NUMBERS BELOW ARE PHRASED IN A SHAPE tests\doc_claims.ps1 READS, and the
   # exact wording is load-bearing rather than stylistic. "five of them test
@@ -43,5 +43,5 @@ contact_links:
     url: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/CONTRIBUTING.md
     about: >-
       Dev setup, the fork-and-PR flow, the exit-code contract, and what a good PR looks like. There
-      are twelve files in `tests/`, nine of them test behaviour, and a green run of all twelve is a
+      are thirteen files in `tests/`, ten of them test behaviour, and a green run of all thirteen is a
       narrower claim than it sounds — CONTRIBUTING.md says exactly how narrow.

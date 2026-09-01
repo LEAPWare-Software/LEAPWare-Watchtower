@@ -1718,7 +1718,9 @@ function New-HooksPlan {
         'subagent_start.ps1'  = 'always - hands current facts to every worker'
         'post_edit.ps1'       = 'records edited paths for the end-of-turn warnings'
         'stop_advisories.ps1' = 'the end-of-turn warnings'
-        'gate_delegate.ps1'   = 'the ONE thing here that can refuse a tool call - SHIPS SWITCHED OFF'
+        'gate_delegate.ps1'   = 'refuses Edit/Write/NotebookEdit/Bash/PowerShell off the main thread - SHIPS SWITCHED OFF'
+        'gate_send.ps1'       = 'refuses a SendMessage to a subagent it can prove is dead - SHIPS SWITCHED OFF'
+        'gate_stop.ps1'       = 'refuses a turn end that claims completed work resting on a queued message - SHIPS SWITCHED OFF'
     }
 
     $hooksObj = Get-PropValue -Obj $obj -Name 'hooks'

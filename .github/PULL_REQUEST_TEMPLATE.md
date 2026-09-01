@@ -55,17 +55,17 @@ Closes #
 
 <!-- 1 and 2 are not passes. 2 means the harness aborted and NOTHING was checked. -->
 
-<!-- NINE SUITES TEST BEHAVIOUR, each through a real pipe into a real child process:
+<!-- TEN SUITES TEST BEHAVIOUR, each through a real pipe into a real child process:
      tests\gate_delegate.ps1 covers delegate_gate (93 cases), tests\setup_merge.ps1 covers the
      installer's statusline and hooks merge AND the reporting surfaces (124),
-     tests\stop_behaviour.ps1 covers six of the nine observing modules (177),
+     tests\stop_behaviour.ps1 covers six of the ten observing modules (178),
      tests\uninstall_footprint.ps1 covers the uninstaller's state-data deletions and its
      attribution (25), tests\evidence_states.ps1 covers the evidence engine (47),
      tests\doctor_behaviour.ps1 covers two of the doctor's nine checks (16),
      tests\toggle_behaviour.ps1 covers the toggle's write to config.json (26),
      tests\subagent_scan.ps1 covers the SubagentStart fast path and is the only coverage
      context_injection has (5), tests\payload_guard.ps1 covers what the shipped payload
-     discloses (15). Two of the ten modules are covered by nothing.
+     discloses (15). Two of the thirteen modules are covered by nothing.
      THESE NINE NUMBERS ARE IN PARENTHESES AND tests\doc_claims.ps1 CANNOT READ THEM. That is a
      named hole in its header, not an oversight, and this block is what fell down it: three of
      the five sat at 81, 153 and 10 through the wave that moved them to 124, 169 and 22, and
@@ -92,7 +92,7 @@ against the parent commit.
       results:
 
 ```
-<!-- If your fix is inside what one of the nine behavioural suites covers - the gate, the
+<!-- If your fix is inside what one of the ten behavioural suites covers - the gate, the
      installer's statusline merge, either turn-end hook, the uninstaller's state-data deletions,
      the evidence engine, either driven doctor check, the toggle's write, the SubagentStart fast
      path, or what the shipped payload discloses - ADD THE CASE TO THAT SUITE and paste its per-case line from before
@@ -156,7 +156,7 @@ section exists has not changed.
       `/lw-watchtower:doctor`'s `config-registry` check passes.
 - [ ] The flag genuinely gates the behaviour, with **zero** side effects when off — no log record, no
       state written, no subprocess started, no file opened.
-- [ ] `gate` only if it can actually block. If it warns, it is `observe`. **Exactly one module in the
+- [ ] `gate` only if it can actually block. If it warns, it is `observe`. **Exactly three modules in the
       registry is `kind = 'gate'` today — `delegate_gate`, registered on `PreToolUse` and shipping
       switched off** — so a `gate` here means you are adding the second one. Say so explicitly, say
       what it denies, and read [`docs/gates-removed.md`](../docs/gates-removed.md) first.

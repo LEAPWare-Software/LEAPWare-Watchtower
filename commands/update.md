@@ -61,7 +61,7 @@ Rules for reporting it:
   the repo copy is installed on top of it, and nothing else on this machine compares the two.
 
 `/lw-watchtower:doctor` is what this runs afterwards, and it checks wiring only. **Much of what a pull can
-change is covered by no behavioural test.** `tests/` holds twelve files, nine of them behavioural:
+change is covered by no behavioural test.** `tests/` holds thirteen files, ten of them behavioural:
 `gate_delegate.ps1` covers `delegate_gate`, `setup_merge.ps1` covers the installer's `statusline`
 merge and what its `hooks` section decides — **and, in four sections that are not about the
 installer, the reporting surfaces: `statusline/statusline.ps1`, `bin/lwg-sitrep.ps1`,

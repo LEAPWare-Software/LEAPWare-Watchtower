@@ -147,7 +147,7 @@ No. That is the correct shipped state and it is what the banner is for.
 LW-WATCHTOWER v0.4.0 · 9/10 modules active (1 off) · 0 gates · observe-only
 ```
 
-- **`9/10`** — ten modules are built; nine are enabled. The tenth is `delegate_gate`, which is built
+- **`9/13`** — thirteen modules are built; nine are enabled. The other four are `orphan_watch` and the three gates, each built
   and switched off. The parenthetical accounts for the remainder so the total always adds up.
 - **`0 gates`** — that number counts gates that are **live**, not gates that ship. One ships. Counting
   a switched-off capability as a gate would claim protection that is not running.
@@ -406,7 +406,7 @@ older than the one in this repo. The design, and what a future gate would have t
 Then say so and turn it off. That is the documented response, not a workaround.
 
 Each advisory has a known false-positive class, all listed at
-[Caveats on the nine that only observe](modules.md#caveats-on-the-nine-that-only-observe). The common
+[Caveats on the ten that only observe](modules.md#caveats-on-the-ten-that-only-observe). The common
 ones:
 
 - **`mission_drift`** — one surviving class: a redirection phrased with no concrete noun at all
@@ -563,8 +563,8 @@ trusting the number here.
 
 ## Why is there no CI badge in the README?
 
-One reason now, and it is the one that was always the real one: a green badge covering one gate and
-seven of the nine observing modules would read as far broader assurance than it is — the exact
+One reason now, and it is the one that was always the real one: a green badge covering three gates and
+eight of the ten observing modules would read as far broader assurance than it is — the exact
 overstatement this project exists to avoid.
 
 A second reason stood here until **2026-08-28** — that a badge would not render for most viewers of a

@@ -7,11 +7,11 @@
 name, said here because the name this replaced (`LW-GMHH`, until 3 August 2026) was an initialism
 whose last two letters were never expanded anywhere in the tree, including in its own manifest
 description. **A watchtower is not a wall**, and the word was chosen over a candidate that implied
-protection for exactly that reason: nine of the ten modules below can block nothing at all, and the
+protection for exactly that reason: ten of the thirteen modules below can block nothing at all, and the
 tenth ships switched off.
 
 LW-WATCHTOWER is a Claude Code plugin that applies one governance layer to every session, in every repo,
-without per-project setup. Nine of its ten modules **observe** and warn and can block nothing. The
+without per-project setup. Ten of its thirteen modules **observe** and warn and can block nothing. The
 tenth, `delegate_gate`, is the one thing here that can refuse a tool call — and it ships **switched
 off**. Two further modules were specified, found to be impossible — the data they need reaches no
 hook — and removed rather than left on the banner as names that could never mean anything. The
@@ -20,7 +20,7 @@ reasoning was kept so nobody re-attempts them.
 It had two other gates. Both were removed at the owner's instruction — the destructive command gate
 and then `secret_scan` — on 30 July 2026, leaving none at all. `delegate_gate` was built later the
 same day as the one gate that could be built honestly and completely. See
-[Both gates were removed](#both-gates-were-removed) and [The one gate](#the-one-gate).
+[Both gates were removed](#both-gates-were-removed) and [The three gates](#the-three-gates).
 
 That the banner reads `0 gates` and `observe-only` until you turn that switch on, rather than
 counting a gate that is shipped but disabled, is the point. This project exists because a monitor
@@ -70,7 +70,7 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
 - **Nothing here can block assistant text.** There is no hook between the model and the transcript.
   The [output styles](docs/output-styles.md) are requests, not enforcement, and anyone
   describing them as enforcing is repeating this project's founding defect.
-- **All ten declared modules are built. Nine are enabled; `delegate_gate` is not.**
+- **All thirteen declared modules are built. Nine are enabled; `orphan_watch` and the three gates are not.**
   `ratelimit_escalation` and `cost_tracking`
   were declared and are *blocked*, not merely unwritten: the data they need reaches no hook, and no
   further work on this plugin will change that, so on 30 July 2026 the placeholders were removed and
@@ -85,9 +85,9 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   [Architecture](docs/architecture.md#mission_drift-which-is-switched-on-by-default). It shipped
   `false` for want of that validation; the owner switched it on anyway on 30 July 2026, and what that
   accepts is stated at [`mission_drift`](docs/modules.md#mission_drift).
-- **Nine suites test a behaviour, and two of the ten modules have none.**
-  `tests/gate_delegate.ps1` runs 93 cases against the gate, `tests/stop_behaviour.ps1` runs 177
-  against six of the nine observing modules — `mission_drift`, `failure_capture`, `context_pressure`,
+- **Ten suites test a behaviour, and two of the thirteen modules have none.**
+  `tests/gate_delegate.ps1` runs 93 cases against the gate, `tests/stop_behaviour.ps1` runs 178
+  against six of the ten observing modules — `mission_drift`, `failure_capture`, `context_pressure`,
   `docs_coupling`, `git_hygiene` and `log_rotation` — `tests/setup_merge.ps1` runs 124 against the
   installer's `statusline` and `hooks` merge **and against the reporting surfaces** — the status
   line, the sitrep, resolve and update, which have no suite of their own —
@@ -147,7 +147,7 @@ Before writing a second gate, read
 single hole in the last gate failed, how every added cleverness opened a new hole, and how not one
 of them was caught by the test suite.
 
-## The one gate
+## The three gates
 
 `delegate_gate` was built on **30 July 2026**, hours after the other two were removed, because it is
 the one gate on this project's plan that can be built completely rather than partially. It is
@@ -232,7 +232,7 @@ That is the whole install. Configuration is optional and lives in one file,
 
 ## What is actually running
 
-**One module is of kind `gate`, and it is the last row.** Every other row observes; none of them can
+**Three modules are of kind `gate`, and they are the last three rows.** Every other row observes; none of them can
 block anything.
 
 | Module | Kind | Status |
@@ -246,7 +246,10 @@ block anything.
 | `git_hygiene` | observe | implemented — branch, commit and push discipline at turn end |
 | `context_injection` | observe | implemented — hands every subagent facts current at *dispatch* time |
 | `mission_drift` | observe | implemented — notices work that matches nothing that was asked for. **On by default since 30 July 2026. Tested since 31 July, but its trigger has never been validated against a real session** |
-| `delegate_gate` | **gate** | implemented — refuses `Edit`/`Write`/`NotebookEdit`/`Bash`/`PowerShell` on the main thread. **The only thing here that can block, and it ships OFF.** See [The one gate](#the-one-gate) |
+| `orphan_watch` | observe | implemented — reconciles subagent transcripts against their stop records and reports agents that were spawned, never stopped and have gone silent. **Ships OFF. The verdict is inferred from silence, and that inference has been measured calling a live agent dead** |
+| `delegate_gate` | **gate** | implemented — refuses `Edit`/`Write`/`NotebookEdit`/`Bash`/`PowerShell` on the main thread. **Ships OFF.** See [The three gates](#the-three-gates) |
+| `send_liveness_gate` | **gate** | implemented — refuses a `SendMessage` whose recipient it can prove is dead mid-flight; abstains wherever the evidence cannot support a verdict. **Ships OFF** |
+| `completion_audit` | **gate** | implemented — refuses a turn end whose final message claims completed work while the turn's last tool action was a queued `SendMessage`. Fires at most once per turn end, so it forces one round of verification and **cannot force honesty**. **Ships OFF** |
 
 Full detail, blind spots and tuning: [Modules](docs/modules.md). Two names that were in this table
 until 30 July 2026 — `ratelimit_escalation` and `cost_tracking` — are gone from the registry because
@@ -328,7 +331,7 @@ Exit codes and reporting rules: [Commands](docs/commands.md).
 | [Commands](docs/commands.md) | All twelve slash commands, their exit codes, and which preference commands are enforced |
 | [Roles](docs/roles.md) | The six agent roles the plugin ships, and when each is dispatched |
 | [Architecture](docs/architecture.md) | Layout, hooks, measured costs, state, failure policy |
-| [Testing and CI](docs/testing.md) | **Twelve files in `tests/`, nine of which test behaviour** — what each one covers, and what is uncovered |
+| [Testing and CI](docs/testing.md) | **Thirteen files in `tests/`, ten of which test behaviour** — what each one covers, and what is uncovered |
 | [Portability](docs/portability.md) | The no-local-environment-dependencies mandate, and the scan that enforces it |
 | [Output styles](docs/output-styles.md) | The three verbosity levels and `plain`, and what they cannot do |
 | [Troubleshooting](docs/troubleshooting.md) | Symptom-first index |
@@ -345,7 +348,7 @@ how an existing `config.json` is read, which is why the next number is `0.4.0` a
 refs. See [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-releases) for the rule and for the part the
 guard cannot see.
 
-CI runs on `windows-latest` under Windows PowerShell 5.1, in **one job with fourteen check steps**:
+CI runs on `windows-latest` under Windows PowerShell 5.1, in **one job with fifteen check steps**:
 JSON validity, PowerShell parse, the workflow guard, the delegate gate suite, the installer merge
 suite, the stop-hook behaviour suite, the uninstaller footprint suite, the evidence-state suite, the
 doctor behaviour suite, the toggle write-path suite, the `SubagentStart` fast-scan suite, the payload
@@ -370,7 +373,7 @@ for the same reason. The one requirable string is the surviving job's display na
 that page is held to the string by the documentation-claim guard, which derives it from `ci.yml`, and
 this page is not.
 
-There is no status badge here, deliberately: a green badge covering one gate and seven of the nine
+There is no status badge here, deliberately: a green badge covering three gates and eight of the ten
 observing modules would read as far broader assurance than it is. A second reason stood here until
 **2026-08-28** — that a badge would not render for most viewers of a repository they cannot read —
 and it went with the visibility flip on that date. It is recorded rather than quietly dropped,

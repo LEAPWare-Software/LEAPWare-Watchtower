@@ -664,6 +664,9 @@ function HealthSeg($sessionId) {
     # see the Stop arm below for why. Zero until a Stop record is seen, and
     # reset by a Resolved marker along with everything else.
     $gauge  = 0
+    # Tracked separately from $faults because it is a PEAK rather than a
+    # running total - see the orphans branch below.
+    $orphanPeak = 0
     # A union over the logs double-counts the migration window, when two bound
     # supervisors each saw one event and each wrote it into their OWN file:
     # session b484f1f6 holds an identical StopFailure pair 0.29s apart across two
@@ -689,7 +692,7 @@ function HealthSeg($sessionId) {
             $seenAt[$key] = @{ at = $when; src = $r._src }
         }
         # a Resolved marker clears everything before it: red means OUTSTANDING faults
-        if ($r.event -eq 'Resolved') { $faults = 0; $gauge = 0; continue }
+        if ($r.event -eq 'Resolved') { $faults = 0; $gauge = 0; $orphanPeak = 0; continue }
         if ($r.supervisor_error) { $faults++; continue }
         if ($r.event -eq 'PostToolUseFailure' -and -not $r.is_interrupt) { $faults++; continue }
         # Stop.failed_tasks IS A GAUGE, NOT AN EVENT, so it is carried and not
@@ -720,11 +723,45 @@ function HealthSeg($sessionId) {
         #
         # Records already on disk need no migration: the field always MEANT the
         # current count, and it is now read as one.
-        if ($r.event -eq 'Stop') { $gauge = [int]$r.failed_tasks; continue }
+        # NO `continue` ON THE Stop ARM, deliberately. A Stop record carries
+        # failed_tasks AND orphans in the SAME record, so continuing past this
+        # line skipped the orphan branch below whenever both were non-zero - a
+        # turn that lost a background task and a subagent reported only the
+        # background task. Falling through costs nothing on every other record
+        # shape: a record with no orphans field reads [int]$null = 0 and leaves
+        # the peak untouched.
+        if ($r.event -eq 'Stop') { $gauge = [int]$r.failed_tasks }
         if ($r.event -eq 'StopFailure') { $faults++; continue }
+        # An agent that DIES MID-FLIGHT reaches none of the branches above: no
+        # PostToolUseFailure, no StopFailure, and it never appears in
+        # background_tasks, so failed_tasks stays 0. The only record of it is the
+        # `orphans` count the supervisor's reconciliation writes - and until this
+        # branch existed nothing read it, so on 10 August 2026 the supervisor
+        # correctly detected two dead agents, correctly alerted, and HH STAYED
+        # GREEN throughout.
+        #
+        # PEAK, NOT SUM, and that is load-bearing. An orphan stays orphaned, so
+        # every later Stop and SubagentStop re-reports the SAME standing count;
+        # adding them would inflate HH without bound. Peak-since-Resolved counts
+        # each standing death once. The honest limit: if two orphans are resolved
+        # and one new one appears, the peak still reads 2 until a Resolved marker
+        # lands. It over-reports rather than under-reports, which is the correct
+        # direction for a fault indicator, and resolve.ps1 clears it in full.
+        #
+        # READ `orphans_new` WHERE IT EXISTS, NOT `orphans`, and the difference is
+        # what makes the indicator clearable at all. An orphan is STANDING - the
+        # dead transcript stays on disk - so `orphans` carries the same count at
+        # every later trigger. Taking a peak of THAT meant /lw-watchtower:resolve
+        # cleared HH and the next SubagentStop turned it red again seconds later.
+        # `orphans` is still read as a fallback for records written before
+        # `orphans_new` existed - without it, upgrading would silently green out a
+        # log that legitimately reads red.
+        $o = if ($null -ne $r.orphans_new) { [int]$r.orphans_new } else { [int]$r.orphans }
+        if ($o -gt $orphanPeak) { $orphanPeak = $o }
     }
-    # the newest Stop's gauge, added once
+    # the newest Stop's gauge, added once, plus the peak standing orphan count
     $faults += $gauge
+    $faults += $orphanPeak
 
     if ($faults -gt 0) { return (Paint 91 ("HH" + $faults + $mark)) }
     return (Paint 32 ('HH' + $mark))

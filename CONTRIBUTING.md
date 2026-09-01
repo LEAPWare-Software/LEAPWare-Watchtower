@@ -183,13 +183,13 @@ because no suite reaches those three — see below.
 
 ## There is a test suite, and it is narrower than it sounds
 
-`tests/` holds **twelve files, nine of which test behaviour**, and every one of them runs in the
+`tests/` holds **thirteen files, ten of which test behaviour**, and every one of them runs in the
 `fast-checks` CI job on every push and every PR:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1       # delegate_gate, 93 cases
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\setup_merge.ps1         # the installer's statusline + hooks merge, 124
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1      # the two turn-end hooks, 177
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1      # the two turn-end hooks, 178
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\uninstall_footprint.ps1 # the uninstaller's footprint and deletions, 27
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\evidence_states.ps1     # the evidence engine, 47
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1    # two of the doctor's nine checks, 16
@@ -278,7 +278,7 @@ So, for every bug fix:
 3. Apply the fix. Run it again. It must **pass**.
 4. Say both results in the PR, with the case ID.
 
-**If your fix is inside what one of the nine behavioural suites covers, add the case to that suite**
+**If your fix is inside what one of the ten behavioural suites covers, add the case to that suite**
 — the gate, the installer's `statusline` merge, either turn-end hook, the uninstaller's state-data
 deletions, the evidence engine, either of the two doctor checks that are driven, the toggle's write
 to `config.json`, the `SubagentStart` fast path, or what the shipped payload discloses. Each already
@@ -422,9 +422,9 @@ That applies to your PR description and to any documentation you touch:
 - **Never document a command, flag or behaviour that does not exist.** If you are unsure, check, and
   if it does not exist, leave it out.
 - **Every number in the docs must come from a file you read or a measurement you took.** Say which.
-- **Do not claim coverage you do not have.** Exactly nine behavioural suites exist in this repo, and
+- **Do not claim coverage you do not have.** Exactly ten behavioural suites exist in this repo, and
   between them they reach one gate, two writers, one deleter, one reporting engine, two of the
-  doctor's nine checks, one hook's fast path, the shipped payload, and seven of the nine
+  doctor's nine checks, one hook's fast path, the shipped payload, and eight of the ten
   observing modules — so unless your change lands inside one of those, "tested" means an assertion
   you wrote and included. "Verified by inspection" is a legitimate and welcome statement — write that
   instead, exactly as the existing docs do.
@@ -496,7 +496,7 @@ Three further requirements:
   `blocked` machinery is kept for a module that is genuinely on its way.
 - **`gate` means it can block.** If it warns, it is `observe`, however important it is. Calling an
   advisory a gate inflates the gate count, which is the same overstatement as counting an unbuilt
-  module as coverage. **Exactly one module in the registry is `kind = 'gate'` today —
+  module as coverage. **Exactly three modules in the registry are `kind = 'gate'` today —
   `delegate_gate`, registered on `PreToolUse` in `hooks/hooks.json` and shipping switched off** — so
   a new `gate` is the **second** one, not the first, and needs the hook registration to go with it,
   not just the word. `$status.gates_live` in `config.json` reads `0` because that number counts
