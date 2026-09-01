@@ -30,7 +30,7 @@ The finding, verified against the `claude-code 2.1.220` binary across **all 31 h
 thing that record leaves open, and states it plainly:
 
 > **The only process on the machine that receives rate-limit and context data is the status line —
-> and today it renders that data to the terminal and discards it.** [`bin/lwg-status.ps1`](../bin/lwg-status.ps1) contains no
+> and today it renders that data to the terminal and discards it.** [`statusline/statusline.ps1`](../statusline/statusline.ps1) contains no
 > write of `used_percentage`, `resets_at`, `five_hour` or `seven_day` to any file.
 
 **Everything in this spec follows from closing that one gap.** The status line becomes the *only*
@@ -99,7 +99,7 @@ Four pieces. Each is separately testable and separately shippable.
 
 | # | Component | Kind | New/changed |
 |---|---|---|---|
-| **A** | `signal_bridge` | change to [`bin/lwg-status.ps1`](../bin/lwg-status.ps1) | **changed** |
+| **A** | `signal_bridge` | change to [`statusline/statusline.ps1`](../statusline/statusline.ps1) | **BUILT 2026-09-01** |
 | **B** | `effort_ledger` | new module, `PostToolUse(Agent)` + `SubagentStop` | **new** |
 | **C** | `effort_daemon` | new out-of-process poller | **new** |
 | **D** | `/lw-transition` | new skill | **new** |
@@ -112,16 +112,43 @@ Four pieces. Each is separately testable and separately shippable.
 
 ### 3.1 Change
 
-[`bin/lwg-status.ps1`](../bin/lwg-status.ps1) already receives the status-line input object containing `rate_limits`,
+> **CORRECTED 2026-09-01, AND THE CORRECTION IS THE FILE NAME.** This section named
+> `bin/lwg-status.ps1` as the receiver of the status-line input. **It is not one.** That script takes
+> a single `[switch]$Brief`, reads no stdin, and the string `rate_limits` occurs in it zero times; it
+> is the backing script for `/lw-watchtower:status` and renders the module table. The process the CLI
+> actually hands the status-line payload to is
+> [`statusline/statusline.ps1`](../statusline/statusline.ps1) — which reads
+> `$d.rate_limits.five_hour`, `$d.rate_limits.seven_day` and
+> `$d.context_window.used_percentage` — and both [`config.json`](../config.json)'s `thresholds`
+> comment and [`modules.md`](modules.md) already name that file independently. **Component A was
+> built there.** The wrong name is corrected rather than left standing, per this project's rule that
+> a record is amended in the open.
+
+[`statusline/statusline.ps1`](../statusline/statusline.ps1) already receives the status-line input object containing `rate_limits`,
 `context_window` and `cost`. **It must write those fields to disk before rendering.**
 
 - **Write target:** `$CLAUDE_PLUGIN_DATA/signals/ratelimit.json`
   (live path today: `~/.claude/plugins/data/lw-watchtower-skills-dir/signals/ratelimit.json`)
+  > **AS BUILT:** written to `signals/ratelimit.json` under **every** discovered data directory, not
+  > one. The status line is a `settings.json` command and is therefore *never* given
+  > `CLAUDE_PLUGIN_DATA`, while its consumers — hooks — always are, so a single literal path splits
+  > producer from consumer. The union is the same discipline the file already applies to reading the
+  > health logs.
 - **Write discipline:** write to `ratelimit.json.tmp`, then `Move-Item -Force`. A reader must never
   see a half-written file. The status line runs on every render; a torn read is otherwise certain.
+  > **AS BUILT:** the temp name carries the PID — `ratelimit.json.<PID>.tmp`. Every concurrent
+  > session runs its own copy of this script against the same directory, so a *fixed* temp name means
+  > two writers sharing one file and one of them publishing the other's half-written bytes, which is
+  > the tear this rule exists to prevent.
 - **Cost budget:** one small JSON write per render. If this measurably slows the status line,
   **throttle to one write per 5 s** — but measure before adding the throttle, and record the
   measurement in `docs/`, not in a comment.
+  > **AS BUILT — measured, and NO THROTTLE SHIPPED.** On this machine in a fresh PowerShell 5.1:
+  > **1.87 ms** per render at one data directory, 3.48 ms at two, 6.19 ms at four — about 1.5 ms per
+  > additional directory. The first `Get-ChildItem` in the same function already costs ~178 ms, so the
+  > bridge is roughly **1%** of a cost this file already accepts. The throttle was conditional on the
+  > write proving measurable against that; it did not, so it was not added. Recorded in
+  > [`architecture.md`](architecture.md#the-signal-bridge) as this bullet requires.
 
 ### 3.2 Schema
 
@@ -133,9 +160,24 @@ Four pieces. Each is separately testable and separately shippable.
   "five_hour":  { "used_percentage": 54, "resets_at": 1788267600 },
   "seven_day":  { "used_percentage": 31, "resets_at": 1788700000 },
   "context_window": { "used_percentage": 62 },
-  "cost": { "total_cost_usd": 12.41 }
+  "unparsed": ["five_hour.used_percentage"]
 }
 ```
+
+> **AS BUILT — two deviations from this block as originally written, both deliberate.**
+>
+> **`cost` is NOT written.** It was in this schema and §9 puts dollars out of scope; the two
+> contradicted each other. §9 wins. `statusline/statusline.ps1` has never read `$d.cost`, and
+> persisting it would make the bridge the first reader of a field the blocked-module record calls a
+> dead end — for a consumer that, by §9, may not use it.
+>
+> **`unparsed` is new.** Rule 1 below names two input states; `AsNum` in the renderer discriminates
+> **three** — absent, usable, and *present-but-unparseable* — and the row deliberately paints the
+> third a purple `??` rather than a green figure, precisely so it is not read as an all-clear.
+> Writing an unparseable value as *absent* would collapse *"the CLI did not supply this"* into
+> *"the CLI supplied something I could not read"*, one function away from where the renderer argues
+> against exactly that. So an unparseable figure is omitted from its own block **and** its dotted
+> path is listed here. The key is omitted entirely when empty.
 
 **Rules the writer must follow, and each exists because its opposite has already shipped a bug in
 this plugin:**
