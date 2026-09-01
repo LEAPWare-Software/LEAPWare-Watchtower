@@ -493,10 +493,12 @@ Real reasons it appears on this tree:
 - The evidence kind is `manual`, which **can never pass by design**. Eight of the 40 items are these:
   an org-level setting, a decision recorded outside the repo. The honest report is "unverified
   forever", not a checkbox somebody can tick by hand.
-- A probe was denied the answer. `gh api …/branches/main/protection` returns HTTP 403 on a private
-  repo on the current plan, and a 403 is indistinguishable from "no protection is configured" — the
-  two conclusions are opposite and the API answer is the same, so the item declares that nonzero
-  exit as unverified rather than reporting a false negative.
+- A probe was denied the answer. `gh api …/branches/main/protection` returned HTTP 403 for this
+  repository until **2026-08-28**, and a 403 is indistinguishable from "no protection is configured"
+  — the two conclusions are opposite and the API answer is the same, so the item declares that
+  nonzero exit as unverified rather than reporting a false negative. The visibility flip lifted the
+  403 here; **the rule is unchanged and still right**, because it runs on whatever repository and
+  plan it is pointed at, and a 403 is what it gets on any it cannot read.
 - A tool was missing or timed out. `git` or `gh` not on `PATH`, or a child killed on its timeout.
 - **A probe ran and never reached the question.** The big one is `git` outside a repository: on a
   marketplace install the plugin directory has no `.git`, so every git-backed rule exits `128`
@@ -561,9 +563,13 @@ trusting the number here.
 
 ## Why is there no CI badge in the README?
 
-Two reasons, both deliberate. The repository is **private**, so a badge would not render for most
-viewers. And a green badge covering three gates and eight of the ten observing modules would read as far
-broader assurance than it is — which is the exact overstatement this project exists to avoid.
+One reason now, and it is the one that was always the real one: a green badge covering three gates and
+eight of the ten observing modules would read as far broader assurance than it is — the exact
+overstatement this project exists to avoid.
+
+A second reason stood here until **2026-08-28** — that a badge would not render for most viewers of a
+repository they cannot read — and the visibility flip on that date retired it. It is recorded rather
+than quietly dropped, because a reader who remembers two reasons should be told which one went.
 
 ## What version is this? Is there a release?
 

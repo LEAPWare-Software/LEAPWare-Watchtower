@@ -24,11 +24,13 @@ suggestion for the user's repository** — an item that says a file is missing m
 *this plugin*, not from theirs.
 
 **Two rows make authenticated network calls, as the user, about a repository that is not theirs.**
-`P6-branch-protection` and `P8-visibility` shell out to `gh` against the maintainer's own repository,
-so a `403` or a `not found` from them is a permissions answer about somebody else's private repo and
-is **not** a finding about the user's environment or credentials. Report them as unverified and say
-why. `module_config.git_hygiene.use_gh: false` switches all four `gh` call sites off; `docs/install.md`
-records that these calls exist and whose repository they are about.
+`P6-branch-protection` and `P8-visibility` shell out to `gh` against the maintainer's own repository.
+Whatever comes back — a `403`, a `not found`, or a row that ticks — is an answer about **that**
+repository and is **not** a finding about the user's environment or credentials. That holds now that
+the maintainer's repository is public and readable exactly as it held while it was not. Report a
+nonzero result as unverified and say why. `module_config.git_hygiene.use_gh: false` switches all
+four `gh` call sites off; `docs/install.md` records that these calls exist and whose repository they
+are about.
 
 Run this command and show the user its output **verbatim**:
 

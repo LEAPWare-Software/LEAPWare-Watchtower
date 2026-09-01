@@ -194,9 +194,11 @@ confusing thing to be handed; the command now says so in its own first four line
 every run. Read a `NOT STARTED` row as work outstanding *on this plugin*, never on your repository.
 
 **Two of its rows make an authenticated `gh` request, as you, about a repository that is not
-yours.** `P6-branch-protection` and `P8-visibility` query the maintainer's own repository, so a
-`403` from either is a permissions answer about a repository you have nothing to do with — not a
-problem with your credentials or your environment. Set `module_config.git_hygiene.use_gh` to
+yours.** `P6-branch-protection` and `P8-visibility` query the maintainer's own repository. Whatever
+either returns — a `403`, a `404`, or a green tick — is an answer about **that** repository and not a
+statement about your credentials, your environment or your tree. It is a network call you did not ask
+for, made with your token, and that is true now that the maintainer's repository is public and readable
+just as it was while it was not. Set `module_config.git_hygiene.use_gh` to
 `false` to switch all four `gh` call sites off; [`install.md`](install.md) records the requirement.
 
 Every item's state is **derived from evidence** by

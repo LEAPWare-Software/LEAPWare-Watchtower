@@ -561,9 +561,13 @@ requiring `gate-regression` does. The only requirable string is the surviving jo
 quoted verbatim under [Branch protection](testing.md#branch-protection) — the page the
 documentation-claim guard holds to that string, deriving it from `ci.yml`. It is not repeated here,
 because nothing holds this page to it. The checklist probe can see that a
-protection object exists but not which contexts it names — and on this repository it cannot see even
-that, because the API returns 403 for a private repo on the current plan. See
-[Branch protection](testing.md#branch-protection).
+protection object exists but not which contexts it names. Until **2026-08-28** it could not see even
+that on this repository, because the protection API answered `403` on the plan then in force; the
+visibility flip on that date lifted the `403`, measured by running
+`gh api repos/LEAPWare-Software/LEAPWare-Watchtower/branches/main/protection`, which now answers.
+**That leaves the probe's own limit as the whole of what is unchecked, and it is the more
+consequential half** — a protection object requiring a string GitHub will never produce a check run
+for still renders that row `DONE`. See [Branch protection](testing.md#branch-protection).
 
 ## Platform, install and state
 

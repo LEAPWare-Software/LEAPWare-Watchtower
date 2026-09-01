@@ -17,13 +17,17 @@ Three things were removed rather than reworded, and naming them is the point:
 - **The pull-ref paragraph.** It published the location of an unresolved identity exposure, its tip
   commit, the number of commits involved, and the `git fetch` invocation that retrieves them.
   Publishing that turned a bounded exposure into a signposted one: it told any reader where to look
-  and exactly how. **The exposure itself is unchanged** — removing this paragraph fixed the
-  signposting and nothing else, and the issue that owns the exposure is still open. What is gone is
-  this page's map to it.
-- **The visibility-conditioned lines.** Three sentences here were true only while the repository is
+  and exactly how. **Removing this paragraph fixed the signposting and nothing else** — on the day it
+  went, the exposure itself was untouched and the issue that owned it was open. The exposure was
+  resolved separately on **2026-08-28**, by deleting the predecessor repository that served the ref;
+  `CHANGELOG.md`'s `0.4.0` Fixed section records that, and states what the resolution does **not**
+  cover. The paragraph stays out either way — a resolved exposure is no more reason to ship a map
+  than an open one was.
+- **The visibility-conditioned lines.** Three sentences here were true only while the repository was
   private, and each would have inverted — silently, with nothing reading it — at the moment the flip
-  made this page public. A claim whose truth turns on an event nobody re-reads the file after is a
-  claim that should not be written down.
+  made this page public. **That flip happened on 2026-08-28**, which is what turns this from a
+  prediction into a near miss. A claim whose truth turns on an event nobody re-reads the file after is
+  a claim that should not be written down.
 - **The standing orders and the incident record.** Both are useful internally. Neither is a
   statement about the software, and the second is an operational account of the maintainer's own
   environment.
