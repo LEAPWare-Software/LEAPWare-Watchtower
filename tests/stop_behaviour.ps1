@@ -2233,7 +2233,10 @@ try {
     # asyncRewake is what makes exit 2 an ALERT rather than a BLOCK. Without it
     # the supervisor's exit 2 on Stop refuses the turn end, which is the
     # opposite of the intent and would be discovered by an operator, not here.
-    foreach ($ev in @('Stop', 'PostToolUseFailure')) {
+    # SubagentStop joined this list when the reconciliation began running there
+    # too: on that event an un-rewaked exit 2 would tell a subagent that has just
+    # finished to carry on, which is worse than the missed alert it replaces.
+    foreach ($ev in @('Stop', 'PostToolUseFailure', 'SubagentStop')) {
         $entry = @(@($hooks.hooks.$ev) | Where-Object { ($_ | ConvertTo-Json -Depth 8 -Compress) -like '*supervisor.ps1*' })[0]
         $h = @($entry.hooks)[0]
         Add-Result "C0 registration: the $ev supervisor entry sets asyncRewake" `

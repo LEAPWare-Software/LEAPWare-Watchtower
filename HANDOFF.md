@@ -49,7 +49,7 @@ than trusting any number written on this page.
 
 - **12 commands:** `checklist`, `config`, `delegate`, `doctor`, `plain`, `resolve`, `setup`,
   `sitrep`, `status`, `uninstall`, `update`, `verbosity`.
-- **10 modules, 9 of them active.** Nine only observe — `failure_capture`, `context_pressure`,
+- **13 modules, 9 of them active.** Ten only observe — `failure_capture`, `context_pressure`,
   `verification_gate`, `self_health`, `log_rotation`, `docs_coupling`, `git_hygiene`,
   `mission_drift`, `context_injection`. They report, log or advise; the action happens anyway.
   `verification_gate` keeps the word "gate" in its name and is not one — read the name as historical.
@@ -61,7 +61,7 @@ than trusting any number written on this page.
 - **Nothing inspects a shell command, a path or a credential**, and `permissions.deny` is empty.
   Force pushes, hard resets, recursive deletes, repo deletion, writes to `.git/`, writes of a live
   token — none are examined by anything here.
-- **12 files in `tests/`, and nine of them test behaviour.** `tests/gate_delegate.ps1` runs **93 cases**
+- **13 files in `tests/`, and ten of them test behaviour.** `tests/gate_delegate.ps1` runs **93 cases**
   — and eight of them currently fail on this tree, for the fixture reason recorded below; it is not
   93 of 93 today —
   58 exercise the gate's rule, 7 (section I) are aimed at the **fast path**, 3 (section M) are
@@ -86,7 +86,7 @@ than trusting any number written on this page.
   marketplace root resolves at all. Five cases are labelled `CONTROL` and pass before the fix they
   sit beside as well as after it — four at `fd8d023`, and the relocated-cache one only against the
   working tree immediately before its own fix. `permissions` writes nothing.
-  `tests/stop_behaviour.ps1` is **177 of 177** across the two hooks that fire at every turn end and
+  `tests/stop_behaviour.ps1` is **178 of 178** across the two hooks that fire at every turn end and
   the `lib/common.ps1` helpers they share, and reaches
   more **observing** modules than anything else in this repo: it runs `mission_drift` end to
   end — the fire condition, the suppressors (`min_files`, `require_outside_root`, `max_scan_bytes`,
@@ -125,7 +125,7 @@ than trusting any number written on this page.
   totals each suite reports about itself and are what the documentation guard checks; the
   **pass** counts are not, and a page saying a suite is green is saying more than a count does.
 
-  **Two of the nine observing
+  **Two of the ten observing
   modules — `verification_gate` and `self_health` — are still exercised by nothing
   at all.** This line said SEVEN until 3 August 2026, when `context_pressure`, `docs_coupling`,
   `git_hygiene` and `log_rotation` gained cases in `tests/stop_behaviour.ps1` and nine tracked pages
@@ -142,7 +142,7 @@ than trusting any number written on this page.
   portability scan, and the
   documentation-claim guard. Its display name is still `Fast checks (JSON + PowerShell parse)` **on
   purpose** — a required status check on `main` matches that name, so renaming it would silently stop
-  satisfying the requirement. **Every push to `main` runs all fourteen**, with no path filter on either
+  satisfying the requirement. **Every push to `main` runs all fifteen**, with no path filter on either
   trigger.
 - **The delegate gate got a fast path, measured on one machine.** The off-path cost — every gated
   tool call while `interaction.delegate` is off, which is every operator by default — dropped from a
@@ -166,7 +166,7 @@ Nothing below is optional reading for a new operator, and none of it was linked 
 | [`docs/limitations.md`](docs/limitations.md) | **First.** Everything this plugin does not do, cannot do and does not check, in one place. The blunt version of *What this plugin is now* above. |
 | [`docs/install.md`](docs/install.md) | Both install routes, the missing-directory trap in the junction route, the separate status-line install, and why the doctor exits `2` on a fresh machine |
 | [`docs/faq.md`](docs/faq.md) | The questions the limitations page raises, answered from the tree — including how to run all twelve test files yourself |
-| [`docs/testing.md`](docs/testing.md) | What each of the twelve files in `tests/` establishes, the shared exit-code contract, the fourteen CI check steps, and what is uncovered |
+| [`docs/testing.md`](docs/testing.md) | What each of the thirteen files in `tests/` establishes, the shared exit-code contract, the fourteen CI check steps, and what is uncovered |
 | [`docs/architecture.md`](docs/architecture.md) | File layout, hook registrations, measured costs, the state directory, the status line |
 | [`docs/modules.md`](docs/modules.md) | All ten modules, each with its own blind spots |
 | [`docs/configuration.md`](docs/configuration.md) | `config.json` in full — the switchboard, per-repo overrides, thresholds |

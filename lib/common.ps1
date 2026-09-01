@@ -40,8 +40,11 @@
 #           config.<block>.<key> with a per-repo override at
 #           repos[slug].<block>.<key>. An entry declaring one is EXCLUDED from
 #           the `modules` parity rule below, because by design it has no
-#           `modules` key. Exactly one entry uses it today - delegate_gate, whose
-#           switch is interaction.delegate, the key /lw-watchtower:delegate writes.
+#           `modules` key. FOUR entries use it today - delegate_gate, whose
+#           switch is interaction.delegate, the key /lw-watchtower:delegate writes,
+#           and the three supervision modules (send_liveness_gate,
+#           completion_audit, orphan_watch), whose switches live in the
+#           `supervision` block and all default OFF.
 #           WHY IT EXISTS AT ALL: the alternative was a second flag,
 #           modules.delegate_gate, alongside interaction.delegate. Two switches
 #           over one gate means an operator can turn the gate "on" with the
@@ -54,8 +57,10 @@
 # to config.json's `modules` keys, EXCEPT for entries that declare a `switch` of
 # their own - drift anywhere else silently mis-reports coverage, and
 # bin/lwg-doctor.ps1's config-registry check enforces both halves.
-# TEN entries, all 'implemented'. Nine are kind 'observe'; delegate_gate is the
-# one of kind 'gate' and is the only thing in this plugin that can block a call.
+# THIRTEEN entries, all 'implemented'. Ten are kind 'observe'; delegate_gate,
+# send_liveness_gate and completion_audit are kind 'gate' and are the only
+# things in this plugin that can block anything. All three gates - and
+# orphan_watch, the tenth observer - declare their own `switch` and SHIP OFF.
 $script:LwgModuleRegistry = [ordered]@{
     failure_capture      = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1'
                               note = 'Five hook events, gated on the flag; exits 2 to alert the orchestrator.' }
@@ -75,6 +80,15 @@ $script:LwgModuleRegistry = [ordered]@{
                               note = 'ON BY DEFAULT SINCE 30 JULY 2026, by explicit owner decision, and the tradeoff is recorded rather than glossed. It shipped default-OFF because its trigger could not be validated against real sessions, AND THAT IS STILL TRUE. What changed on 31 July 2026 is that the module is no longer untested: tests/stop_behaviour.ps1 runs it end to end in a real child process - the fire condition, min_files, require_outside_root, max_scan_bytes, the pivot path across several turns, and the non-boolean tuning values that used to disarm a suppressor. That establishes the code does what this note says; it CANNOT establish that being warned is right, because that judgement is not in the code. Do not read one as the other. One false-positive class remains - a redirection phrased with no concrete noun at all, followed by edits in a tree nobody named. Costs ~137 ms at turn end when on and nothing when off (one machine''s median; 122-169 ms). Anchors are read from the transcript incrementally, so it needs no new hook and no extra process. See "mission_drift" in docs/modules.md for the exact trigger and its false-positive profile.' }
     context_injection    = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/subagent_start.ps1'
                               note = 'SubagentStart, once per dispatch. Injects context/worker_facts.md as hookSpecificOutput.additionalContext, because CLAUDE.md is snapshotted into a subagent at PARENT-SESSION start and a mid-session edit never reaches a worker dispatched afterwards. The file is read live on every dispatch, so what a worker gets is current by construction. Deliberately does NOT dot-source this file on its fast path: that plus one ConvertFrom-Json measured 634 ms against a 273 ms interpreter floor, on a hook that every worker in every session pays for.' }
+    send_liveness_gate   = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_send.ps1'
+                              switch = @{ block = 'supervision'; key = 'send_liveness'; default = $false }
+                              note = 'OFF BY DEFAULT. PreToolUse on SendMessage: when supervision.send_liveness is on it refuses a send whose recipient it can prove is DEAD MID-FLIGHT - a subagent transcript exists for this session, no SubagentStop record was ever written for it, and the transcript has not been written for stale_minutes (default 15). Built from a measured failure: an orchestrator SendMessage was queued to an agent dead for 28m45s, the "Message queued for delivery" ack was read as done, and the user was told work was complete that never happened. The gate DENIES on positive evidence of death and on an unresolvable recipient; it ABSTAINS (allows, logged) where the evidence layer cannot support a verdict - a `name@team` recipient, or a session health.jsonl has never recorded. Its switch is supervision.send_liveness, NOT a `modules` key, for the same reason as delegate_gate: Get-LwgConfig fails OPEN and a corrupt config must not arm a blocking gate. Requires failure_capture to have been writing SubagentStop records; without them a completed agent is indistinguishable from a dead one and the gate abstains rather than guesses.' }
+    completion_audit     = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_stop.ps1'
+                              switch = @{ block = 'supervision'; key = 'completion_audit'; default = $false }
+                              note = 'OFF BY DEFAULT. A turn-end gate, registered on BOTH Stop and SubagentStop and WITHOUT asyncRewake on either, so its exit 2 BLOCKS the turn end. It sat on Stop ALONE until 11 August 2026, and because subagents and teammates emit SubagentStop and never Stop it fired for no worker at all in that period. The two registrations are NOT interchangeable, which is why the file takes a -HookEvent argument: on SubagentStop the payload''s transcript_path is the PARENT''S transcript and the subagent''s own is agent_transcript_path, so a gate reading the former would block a worker for what the ORCHESTRATOR said - in a delegate pattern the common case, not an edge one, and reproduced as a real exit 2 against the pre-fix code. Subagent mode also LIFTS the sidechain skip, because every record of a real subagent transcript carries isSidechain:true and skipping them would leave the gate armed and auditing nothing, and it uses a local turn-boundary test rather than Get-LwgPromptText, whose sidechain rejection exists for mission_drift and is correctly KEPT in Stop mode. An absent agent_transcript_path degrades to a silent no-op and NEVER falls back to the parent. When supervision.completion_audit is on it refuses to let a turn end whose final assistant text asserts completed work while the turn''s LAST tool action was SendMessage - queued-for-delivery is not delivery and not completion, and nothing after the send could have established anything. It fires ONCE per turn end: on the continuation stop_hook_active is true and it stands down, per the same loop-guard contract every Stop hook here honours - so it forces one round of verification, it cannot force honesty. The claim detection is a REGEX over prose and is stated as such: past-tense completion verbs, suppressed by hedging vocabulary. It will miss claims phrased outside its list and it can misread quoted text; the enumeration is in the file header and in docs/modules.md.' }
+    orphan_watch         = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1'
+                              switch = @{ block = 'supervision'; key = 'orphan_watch'; default = $false }
+                              note = 'OFF BY DEFAULT. At Stop, reconciles the session''s subagent TRANSCRIPTS against its SubagentStop records in health.jsonl: a transcript with no stop record that has not been written for stale_minutes (default 15) is an ORPHAN - an agent killed mid-flight, which produces NO record anywhere (Get-FailedTasks counts only failed/killed BACKGROUND TASKS in the Stop payload, and a killed subagent appears in that list not at all; a cross-check found FOUR orphans against a health log with zero PostToolUseFailure records in 1,175 entries). Alerts through the supervisor''s existing exit-2 asyncRewake path, deduped per agent through alerted.json. RUNS INSIDE lib/supervisor.ps1 BELOW THE failure_capture GATE, and that coupling is correct rather than convenient: SubagentStop records are what failure_capture writes, and reconciling against records nothing was writing would call every finished agent an orphan. failure_capture off = orphan_watch inert, and /lw-watchtower:status counts it from the same registry entry either way.' }
     delegate_gate        = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_delegate.ps1'
                               switch = @{ block = 'interaction'; key = 'delegate'; default = $false }
                               note = 'THE ONLY GATE THIS PLUGIN SHIPS, AND IT IS OFF BY DEFAULT. PreToolUse on Edit|Write|NotebookEdit|Bash|PowerShell: when interaction.delegate is on it refuses those five tools for calls that are NOT from a subagent, so the chat session is reserved for talking to the operator and the work goes to workers. Its switch is interaction.delegate - the key /lw-watchtower:delegate writes - and NOT a `modules` key; see the `switch` field above for why one flag rather than two. It decides "subagent" by the PRESENCE of agent_id in the payload and deliberately never looks at agent_type: a settings.json `agent` key gives the MAIN THREAD a non-empty agent_type, so a gate matching on that would read the main thread as a subagent and fail open on exactly the calls it exists to refuse. It carries no exemption, no allowlist and no safety determination of any kind, and nothing it DECIDES consults tool_name, because the matcher in hooks/hooks.json is the single place the tool list lives. It does read payload.tool_name, once, AFTER the decision to refuse, purely to name the refused tool in the message - a payload carrying none is refused identically with the text falling back to "this tool". That is spelled out rather than glossed as "it does not even read tool_name", which is what this note said until 3 August 2026 and is not true of lib/gate_delegate.ps1. Over-blocking it accepts, stated rather than left to be found: with it on, /lw-watchtower:delegate off cannot turn it off from the main thread, because that command runs through Bash. The deny text names the two ways out. COST: the hook runs on all five tools whether the switch is on or off - the figures below were not re-measured when PowerShell joined the matcher on 1 August 2026, since adding a tool changes how many calls are charged rather than what a call costs. That is true NOW and was not true when it was written: both hook-identity functions in bin/lwg-setup.ps1 key on the matcher STRING, so widening it made every v0.3.0 registration unrecognisable and setup added a SECOND PreToolUse group beside it - two gate runs per call, on a machine whose operator never armed the switch. $script:LwgSupersededMatchers in that file now maps the old spelling to the current one, and tests/setup_merge.ps1 pins both that the gate ends up registered exactly once and that the stale matcher is reported rather than silently accepted. See docs/limitations.md. With the switch OFF it is ~436 ms against a ~294 ms interpreter floor - one machine''s medians, so ~142 ms of it is the gate''s own work, paid by an operator who never turns it on. That was ~652 ms until a raw-text fast path landed on 31 July 2026. With the switch ON it is ~868 ms, SLOWER than before, because the fast path runs, fails to prove the switch off, and the slow path then does everything it always did - that cost falls on the operator who armed the gate, on a call being blocked anyway. See docs/modules.md for the run.' }
@@ -96,12 +110,14 @@ foreach ($k in $script:LwgModuleRegistry.Keys) {
 # This is the DECLARED set - membership says nothing about whether the gate is
 # switched ON. Use Get-LwgActiveGates for the count a banner may honestly show.
 #
-# IT HOLDS EXACTLY ONE NAME: delegate_gate, added on 30 July 2026 after a period
-# with none at all. destructive_gate and then secret_scan were removed earlier
-# the same day at the owner's instruction, and for a few hours this list was
-# empty. The loop below is kept rather than replaced with a literal because the
-# registry stays the single source of the answer - set kind = 'gate' on an entry
-# and the count, the mode word and the banner all follow on their own.
+# IT HOLDS THREE NAMES: delegate_gate (30 July 2026, added after a period with
+# none at all - destructive_gate and then secret_scan were removed earlier that
+# day at the owner's instruction), and send_liveness_gate + completion_audit
+# (1 August 2026, built from the measured queued-message-reported-as-done
+# failure). All three SHIP SWITCHED OFF. The loop below is kept rather than
+# replaced with a literal because the registry stays the single source of the
+# answer - set kind = 'gate' on an entry and the count, the mode word and the
+# banner all follow on their own.
 # verification_gate is NOT a gate despite its name; it is kind 'observe'.
 $script:LwgGates = @()
 foreach ($k in $script:LwgModuleRegistry.Keys) {
@@ -411,9 +427,10 @@ function Get-LwgDefaultConfig {
       on. A module that declares its own `switch` is deliberately NOT given a
       flag here - it has no `modules` key by design, and inventing one would put
       a value in the fallback that Test-LwgModule never reads. Its own default
-      lives on the registry entry, and for the one entry that has a switch today
-      that default is $false, so an unreadable config leaves the gate OFF.
-      That is the right polarity for THIS gate and it is not an accident: an
+      lives on the registry entry, and for every entry that has a switch today
+      that default is $false, so an unreadable config leaves the gates and
+      orphan_watch OFF.
+      That is the right polarity for a gate and it is not an accident: an
       operator whose config.json will not parse must not suddenly find the main
       thread unable to edit the file they need to fix.
     #>
@@ -918,8 +935,9 @@ function Get-LwgActiveGates {
       is blocking" are different facts and the count reports only the second.
       $script:LwgGates is the other one; /lw-watchtower:status prints both.
 
-      One name can reach this list today - delegate_gate - and only when
-      interaction.delegate is on, which it is not by default.
+      Three names can reach this list today - delegate_gate, send_liveness_gate
+      and completion_audit - each only when its own switch is on, which none is
+      by default.
     #>
     param($Config, [string]$Repo)
 
