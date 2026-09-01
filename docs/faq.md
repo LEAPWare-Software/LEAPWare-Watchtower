@@ -16,7 +16,7 @@ If you are here to find out what this plugin **cannot** do, the consolidated ans
 - [Does it block anything?](#does-it-block-anything)
 - [Is this a security tool?](#is-this-a-security-tool)
 - [Why were the gates removed?](#why-were-the-gates-removed)
-- [Why does the banner say `9/10` and `observe-only`? Is something broken?](#why-does-the-banner-say-910-and-observe-only-is-something-broken)
+- [Why does the banner say `9/13` and `observe-only`? Is something broken?](#why-does-the-banner-say-913-and-observe-only-is-something-broken)
 - [Why is `verification_gate` called a gate if it cannot block?](#why-is-verification_gate-called-a-gate-if-it-cannot-block)
 
 **Installing and running it**
@@ -50,9 +50,17 @@ If you are here to find out what this plugin **cannot** do, the consolidated ans
 
 ## What does this actually do?
 
-It runs ten governance modules over every Claude Code session on the machine, in every repo, with no
-per-project setup. **Nine of them observe** — they record, count or warn — and **one, `delegate_gate`,
-can refuse a tool call, and ships switched off.**
+It runs thirteen governance modules over every Claude Code session on the machine, in every repo, with
+no per-project setup. **Ten of them observe** — they record, count or warn — and **three are gates:
+`delegate_gate` and `send_liveness_gate` can refuse a tool call, `completion_audit` can refuse a turn
+end, and all three ship switched off.**
+
+This paragraph read *ten* modules and *one* gate until `send_liveness_gate`, `completion_audit` and
+`orphan_watch` were ported into the registry in one wave, and the difference is three modules arriving
+rather than a re-count of the same set. A number written on a page is only as current as the wave it
+was written in; the banner, the mode word and `/lw-watchtower:status` all derive theirs from
+`$LwgModuleRegistry` in [`lib/common.ps1`](../lib/common.ps1) at run time for exactly that reason, and
+that registry is the authority if this sentence and a live banner ever disagree.
 
 Concretely, as shipped:
 
@@ -80,13 +88,25 @@ What it does **not** do is a longer and more important list: [Limitations](limit
 
 **Almost nothing, and by default nothing at all.**
 
-There is exactly one hook in this plugin with a blocking channel: `delegate_gate`, a `PreToolUse`
-hook on `Edit|Write|NotebookEdit|Bash|PowerShell`. Its one rule is *when `interaction.delegate` is on, refuse
-those five tools for any call that did not come from a subagent*. It ships with that switch **off**,
-so the live gate count is `0` and a healthy session reads `observe-only`.
+There are exactly three hooks in this plugin with a blocking channel, and **every one of them ships
+switched off**, so the live gate count is `0` and a healthy session reads `observe-only`:
 
-It reads no path, no command and no file content, and nothing it decides consults the tool name — it
-reads that only to name the refused tool in the denial text, after the decision. So:
+- **`delegate_gate`**, a `PreToolUse` hook on `Edit|Write|NotebookEdit|Bash|PowerShell`. Its one rule is
+  *when `interaction.delegate` is on, refuse those five tools for any call that did not come from a
+  subagent*.
+- **`send_liveness_gate`**, a `PreToolUse` hook on `SendMessage`, switched by `supervision.send_liveness`.
+  It refuses a send to a recipient it can prove is dead mid-flight, and to one it cannot resolve at
+  all; it **abstains** — allows, and logs that it did — wherever the evidence layer cannot support a
+  verdict either way.
+- **`completion_audit`**, registered on `Stop` and `SubagentStop` with no `asyncRewake`, switched by
+  `supervision.completion_audit`. It refuses a **turn end**, not a tool call: a final message claiming
+  completed work when the turn's last action was a `SendMessage` that nothing has confirmed.
+
+The count of hooks that *can* block is not the count of gates that *are* blocking, and this page keeps
+them apart everywhere. Three ship; zero are live until an operator arms one.
+
+`delegate_gate` reads no path, no command and no file content, and nothing it decides consults the tool
+name — it reads that only to name the refused tool in the denial text, after the decision. So:
 
 - a destructive shell command — **not inspected**
 - a write to a credential file, or a write whose bytes are a credential — **not inspected**
@@ -139,18 +159,20 @@ rebuild first is at
 and the rules it has to follow at
 [What a future attempt must do differently](gates-removed.md#what-a-future-attempt-must-do-differently).
 
-## Why does the banner say `9/10` and `observe-only`? Is something broken?
+## Why does the banner say `9/13` and `observe-only`? Is something broken?
 
 No. That is the correct shipped state and it is what the banner is for.
 
 ```
-LW-WATCHTOWER v0.4.0 · 9/10 modules active (1 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.4.0 · 9/13 modules active (4 off) · 0 gates · observe-only
 ```
 
 - **`9/13`** — thirteen modules are built; nine are enabled. The other four are `orphan_watch` and the three gates, each built
   and switched off. The parenthetical accounts for the remainder so the total always adds up.
-- **`0 gates`** — that number counts gates that are **live**, not gates that ship. One ships. Counting
-  a switched-off capability as a gate would claim protection that is not running.
+- **`0 gates`** — that number counts gates that are **live**, not gates that ship. Three ship. Counting
+  a switched-off capability as a gate would claim protection that is not running, so the two numbers
+  are printed on two separate lines by `/lw-watchtower:status` — `SHIPPED` and `LIVE` — and neither is
+  ever collapsed into the other.
 - **`observe-only`** — no live gate, so nothing can be blocked. The mode ladder tests the live gate
   count **before** it tests whether any module is switched off, because "nothing can be blocked" is a
   larger fact than "some module is off".
@@ -158,6 +180,16 @@ LW-WATCHTOWER v0.4.0 · 9/10 modules active (1 off) · 0 gates · observe-only
 Turning an observing module off does not change the mode word. Running `/lw-watchtower:delegate on` does:
 the mode becomes `enforcing`, or `partial` if something else is off. Every mode word is defined at
 [Session modes](modules.md#session-modes).
+
+**This heading and this code block said `9/10 modules active (1 off)` while the first bullet under them
+said `9/13`, six lines apart, and the page shipped that way.** It is recorded rather than quietly
+corrected because of how it happened: the three ported modules moved the total, whoever reconciled the
+page updated the bullet that spells the ratio out and left the heading, the anchor and the sample
+banner carrying the old one, and no suite noticed. `tests/doc_claims.ps1` derives the module total from
+`$LwgModuleRegistry` and reads several phrasings of it, but a number inside a fenced code block and a
+number in a `##` heading are not among the shapes it recognises — so the guard was green over a page
+contradicting itself. The lesson is not "check the heading too": it is that a page can hold two
+different answers to one question and every automated check in this repository can still pass.
 
 ## Why is `verification_gate` called a gate if it cannot block?
 
@@ -333,9 +365,13 @@ Four things the command will tell you and that are easy to miss:
   banner is not a failed command.
 - **It refuses a name that is not in the registry** in `lib/common.ps1`, rather than writing it. A
   flag with no registry entry is a switch wired to nothing.
-- **`delegate_gate` is not switchable from here, deliberately.** Its switch is `interaction.delegate`,
-  which is not a `modules` key, and `/lw-watchtower:delegate` is the only thing that writes it. One gate,
-  one switch — two flags over one gate would let you turn it on and have it silently do nothing.
+- **`delegate_gate` is not switchable from here, deliberately — and nor are the three `supervision`
+  modules.** Four registry entries declare a switch of their own rather than a `modules` key:
+  `delegate_gate` (`interaction.delegate`, which `/lw-watchtower:delegate` writes) and
+  `send_liveness_gate`, `completion_audit` and `orphan_watch` (`supervision.send_liveness`,
+  `supervision.completion_audit`, `supervision.orphan_watch`). The command refuses all four by name and
+  says where the real key lives, rather than writing a `modules.<name>` flag nothing reads. One switch
+  per module — two flags over one gate would let you turn it on and have it silently do nothing.
 - **Exit `2` is a fault, not a caveat.** It means the file was written and the effective value is
   still not what you asked for.
 
@@ -519,10 +555,10 @@ Two related distinctions worth knowing:
 
 ## Can I run the tests myself?
 
-Yes. All twelve, from the repo root — the same twelve the `fast-checks` CI job runs:
+Yes. All thirteen, from the repo root — the same thirteen the `fast-checks` CI job runs:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1        # the one gate
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1        # the delegate gate
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\setup_merge.ps1          # the installer's statusline + hooks merge
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1       # the two turn-end hooks
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\uninstall_footprint.ps1  # the uninstaller's deletions
@@ -530,33 +566,36 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\evidence_states.ps1   
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1     # two of the doctor's nine checks
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\toggle_behaviour.ps1     # the toggle's write to config.json
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1        # the SubagentStart fast path
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\supervision.ps1          # the send and turn-end gates, and orphan_watch
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1        # every tracked file, as shipped payload
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\workflow_guard.ps1       # every workflow file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\portability_scan.ps1     # every tracked file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doc_claims.ps1           # every tracked page's counts
 ```
 
-**The first nine tally cases; eight of them drive this plugin's code.** Each of those eight spawns a
+**The first ten tally cases; nine of them drive this plugin's code.** Each of those nine spawns a
 child PowerShell process per case, through a real
 pipe, because a PowerShell object pipe never reaches `[Console]::In`, which is where a hook reads its
 payload. Nothing real is touched: every case builds a throwaway tree under the temp directory, and no
 case constructs a destructive command even as a string it never runs. `tests\payload_guard.ps1` is
-the ninth and is the odd one — it reads tracked files rather than running anything, but it reports
-cases, so the documentation guard classifies it as behavioural. Run one after another the nine take
-about ten minutes on one developer machine.
+the tenth and is the odd one — it reads tracked files rather than running anything, but it reports
+cases, so the documentation guard classifies it as behavioural. Run one after another, **the nine that
+existed when this was timed** take about ten minutes on one developer machine; the supervision suite
+landed after that measurement and is not in it, and the figure has not been re-taken because it is one
+machine's median and re-taking it here would swap it for another machine's.
 
 **The last three take seconds and assert nothing about behaviour.** Two scan the contents of tracked
 files; the third checks that the counts written in the documentation still match the tree, and it
-re-runs the eleven other suites in parallel to derive them rather than trusting a number typed
+re-runs the twelve other suites in parallel to derive them rather than trusting a number typed
 into it.
 
-All twelve share one exit contract: `0` all passed, `1` at least one failed, `2` aborted — **and zero
+All thirteen share one exit contract: `0` all passed, `1` at least one failed, `2` aborted — **and zero
 cases run is an abort, never a pass**.
 
-**What a green run of all twelve does not mean:** that the other **two** observing modules work.
-`verification_gate` and `self_health` are exercised by nothing at all, the seven that are exercised
+**What a green run of all thirteen does not mean:** that the other **two** observing modules work.
+`verification_gate` and `self_health` are exercised by nothing at all, the eight that are exercised
 are exercised only in the cases somebody
-thought to write, and for five of the seven that is one to three cases on at most two properties.
+thought to write, and for five of the eight that is one to three cases on at most two properties.
 This sentence said **seven** and named only `mission_drift` and `failure_capture` as covered until
 the wave that added `tests/subagent_scan.ps1`; the count has now moved three times and nothing
 derives it, so read [Testing § what is not covered](testing.md#what-is-not-covered) rather than

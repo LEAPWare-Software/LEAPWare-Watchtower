@@ -24,7 +24,7 @@ from running it, it says so.
 | Can it refuse a destructive command? | **No.** Nothing inspects a shell command. |
 | Can it stop a credential reaching disk? | **No.** Nothing inspects written content, and nothing inspects a path in order to refuse it — one hook reads an edited path *after* the write, to feed two advisories. |
 | Does it install any `permissions.deny` rule? | **No.** The installer's rule table is empty. |
-| Can it block anything at all? | **Three things**, and it ships switched off — see [`delegate_gate`](#the-one-gate-blocks-one-thing-and-ships-off). |
+| Can it block anything at all? | **Three things**, and all three ship switched off — see [the three gates](#the-three-gates-block-little-and-all-ship-off). |
 | Can it block assistant text? | **No.** There is no hook between the model and the transcript. |
 | How many of its thirteen modules are tested? | **Eleven** — all three gates, and eight of the ten observing ones, only in the cases somebody thought to write and for five of them only one or two properties apiece. The other two — `verification_gate`, `self_health` — are exercised by nothing. |
 | Does it run anywhere but Windows PowerShell 5.1? | **No**, and it does not pretend to. |
@@ -126,8 +126,23 @@ most of the work of adding a gate, and this repository no longer contains any of
 
 ## The three gates block little, and all ship off
 
-`delegate_gate` ([`lib/gate_delegate.ps1`](../lib/gate_delegate.ps1)) is the only thing in this plugin
-that can refuse a tool call. Its limits:
+Three registry entries are kind `gate`, and they do not all refuse the same kind of thing.
+`delegate_gate` ([`lib/gate_delegate.ps1`](../lib/gate_delegate.ps1)) and `send_liveness_gate`
+([`lib/gate_send.ps1`](../lib/gate_send.ps1)) refuse a **tool call**, on `PreToolUse`;
+`completion_audit` ([`lib/gate_stop.ps1`](../lib/gate_stop.ps1)) refuses a **turn end**, on `Stop` and
+`SubagentStop` with no `asyncRewake` on either registration, which is what makes its exit 2 a block
+rather than an alert. All three ship switched off, so the live gate count is `0` on an install nobody
+has armed.
+
+This section states the limits of `delegate_gate` and nothing else. It said *"`delegate_gate` is the
+only thing in this plugin that can refuse a tool call"* until the wave that ported the other two, and
+that sentence was still on the page under this heading after the heading itself had been corrected to
+say three — the heading and its first line disagreeing is exactly the shape this page exists to catch.
+**`send_liveness_gate` and `completion_audit` have no limitations entry of their own yet, and that is
+an absence rather than a claim that they have none**: the notes in `$LwgModuleRegistry`
+([`lib/common.ps1`](../lib/common.ps1)) and the case names in
+[`tests/supervision.ps1`](../tests/supervision.ps1) are the only written account of what each refuses,
+what it abstains on, and where it is blind. `delegate_gate`'s limits:
 
 - **It ships switched off** (`interaction.delegate: false`), so as shipped the live gate count is `0`
   and a healthy session reads `observe-only`.
@@ -184,14 +199,25 @@ exits 0 on every path and its only stdout is a `systemMessage` envelope with no 
 `tests/stop_behaviour.ps1` asserts exit 0 on every case it drives, and case B8 asserts on a real
 emitted envelope that it carries no `decision` member. That covers the six modules that suite
 reaches — `mission_drift`, `failure_capture`, `context_pressure`, `docs_coupling`, `git_hygiene` and
-`log_rotation`. For the other three observing modules it is still a property of the source and
-nothing more.*
+`log_rotation`. For the other four observing modules it is still a property of the source and
+nothing more.* That remainder read *three* while nine modules were kind `observe`; `orphan_watch`
+arrived as the tenth and the suite that reaches it is not `tests/stop_behaviour.ps1`, so the sentence
+had to move even though nothing about the six changed. The four are `verification_gate`, `self_health`,
+`context_injection` and `orphan_watch` — and the last is the conservative half of the statement rather
+than a clean absence: `orphan_watch` alerts by exiting 2 on a registration that carries `asyncRewake`,
+which is what turns that exit into a task notification instead of a block, and case C0 of
+`tests/stop_behaviour.ps1` does assert that flag is on the supervisor's registrations. What no case
+covers is the module's own paths exiting 0 the way the advisory handler's do.
 
 `verification_gate` keeps the word "gate" in its name and **is not one**. It is registered kind
 `observe`, warns on `Stop`, and never blocks.
 
-Within the nine, the useful distinction is between a module that observes a **fact** and one that
+Within the ten, the useful distinction is between a module that observes a **fact** and one that
 runs a **heuristic**. Both are advisory; only the first is telling you something it actually saw.
+This table listed nine rows and called them "the nine" while the registry held ten observing entries,
+because `orphan_watch` was ported in without one; a table missing a row is a denominator quietly
+reduced, so the row is added below rather than the count left to describe a table that does not
+contain it.
 
 | Module | Observes | What limits it |
 | --- | --- | --- |
@@ -203,7 +229,8 @@ runs a **heuristic**. Both are advisory; only the first is telling you something
 | `docs_coupling` | a fact — the paths edited, over a **narrow window** | `Write`/`Edit`/`NotebookEdit` only. **A file rewritten by a shell command is invisible to it.** Its doc/source/neither classification is a configurable word list, not an analysis. |
 | `git_hygiene` | a fact — git's own answer | The only module that spawns a subprocess, on `Stop` only. If git is missing, times out or exits nonzero it reports **UNKNOWN**, never "clean" — but the operator has to read that word. Its open-PR half needs `gh` and the network and is best-effort by construction. |
 | `context_injection` | a fact — it emits the current bytes of one file per dispatch | It injects; it cannot block, because `SubagentStart` has no blocking channel. **Nothing verifies the worker read it or acted on it.** That the escaper emits pure ASCII rests on inspection of the source. |
-| `mission_drift` | **heuristic** — word, stem and path-segment overlap | See the next section. It is the weakest of the nine and it is on by default. |
+| `orphan_watch` | **partly** — a fact (a subagent transcript with no `SubagentStop` record) against a **time threshold** | Ships **off** (`supervision.orphan_watch`). Reconciles transcripts against the records `failure_capture` writes, so with `failure_capture` off it is inert and a finished agent is indistinguishable from a killed one. Silence for `stale_minutes` (default 15) is what it calls an orphan, so a live agent that writes nothing for longer looks the same as a dead one. With no health records for the session it **abstains** rather than calling every agent an orphan. It alerts on the supervisor's exit-2 `asyncRewake` path and dedupes per agent through `alerted.json`; nothing tracks an alert as an open item. |
+| `mission_drift` | **heuristic** — word, stem and path-segment overlap | See the next section. It is the weakest of the ten and it is on by default. |
 
 Blind spots per module, in the modules' own words:
 [Caveats on the ten that only observe](modules.md#caveats-on-the-ten-that-only-observe).
@@ -421,7 +448,7 @@ holds it there in CI. **Three things that fix does not close, stated so they are
 ## What no test covers
 
 **Ten suites in this repository establish a behaviour of this plugin, and between them they reach
-one gate, two writers, one deleter, one reporting engine, two of the doctor's nine checks, one
+three gates, two writers, one deleter, one reporting engine, two of the doctor's nine checks, one
 hook's fast path, the shipped payload, and eight of the ten observing modules.**
 
 | Suite | What it establishes |
