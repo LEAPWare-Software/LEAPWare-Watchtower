@@ -14,7 +14,7 @@
   it had never been driven at all, and both were wrong in the same direction:
   they answered a question that is cheaper than the one they claim to answer.
 
-  This file drives THREE of the doctor's eight checks and no others:
+  This file drives FOUR of the doctor's eight checks and no others:
 
     config-registry  #41. It tested a declared switch for PRESENCE and stopped,
                      so `"delegate": "true"` - quoted - passed while
@@ -37,8 +37,17 @@
                      fault claim, with the remedy of reinstalling the plugin,
                      produced by a read that never established absence. A log
                      that grew past 256 KB since the session started is enough.
+    commands         #204. It enumerated the FILESYSTEM under the plugin root
+                     with two name filters and scanned everything else, tracked
+                     or not, so an untracked directory of generated output made
+                     it report the plugin NOT healthy from a checkout whose
+                     tracked tree was clean. The enumeration is now the tracked
+                     tree when git can answer for the directory, the walk when
+                     it cannot - and the row names which one it used, because a
+                     scan that read nothing must never be readable as a clean
+                     one.
 
-  It does NOT drive the other five checks, and a green run here says nothing
+  It does NOT drive the other four checks, and a green run here says nothing
   about them.
 
   IT ALSO DRIVES ONE THING THAT IS NOT A CHECK AT ALL: the informational roster
@@ -93,16 +102,23 @@
   in place. The two #42 cases added afterwards were proved red against the tree
   they landed in, which carries that check unchanged from fd8d023.
 
-  EIGHT OF THE TWENTY-TWO CASES PASS AT fd8d023 TOO, and every one of them is
-  labelled CONTROL in its name and in its comment. None is offered as evidence
-  that anything was fixed. They exist because the cheapest way to pass the other
-  eleven is to answer "not ours" to everything, "FAIL" to every config and
-  "PASS" to every log, and the controls are what make that not work.
+  TEN OF THE TWENTY-FIVE CASES ARE LABELLED CONTROL, in the name and in the
+  comment. None is offered as evidence that anything was fixed. They exist
+  because the cheapest way to pass the others is to answer "not ours" to
+  everything, "FAIL" to every config, "PASS" to every log and to read no file
+  at all, and the controls are what make that not work. EIGHT of the ten pass
+  at fd8d023 too. The two #204 controls do not: they assert the phrase naming
+  the enumeration, which no row carried there.
 
-  THREE OF THE TWENTY-TWO HAVE NO fd8d023 BASELINE AT ALL - cases 16-18, on the
+  THE #204 CASES BASELINE ON c3e4139, NOT ON fd8d023 - that is the tree the
+  defect was reproduced on and the tree they were proved red against, and each
+  says so in its own comment.
+
+  FOUR OF THE TWENTY-FIVE HAVE NO fd8d023 BASELINE AT ALL - cases 16-18, on the
   informational roster, which did not exist there and is not a defect being
-  fixed. They pin a boundary rather than a repair, and their red proof is a
-  mutation stated in their own comment, not an old commit.
+  fixed, and case 24, on a code path that did not exist there either. They pin a
+  boundary rather than a repair, and their red proof is a mutation stated in
+  their own comment, not an old commit.
 
   ---------------------------------------------------------------------------
   WHAT IS DELIBERATELY NOT COVERED
@@ -243,8 +259,19 @@ function Invoke-Doctor {
       stdout is captured and stderr is deliberately NOT merged with 2>&1: in
       Windows PowerShell 5.1 that wraps a native command's stderr in
       NativeCommandError records and corrupts both the output and $?.
+
+      -DoctorPath NAMES A DIFFERENT COPY and defaults to the one shared tree
+      every other case drives. The #204 cases need a SECOND plugin copy - one
+      with a real .git and an index - because the shared copy is made by
+      Copy-PluginTree, which drops .git by design, and the enumeration under
+      test is exactly "the tracked tree, or the filesystem when git cannot
+      answer". Passing the path is preferred to reassigning $script:DoctorPath:
+      a case that forgot to put it back would silently move every case after it
+      onto a tree it was not written for.
     #>
-    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun)
+    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun, [string]$DoctorPath)
+
+    if ([string]::IsNullOrWhiteSpace($DoctorPath)) { $DoctorPath = $script:DoctorPath }
 
     $prev  = $env:USERPROFILE
     $prevD = $env:CLAUDE_PLUGIN_DATA
@@ -262,9 +289,9 @@ function Invoke-Doctor {
         # the shipped switch does, and a hand-built argument list is a second
         # thing that can be wrong.
         $lines = if ($QuietRun) {
-            & powershell -NoProfile -ExecutionPolicy Bypass -File $script:DoctorPath -Quiet
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $DoctorPath -Quiet
         } else {
-            & powershell -NoProfile -ExecutionPolicy Bypass -File $script:DoctorPath
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $DoctorPath
         }
         $code  = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
         $out   = ($lines | Out-String)
@@ -459,6 +486,111 @@ function Add-LogFiller {
     return (Get-Item -LiteralPath $Path).Length
 }
 
+function Invoke-GitQuiet {
+    <#
+      One git command in $Dir. Returns its exit code and swallows both streams.
+
+      stderr is sent to nul and ErrorActionPreference is dropped to 'Continue'
+      for the call. In Windows PowerShell 5.1 a native command's stderr comes
+      back as NativeCommandError records under 'Stop', and git writes to stderr
+      on the ordinary path - `init` prints its hint, `add` prints the CRLF
+      warning - so without this every case below would ABORT the suite on a
+      command that succeeded.
+
+      -1 means git could not be invoked at all. That is never treated as a pass
+      by any case here: a case that cannot build its fixture says so and fails,
+      because a skipped case that reports success is the failure mode this
+      whole suite exists to argue against.
+    #>
+    param([string]$Dir, [string[]]$GitArgs)
+
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $all = @('-C', $Dir) + $GitArgs
+        # Reset first: a missing git binary leaves $LASTEXITCODE untouched, and
+        # a stale 0 from some earlier native call would read as success.
+        $global:LASTEXITCODE = -1
+        & git @all 2>$null | Out-Null
+        return $(if ($null -eq $LASTEXITCODE) { -1 } else { $LASTEXITCODE })
+    } catch {
+        return -1
+    } finally { $ErrorActionPreference = $eap }
+}
+
+function New-PluginCopy {
+    <#
+      A SECOND copy of the plugin tree, its own directory under the work root,
+      returned as @{ root; doctor }.
+
+      The shared $Plug copy cannot be used for the #204 cases: they plant an
+      untracked file in the tree, and a plant left in the copy every other case
+      runs would change what those cases measure. A fresh copy per case keeps
+      each fixture to itself.
+    #>
+    param([string]$Tag, [string]$From)
+
+    $root = Join-Path $script:Work ($Tag + '-tree')
+    Copy-PluginTree -From $From -To $root
+    return @{ root = $root; doctor = (Join-Path $root 'bin\lwg-doctor.ps1') }
+}
+
+function Initialize-TrackedCopy {
+    <#
+      Turn a plugin copy into a real repository with a real index: `git init`
+      then `git add`, so `git ls-files` inside it answers with exit 0 and a
+      non-empty listing. No commit is made - ls-files reads the INDEX, and a
+      commit would need an identity this suite has no business setting.
+
+      -Only restricts what is added, which is how the zero-references case is
+      built: a tree where git answers and the answer is one file that mentions
+      no command at all.
+
+      Returns the number of files git then lists, or -1 if any git call failed.
+      The caller asserts on that rather than assuming the fixture was built.
+    #>
+    param([string]$Root, [string[]]$Only)
+
+    # A branch name is supplied so git does not print its default-branch advice,
+    # and autocrlf is pinned off so a checkout's global setting cannot rewrite
+    # bytes on the way into the index.
+    if ((Invoke-GitQuiet -Dir $Root -GitArgs @('-c', 'init.defaultBranch=fixture', 'init', '-q')) -ne 0) { return -1 }
+    $add = if ($Only) { @('-c', 'core.autocrlf=false', 'add', '--') + $Only }
+           else       { @('-c', 'core.autocrlf=false', 'add', '-A') }
+    if ((Invoke-GitQuiet -Dir $Root -GitArgs $add) -ne 0) { return -1 }
+
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $global:LASTEXITCODE = -1
+        $listed = & git -C $Root -c core.quotePath=false ls-files 2>$null
+        if ($LASTEXITCODE -ne 0) { return -1 }
+        return @($listed | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
+    } catch { return -1 } finally { $ErrorActionPreference = $eap }
+}
+
+function Add-UntrackedOffender {
+    <#
+      An untracked file in the plugin copy's root that references two command
+      names which do not exist - the shape of the generated-output directory
+      that reproduced #198's failure chain from a checkout whose TRACKED tree
+      was clean.
+
+      The names are built from the manifest's own plugin id and are deliberately
+      names no commands\*.md carries. Returns the path written.
+    #>
+    param([string]$Root, [string]$PluginName)
+
+    $dir = Join-Path $Root 'generated-output'
+    [void][IO.Directory]::CreateDirectory($dir)
+    $f = Join-Path $dir 'notes.md'
+    [IO.File]::WriteAllText($f,
+        "generated output, no part of the plugin`r`n" +
+        "run /${PluginName}:tripped then /${PluginName}:status to see the ledger`r`n",
+        (New-Object Text.UTF8Encoding($false)))
+    return $f
+}
+
 function Get-RowMap {
     <# Every row in a doctor report as id -> status. Used only to compare two
        runs of the SAME sandbox against each other. #>
@@ -535,7 +667,7 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 try {
     Write-Output 'LW-WATCHTOWER doctor behaviour regression suite'
     Write-Output "  repo    : $Root"
-    Write-Output '  under   : bin\lwg-doctor.ps1, checks config-registry, statusline and sessionstart only'
+    Write-Output '  under   : bin\lwg-doctor.ps1, checks config-registry, statusline, sessionstart and commands only'
     Write-Output ''
 
     foreach ($p in @((Join-Path $Root 'bin\lwg-doctor.ps1'),
@@ -1179,7 +1311,133 @@ try {
          "expected a [WARN] saying it could not look far enough back, got [$($row.status)] $($row.detail) at exit $($ss.code). Full output:`n$($ss.out)")
 
     # -------------------------------------------------------------------
-    # 22. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
+    # 22-24. #204. THE commands CHECK ENUMERATES THE TRACKED TREE, AND SAYS SO.
+    #
+    #        The check walked the filesystem under the plugin root with two name
+    #        filters and scanned everything else, tracked or not. So its verdict
+    #        moved with whatever happened to be lying in the checkout: an
+    #        untracked directory of generated output carrying references to six
+    #        commands deleted on 2 September 2026 produced
+    #
+    #          [FAIL] commands  <plugin>:status is referenced in
+    #                           scratch-out\notes.md but commands\status.md does
+    #                           not exist; <plugin>:tripped is referenced
+    #                           in scratch-out\notes.md but commands\tripped.md
+    #                           does not exist
+    #
+    #        THE TWO NAMES ARE WRITTEN WITHOUT THEIR LEADING SLASH ABOVE AND
+    #        EVERYWHERE ELSE IN THIS FILE. The check under test scans .ps1 files
+    #        and this is one of them, so a live-looking reference in a comment
+    #        fails the check on its own explanation - which is exactly what
+    #        happened on the first run of these cases, and the doctor's own
+    #        comment on this check warns about it for the same reason. The
+    #        fixture builds its references at run time from the manifest's
+    #        plugin id instead.
+    #
+    #        from a checkout whose `git status --short` listed nothing but that
+    #        untracked directory. That is a false FAIL over a directory that is
+    #        no part of the plugin, and a false FAIL is the expensive direction:
+    #        it teaches an operator to ignore the doctor.
+    #
+    #        THE THREE CASES ARE THE THREE STATES, and the third is the one that
+    #        stops the fix being worse than the defect. A marketplace install has
+    #        no .git, `git ls-files` exits 128 there and enumerates nothing, and
+    #        "scanned 0 files" must never become a silent pass - so the fallback
+    #        has to be real, and a tracked tree with nothing in it has to keep
+    #        failing.
+    #
+    #        EACH CASE BUILDS ITS OWN COPY OF THE PLUGIN TREE. The shared copy
+    #        every other case drives is made by Copy-PluginTree, which drops
+    #        .git, so it is the no-git shape by construction and a plant left in
+    #        it would follow every later case.
+    # -------------------------------------------------------------------
+
+    # -------------------------------------------------------------------
+    # 22. AN UNTRACKED OFFENDER IN A TRACKED TREE IS NOT THE PLUGIN'S PROBLEM.
+    #
+    #     The copy is git init'd and everything in it added, THEN the offender
+    #     is planted - so the tracked tree is clean and the working directory is
+    #     not, which is the exact state that reproduced this. The row must PASS
+    #     and must name the enumeration it used, because a reader who cannot
+    #     tell which tree was measured cannot tell a real clean sweep from a
+    #     scan that quietly read nothing.
+    #
+    #     BASELINE: the tree this landed on. Run against it, this case reports
+    #     '[FAIL] <plugin>:status is referenced in generated-output\notes.md
+    #     but commands\status.md does not exist; ...' - the defect, reproduced
+    #     inside the suite.
+    # -------------------------------------------------------------------
+    Set-CaseConfig -Mutate $null
+    $c204   = New-PluginCopy -Tag 'cmd-tracked' -From $Root
+    $nTrack = Initialize-TrackedCopy -Root $c204.root
+    $plant  = Add-UntrackedOffender -Root $c204.root -PluginName $PluginName
+    $t      = New-HealthyCase -Tag 'cmd-tracked-case' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $cr     = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -DoctorPath $c204.doctor
+    $row    = Get-DoctorRow -Text $cr.out -Id 'commands'
+    Add-Result 'commands: an untracked file referencing commands that do not exist does not fail a clean tracked tree' `
+        ($nTrack -gt 0 -and $row.found -and $row.status -eq 'PASS' -and $row.detail -match 'tracked tree') `
+        ("git listed $nTrack tracked file(s) in the copy and $plant was planted untracked afterwards; " +
+         "expected a [PASS] whose detail names the tracked tree, got [$($row.status)] $($row.detail). " +
+         $(if ($nTrack -le 0) { 'THE FIXTURE WAS NOT BUILT - git could not init or add, so this case established nothing. ' } else { '' }) +
+         "Full output:`n$($cr.out)")
+
+    # -------------------------------------------------------------------
+    # 23. CONTROL. THE SAME OFFENDER, IN A TREE WITH NO .git, STILL FAILS.
+    #
+    #     The cheapest way to pass case 22 is to stop reading the offending file
+    #     at all, and this is what stops that. A marketplace install has no
+    #     index; the walk is then the only enumeration there is, and it must
+    #     still find a signpost to a command that does not exist. The detail has
+    #     to say it was the filesystem, so the operator reading a FAIL knows
+    #     that an untracked file could be the cause of it.
+    #
+    #     BASELINE: passes on the tree this landed on too, apart from the
+    #     enumeration phrase - the walk is what that tree always did.
+    # -------------------------------------------------------------------
+    $c204b = New-PluginCopy -Tag 'cmd-nogit' -From $Root
+    $plant = Add-UntrackedOffender -Root $c204b.root -PluginName $PluginName
+    $t     = New-HealthyCase -Tag 'cmd-nogit-case' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $cr    = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -DoctorPath $c204b.doctor
+    $row   = Get-DoctorRow -Text $cr.out -Id 'commands'
+    $hasGit = [IO.Directory]::Exists((Join-Path $c204b.root '.git'))
+    Add-Result 'CONTROL commands: with no tracked tree to read, the filesystem walk still finds the bad reference' `
+        (-not $hasGit -and $row.found -and $row.status -eq 'FAIL' -and
+         $row.detail -match 'tripped' -and $row.detail -match 'filesystem') `
+        ("the copy has no .git ($(if ($hasGit) { 'IT DOES - the fixture is wrong' } else { 'confirmed' })) and $plant references two commands that do not exist; " +
+         "expected a [FAIL] naming them and saying it enumerated the filesystem, got [$($row.status)] $($row.detail). Full output:`n$($cr.out)")
+
+    # -------------------------------------------------------------------
+    # 24. CONTROL. A TRACKED TREE THAT MENTIONS NO COMMAND AT ALL IS A BROKEN
+    #     SCAN, NOT A CLEAN ONE.
+    #
+    #     git answers, exit 0, and lists ONE file that carries no /<plugin>:*
+    #     reference - which is also the shape of a plugin unpacked inside some
+    #     other repository, where every one of its files is untracked. Zero
+    #     references means the scan proved nothing, and the row has to say that
+    #     rather than report a clean command surface. Without this case the fix
+    #     for #204 could pass every tree by finding nothing in it.
+    #
+    #     BASELINE: no fd8d023 baseline - the tracked path did not exist there.
+    #     Its red is the mutation of deleting the $refs.Count guard, which is
+    #     the guard this case exists to hold.
+    # -------------------------------------------------------------------
+    $c204c = New-PluginCopy -Tag 'cmd-empty' -From $Root
+    [IO.File]::WriteAllText((Join-Path $c204c.root 'nothing-to-see.md'),
+        "a tracked file that mentions no command`r`n", (New-Object Text.UTF8Encoding($false)))
+    $nOnly = Initialize-TrackedCopy -Root $c204c.root -Only @('nothing-to-see.md')
+    $t     = New-HealthyCase -Tag 'cmd-empty-case' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $cr    = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -DoctorPath $c204c.doctor
+    $row   = Get-DoctorRow -Text $cr.out -Id 'commands'
+    Add-Result 'CONTROL commands: a tracked tree holding no command reference at all FAILS as a broken scan' `
+        ($nOnly -eq 1 -and $row.found -and $row.status -eq 'FAIL' -and
+         $row.detail -match 'proved nothing' -and $row.detail -match 'tracked tree') `
+        ("git listed $nOnly tracked file(s), none of which names a command; " +
+         "expected a [FAIL] saying the scan proved nothing and naming the tracked tree, got [$($row.status)] $($row.detail). " +
+         $(if ($nOnly -ne 1) { 'THE FIXTURE WAS NOT BUILT as one tracked file, so this case established nothing. ' } else { '' }) +
+         "Full output:`n$($cr.out)")
+
+    # -------------------------------------------------------------------
+    # 25. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
     #     pointed into the scratch tree; this asserts what that was supposed to
     #     buy rather than assuming it. Nothing under the operator's own
     #     ~\.claude\plugins\data\<plugin>* may have grown a byte or gained a
@@ -1250,8 +1508,9 @@ Write-Output ''
 Write-Output 'Every case above passed. Read that as "config-registry now asks the same'
 Write-Output 'question of a value that Test-LwgFlag and Test-LwgModule ask, the'
 Write-Output 'statusline check establishes whose file it is looking at before it diagnoses'
-Write-Output 'drift, and sessionstart tells a log it could not read to the end from a hook'
-Write-Output 'that is not firing" - not as "the doctor is correct". Five of its eight checks'
+Write-Output 'drift, sessionstart tells a log it could not read to the end from a hook'
+Write-Output 'that is not firing, and commands measures the tracked tree and says so" - not as'
+Write-Output '"the doctor is correct". Four of its eight checks'
 Write-Output 'are driven by nothing here, no case executes the status line, and a file byte-identical'
 Write-Output 'to the repo copy is indistinguishable from an install by any content marker'
 Write-Output 'and is named in the header as not covered.'

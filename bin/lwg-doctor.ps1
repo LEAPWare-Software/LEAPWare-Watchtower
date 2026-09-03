@@ -701,9 +701,81 @@ try {
         }
 
         # b. referenced anywhere in this repo, and declared.
-        # .git is skipped as object storage; .claude is local harness state -
-        # settings.local.json and agent worktrees, which are whole second copies
-        # of this tree - and is not part of the plugin.
+        #
+        # WHICH TREE IS ENUMERATED, AND WHY IT IS THE TRACKED ONE FIRST (#204).
+        # This walked the FILESYSTEM under $pluginRoot with two name filters,
+        # '.git\' and '.claude\', and scanned everything else - tracked or not.
+        # A check whose verdict moves with whatever is lying around is not
+        # measuring the plugin, which is the same argument the paragraph below
+        # already makes about where the plugin is installed, on a different
+        # axis. It was not theoretical: an untracked scratch directory of
+        # generated output in a checkout whose TRACKED tree was clean carried
+        # references to six commands deleted on 2 September 2026, and this check
+        # reported the plugin NOT healthy over a directory that is no part of
+        # it. `git add -A` in such a checkout then makes those references
+        # tracked and the false FAIL becomes a real one nobody wrote on purpose.
+        #
+        # So: the TRACKED tree when git can answer for this directory, the
+        # filesystem walk when it cannot. Every other enumeration in this
+        # repository derives from `git ls-files` for the reason .github/
+        # workflows/ci.yml states - it cannot drift from the repo, and `.git` is
+        # excluded by construction rather than by a filter someone has to
+        # remember to maintain - and this check was the outlier.
+        #
+        # THE FALLBACK IS NOT OPTIONAL AND IS NOT A SILENT ONE. On a marketplace
+        # install the plugin directory has no `.git` at all: `git ls-files`
+        # exits 128 there and enumerates nothing, and "scanned 0 files" must
+        # never become a pass - that is the defect this file exists to catch,
+        # and the $refs.Count guard below is the same rule. A plugin unpacked
+        # inside some OTHER repository is the second shape: git answers, exit 0,
+        # and lists nothing here because none of these files is tracked THERE.
+        # Both fall back to the walk, and $enum says which path was taken and
+        # why, so a reader never has to guess which tree was measured.
+        #
+        # stderr is sent to nul and never merged. In Windows PowerShell 5.1 a
+        # native command's stderr comes back as NativeCommandError records under
+        # ErrorActionPreference 'Stop', so `fatal: not a git repository` - the
+        # ordinary marketplace case - would THROW and Invoke-Check would report
+        # the check as failed rather than falling back.
+        $exts = @('.md', '.ps1', '.json', '.yml', '.yaml', '.txt')
+        $tracked = $null
+        $gitWhy  = ''
+        try {
+            $eap = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                # Reset FIRST. $LASTEXITCODE is whatever the last native command
+                # in this process left behind, and if `git` cannot be found at
+                # all the call sets no new value - so reading a stale 0 would
+                # take the tracked path on a machine that has no git.
+                $global:LASTEXITCODE = -1
+                # core.quotePath=false: git otherwise C-quotes any path with a
+                # non-ASCII byte in it, and a quoted name is not a path.
+                $raw     = & git -C $pluginRoot -c core.quotePath=false ls-files 2>$null
+                $gitCode = if ($null -eq $LASTEXITCODE) { -1 } else { $LASTEXITCODE }
+                if ($gitCode -eq 0) {
+                    # Filtered BEFORE it is counted: @($null).Count is 1 in
+                    # PowerShell, so an empty listing would otherwise read as
+                    # one tracked file and take the tracked path with nothing
+                    # in it.
+                    $tracked = @($raw | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+                    if ($tracked.Count -eq 0) {
+                        $tracked = $null
+                        $gitWhy  = 'git answered but listed no tracked file under the plugin root'
+                    }
+                } else {
+                    $gitWhy = "git ls-files exited $gitCode here, so there is no tracked tree to read"
+                }
+            } finally { $ErrorActionPreference = $eap }
+        } catch {
+            $tracked = $null
+            $gitWhy  = "git could not be run ($($_.Exception.Message))"
+        }
+
+        # .claude is local harness state - settings.local.json and agent
+        # worktrees, which are whole second copies of this tree - and is not part
+        # of the plugin, so it is excluded on BOTH paths. .git needs no exclusion
+        # on the tracked path because git never lists it.
         #
         # BOTH exclusions are matched against the path RELATIVE TO $pluginRoot,
         # never against the absolute path. This plugin is normally reached
@@ -713,29 +785,53 @@ try {
         # nothing. A check whose result depends on where the thing is installed
         # is not a check. Relative matching also keeps '.claude-plugin\' in
         # scope, which is a real part of the plugin and must stay scanned.
+        $enum  = ''
+        $files = @()
+        if ($null -ne $tracked) {
+            $enum = 'the tracked tree (git ls-files)'
+            foreach ($t in $tracked) {
+                # git reports '/' separators; every path this check prints and
+                # every -like below is written in the Windows shape.
+                $rel = ([string]$t) -replace '/', '\'
+                if ($rel -like '.claude\*') { continue }
+                if ([IO.Path]::GetExtension($rel).ToLowerInvariant() -notin $exts) { continue }
+                # Tracked in the index but deleted from the working tree. It is
+                # not on disk to read, and a missing file is not a reference.
+                $abs = Join-Path $pluginRoot $rel
+                if (-not (Test-Path -LiteralPath $abs -PathType Leaf)) { continue }
+                $files += [pscustomobject]@{ rel = $rel; full = $abs }
+            }
+        } else {
+            $enum = "the filesystem - $gitWhy"
+            foreach ($f in @(Get-ChildItem -LiteralPath $pluginRoot -Recurse -File -ErrorAction SilentlyContinue |
+                             Where-Object { $_.Extension -in $exts })) {
+                $rel = $f.FullName.Substring($pluginRoot.Length).TrimStart('\', '/')
+                if ($rel -like '.git\*' -or $rel -like '.claude\*') { continue }
+                $files += [pscustomobject]@{ rel = $rel; full = $f.FullName }
+            }
+        }
+
         $re   = [regex]('(?<![A-Za-z0-9_-])/' + [regex]::Escape($p) + ':([A-Za-z0-9][A-Za-z0-9_-]*)')
         $refs = @{}
         $scanned = 0
-        foreach ($f in @(Get-ChildItem -LiteralPath $pluginRoot -Recurse -File -ErrorAction SilentlyContinue |
-                         Where-Object { $_.Extension -in @('.md', '.ps1', '.json', '.yml', '.yaml', '.txt') })) {
-            $rel = $f.FullName.Substring($pluginRoot.Length).TrimStart('\', '/')
-            if ($rel -like '.git\*' -or $rel -like '.claude\*') { continue }
+        foreach ($f in $files) {
             $text = ''
-            try { $text = Get-Content -LiteralPath $f.FullName -Raw -ErrorAction Stop } catch { continue }
+            try { $text = Get-Content -LiteralPath $f.full -Raw -ErrorAction Stop } catch { continue }
             $scanned++
             if ([string]::IsNullOrEmpty($text)) { continue }
             foreach ($m in $re.Matches($text)) {
                 $n = $m.Groups[1].Value.ToLowerInvariant()
                 if (-not $refs.ContainsKey($n)) { $refs[$n] = @() }
-                if ($refs[$n] -notcontains $rel) { $refs[$n] += $rel }
+                if ($refs[$n] -notcontains $f.rel) { $refs[$n] += $f.rel }
             }
         }
 
         # An enumeration that found nothing has checked nothing, and a check that
         # cannot fail is the defect this file exists to catch. The same rule the
-        # CI JSON step was given in d1ff015.
+        # CI JSON step was given in d1ff015, and the reason the tracked path
+        # above falls back rather than reporting a clean sweep of zero files.
         if ($refs.Count -eq 0) {
-            Add-Row -Id 'commands' -Status 'FAIL' -Detail "scanned $scanned file(s) and found NO /${p}:* reference at all - the reference scan is broken, so this check proved nothing about the command surface"
+            Add-Row -Id 'commands' -Status 'FAIL' -Detail "scanned $scanned file(s) from $enum and found NO /${p}:* reference at all - the reference scan is broken, so this check proved nothing about the command surface"
             return
         }
 
@@ -745,10 +841,10 @@ try {
         }
 
         if ($problems.Count -gt 0) {
-            Add-Row -Id 'commands' -Status 'FAIL' -Detail ($problems -join '; ')
+            Add-Row -Id 'commands' -Status 'FAIL' -Detail (($problems -join '; ') + " [enumerated $enum, $scanned file(s) scanned]")
             return
         }
-        Add-Row -Id 'commands' -Status 'PASS' -Detail "$($cmds.Count) command(s), each with its backing script: $(($names | ForEach-Object { "/${p}:$_" }) -join ', '); $($refs.Count) distinct command(s) referenced across $scanned scanned file(s), all declared"
+        Add-Row -Id 'commands' -Status 'PASS' -Detail "$($cmds.Count) command(s), each with its backing script: $(($names | ForEach-Object { "/${p}:$_" }) -join ', '); $($refs.Count) distinct command(s) referenced across $scanned file(s) scanned from $enum, all declared"
     }
 
 } catch {
