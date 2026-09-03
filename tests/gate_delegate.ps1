@@ -1239,7 +1239,32 @@ try {
         # The stdout envelope, on one representative tool. Checked for shape
         # and for decision, because a malformed envelope is IGNORED and a gate
         # that emits one has reported a block it did not perform.
-        if ($tool -eq 'Write' -and $v.ok) {
+        #
+        # THE CONDITION IS THE TOOL AND NOTHING ELSE, and it used to be
+        # `$tool -eq 'Write' -and $v.ok`. $v.ok is the assertion of the case on
+        # the line above, so a gate that stopped denying on the main thread
+        # failed that case and DELETED these two - and these two are the ones
+        # that say HOW the refusal was malformed. The comment above is the
+        # argument against the old form: a malformed envelope is worth catching
+        # on every path, not only on the path where the block already worked.
+        #
+        # MEASURED ON THIS TREE, 3 September 2026. With the one rule in
+        # lib\gate_delegate.ps1 replaced by an unconditional `exit 0` - the gate
+        # never denies - the suite ran 91 cases and aborted:
+        #
+        #   ABORTED: 91 case(s) ran and this file declares 93 in
+        #   $script:ExpectedCases. A case was added without moving that
+        #   constant, the header and the documents quoting it, or a case
+        #   stopped being reached.
+        #
+        # $script:ExpectedCases caught the shrinkage, which is what it is for -
+        # but it caught it as "somebody edited this file wrong" rather than as
+        # "the gate stopped denying", and the two cases that would have named
+        # the empty channel had still not run. So the constant bounds this
+        # defect; it does not answer it. With the guard gone both bodies run on
+        # an allow and fail honestly: $r.out is empty, so ConvertFrom-Json
+        # fails and $okEnv is false; $r.err is empty, so neither -like matches.
+        if ($tool -eq 'Write') {
             $env0 = $null
             try { $env0 = $r.out | ConvertFrom-Json } catch { }
             $okEnv = ($null -ne $env0 -and

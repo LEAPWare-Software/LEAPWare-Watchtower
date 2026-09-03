@@ -1143,13 +1143,43 @@ try {
     # through, and that helper went with those cases - so without this conjunct
     # nothing in the suite would notice the raw JSON envelope being shown to the
     # operator instead of the message inside it.
-    if ($null -ne $b23Env) {
-        $hasDecision = $false
-        try { $hasDecision = ($null -ne ($b23Env.PSObject.Properties | Where-Object { $_.Name -eq 'decision' })) } catch { }
-        Add-Result 'B8: the advisory envelope carries NO decision member, and suppresses its own output' `
-            ((-not $hasDecision) -and $rb23s.out -notlike '*decision*' -and $b23Env.suppressOutput -eq $true) `
+    # IT IS NOT NESTED ON THE ENVELOPE PARSE ANY MORE, and the old form was
+    # `if ($null -ne $b23Env) { ... }`. $b23Env is what B23 above establishes,
+    # so that condition was another case's assertion wearing a different hat: an
+    # advisory that stopped emitting failed B23 and DELETED B8 - the only check
+    # in this file that no module may block a turn end, which is the plugin's
+    # central constraint.
+    #
+    # MEASURED ON THIS TREE, 3 September 2026. With docs_coupling's emit
+    # disabled in lib\stop_advisories.ps1 (`if ($onDocs)` forced false) so the
+    # module is still loaded, still reads the edit list and simply never
+    # produces an advisory, this suite printed
+    #
+    #   RESULT: 115 of 116 case(s) passed in 37169 ms
+    #
+    # against a file that holds 117 cases. One case was not skipped-with-a-note,
+    # it was NOT RUN, and no line in the output said so. This file declares no
+    # $script:ExpectedCases the way tests\gate_delegate.ps1 does, so nothing
+    # else caught the smaller denominator either.
+    #
+    # WITH THE GUARD GONE THE ROW FAILS INSTEAD. $hasDecision already defaults
+    # $false and $b23Suppress does too, both filled inside a try, so a $null
+    # envelope makes the assertion false rather than making the case vanish -
+    # and the detail says "there was no envelope to inspect", which is a
+    # different statement from "the envelope carried a decision member" and must
+    # not be confused with it. Same shape as $aUnresolved in
+    # tests\gate_delegate.ps1 section A.
+    $hasDecision  = $false
+    $b23Suppress  = $false
+    try { $hasDecision = ($null -ne ($b23Env.PSObject.Properties | Where-Object { $_.Name -eq 'decision' })) } catch { }
+    try { $b23Suppress = ($b23Env.suppressOutput -eq $true) } catch { }
+    Add-Result 'B8: the advisory envelope carries NO decision member, and suppresses its own output' `
+        ((-not $hasDecision) -and $rb23s.out -notlike '*decision*' -and $b23Suppress) `
+        $(if ($null -eq $b23Env) {
+            'there was no envelope on stdout to inspect, so this case did NOT pass and it did NOT establish anything about whether a module can block a turn end. Fix B23 above it first. stdout: [' + $rb23s.out + ']'
+          } else {
             "a decision member would make this advisory able to block a turn end, which no module in this plugin may do; suppressOutput false shows the operator the raw envelope instead of the message: $($rb23s.out)"
-    }
+          })
 
     # --- B9: the loop guard suppresses the whole run ------------------------
     # EVERY Stop hook here honours the same contract: when the payload carries
