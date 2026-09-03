@@ -1,6 +1,6 @@
 {
   "$comment": "LW-WATCHTOWER module switchboard. Claude Code has no per-hook disable - disableAllHooks is all-or-nothing and would also kill the status line - so every module gates itself on the flags below. Edit this file; no reinstall is needed because the plugin is loaded through a directory junction.",
-  "version": "0.4.1",
+  "version": "0.4.0",
   "$status": {
     "$comment": "READ THIS BEFORE THE FLAGS BELOW. A flag set to true is a forward-declaration of intent, NOT evidence that any code exists. Only the modules listed under \"implemented\" do anything; anything listed under \"planned\" would be a name with no behaviour behind it, and switching such a name on or off changes nothing. \"planned\" is EMPTY as of 30 July 2026 - every flag in the `modules` block is backed by code and enabled, and so is delegate_gate, which is backed by code and switched OFF - and the rule stands anyway, because it is the rule that keeps the count honest the next time a name is added ahead of its code. The authoritative copy of this split is $LwgModuleRegistry in lib/common.ps1 - the SessionStart banner reads it, not these flags. Keep both lists in sync when a module lands.",
     "implemented": [

@@ -935,17 +935,29 @@ try {
     # %USERPROFILE%\.local\share\claude\versions\, which is not beside the
     # binary and which held THREE directories on the machine this was measured
     # on - so reading it names three answers, and a guess between three is not a
-    # read. (b) `claude --version` does answer, in 91/52/52 ms over three runs,
-    # locally and with no network call - but it is a PROCESS SPAWN, which is the
-    # cost lib\common.ps1 refuses by name for Get-LwgPlatformInfo because that
-    # function is also called from a SessionStart hook. Spawning it here only,
-    # in the doctor, would give this row a build that no other consumer of
-    # Get-LwgPlatformInfo has, and would make this report's answer depend on
-    # whether `claude` happens to be on the PATH of the machine running it.
-    # (c) CLAUDE_CODE_EXECPATH is not universally exported either: it was absent
-    # from the environment of the child processes measured for this change. A
-    # derivation that is unavailable in the same places the variable is
-    # unavailable buys nothing.
+    # read. The FREE reading, open a file and get a version, does not exist.
+    #
+    # (b) `& $env:CLAUDE_CODE_EXECPATH --version` DOES answer - 91/52/52 ms over
+    # three runs, locally, with no network call - and it is still not done here,
+    # for a reason that is about where the answer would live rather than about
+    # what it costs. Every other consumer of the CLI build reads it from
+    # Get-LwgPlatformInfo, whose header in lib\common.ps1 refuses the subprocess
+    # BY NAME because that function is also called from a SessionStart hook. A
+    # spawn in this row alone would make the doctor's build authoritative and
+    # every other reader's stale, which is a second source of truth for a value
+    # this repository deliberately keeps in one place.
+    #
+    # (c) AND THE CASE PINNING IT WOULD BE VACUOUS WHERE IT MATTERS. CI has no
+    # Claude Code binary, so a case for "EXECPATH was set and the version was
+    # derived" would either be skipped on the runner or need a stub executable
+    # planted to impersonate one. A guard proved only where it cannot fire is
+    # proved against nothing, and that rule is not suspended for convenience.
+    #
+    # IF IT IS WANTED LATER IT BELONGS IN Get-LwgPlatformInfo, behind an
+    # explicit on-demand switch so the hook path keeps its current cost and only
+    # a caller that asks pays for the spawn. That would move this third state
+    # from universal to rare; it would not change what any of the three states
+    # render as, which is why it is not a prerequisite for the ruling above.
     Invoke-Check -Id 'claude-version' -Body {
         $pi     = Get-LwgPlatformInfo
         $atRisk = @('SubagentStart', 'PostToolUseFailure', 'StopFailure')
