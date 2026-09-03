@@ -140,7 +140,27 @@ try {
 
         # 5. State dir is actually writable - proves the log-backed modules can
         #    record, rather than assuming because the directory exists.
-        $selfcheck.state_writable = (Add-LwgLine -FileName 'selfcheck.probe' -Line ((Get-Date).ToUniversalTime().ToString('o')))
+        #
+        #    -Replace, NOT an append. This fires on every SessionStart - start,
+        #    resume, clear and compact - and nothing in the tree rotates,
+        #    truncates or READS selfcheck.probe: Invoke-LwgRotate has exactly
+        #    one call site and it is passed health.jsonl. It was the only file
+        #    this plugin wrote with no bound of any kind, growing by 29 bytes a
+        #    session forever, inside a plugin whose log_rotation module reports
+        #    itself as capping the logs - an operator reading that module list
+        #    would reasonably take it to mean the state files are bounded, and
+        #    one of them was not.
+        #
+        #    The probe's observable contract is unchanged. What it proves is
+        #    that the write SUCCEEDED, and the last result is the only one with
+        #    any meaning, so the file is now 29 bytes forever and still proves
+        #    exactly what it claims to. Rotating it instead would have put a
+        #    rotation call on the SessionStart path for a file nobody reads;
+        #    writing and deleting a temp file instead would have left
+        #    docs/configuration.md's "no selfcheck.probe is written" describing
+        #    the wrong thing, since that sentence is about self_health being
+        #    OFF.
+        $selfcheck.state_writable = (Add-LwgLine -FileName 'selfcheck.probe' -Replace -Line ((Get-Date).ToUniversalTime().ToString('o')))
         if (-not $selfcheck.state_writable) { $failures += 'state dir not writable' }
 
         $selfcheck.ok = ($failures.Count -eq 0)

@@ -1353,10 +1353,29 @@ function Add-LwgLine {
       these files, so retry briefly rather than throwing - pattern lifted from
       ~/.claude/health/supervisor.ps1 (20/40/60/80/100 ms).
       Returns $true on success, $false if all five attempts failed.
+
+      -Replace REPLACES the file's contents with the one line instead of
+      appending, keeping the same retry ladder and the same return contract.
+      ONE CALLER USES IT, self_health's state-writable probe, and it is here
+      rather than as a separate function because the retry ladder is the whole
+      of this helper and a second copy of it is a second thing to keep correct.
+
+      WHY THE PROBE NEEDED IT. That probe proves the state directory is writable
+      by writing a timestamp, and it fires on every SessionStart - start,
+      resume, clear and compact. Nothing in the tree rotates, truncates or READS
+      selfcheck.probe: Invoke-LwgRotate has exactly one call site and it is
+      passed health.jsonl. It was the only file this plugin wrote with no bound
+      of any kind, inside a plugin whose log_rotation module reports itself as
+      capping the logs. The file's entire value is in the RETURN of the write,
+      and the LAST result is the only one with any meaning, so replacing is what
+      the probe always meant - which is why this is a switch on the writer and
+      not a rotation call added to the SessionStart path for a file nobody
+      reads.
     #>
     param(
         [Parameter(Mandatory = $true)][string]$FileName,
-        [Parameter(Mandatory = $true)][string]$Line
+        [Parameter(Mandatory = $true)][string]$Line,
+        [switch]$Replace
     )
 
     try {
@@ -1364,7 +1383,8 @@ function Add-LwgLine {
         $text = $Line.TrimEnd("`r", "`n") + "`n"
         for ($i = 0; $i -lt 5; $i++) {
             try {
-                [System.IO.File]::AppendAllText($path, $text, [Text.UTF8Encoding]::new($false))
+                if ($Replace) { [System.IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($false)) }
+                else          { [System.IO.File]::AppendAllText($path, $text, [Text.UTF8Encoding]::new($false)) }
                 return $true
             } catch {
                 Start-Sleep -Milliseconds (20 * ($i + 1))

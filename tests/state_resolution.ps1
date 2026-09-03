@@ -14,7 +14,7 @@
   no case at all. This file is that coverage, built around the five defects it
   pins.
 
-  THE TWO IT PINS
+  THE THREE IT PINS
 
     #146 CLAUDE_CONFIG_DIR was honoured by NOTHING. Every path in the plugin
          composed $env:USERPROFILE with a literal `.claude`, so on a machine
@@ -35,6 +35,12 @@
          malformed ones it read as though it were checking for them. Probe 2
          feeds $selfcheck.ok, which feeds Get-LwgSessionMode, which is the mode
          word the whole plugin is presented through. Section B.
+
+    #106 the state-writable probe APPENDED one timestamp to selfcheck.probe on
+         every SessionStart, and nothing in the tree ever rotated, truncated or
+         read that file. It was the only file the plugin wrote with no bound of
+         any kind, inside a plugin whose log_rotation module reports itself as
+         capping the logs. Section C.
 
   THE SANDBOX
 
@@ -536,10 +542,51 @@ function Test-B4-TheShippedConfigStillPasses {
 }
 
 # =========================================================================
+# SECTION C - #106, the unbounded probe file
+# =========================================================================
+
+function Test-C1-SelfcheckProbeDoesNotGrow {
+    $root = New-PluginTree (Join-Path $script:Work 'c1')
+    $prof = New-Dir (Join-Path $script:Work 'c1-profile')
+    $data = New-Dir (Join-Path $script:Work 'c1-data')
+    $hook = Join-Path $root 'lib\session_start.ps1'
+
+    $states = @()
+    for ($i = 0; $i -lt 3; $i++) {
+        $r = Invoke-Child -ScriptPath $hook -Stdin (New-Payload $root) -WorkDir $root `
+             -EnvSet @{ USERPROFILE = $prof; CLAUDE_PLUGIN_DATA = $data; CLAUDE_PLUGIN_ROOT = $root }
+        $states += $r.code
+    }
+
+    $probeFile = Join-Path $data 'selfcheck.probe'
+    $problems = @()
+    if (-not (Test-Path -LiteralPath $probeFile)) {
+        $problems += "no selfcheck.probe was written at all, so the state-writable probe proved nothing"
+    } else {
+        $lines = @(Get-Content -LiteralPath $probeFile | Where-Object { $_ -ne '' })
+        if ($lines.Count -ne 1) {
+            $problems += ("REGRESSION (#106): selfcheck.probe holds $($lines.Count) line(s) after 3 SessionStart events. " +
+                          "It is appended to on every start, resume, clear and compact and nothing in the tree ever " +
+                          "rotates, truncates or READS it - the only file this plugin writes with no bound at all, " +
+                          "inside a plugin whose log_rotation module reports itself as capping the logs.")
+        }
+    }
+    # The probe's observable contract is unchanged: it still proves the dir is writable.
+    $recs = @(Get-LedgerRecords $data | Where-Object { $_.event -eq 'SessionStart' })
+    if ($recs.Count -eq 0) { $problems += 'no SessionStart record was written' }
+    else {
+        foreach ($rec in $recs) {
+            if ($rec.selfcheck.state_writable -ne $true) { $problems += "state_writable is [$($rec.selfcheck.state_writable)] - the probe must still prove what it claims" }
+        }
+    }
+    Add-Case 'C1 selfcheck.probe holds one line after three SessionStart events, and still proves the dir writable' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+# =========================================================================
 
 Say ''
 Say 'LW-WATCHTOWER state-resolution and platform suite'
-Say '  A #146 CLAUDE_CONFIG_DIR   B #60 probe 2'
+Say '  A #146 CLAUDE_CONFIG_DIR   B #60 probe 2   C #106 selfcheck.probe'
 Say ''
 Say ''
 
