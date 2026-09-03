@@ -30,6 +30,13 @@ try {
     $payload = Read-LwgStdin
     $cfg     = Get-LwgConfig
     $repo    = Get-LwgRepo $payload
+    # Nothing in this plugin checked the operating system or the Claude Code
+    # build - not a doctor row, not a hook, not a comment. Three of the eight
+    # events hooks/hooks.json registers on were read out of one specific binary
+    # and may not exist on an older one, and when they do not fire the failure
+    # mode is silence. This does not fix that; it RECORDS the machine, so a
+    # session leaves evidence of what it ran on rather than none.
+    $plat = Get-LwgPlatformInfo
 
     # --- what is genuinely running -----------------------------------------
     # Counting config.json's flags reports every switched-on module as active,
@@ -72,14 +79,56 @@ try {
         $selfcheck.config_from_file = ($cfg._source -eq 'file')
         if (-not $selfcheck.config_from_file) { $failures += 'config.json unreadable (running on built-in defaults)' }
 
-        # 2. Every declared module resolves to a real boolean, not $null.
+        # 2. Every declared module resolves to the boolean the operator WROTE.
+        #
+        # THIS PROBE COULD NOT FAIL, and it is worth saying why rather than
+        # quietly replacing it. It read
+        #
+        #     $v = Test-LwgModule -Name $m -Config $cfg -Repo $repo
+        #     if ($v -isnot [bool]) { $unresolved += $m }
+        #
+        # and Test-LwgModule returns a [bool] on every one of its three exit
+        # paths by construction - $enabled starts as the literal $true and is
+        # only ever reassigned from an explicit [bool] cast, and the
+        # switch-backed exit returns Test-LwgFlag, whose own value is
+        # initialised from a [bool]-TYPED parameter. The predicate was
+        # unsatisfiable for every possible input, so the probe reported a pass
+        # for every config.json - including the malformed ones it read as though
+        # it were checking for them. A check wired to nothing, reporting itself
+        # as coverage, inside the module whose whole job is to catch checks
+        # wired to nothing. And it fed $selfcheck.ok, which feeds
+        # Get-LwgSessionMode, which is the mode word the banner, the
+        # model-visible context and /lw-watchtower:doctor all quote.
+        #
+        # The observable failure was never a bad return TYPE. It is a
+        # CONFIGURED VALUE THAT WAS DISCARDED: `"docs_coupling": "false"` is
+        # what an operator writes when they mean off, [bool] on a non-empty
+        # string is $true in PowerShell, and the fix for THAT - ignore the
+        # non-boolean, log it through Write-LwgInvalidFlag, carry on as if the
+        # scope had said nothing - is precisely what put the evidence out of
+        # this probe's reach. So it now reads the RAW config, at all four
+        # scopes, through Get-LwgUnresolvedFlags. It fails on a config in which
+        # a declared module did not resolve to what the operator wrote, and it
+        # passes on the config this repository ships - which is the behaviour
+        # this probe's own comment and docs/modules.md § "Five probes" have
+        # always described.
+        #
+        # Test-LwgModule is still CALLED for every module, and that is not
+        # decoration: "eleven resolutions complete without throwing" is the one
+        # thing the old probe genuinely established, on the SessionStart path
+        # ahead of every hook that depends on it, and dropping it to make room
+        # for the new assertion would trade one piece of evidence for another
+        # rather than adding one.
         $unresolved = @()
         foreach ($m in $script:LwgModules) {
             $v = Test-LwgModule -Name $m -Config $cfg -Repo $repo
-            if ($v -isnot [bool]) { $unresolved += $m }
+            if ($v -isnot [bool]) { $unresolved += "$m did not resolve to a boolean" }
         }
+        $unresolved += @(Get-LwgUnresolvedFlags -Config $cfg -Repo $repo)
         $selfcheck.modules_resolved = ($unresolved.Count -eq 0)
-        if ($unresolved.Count -gt 0) { $failures += "modules did not resolve: $($unresolved -join ',')" }
+        if ($unresolved.Count -gt 0) {
+            $failures += "not a boolean, so it is not a setting - IGNORED, and the module kept its default: $($unresolved -join ', ')"
+        }
 
         # 3. Thresholds yield numbers, so the pressure monitors have something to
         #    compare against rather than falling through to a hardcoded guess.
@@ -98,7 +147,27 @@ try {
 
         # 5. State dir is actually writable - proves the log-backed modules can
         #    record, rather than assuming because the directory exists.
-        $selfcheck.state_writable = (Add-LwgLine -FileName 'selfcheck.probe' -Line ((Get-Date).ToUniversalTime().ToString('o')))
+        #
+        #    -Replace, NOT an append. This fires on every SessionStart - start,
+        #    resume, clear and compact - and nothing in the tree rotates,
+        #    truncates or READS selfcheck.probe: Invoke-LwgRotate has exactly
+        #    one call site and it is passed health.jsonl. It was the only file
+        #    this plugin wrote with no bound of any kind, growing by 29 bytes a
+        #    session forever, inside a plugin whose log_rotation module reports
+        #    itself as capping the logs - an operator reading that module list
+        #    would reasonably take it to mean the state files are bounded, and
+        #    one of them was not.
+        #
+        #    The probe's observable contract is unchanged. What it proves is
+        #    that the write SUCCEEDED, and the last result is the only one with
+        #    any meaning, so the file is now 29 bytes forever and still proves
+        #    exactly what it claims to. Rotating it instead would have put a
+        #    rotation call on the SessionStart path for a file nobody reads;
+        #    writing and deleting a temp file instead would have left
+        #    docs/configuration.md's "no selfcheck.probe is written" describing
+        #    the wrong thing, since that sentence is about self_health being
+        #    OFF.
+        $selfcheck.state_writable = (Add-LwgLine -FileName 'selfcheck.probe' -Replace -Line ((Get-Date).ToUniversalTime().ToString('o')))
         if (-not $selfcheck.state_writable) { $failures += 'state dir not writable' }
 
         $selfcheck.ok = ($failures.Count -eq 0)
@@ -141,6 +210,7 @@ try {
         mode            = $mode
         selfcheck       = $selfcheck
         failures        = $failures
+        platform        = $plat
     } | Out-Null
 
     $dot      = [char]0x00B7
@@ -220,6 +290,16 @@ try {
         $context += " Self-check did NOT run (self_health is off), so none of the above was verified this session - it is what config.json and the module registry DECLARE, not what has been proven to work."
     } elseif (-not $selfcheck.ok) {
         $context += " Self-check DEGRADED ($($failures -join '; ')) - even the above may not fire."
+    }
+    # Only when it is NOT Windows. On the supported platform this costs the
+    # model nothing, and on any other one it is the single most important fact
+    # about the session: hooks/hooks.json invokes `powershell` by that name in
+    # all thirteen registrations, so nothing above is running at all and every
+    # count on this line is a statement about a registry rather than about a
+    # machine. Saying it here is not a substitute for the doctor row that
+    # belongs in bin/lwg-doctor.ps1; it is what can be said from this file.
+    if (-not $plat.supported) {
+        $context += " PLATFORM UNSUPPORTED (os '$($plat.os)'): every hook registration invokes Windows PowerShell by name, so none of the above can fire and the counts describe what is DECLARED only."
     }
 
 } catch {

@@ -23,6 +23,30 @@
 #   kind    'gate'    can BLOCK an action    'observe'  advisory only
 #   status  'implemented' | 'planned'
 #   impl    the file that carries the behaviour, $null when there is none
+#   events  the hook events this module DEPENDS ON, every one of them a key in
+#           hooks/hooks.json. Until 3 September 2026 nothing in this tree
+#           related a module to the events it needs, which is why nothing could
+#           notice the failure this field exists to make noticeable: three of
+#           the eight events registered - SubagentStart, PostToolUseFailure and
+#           StopFailure - were read out of the 2.1.220 binary, docs/install.md
+#           says in prose that older builds may not carry all of them, and on
+#           such a build those registrations are simply inert. The failure mode
+#           of an inert hook is SILENCE, indistinguishable from a session in
+#           which nothing went wrong - while the banner goes on counting
+#           failure_capture and context_injection among the active modules,
+#           because it counts the REGISTRY and not observed behaviour.
+#           THIS IS THE MAP, NOT THE CHECK. The checks that consume it - a
+#           build WARN and a per-event "observed on this machine at least once"
+#           row - belong in bin/lwg-doctor.ps1, which already proves that
+#           SessionStart genuinely fires by reading the event log, and that
+#           file is not this batch's to edit. A banner that reported observed
+#           firing per module cannot be built from the current ledger either:
+#           the `event` field in lw-watchtower.jsonl carries a SEMANTIC record
+#           name (DocsCoupling, GateDeny, ContextPressure), not the hook event,
+#           and most modules write nothing at all on the quiet path - so
+#           "never observed" would be unreadable from "nothing to report".
+#           Making it derivable needs a per-event observation record on every
+#           hook path, which spans five files this batch does not own.
 #   blocked $true when the module CANNOT be built as specified, not merely has
 #           not been - the data it needs reaches no hook. 'Planned' covers both
 #           cases and understates this one, so the two are distinguished here
@@ -63,29 +87,40 @@
 # orphan_watch, the eighth observer - declare their own `switch` and SHIP OFF.
 $script:LwgModuleRegistry = [ordered]@{
     failure_capture      = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1'
+                              events = @('SessionStart', 'PostToolUseFailure', 'SubagentStop', 'Stop', 'StopFailure')
                               note = 'Five hook events, gated on the flag; exits 2 to alert the orchestrator.' }
     context_pressure     = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/stop_advisories.ps1'
+                              events = @('Stop')
                               note = 'context_window is NOT in any hook payload. Occupancy is recomputed from the transcript''s last assistant usage block using the CLI''s own formula. The context window SIZE is not observable, so it is resolved from config/observation and the percentage is suppressed outright when the size is not trustworthy.' }
     self_health          = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/session_start.ps1'
+                              events = @('SessionStart')
                               note = 'The SessionStart self-check. Switching it off skips every probe, and the session then reports mode "unverified" rather than any word that implies it was validated - an unrun check must never read as a passed one.' }
     log_rotation         = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/common.ps1 (Invoke-LwgRotate), called from lib/supervisor.ps1'
+                              events = @('SessionStart', 'PostToolUseFailure', 'SubagentStop', 'Stop', 'StopFailure')
                               note = 'Runs on its own flag alone. The call sits ABOVE the failure_capture gate in supervisor.ps1, so switching failure capture off stops the writes to health.jsonl but never the cap on its size. A rotation that cannot complete now writes a RotateFailed event to lw-watchtower.jsonl and leaves every archive generation intact - it used to destroy one and report nothing.' }
     docs_coupling        = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/post_edit.ps1, lib/stop_advisories.ps1'
+                              events = @('PostToolUse', 'Stop')
                               note = 'PostToolUse records edited paths; Stop compares them. Only files edited THROUGH Edit/Write/NotebookEdit are seen - a file changed by a shell command is invisible.' }
     git_hygiene          = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/stop_advisories.ps1'
+                              events = @('Stop')
                               note = 'ADVISORY on Stop - it warns and never blocks. The only module allowed to spawn a subprocess, and it only does so at turn end, inside a repo, with a hard timeout. A git command that fails or times out is reported as UNKNOWN, never as a clean tree. The open-PR check is the one network call, is skipped unless there is unpushed work on a non-default branch, and is skipped loudly when gh is missing or slow.' }
     context_injection    = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/subagent_start.ps1'
+                              events = @('SubagentStart')
                               note = 'SubagentStart, once per dispatch. Injects context/worker_facts.md as hookSpecificOutput.additionalContext, because CLAUDE.md is snapshotted into a subagent at PARENT-SESSION start and a mid-session edit never reaches a worker dispatched afterwards. The file is read live on every dispatch, so what a worker gets is current by construction. Deliberately does NOT dot-source this file on its fast path: that plus one ConvertFrom-Json measured 634 ms against a 273 ms interpreter floor, on a hook that every worker in every session pays for.' }
     send_liveness_gate   = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_send.ps1'
+                              events = @('PreToolUse')
                               switch = @{ block = 'supervision'; key = 'send_liveness'; default = $false }
                               note = 'OFF BY DEFAULT. PreToolUse on SendMessage: when supervision.send_liveness is on it refuses a send whose recipient it can prove is DEAD MID-FLIGHT - a subagent transcript exists for this session, no SubagentStop record was ever written for it, and the transcript has not been written for stale_minutes (default 15). Built from a measured failure: an orchestrator SendMessage was queued to an agent dead for 28m45s, the "Message queued for delivery" ack was read as done, and the user was told work was complete that never happened. The gate DENIES on positive evidence of death and on an unresolvable recipient; it ABSTAINS (allows, logged) where the evidence layer cannot support a verdict - a `name@team` recipient, or a session health.jsonl has never recorded. Its switch is supervision.send_liveness, NOT a `modules` key, for the same reason as delegate_gate: Get-LwgConfig fails OPEN and a corrupt config must not arm a blocking gate. Requires failure_capture to have been writing SubagentStop records; without them a completed agent is indistinguishable from a dead one and the gate abstains rather than guesses.' }
     completion_audit     = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_stop.ps1'
+                              events = @('Stop', 'SubagentStop')
                               switch = @{ block = 'supervision'; key = 'completion_audit'; default = $false }
                               note = 'OFF BY DEFAULT. A turn-end gate, registered on BOTH Stop and SubagentStop and WITHOUT asyncRewake on either, so its exit 2 BLOCKS the turn end. It sat on Stop ALONE until 11 August 2026, and because subagents and teammates emit SubagentStop and never Stop it fired for no worker at all in that period. The two registrations are NOT interchangeable, which is why the file takes a -HookEvent argument: on SubagentStop the payload''s transcript_path is the PARENT''S transcript and the subagent''s own is agent_transcript_path, so a gate reading the former would block a worker for what the ORCHESTRATOR said - in a delegate pattern the common case, not an edge one, and reproduced as a real exit 2 against the pre-fix code. Subagent mode also LIFTS the sidechain skip, because every record of a real subagent transcript carries isSidechain:true and skipping them would leave the gate armed and auditing nothing, and it uses a local turn-boundary test rather than Get-LwgPromptText, whose sidechain rejection was built for mission_drift - a module since removed - and is correctly KEPT in Stop mode. An absent agent_transcript_path degrades to a silent no-op and NEVER falls back to the parent. When supervision.completion_audit is on it refuses to let a turn end whose final assistant text asserts completed work while the turn''s LAST tool action was SendMessage - queued-for-delivery is not delivery and not completion, and nothing after the send could have established anything. It fires ONCE per turn end: on the continuation stop_hook_active is true and it stands down, per the same loop-guard contract every Stop hook here honours - so it forces one round of verification, it cannot force honesty. The claim detection is a REGEX over prose and is stated as such: past-tense completion verbs, suppressed by hedging vocabulary. It will miss claims phrased outside its list and it can misread quoted text; the enumeration is in the file header and in docs/modules.md.' }
     orphan_watch         = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1'
+                              events = @('Stop', 'SubagentStop')
                               switch = @{ block = 'supervision'; key = 'orphan_watch'; default = $false }
                               note = 'OFF BY DEFAULT. At Stop, reconciles the session''s subagent TRANSCRIPTS against its SubagentStop records in health.jsonl: a transcript with no stop record that has not been written for stale_minutes (default 15) is an ORPHAN - an agent killed mid-flight, which produces NO record anywhere (Get-FailedTasks counts only failed/killed BACKGROUND TASKS in the Stop payload, and a killed subagent appears in that list not at all; a cross-check found FOUR orphans against a health log with zero PostToolUseFailure records in 1,175 entries). Alerts through the supervisor''s existing exit-2 asyncRewake path, deduped per agent through alerted.json. RUNS INSIDE lib/supervisor.ps1 BELOW THE failure_capture GATE, and that coupling is correct rather than convenient: SubagentStop records are what failure_capture writes, and reconciling against records nothing was writing would call every finished agent an orphan. failure_capture off = orphan_watch inert, and the doctor''s module roster counts it from the same registry entry either way - that roster is what is left of the status command, which is deleted.' }
     delegate_gate        = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_delegate.ps1'
+                              events = @('PreToolUse')
                               switch = @{ block = 'interaction'; key = 'delegate'; default = $false }
                               note = 'THE ONLY GATE THIS PLUGIN SHIPS, AND IT IS OFF BY DEFAULT. PreToolUse on Edit|Write|NotebookEdit|Bash|PowerShell: when interaction.delegate is on it refuses those five tools for calls that are NOT from a subagent, so the chat session is reserved for talking to the operator and the work goes to workers. Its switch is interaction.delegate - the key /lw-watchtower:delegate writes - and NOT a `modules` key; see the `switch` field above for why one flag rather than two. It decides "subagent" by the PRESENCE of agent_id in the payload and deliberately never looks at agent_type: a settings.json `agent` key gives the MAIN THREAD a non-empty agent_type, so a gate matching on that would read the main thread as a subagent and fail open on exactly the calls it exists to refuse. It carries no exemption, no allowlist and no safety determination of any kind, and nothing it DECIDES consults tool_name, because the matcher in hooks/hooks.json is the single place the tool list lives. It does read payload.tool_name, once, AFTER the decision to refuse, purely to name the refused tool in the message - a payload carrying none is refused identically with the text falling back to "this tool". That is spelled out rather than glossed as "it does not even read tool_name", which is what this note said until 3 August 2026 and is not true of lib/gate_delegate.ps1. Over-blocking it accepts, stated rather than left to be found: with it on, /lw-watchtower:delegate off cannot turn it off from the main thread, because that command runs through Bash. The deny text names the two ways out. COST: the hook runs on all five tools whether the switch is on or off - the figures below were not re-measured when PowerShell joined the matcher on 1 August 2026, since adding a tool changes how many calls are charged rather than what a call costs. That is true NOW and was not true when it was written: both hook-identity functions in bin/lwg-setup.ps1 key on the matcher STRING, so widening it made every v0.3.0 registration unrecognisable and setup added a SECOND PreToolUse group beside it - two gate runs per call, on a machine whose operator never armed the switch. $script:LwgSupersededMatchers in that file now maps the old spelling to the current one, and tests/setup_merge.ps1 pins both that the gate ends up registered exactly once and that the stale matcher is reported rather than silently accepted. See docs/limitations.md. With the switch OFF it is ~436 ms against a ~294 ms interpreter floor - one machine''s medians, so ~142 ms of it is the gate''s own work, paid by an operator who never turns it on. That was ~652 ms until a raw-text fast path landed on 31 July 2026. With the switch ON it is ~868 ms, SLOWER than before, because the fast path runs, fails to prove the switch off, and the slow path then does everything it always did - that cost falls on the operator who armed the gate, on a call being blocked anyway. See docs/modules.md for the run.' }
 }
@@ -121,10 +156,207 @@ foreach ($k in $script:LwgModuleRegistry.Keys) {
 
 $script:LwgVersion = '0.4.0'
 
+# The Claude Code build the eight hook events in hooks/hooks.json were read out
+# of. docs/install.md states it in a table cell, in prose, and NOTHING acted on
+# it: no check anywhere in bin/, lib/ or statusline/ read the OS or the CLI
+# build - a repository-wide search for IsWindows, OSVersion.Platform,
+# `claude --version` and CLAUDE_CODE_VERSION returned nothing at all. A number
+# only a person can read is not a number a check can use, so it is spelled here
+# once and bin/lwg-doctor.ps1's build row - which belongs to another batch -
+# can compare against it rather than carry a second copy.
+$script:LwgVerifiedBuild = '2.1.220'
+
+$script:LwgPlatformInfo = $null
+
+function Get-LwgPlatformInfo {
+    <#
+      The machine and the CLI build this is running on. Returns a HASHTABLE:
+
+        @{ os; is_windows; supported; ps_version; ps_edition;
+           claude_version; verified_build; build_known }
+
+        supported       $false on anything but Windows. hooks/hooks.json invokes
+                        `powershell` by that name in all thirteen registrations
+                        and every path composed here is NTFS-shaped, so a
+                        non-Windows machine is a silent non-install rather than
+                        a degraded one. .claude-plugin/plugin.json opens with
+                        "WINDOWS ONLY" and nothing enforced it.
+        claude_version  $env:CLAUDE_CODE_VERSION when the CLI sets it, $null
+                        otherwise - and $null is reported as $null. Shelling out
+                        to `claude --version` was rejected: this is called from
+                        a SessionStart hook, and a subprocess on a hook path to
+                        learn a string is the cost this plugin refuses
+                        everywhere else. A caller that needs the build and does
+                        not have it must say it does not have it, which is what
+                        build_known is for.
+        build_known     whether claude_version was actually observed. Three
+                        states, not two: an unread version must not render as
+                        "read, and it matched".
+
+      Memoised; -Refresh re-runs it. Never throws.
+    #>
+    param([switch]$Refresh)
+
+    if (-not $Refresh -and $null -ne $script:LwgPlatformInfo) { return $script:LwgPlatformInfo }
+
+    $info = @{
+        os = 'unknown'; is_windows = $false; supported = $false
+        ps_version = ''; ps_edition = ''
+        claude_version = $null; verified_build = $script:LwgVerifiedBuild; build_known = $false
+    }
+    try {
+        # [Environment]::OSVersion.Platform and NOT the automatic $IsWindows:
+        # that variable does not exist in Windows PowerShell 5.1, which is the
+        # only interpreter hooks/hooks.json ever invokes, so reading it there
+        # yields $null and a plugin that cannot tell where it is running.
+        $p = ''
+        try { $p = [string][Environment]::OSVersion.Platform } catch { }
+        $info.is_windows = ($p -like 'Win*')
+        $info.os = $(if ($info.is_windows) { 'windows' }
+                     elseif ($p -eq 'Unix') { 'unix' }
+                     elseif ([string]::IsNullOrWhiteSpace($p)) { 'unknown' }
+                     else { $p.ToLowerInvariant() })
+        $info.supported = $info.is_windows
+        try { $info.ps_version = [string]$PSVersionTable.PSVersion } catch { }
+        try { $info.ps_edition = [string]$PSVersionTable.PSEdition } catch { }
+        if (-not [string]::IsNullOrWhiteSpace($env:CLAUDE_CODE_VERSION)) {
+            $info.claude_version = [string]$env:CLAUDE_CODE_VERSION
+            $info.build_known    = $true
+        }
+    } catch { }
+
+    $script:LwgPlatformInfo = $info
+    return $info
+}
+
 function Get-LwgPluginRoot {
     <# Plugin root = the parent of lib/. CLAUDE_PLUGIN_ROOT when Claude Code sets it. #>
     if ($env:CLAUDE_PLUGIN_ROOT -and (Test-Path $env:CLAUDE_PLUGIN_ROOT)) { return $env:CLAUDE_PLUGIN_ROOT }
     return (Split-Path -Parent $PSScriptRoot)
+}
+
+# --- the Claude Code configuration directory -------------------------------
+# CLAUDE_CONFIG_DIR relocates Claude Code's configuration directory away from
+# ~/.claude. UNTIL THIS FUNCTION EXISTED, NOTHING IN THIS REPOSITORY READ IT.
+# Every path in the plugin was composed from $env:USERPROFILE and a literal
+# `.claude`, so on a machine where that variable is set the plugin installed
+# to, read from, reported on and uninstalled from a directory the CLI does not
+# use - and each component failed differently and silently while doing it: the
+# installer wrote hooks into a settings.json nothing loads and reported success,
+# the doctor health-checked that same unread file and reported green, the
+# uninstaller reported a footprint from the wrong tree, and the status line
+# rendered off a data root nothing had ever written to.
+#
+# THE PRECEDENCE, and why it is this way round:
+#
+#   1. An EXPLICIT PARAMETER - -ClaudeHome, -SettingsPath, -DataRoot on the
+#      bin/ scripts - beats everything. It is the test seam, it is how the
+#      removal paths are exercised without touching a real machine, and a
+#      caller that names a path outright has said something no environment
+#      variable should be able to overrule.
+#   2. $env:CLAUDE_PLUGIN_DATA, for the DATA directory only. It names the exact
+#      directory Claude Code handed this plugin's hook. CLAUDE_CONFIG_DIR names
+#      a tree one would be DERIVED from, so the more specific signal wins; under
+#      a hook the two agree by construction, and the only callers where they can
+#      disagree are the three that are never given CLAUDE_PLUGIN_DATA at all
+#      (statusline.ps1, an agent-run resolver, an out-of-harness test).
+#   3. $env:CLAUDE_CONFIG_DIR - this function.
+#   4. $env:USERPROFILE + `.claude`, the historical default.
+#
+# THE THREE AWKWARD VALUES ARE SETTLED HERE and not left for each caller to get
+# differently wrong:
+#
+#   trailing separator   trimmed. `C:\cfg\` and `C:\cfg` must not resolve to two
+#                        directories, and [IO.Path]::Combine on the first
+#                        produces a doubled separator that string comparisons
+#                        elsewhere then fail to match. A bare drive keeps its
+#                        root separator - `C:` alone is a drive-RELATIVE path in
+#                        Windows and means something else entirely.
+#   relative value       made absolute with [IO.Path]::GetFullPath, which
+#                        resolves against [Environment]::CurrentDirectory - the
+#                        PROCESS working directory, not PowerShell's $PWD. A
+#                        relative config dir is a misconfiguration either way;
+#                        resolving it means the path this plugin reports is the
+#                        path it used.
+#   names nothing        RETURNED AS GIVEN, with exists = $false. Falling back
+#                        to the profile because the named directory is missing
+#                        would silently reinstate the whole defect on exactly
+#                        the machine that set the variable - and it would do it
+#                        at the moment the operator most needs to be told the
+#                        directory is not there. `exists` is what a caller
+#                        reports; it is not a reason to resolve somewhere else.
+#
+# An unset, empty or whitespace-only value is not a value: resolution continues
+# to the profile, which is the same rule Test-LwgFlag applies to config.json.
+
+$script:LwgClaudeHomeInfo = $null
+
+function Get-LwgClaudeHomeInfo {
+    <#
+      Claude Code's configuration directory and HOW it was arrived at. Returns
+      a HASHTABLE - the same shape and for the same reason as
+      Get-LwgStateDirInfo, which see:
+
+        @{ path; source; exists; raw }
+
+        path    the directory to use. $null only when neither CLAUDE_CONFIG_DIR
+                nor USERPROFILE holds anything, which is a machine with no home
+                at all and is reported rather than guessed at.
+        source  'env' | 'profile' | 'unresolved'
+        exists  whether that directory is actually there. A caller that reports
+                a root must be able to say "and it is not there".
+        raw     the unnormalised CLAUDE_CONFIG_DIR value when source is 'env',
+                so a report can show what the operator actually set.
+
+      Memoised for the life of the process; -Refresh re-runs it. Never throws.
+      No cmdlets: this file is dot-sourced by the blocking PreToolUse gate.
+    #>
+    param([switch]$Refresh)
+
+    if (-not $Refresh -and $null -ne $script:LwgClaudeHomeInfo) { return $script:LwgClaudeHomeInfo }
+
+    $info = @{ path = $null; source = 'unresolved'; exists = $false; raw = $null }
+    try {
+        $v = $env:CLAUDE_CONFIG_DIR
+        if (-not [string]::IsNullOrWhiteSpace($v)) {
+            $info.raw    = $v
+            $info.source = 'env'
+            $t = $v.Trim().TrimEnd([char[]]@('\', '/'))
+            # `C:` is drive-relative, not the root of C:. Put the separator back.
+            if ($t.Length -eq 2 -and $t[1] -eq ':') { $t = $t + '\' }
+            if ($t.Length -gt 0) {
+                try { $t = [IO.Path]::GetFullPath($t) } catch { }
+                # GetFullPath leaves a trailing separator on a root only, which
+                # is correct there and would be wrong anywhere else.
+                if ($t.Length -gt 3) { $t = $t.TrimEnd([char[]]@('\', '/')) }
+            }
+            $info.path = $t
+        }
+        else {
+            $p = $env:USERPROFILE
+            if (-not [string]::IsNullOrWhiteSpace($p)) {
+                $info.path   = [IO.Path]::Combine($p.TrimEnd([char[]]@('\', '/')), '.claude')
+                $info.source = 'profile'
+            }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($info.path)) {
+            try { $info.exists = [IO.Directory]::Exists($info.path) } catch { }
+        }
+    } catch { }
+
+    $script:LwgClaudeHomeInfo = $info
+    return $info
+}
+
+function Get-LwgClaudeHome {
+    <#
+      The configuration directory as a plain path string - the form every path
+      composition wants. Use Get-LwgClaudeHomeInfo when you need to REPORT which
+      root was resolved and why, which /lw-watchtower:doctor and the uninstaller
+      both must: a green health check on a directory nothing reads is worse than
+      no check, because it converts a broken install into an attested one.
+    #>
+    return (Get-LwgClaudeHomeInfo).path
 }
 
 # --- state directory -------------------------------------------------------
@@ -149,9 +381,18 @@ function Get-LwgPluginRoot {
 # THE SELECTION RULE
 #
 #   1. $env:CLAUDE_PLUGIN_DATA wins outright when set. source 'env'.
-#   2. Otherwise, look under ~\.claude\plugins\data for directories named
+#   2. Otherwise, look under <claude home>\plugins\data for directories named
 #      <name> or <name>-*, where <name> is read from .claude-plugin/plugin.json
-#      (see Get-LwgPluginName) rather than spelled out here.
+#      (see Get-LwgPluginName) rather than spelled out here, and <claude home>
+#      comes from Get-LwgClaudeHome rather than from $env:USERPROFILE and a
+#      literal `.claude`. That composition was hardcoded here until 3 September
+#      2026 and it is why CLAUDE_CONFIG_DIR was honoured by nothing: step 1 is
+#      the branch every live HOOK takes, so a relocated config directory only
+#      ever broke the callers Claude Code does not hand CLAUDE_PLUGIN_DATA to -
+#      the status line, an agent-run resolver, and every test - which is exactly
+#      the population that then reported success against a directory nothing
+#      writes. The precedence and the three awkward values are settled at
+#      Get-LwgClaudeHomeInfo; see the block above it.
 #   3. A SUFFIXED candidate (<name>-*) wins over the bare <name>. Claude Code
 #      names a plugin's data dir <plugin-name>-<source-id>, and a plugin always
 #      has a source, so the live dir is always suffixed. The bare name is not a
@@ -252,6 +493,165 @@ function Get-LwgPluginName {
     return $name
 }
 
+# --- where a marketplace install actually lives ----------------------------
+# TWO FILES PROBED ~\.claude\plugins\repos TO DECIDE THIS, AND THAT DIRECTORY
+# DOES NOT EXIST. Measured on a live Claude Code install: plugins\ holds
+# blocklist.json, cache, data, installed_plugins.json, known_marketplaces.json,
+# marketplaces and plugin-catalog-cache.json - and no `repos`. Marketplace
+# installs live under
+#
+#     plugins\cache\<marketplace>\<plugin>\<version-or-sha>\
+#
+# which is THREE levels below cache, not one below a directory that is never
+# created, and plugins\installed_plugins.json records the resolved installPath
+# outright, keyed `<plugin>@<marketplace>` and carrying the install `scope`.
+#
+# [IO.Directory]::Exists on a directory that is never created returns $false
+# unconditionally, so the probe was not merely wrong, it was CONSTANT - and the
+# boolean it produced drove five decisions at once in bin/lwg-setup.ps1: the
+# "NOT DISCOVERABLE ... so not one of its hooks fires" report, the standalone
+# recommendation, the standalone default under -HookMode auto, the second full
+# copy of every hook registration written into settings.json, and - gated on
+# the SAME boolean - the DUPLICATE-FIRING WARNING that exists to stop exactly
+# that. The safeguard was disarmed by the identical bug that created the hazard.
+# statusline/statusline.ps1 spelled the same constant and rendered purple `HH?`,
+# documented as "not installed", on an installed and working plugin.
+#
+# THE CONSTANT IS SPELLED ONCE, HERE, because it was spelled twice and was wrong
+# in both. The status line deliberately dot-sources nothing, for render cost, so
+# if it must keep its own copy the two have to cross-reference each other in
+# comment - that is stated in the issue and is a job for the batch that owns
+# that file.
+#
+# THIS RESOLVER READS AND NEVER GUESSES. installed_plugins.json first, because
+# it is the CLI's own record of the answer, it survives a layout change, and it
+# carries the scope. The cache walk is the fallback for a machine whose record
+# is missing or unreadable, and it matches on the PLUGIN NAME rather than
+# counting any directory - counting is how a marketplace holding somebody else's
+# plugin would read as an install of this one. `probed` comes back with the
+# paths that were actually looked at, so a caller can say WHERE it looked:
+# "I COULD NOT FIND IT" IS NOT "IT IS NOT THERE", which is a rule this project
+# has already written down once, in lib/gate_delegate.ps1.
+
+$script:LwgMarketplaceInfo = $null
+
+function Get-LwgMarketplaceInstall {
+    <#
+      Is this plugin installed from a marketplace, and where? Returns a
+      HASHTABLE:
+
+        @{ installed; source; paths; scopes; probed; home }
+
+        installed  $true only when a real install was IDENTIFIED
+        source     'installed_plugins' | 'cache' | 'none' | 'unknown'
+                   'unknown' means no configuration root could be resolved at
+                   all, which is not the same as "no install" and must not be
+                   reported as one
+        paths      the resolved install root(s)
+        scopes     the `scope` values installed_plugins.json recorded for them,
+                   which distinguishes a project-scoped install from a user one
+        probed     the paths this function actually looked at
+        home       the configuration root it looked under
+
+      Memoised; -Refresh re-runs it. Never throws. NOT on any hook fast path -
+      its callers are the installer, the doctor and the status line - so a
+      ConvertFrom-Json here costs nothing a gate pays for.
+    #>
+    param([switch]$Refresh)
+
+    if (-not $Refresh -and $null -ne $script:LwgMarketplaceInfo) { return $script:LwgMarketplaceInfo }
+
+    $info = @{ installed = $false; source = 'unknown'; paths = @(); scopes = @(); probed = @(); home = $null }
+    try {
+        $home_ = Get-LwgClaudeHome
+        $info.home = $home_
+        if ([string]::IsNullOrWhiteSpace($home_)) {
+            $script:LwgMarketplaceInfo = $info
+            return $info
+        }
+
+        $name = Get-LwgPluginName
+        if ([string]::IsNullOrWhiteSpace($name)) { $name = 'lw-watchtower' }
+
+        # 1. the CLI's own record.
+        $reg = [IO.Path]::Combine($home_, 'plugins\installed_plugins.json')
+        $info.probed += $reg
+        $paths  = @()
+        $scopes = @()
+        try {
+            if ([IO.File]::Exists($reg)) {
+                $json = [IO.File]::ReadAllText($reg) | ConvertFrom-Json
+                # THE MAP IS NESTED. Measured on a live install:
+                #
+                #     { "version": 2,
+                #       "plugins": { "static-analysis@trailofbits": [ { scope,
+                #                    projectPath, installPath, version, ... } ] } }
+                #
+                # so the plugin entries are under `plugins` and the top level
+                # holds a schema version beside it. Reading the top level as the
+                # map matches nothing - `version` and `plugins` are not
+                # `<plugin>@<marketplace>` - and this function would then fall
+                # silently through to the cache walk, reporting source 'cache'
+                # on a machine whose CLI recorded the answer outright and losing
+                # the `scope` that distinguishes a project install from a user
+                # one. That is a resolver quietly taking its weaker branch,
+                # which is the shape of the defect this whole function replaces.
+                # The top level is still read when there is no `plugins` member,
+                # so a file written to a schema this has not seen degrades to the
+                # flat reading rather than to nothing.
+                $map = $json
+                try { if ($null -ne $json.PSObject.Properties['plugins']) { $map = $json.plugins } } catch { }
+                foreach ($p in $map.PSObject.Properties) {
+                    # `<plugin>@<marketplace>`. Split on the LAST '@' so a
+                    # plugin name that carries one does not lose its tail.
+                    $at = $p.Name.LastIndexOf('@')
+                    $pn = if ($at -ge 0) { $p.Name.Substring(0, $at) } else { $p.Name }
+                    if ($pn -ne $name) { continue }
+                    foreach ($e in @($p.Value)) {
+                        $ip = [string]$e.installPath
+                        if ([string]::IsNullOrWhiteSpace($ip)) { continue }
+                        $paths  += $ip
+                        $scopes += [string]$e.scope
+                    }
+                }
+            }
+        } catch { }
+        if ($paths.Count -gt 0) {
+            $info.installed = $true; $info.source = 'installed_plugins'
+            $info.paths = $paths; $info.scopes = $scopes
+            $script:LwgMarketplaceInfo = $info
+            return $info
+        }
+
+        # 2. the cache layout, as a fallback.
+        $cache = [IO.Path]::Combine($home_, 'plugins\cache')
+        $info.probed += $cache
+        $found = @()
+        try {
+            if ([IO.Directory]::Exists($cache)) {
+                foreach ($mkt in [IO.Directory]::GetDirectories($cache)) {
+                    $pdir = [IO.Path]::Combine($mkt, $name)
+                    if (-not [IO.Directory]::Exists($pdir)) { continue }
+                    $vers = @()
+                    try { $vers = @([IO.Directory]::GetDirectories($pdir)) } catch { }
+                    # A version directory is the plugin ROOT. With none, the
+                    # plugin directory itself is the best answer available and
+                    # is reported rather than discarded.
+                    if ($vers.Count -gt 0) { $found += $vers } else { $found += $pdir }
+                }
+            }
+        } catch { }
+        if ($found.Count -gt 0) {
+            $info.installed = $true; $info.source = 'cache'; $info.paths = $found
+        } else {
+            $info.source = 'none'
+        }
+    } catch { }
+
+    $script:LwgMarketplaceInfo = $info
+    return $info
+}
+
 function Get-LwgStateDirInfo {
     <#
       Resolve the state dir and SAY HOW. Returns a HASHTABLE:
@@ -263,6 +663,17 @@ function Get-LwgStateDirInfo {
         resolved    $true only for 'env' and 'discovered'; $false means the path
                     is a GUESS and may well be a directory nothing else writes to
         candidates  how many <name>* directories were seen
+        home        the configuration root the search was made under, and
+        home_source how that root was arrived at - 'env' (CLAUDE_CONFIG_DIR),
+                    'profile', 'unresolved', or 'not-consulted' when
+                    CLAUDE_PLUGIN_DATA answered outright and no config root was
+                    needed. Both are ADDED KEYS: every existing reader takes
+                    .path, .source, .resolved and .candidates by name, so this
+                    widens the hashtable without moving anything in it. They are
+                    here because a component that reports a resolved state
+                    directory and cannot say which configuration root it came
+                    from cannot tell a correct install from one pointed at a
+                    tree nothing reads.
 
       The resolved flag exists because three separate failures this repo has
       already shipped were things reporting success while writing nowhere. A
@@ -280,9 +691,13 @@ function Get-LwgStateDirInfo {
 
     if (-not $Refresh -and $null -ne $script:LwgStateDirInfo) { return $script:LwgStateDirInfo }
 
-    $info = @{ path = $null; source = 'unresolved'; resolved = $false; candidates = 0 }
+    $info = @{ path = $null; source = 'unresolved'; resolved = $false; candidates = 0
+               home = $null; home_source = 'not-consulted' }
 
     # 1. an explicit CLAUDE_PLUGIN_DATA is authoritative and ends the matter.
+    #    The configuration root is deliberately NOT resolved on this branch: it
+    #    is the branch every live hook takes, it would add a stat call to it,
+    #    and 'not-consulted' is the true answer rather than a missing one.
     $env_ = $env:CLAUDE_PLUGIN_DATA
     if (-not [string]::IsNullOrWhiteSpace($env_)) {
         $info.path = $env_; $info.source = 'env'; $info.resolved = $true
@@ -300,7 +715,18 @@ function Get-LwgStateDirInfo {
         # [IO.Path]::Combine rather than Join-Path throughout: Join-Path is a
         # cmdlet, and three of them cost ~15-25 ms of the cold path measured
         # here, for string work a static does for free.
-        $root = [IO.Path]::Combine($env:USERPROFILE, '.claude\plugins\data')
+        # -Refresh carries THROUGH to the configuration root. A caller that
+        # re-runs this scan after changing the environment - which is what
+        # every -Refresh call site in tests/ is doing - would otherwise get a
+        # fresh data-dir scan made under a stale config root.
+        $homeInfo         = Get-LwgClaudeHomeInfo -Refresh:$Refresh
+        $info.home        = $homeInfo.path
+        $info.home_source = $homeInfo.source
+        # Combine throws on a $null first argument rather than composing a
+        # half-path, and the catch below is what turns that into 'unresolved'
+        # with $info.path still $null - which is the honest answer on a machine
+        # with neither CLAUDE_CONFIG_DIR nor USERPROFILE.
+        $root = [IO.Path]::Combine($homeInfo.path, 'plugins\data')
         $bare = [IO.Path]::Combine($root, $name)
         $info.path = $bare   # the guess, until something better is found
 
@@ -828,6 +1254,103 @@ function Test-LwgModule {
     return $enabled
 }
 
+function Get-LwgRawFlagValue {
+    <#
+      The RAW value at $Object.$Name, and whether the member is there at all.
+      Returns @{ present; value }.
+
+      PRESENCE IS NOT "NOT NULL", and that distinction is the whole point of
+      this helper. ConvertFrom-Json maps a JSON `null` onto $null, so
+      `"git_hygiene": null` and an absent `git_hygiene` key are indistinguishable
+      by a $null test - and they are not the same thing. The first is an
+      operator writing something that is not a setting; the second is an
+      operator saying nothing, which is a legitimate config and must stay
+      silent. PSObject.Properties can tell them apart; a value comparison
+      cannot.
+
+      Never throws: an absent block, a $null object or a hashtable rather than a
+      PSCustomObject all yield present = $false.
+    #>
+    param($Object, [string]$Name)
+
+    if ($null -eq $Object) { return @{ present = $false; value = $null } }
+    try {
+        $p = $Object.PSObject.Properties[$Name]
+        if ($null -ne $p) { return @{ present = $true; value = $p.Value } }
+    } catch { }
+    return @{ present = $false; value = $null }
+}
+
+function Get-LwgUnresolvedFlags {
+    <#
+      Every DECLARED module whose configured value is present in config.json but
+      is not a real boolean, and was therefore IGNORED. Returns descriptive
+      strings - `modules.docs_coupling (global, String)` - because a caller
+      reporting this has to name the key the operator actually wrote, not the
+      module the plugin resolved from it.
+
+      WHY THIS EXISTS AS A SEPARATE FUNCTION FROM Test-LwgModule. Test-LwgModule
+      answers "is it on", and it is careful to answer that with a [bool] on
+      every one of its exit paths: a non-boolean at any scope is ignored, logged
+      through Write-LwgInvalidFlag, and resolution continues as if that scope
+      had said nothing. That is the right behaviour and it is what makes the
+      question "did anything get ignored?" unanswerable from its return value -
+      which is exactly how lib/session_start.ps1's probe 2 came to be a check
+      that could not fail. The observable failure is not a bad return type, it
+      is a CONFIGURED VALUE THAT WAS DISCARDED, and only the raw config can
+      show that.
+
+      IT COVERS ALL FOUR SCOPES, because a probe that read one of them would be
+      a smaller version of the same defect:
+
+        modules.<name>                       global, for a plain module
+        <block>.<key>                        global, for a module declaring its
+                                             own `switch` - delegate_gate and
+                                             the three supervision modules have
+                                             NO `modules` key by design, and a
+                                             probe reading only that block would
+                                             walk straight past the flag that
+                                             arms the only gate this plugin
+                                             ships
+        repos.<slug>.modules.<name>          per-repo, plain
+        repos.<slug>.<block>.<key>           per-repo, switch-backed
+
+      Never throws. $Repo empty simply skips the two per-repo scopes.
+    #>
+    param($Config, [string]$Repo)
+
+    if ($null -eq $Config) { $Config = Get-LwgConfig }
+    $bad = @()
+
+    $repoObj = $null
+    if (-not [string]::IsNullOrWhiteSpace($Repo)) {
+        try { $repoObj = $Config.repos.$Repo } catch { }
+    }
+
+    foreach ($m in $script:LwgModules) {
+        $sw = $null
+        try { $sw = $script:LwgModuleRegistry[$m].switch } catch { }
+        if ($null -ne $sw) { $block = [string]$sw.block; $key = [string]$sw.key }
+        else               { $block = 'modules';         $key = $m }
+
+        $scopes = @()
+        try { $scopes += ,@('global', $Config.$block) } catch { }
+        if ($null -ne $repoObj) {
+            try { $scopes += ,@("repo:$Repo", $repoObj.$block) } catch { }
+        }
+
+        foreach ($s in $scopes) {
+            $raw = Get-LwgRawFlagValue -Object $s[1] -Name $key
+            if (-not $raw.present) { continue }
+            if ($raw.value -is [bool]) { continue }
+            $t = 'null'
+            if ($null -ne $raw.value) { try { $t = $raw.value.GetType().Name } catch { $t = 'unknown' } }
+            $bad += ("{0}.{1} ({2}, {3})" -f $block, $key, $s[0], $t)
+        }
+    }
+    return $bad
+}
+
 function Get-LwgEnabledModules {
     <#
       Names of every enabled module, in inventory order. Emitted as a normal
@@ -1097,10 +1620,29 @@ function Add-LwgLine {
       these files, so retry briefly rather than throwing - pattern lifted from
       ~/.claude/health/supervisor.ps1 (20/40/60/80/100 ms).
       Returns $true on success, $false if all five attempts failed.
+
+      -Replace REPLACES the file's contents with the one line instead of
+      appending, keeping the same retry ladder and the same return contract.
+      ONE CALLER USES IT, self_health's state-writable probe, and it is here
+      rather than as a separate function because the retry ladder is the whole
+      of this helper and a second copy of it is a second thing to keep correct.
+
+      WHY THE PROBE NEEDED IT. That probe proves the state directory is writable
+      by writing a timestamp, and it fires on every SessionStart - start,
+      resume, clear and compact. Nothing in the tree rotates, truncates or READS
+      selfcheck.probe: Invoke-LwgRotate has exactly one call site and it is
+      passed health.jsonl. It was the only file this plugin wrote with no bound
+      of any kind, inside a plugin whose log_rotation module reports itself as
+      capping the logs. The file's entire value is in the RETURN of the write,
+      and the LAST result is the only one with any meaning, so replacing is what
+      the probe always meant - which is why this is a switch on the writer and
+      not a rotation call added to the SessionStart path for a file nobody
+      reads.
     #>
     param(
         [Parameter(Mandatory = $true)][string]$FileName,
-        [Parameter(Mandatory = $true)][string]$Line
+        [Parameter(Mandatory = $true)][string]$Line,
+        [switch]$Replace
     )
 
     try {
@@ -1108,7 +1650,8 @@ function Add-LwgLine {
         $text = $Line.TrimEnd("`r", "`n") + "`n"
         for ($i = 0; $i -lt 5; $i++) {
             try {
-                [System.IO.File]::AppendAllText($path, $text, [Text.UTF8Encoding]::new($false))
+                if ($Replace) { [System.IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($false)) }
+                else          { [System.IO.File]::AppendAllText($path, $text, [Text.UTF8Encoding]::new($false)) }
                 return $true
             } catch {
                 Start-Sleep -Milliseconds (20 * ($i + 1))
