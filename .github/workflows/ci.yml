@@ -1498,7 +1498,7 @@ jobs:
           exit $code
 
       # Every change starts from an issue (#147, 2026-09-03; #184). Two halves of
-      # that rule are machine-checkable and tests\pr_issue_ref.ps1 is those two:
+      # that rule are machine-checkable and .github\scripts\pr_issue_ref.ps1 is those two:
       # the body must reference an issue, and it must NOT use a closing keyword,
       # because an auto-close closes an issue on merge with a merge commit as its
       # only evidence - which is this project's closure rule being broken by
@@ -1515,6 +1515,13 @@ jobs:
       # ${{ }} expansion of a pull-request body into a shell step is command
       # injection with this workflow's permissions, and no allowlist entry in
       # tests\workflow_guard.ps1 would make that acceptable.
+      #
+      # IT DOES NOT LIVE UNDER tests\ ON PURPOSE. Every file there exercises the
+      # PLUGIN; this one checks a pull request's metadata and asserts nothing
+      # about the product. Counting it among "thirteen files in tests\, ten of
+      # which test behaviour" would make both of those documented numbers LESS
+      # true, and tests\doc_claims.ps1 derives them from tests\*.ps1 - so it
+      # sits beside the workflow that is its only caller instead.
       - name: Pull-request issue reference
         if: github.event_name == 'pull_request'
         shell: powershell
@@ -1522,24 +1529,34 @@ jobs:
           LWG_PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           $ErrorActionPreference = 'Continue'
-          $suite = 'tests\pr_issue_ref.ps1'
+          $suite = '.github\scripts\pr_issue_ref.ps1'
 
           if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
             Write-Host "::error::$suite is missing - no pull request was held to the issue protocol, which is not the same as every pull request complying"
             exit 1
           }
 
+          # Fixtures first - 18 cases over the matcher - then the real body. A
+          # green -Live run on a broken matcher would be meaningless, and this
+          # file is not under tests\ so tests\doc_claims.ps1 does not run it.
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $fixtureCode = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+          if ($fixtureCode -ne 0) {
+            Write-Host "::error title=Pull-request issue reference::the matcher's own fixtures did not pass (exit $fixtureCode), so nothing this step says about the body can be trusted"
+            exit $fixtureCode
+          }
+
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite -Live
           $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
 
-          # Exit-code contract of tests\pr_issue_ref.ps1, the same 0/1/2 every
+          # Exit-code contract of .github\scripts\pr_issue_ref.ps1, the same 0/1/2 every
           # suite here uses. Exit 2 means the body never reached the guard, and
           # that fails the step rather than passing it.
           $label = switch ($code) {
-            0       { 'PASS - the body references an issue and uses no closing keyword. That is a statement about the BODY only: nothing here establishes that the issue exists, is open, or is the one this diff belongs to.' }
+            0       { 'PASS - the matcher fixtures passed and the body references an issue and uses no closing keyword. That is a statement about the BODY only: nothing here establishes that the issue exists, is open, or is the one this diff belongs to.' }
             1       { 'FAIL (exit 1) - read the case lines above. Either the body references no issue, or it uses a closing keyword; use "Refs #N" and let the QA agent close the issue with its evidence.' }
             2       { 'ABORT (exit 2) - LWG_PR_BODY never reached the guard, so the protocol was NOT checked on this pull request. Not clean, and not a pass.' }
-            255     { 'NOT RUN (exit 255) - tests\pr_issue_ref.ps1 could not be invoked.' }
+            255     { 'NOT RUN (exit 255) - .github\scripts\pr_issue_ref.ps1 could not be invoked.' }
             default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
           }
 

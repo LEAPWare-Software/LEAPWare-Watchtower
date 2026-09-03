@@ -2,8 +2,8 @@
 <#
   LW-WATCHTOWER pull-request issue-reference guard.
 
-      powershell -NoProfile -ExecutionPolicy Bypass -File tests\pr_issue_ref.ps1
-      powershell -NoProfile -ExecutionPolicy Bypass -File tests\pr_issue_ref.ps1 -Live
+      powershell -NoProfile -ExecutionPolicy Bypass -File .github\scripts\pr_issue_ref.ps1
+      powershell -NoProfile -ExecutionPolicy Bypass -File .github\scripts\pr_issue_ref.ps1 -Live
 
   WHY THIS FILE EXISTS
 
@@ -167,7 +167,7 @@ function Add-Case {
 # would pass whatever the matcher did is not written down as a case.
 # ---------------------------------------------------------------------------
 if (-not $Live) {
-    Write-Output 'tests\pr_issue_ref.ps1 (fixture mode): the matcher, against fixtures.'
+    Write-Output '.github\scripts\pr_issue_ref.ps1 (fixture mode): the matcher, against fixtures.'
     Write-Output 'This mode judges NO pull request. Pass -Live with LWG_PR_BODY set for that.'
     Write-Output ''
 
