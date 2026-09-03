@@ -1260,6 +1260,169 @@ jobs:
           }
           exit $code
 
+      # THE TWO STEPS BELOW LANDED FOR #213, AND WHAT THEY CLOSE IS NOT "a suite
+      # that never ran". Both suites DID reach this runner, and that is the trap.
+      # tests\doc_claims.ps1 executes every sibling suite in parallel to read the
+      # tally each one prints about itself, so a suite with no step of its own is
+      # still executed - inside the documentation step, near the bottom of this
+      # job. Three things follow, and all three were true of these two files:
+      #
+      #   * their result was observable only through a step that is RED today for
+      #     an unrelated reason (#190's count disagreements), so a genuine
+      #     behavioural failure in either was invisible under an expected red;
+      #   * doc_claims ABORTS the moment any sibling exits non-zero, and when it
+      #     aborts these suites do not run at all and nothing in the log says so;
+      #   * the protection was a side effect of a documentation guard. Restructure
+      #     or remove that guard and these two suites silently stop being
+      #     executed by CI, with no diff anywhere near them.
+      #
+      # A suite whose only route to the runner is another suite's parallel helper
+      # is coincidentally exercised, not covered. Both are covered now, by name,
+      # above the step whose abort used to hide them.
+      #
+      # THE SEARCH BEHIND THESE TWO. This gap was found twice by accident and
+      # never by a search, so #213's done-condition asked for the enumeration:
+      # every tests\*.ps1 in the tree was matched against the steps in this file.
+      # These were the only two without a step of their own. The result is on
+      # #213 rather than repeated here, because a list of file names in a comment
+      # is a second copy of `git ls-files -- tests/*.ps1` that nothing updates.
+
+      - name: Config write-path suite
+        shell: powershell
+        run: |
+          # bin\lwg-config.ps1 backs /lw-watchtower:config and is the only
+          # supported way to change a `modules` flag, globally or for one repo.
+          # It is a WRITE path into the operator's own config.json, and until the
+          # suite this step runs existed, nothing under tests\ had executed any of
+          # it - not the refusals it is built around, not the two-phase preview,
+          # not the surgical JSON edit, not the read-back that is supposed to
+          # verify what was written.
+          #
+          # It is anchored on the two defects it was built from. #92: the
+          # unknown-module refusal tested membership case-INSENSITIVELY while its
+          # own hint says module names are case-sensitive, so a wrong-case name
+          # printed a full plan and exited 0 under a preview - a change promised
+          # that could never be made. #91: `-Repo <owner/name>` was taken
+          # verbatim, never shape-checked and never reconciled against the keys
+          # already in the file, so an override could be written under a key no
+          # hook would ever resolve and then reported as verified by a read-back
+          # that re-resolved it through the same blind lookup.
+          #
+          # WHAT IT DOES NOT ESTABLISH: the suite's own header names the fault
+          # paths it does not reach, and a green here is "these refusals still
+          # refuse", never "the write path is safe".
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly, and stderr is deliberately not merged with 2>&1 - in
+          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\config_behaviour.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - the config write path was never exercised, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\config_behaviour.ps1, the same three every
+          # suite here uses. An abort is never reported as a pass.
+          #   0  every case passed
+          #   1  at least one case failed
+          #   2  the suite aborted; the write path was NOT exercised. Zero cases
+          #      run is an abort, never an empty-set pass.
+          $label = switch ($code) {
+            0       { 'PASS - a wrong-case module name is refused before anything is planned, a -Repo slug is canonicalised and reconciled once, the preview writes nothing, and every refusal leaves config.json byte-identical. That is NOT "the write path is safe": see the suite header for the fault paths no case here reaches.' }
+            1       { 'FAIL (exit 1) - read the per-case lines above. A refusal case that exited 0 is a command promising a change it cannot make; a write case that failed means /lw-watchtower:config touched a real config.json in a way it does not admit to.' }
+            2       { 'ABORT (exit 2) - the suite did not complete, so nothing about the config write path was established by this run.' }
+            255     { 'NOT RUN (exit 255) - tests\config_behaviour.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "config write-path suite: $label"
+          } else {
+            Write-Host "::error title=Config write-path suite::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Config write-path suite:** $label"
+          }
+          exit $code
+
+      - name: State resolution suite
+        shell: powershell
+        run: |
+          # The step that runs lib\session_start.ps1 - the SessionStart hook every
+          # session goes through, and the file the banner, the model-visible
+          # context envelope, the mode word and the self-check probes all come out
+          # of. Nothing in tests\ executed it at all before the suite this step
+          # runs was written.
+          #
+          # It runs the hook through a real pipe into a real child process, with
+          # its own environment block - USERPROFILE, CLAUDE_PLUGIN_ROOT,
+          # CLAUDE_PLUGIN_DATA and CLAUDE_CONFIG_DIR all pointed at a throwaway
+          # tree - because a PowerShell object pipe never reaches [Console]::In,
+          # which is where a hook reads its payload, and because the defects it
+          # pins are about which directory gets written.
+          #
+          # The defects behind it: #146, CLAUDE_CONFIG_DIR honoured by nothing, so
+          # a relocated configuration directory meant the plugin read and wrote a
+          # tree the CLI never touches while reporting success; #60, the
+          # self-check probe whose predicate was unsatisfiable for every input and
+          # therefore reported a pass for every config.json, feeding the mode word
+          # the whole plugin presents itself through; #106, a probe file appended
+          # to on every session with no rotation, truncation or reader anywhere in
+          # the tree; #8, marketplace detection probing a directory that does not
+          # exist on a live install; and #132, nothing checking the operating
+          # system or the Claude Code build at all.
+          #
+          # WHAT IT DOES NOT COVER, and this step is not the place that fixes it:
+          # the SessionStart banner is still asserted by nothing (#144), and the
+          # two marketplace CALL SITES are untouched, so #8 stays open in both.
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly, and stderr is deliberately not merged with 2>&1 - in
+          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\state_resolution.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - the SessionStart hook was never executed, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\state_resolution.ps1, the same three every
+          # suite here uses. An abort is never reported as a pass.
+          #   0  every case passed
+          #   1  at least one case failed
+          #   2  the suite aborted; the hook was NOT executed. Zero cases run is
+          #      an abort, never an empty-set pass.
+          $label = switch ($code) {
+            0       { 'PASS - the ledger lands under CLAUDE_CONFIG_DIR and nothing under the profile, a broken module flag reaches the mode word, the probe file stays bounded and still proves the state dir writable, the marketplace cache layout is walked, and the platform is recorded. That is a statement about THESE resolutions only: the banner is still asserted by nothing (#144).' }
+            1       { 'FAIL (exit 1) - read the per-case lines above. A failure in section A means a SessionStart wrote into the operator profile while another directory was configured; a failure in section B means a self-check probe has stopped being able to fail.' }
+            2       { 'ABORT (exit 2) - the suite did not complete, so nothing about state resolution or the SessionStart hook was established by this run.' }
+            255     { 'NOT RUN (exit 255) - tests\state_resolution.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "state resolution suite: $label"
+          } else {
+            Write-Host "::error title=State resolution suite::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**State resolution suite:** $label"
+          }
+          exit $code
+
       - name: Portability scan
         shell: powershell
         run: |
