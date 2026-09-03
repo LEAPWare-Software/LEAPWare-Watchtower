@@ -2611,6 +2611,50 @@ try {
         ([bool]($a.out -match 'is not the same as being up to date')) `
         "a check that could not be made is not a check that passed, and this is the row that says so. Output:`n$($a.out)"
 
+    # -------------------------------------------------------------------
+    # 27. THE STATUS LINE IS NOT THE ONLY THING THE OPERATOR SEES (#175).
+    #
+    #     New-StatusLinePlan's blurb is the paragraph an operator reads while
+    #     deciding whether to wire the status line up at all, and it said the
+    #     status line is "this plugin's only visible indicator: unwired, the
+    #     plugin runs and shows nothing". Two other channels are visible on
+    #     every session and both go to the operator, not to the model:
+    #
+    #       lib\session_start.ps1:238   the SessionStart banner, as systemMessage
+    #       lib\common.ps1:1996         every turn-end advisory, same channel
+    #
+    #     So the consequence of declining this section is overstated in the one
+    #     place where overstating it changes an answer. The claim is not merely
+    #     imprecise: an operator who reads it and says yes on that basis has
+    #     been told the plugin is silent without the status line, and it is not.
+    #
+    #     RULE - NO BARE NEGATIVE. A -notmatch on the old sentence alone would
+    #     pass against a blurb that had been deleted outright, which would lose
+    #     the true half of what it says. The cases below assert BOTH: the false
+    #     sentence is gone, AND the replacement still tells the operator what
+    #     the other two channels are. The CONTROL underneath pins the true half
+    #     that was always there, so a rewrite cannot quietly drop it.
+    #
+    #     BASELINE 21b8f49 AND 7f74eb4: the false sentence is present in both,
+    #     so these are red at the pre-wave tree and at this batch's branch point.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'blurb-visible-channels' -Bytes $FixtureBytes
+    $d = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'diff', '-Section', 'statusline', '-SettingsPath', $t.settings)
+    $blurb = ($d.out -split '--- WHAT WOULD CHANGE')[0]
+
+    Add-Result 'diff statusline: the blurb does not call the status line this plugin''s ONLY visible indicator' `
+        ([bool]($blurb -notmatch '(?i)only visible indicator')) `
+        "lib\session_start.ps1 emits a SessionStart banner and lib\common.ps1 emits every turn-end advisory, both as systemMessage, both on every session. The sentence overstates what declining this section costs, in the paragraph the operator decides on. Blurb:`n$blurb"
+    Add-Result 'diff statusline: the blurb names the session-start banner as a channel that survives declining' `
+        ([bool]($blurb -match '(?i)session start')) `
+        "removing the false sentence is not the whole fix - the operator still has to be told what they DO see without the status line, or the paragraph has been made shorter rather than truer. Blurb:`n$blurb"
+    Add-Result 'diff statusline: the blurb names the turn-end advisory as a channel that survives declining' `
+        ([bool]($blurb -match '(?i)end of a turn|turn-end|turn end')) `
+        "the second of the two other visible channels. Blurb:`n$blurb"
+    Add-Result 'CONTROL diff statusline: the blurb still says what this section is FOR - the HH health segment' `
+        ([bool]($blurb -match '(?i)HH health segment|HH segment')) `
+        "the true half of the paragraph. A rewrite that deletes the overstatement and the reason together leaves the operator with no basis to say yes at all. Blurb:`n$blurb"
+
 } catch {
     $script:Aborted = "$($_.Exception.Message)  [line $($_.InvocationInfo.ScriptLineNumber)]"
 } finally {

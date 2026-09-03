@@ -1121,11 +1121,30 @@ function New-StatusLinePlan {
     $p = @{ ok = $true; title = 'statusLine'; lines = @(); changes = 0
             merged = $null; warnings = @(); extraActions = @(); blurb = @() }
 
+    # WHAT THIS PARAGRAPH IS FOR, AND THE SENTENCE THAT WAS TAKEN OUT OF IT.
+    # This is what an operator reads while deciding whether to wire the status
+    # line up at all, so an overstatement here does not merely mislead - it buys
+    # a yes. Until 3 September 2026 the last line called the status line "this
+    # plugin's only visible indicator: unwired, the plugin runs and shows
+    # nothing", and two other channels are visible on every session, both going
+    # to the operator rather than to the model:
+    #
+    #   lib\session_start.ps1  the SessionStart banner, emitted as systemMessage
+    #   lib\common.ps1         every turn-end advisory, on the same channel
+    #
+    # So "shows nothing" was false. What is TRUE, and is the honest reason to
+    # say yes, is that the status line is the only CONTINUOUS one: the other two
+    # speak once at the start of a session and once at the end of a turn, and
+    # between them there is nothing on screen. Covered by tests\setup_merge.ps1
+    # section 27, which asserts both that the old sentence is gone and that the
+    # two other channels are named.
     $p.blurb = @(
         'statusLine is a settings.json key. A plugin cannot supply one - there is no',
         'manifest field for it and no hook event renders a line - which is half the reason',
-        'this installer exists. It renders the HH health segment, and that is this',
-        'plugin''s only visible indicator: unwired, the plugin runs and shows nothing.'
+        'this installer exists. It renders the HH health segment, and it is this plugin''s',
+        'only CONTINUOUS indicator - not its only visible one. Unwired, you still get the',
+        'banner at session start and an advisory at the end of a turn; what you lose is',
+        'everything in between, which is where a fault first shows.'
     )
 
     $obj = if ($Settings.parses) { Copy-JsonObject -Obj $Settings.obj } else { [pscustomobject]@{} }
