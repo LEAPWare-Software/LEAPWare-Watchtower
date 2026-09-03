@@ -701,9 +701,81 @@ try {
         }
 
         # b. referenced anywhere in this repo, and declared.
-        # .git is skipped as object storage; .claude is local harness state -
-        # settings.local.json and agent worktrees, which are whole second copies
-        # of this tree - and is not part of the plugin.
+        #
+        # WHICH TREE IS ENUMERATED, AND WHY IT IS THE TRACKED ONE FIRST (#204).
+        # This walked the FILESYSTEM under $pluginRoot with two name filters,
+        # '.git\' and '.claude\', and scanned everything else - tracked or not.
+        # A check whose verdict moves with whatever is lying around is not
+        # measuring the plugin, which is the same argument the paragraph below
+        # already makes about where the plugin is installed, on a different
+        # axis. It was not theoretical: an untracked scratch directory of
+        # generated output in a checkout whose TRACKED tree was clean carried
+        # references to six commands deleted on 2 September 2026, and this check
+        # reported the plugin NOT healthy over a directory that is no part of
+        # it. `git add -A` in such a checkout then makes those references
+        # tracked and the false FAIL becomes a real one nobody wrote on purpose.
+        #
+        # So: the TRACKED tree when git can answer for this directory, the
+        # filesystem walk when it cannot. Every other enumeration in this
+        # repository derives from `git ls-files` for the reason .github/
+        # workflows/ci.yml states - it cannot drift from the repo, and `.git` is
+        # excluded by construction rather than by a filter someone has to
+        # remember to maintain - and this check was the outlier.
+        #
+        # THE FALLBACK IS NOT OPTIONAL AND IS NOT A SILENT ONE. On a marketplace
+        # install the plugin directory has no `.git` at all: `git ls-files`
+        # exits 128 there and enumerates nothing, and "scanned 0 files" must
+        # never become a pass - that is the defect this file exists to catch,
+        # and the $refs.Count guard below is the same rule. A plugin unpacked
+        # inside some OTHER repository is the second shape: git answers, exit 0,
+        # and lists nothing here because none of these files is tracked THERE.
+        # Both fall back to the walk, and $enum says which path was taken and
+        # why, so a reader never has to guess which tree was measured.
+        #
+        # stderr is sent to nul and never merged. In Windows PowerShell 5.1 a
+        # native command's stderr comes back as NativeCommandError records under
+        # ErrorActionPreference 'Stop', so `fatal: not a git repository` - the
+        # ordinary marketplace case - would THROW and Invoke-Check would report
+        # the check as failed rather than falling back.
+        $exts = @('.md', '.ps1', '.json', '.yml', '.yaml', '.txt')
+        $tracked = $null
+        $gitWhy  = ''
+        try {
+            $eap = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                # Reset FIRST. $LASTEXITCODE is whatever the last native command
+                # in this process left behind, and if `git` cannot be found at
+                # all the call sets no new value - so reading a stale 0 would
+                # take the tracked path on a machine that has no git.
+                $global:LASTEXITCODE = -1
+                # core.quotePath=false: git otherwise C-quotes any path with a
+                # non-ASCII byte in it, and a quoted name is not a path.
+                $raw     = & git -C $pluginRoot -c core.quotePath=false ls-files 2>$null
+                $gitCode = if ($null -eq $LASTEXITCODE) { -1 } else { $LASTEXITCODE }
+                if ($gitCode -eq 0) {
+                    # Filtered BEFORE it is counted: @($null).Count is 1 in
+                    # PowerShell, so an empty listing would otherwise read as
+                    # one tracked file and take the tracked path with nothing
+                    # in it.
+                    $tracked = @($raw | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+                    if ($tracked.Count -eq 0) {
+                        $tracked = $null
+                        $gitWhy  = 'git answered but listed no tracked file under the plugin root'
+                    }
+                } else {
+                    $gitWhy = "git ls-files exited $gitCode here, so there is no tracked tree to read"
+                }
+            } finally { $ErrorActionPreference = $eap }
+        } catch {
+            $tracked = $null
+            $gitWhy  = "git could not be run ($($_.Exception.Message))"
+        }
+
+        # .claude is local harness state - settings.local.json and agent
+        # worktrees, which are whole second copies of this tree - and is not part
+        # of the plugin, so it is excluded on BOTH paths. .git needs no exclusion
+        # on the tracked path because git never lists it.
         #
         # BOTH exclusions are matched against the path RELATIVE TO $pluginRoot,
         # never against the absolute path. This plugin is normally reached
@@ -713,29 +785,53 @@ try {
         # nothing. A check whose result depends on where the thing is installed
         # is not a check. Relative matching also keeps '.claude-plugin\' in
         # scope, which is a real part of the plugin and must stay scanned.
+        $enum  = ''
+        $files = @()
+        if ($null -ne $tracked) {
+            $enum = 'the tracked tree (git ls-files)'
+            foreach ($t in $tracked) {
+                # git reports '/' separators; every path this check prints and
+                # every -like below is written in the Windows shape.
+                $rel = ([string]$t) -replace '/', '\'
+                if ($rel -like '.claude\*') { continue }
+                if ([IO.Path]::GetExtension($rel).ToLowerInvariant() -notin $exts) { continue }
+                # Tracked in the index but deleted from the working tree. It is
+                # not on disk to read, and a missing file is not a reference.
+                $abs = Join-Path $pluginRoot $rel
+                if (-not (Test-Path -LiteralPath $abs -PathType Leaf)) { continue }
+                $files += [pscustomobject]@{ rel = $rel; full = $abs }
+            }
+        } else {
+            $enum = "the filesystem - $gitWhy"
+            foreach ($f in @(Get-ChildItem -LiteralPath $pluginRoot -Recurse -File -ErrorAction SilentlyContinue |
+                             Where-Object { $_.Extension -in $exts })) {
+                $rel = $f.FullName.Substring($pluginRoot.Length).TrimStart('\', '/')
+                if ($rel -like '.git\*' -or $rel -like '.claude\*') { continue }
+                $files += [pscustomobject]@{ rel = $rel; full = $f.FullName }
+            }
+        }
+
         $re   = [regex]('(?<![A-Za-z0-9_-])/' + [regex]::Escape($p) + ':([A-Za-z0-9][A-Za-z0-9_-]*)')
         $refs = @{}
         $scanned = 0
-        foreach ($f in @(Get-ChildItem -LiteralPath $pluginRoot -Recurse -File -ErrorAction SilentlyContinue |
-                         Where-Object { $_.Extension -in @('.md', '.ps1', '.json', '.yml', '.yaml', '.txt') })) {
-            $rel = $f.FullName.Substring($pluginRoot.Length).TrimStart('\', '/')
-            if ($rel -like '.git\*' -or $rel -like '.claude\*') { continue }
+        foreach ($f in $files) {
             $text = ''
-            try { $text = Get-Content -LiteralPath $f.FullName -Raw -ErrorAction Stop } catch { continue }
+            try { $text = Get-Content -LiteralPath $f.full -Raw -ErrorAction Stop } catch { continue }
             $scanned++
             if ([string]::IsNullOrEmpty($text)) { continue }
             foreach ($m in $re.Matches($text)) {
                 $n = $m.Groups[1].Value.ToLowerInvariant()
                 if (-not $refs.ContainsKey($n)) { $refs[$n] = @() }
-                if ($refs[$n] -notcontains $rel) { $refs[$n] += $rel }
+                if ($refs[$n] -notcontains $f.rel) { $refs[$n] += $f.rel }
             }
         }
 
         # An enumeration that found nothing has checked nothing, and a check that
         # cannot fail is the defect this file exists to catch. The same rule the
-        # CI JSON step was given in d1ff015.
+        # CI JSON step was given in d1ff015, and the reason the tracked path
+        # above falls back rather than reporting a clean sweep of zero files.
         if ($refs.Count -eq 0) {
-            Add-Row -Id 'commands' -Status 'FAIL' -Detail "scanned $scanned file(s) and found NO /${p}:* reference at all - the reference scan is broken, so this check proved nothing about the command surface"
+            Add-Row -Id 'commands' -Status 'FAIL' -Detail "scanned $scanned file(s) from $enum and found NO /${p}:* reference at all - the reference scan is broken, so this check proved nothing about the command surface"
             return
         }
 
@@ -745,10 +841,106 @@ try {
         }
 
         if ($problems.Count -gt 0) {
-            Add-Row -Id 'commands' -Status 'FAIL' -Detail ($problems -join '; ')
+            Add-Row -Id 'commands' -Status 'FAIL' -Detail (($problems -join '; ') + " [enumerated $enum, $scanned file(s) scanned]")
             return
         }
-        Add-Row -Id 'commands' -Status 'PASS' -Detail "$($cmds.Count) command(s), each with its backing script: $(($names | ForEach-Object { "/${p}:$_" }) -join ', '); $($refs.Count) distinct command(s) referenced across $scanned scanned file(s), all declared"
+        Add-Row -Id 'commands' -Status 'PASS' -Detail "$($cmds.Count) command(s), each with its backing script: $(($names | ForEach-Object { "/${p}:$_" }) -join ', '); $($refs.Count) distinct command(s) referenced across $scanned file(s) scanned from $enum, all declared"
+    }
+
+    # ---------------------------------------------------------------------
+    # 9. the machine this is installed on
+    # ---------------------------------------------------------------------
+    # NOTHING IN THIS PLUGIN CHECKED THE OPERATING SYSTEM until this row (#132).
+    # .claude-plugin\plugin.json opens with "WINDOWS ONLY", hooks\hooks.json
+    # invokes `powershell` by that name in every registration, and every path
+    # composed anywhere here is NTFS-shaped - so a non-Windows machine is a
+    # SILENT non-install, not a degraded one. A repository-wide search for
+    # IsWindows, OSVersion.Platform, `claude --version` and CLAUDE_CODE_VERSION
+    # returned nothing at all before lib\common.ps1 grew Get-LwgPlatformInfo.
+    #
+    # FAIL and not WARN. Every hook registration is inert on such a machine and
+    # nothing this plugin ships can run; that is a fault, and the row's job is
+    # to convert a silent non-install into a named one.
+    #
+    # THE INTERPRETER IS REPORTED ON THE PASS TOO, because it is the other half
+    # of the answer: hooks.json invokes `powershell`, which is Windows
+    # PowerShell 5.1, and knowing which interpreter answered is what makes a
+    # later "it works in pwsh" report readable.
+    Invoke-Check -Id 'platform' -Body {
+        $pi   = Get-LwgPlatformInfo
+        $seen = "os '$($pi.os)', PowerShell $($pi.ps_version) $($pi.ps_edition)"
+        if (-not $pi.supported) {
+            Add-Row -Id 'platform' -Status 'FAIL' -Detail "$seen - this plugin is WINDOWS ONLY: hooks\hooks.json invokes 'powershell' by that name in every registration and every path it composes is NTFS-shaped, so nothing it ships can fire here. Nothing is degraded; nothing is installed"
+            return
+        }
+        Add-Row -Id 'platform' -Status 'PASS' -Detail $seen
+    }
+
+    # ---------------------------------------------------------------------
+    # 10. the Claude Code build the hook events were read out of
+    # ---------------------------------------------------------------------
+    # THE FAILURE MODE OF AN INERT HOOK IS SILENCE (#132). Three of the events
+    # hooks\hooks.json registers on were read out of one specific binary, and on
+    # a build that does not carry them those registrations simply never fire -
+    # while the banner goes on counting the modules that depend on them among
+    # the active ones, because it counts the REGISTRY and not observed
+    # behaviour. There is no symptom: a module that records nothing looks
+    # exactly like a session in which nothing went wrong.
+    #
+    # THE THREE NAMES ARE TRANSCRIBED HERE AND THE MODULES ARE NOT. Which events
+    # are at risk is a fact about a binary read on one day - it is in
+    # docs\install.md and in lib\common.ps1's registry header, and no check can
+    # derive it. WHICH MODULES GO INERT WITH THEM is derivable, from the
+    # registry's own `events` field, so it is derived: add a module that depends
+    # on one of these and it appears in this row with no edit here.
+    #
+    # WARN, NEVER FAIL, ON AN OLD BUILD. An older Claude Code is a real finding
+    # about the machine, not a broken install, and the exit ladder at the top of
+    # this file already separates the two.
+    #
+    # AN UNREAD BUILD IS ALSO A WARN, AND THAT IS THE COSTLY CHOICE. $env:
+    # CLAUDE_CODE_VERSION is set by the CLI on a hook path; a run from a
+    # terminal will usually not have it, so this row WARNs and the doctor exits
+    # 2 on an otherwise healthy tree. The alternative is a PASS row that says
+    # "not read", and lib\common.ps1's own contract for build_known refuses it:
+    # "three states, not two - an unread version must not render as 'read, and
+    # it matched'". A green verdict resting on a fact nobody read is the exact
+    # confident wrong answer this whole component exists to refuse, and both
+    # callers of the doctor - bin\lwg-setup.ps1 and bin\lwg-update.ps1 - already
+    # report exit 2 as "pass with caveats" and print the row.
+    Invoke-Check -Id 'claude-version' -Body {
+        $pi     = Get-LwgPlatformInfo
+        $atRisk = @('SubagentStart', 'PostToolUseFailure', 'StopFailure')
+
+        # Which shipped modules stop working if those events are absent, read
+        # out of the registry rather than listed here.
+        $hit = @()
+        foreach ($m in @($script:LwgModules)) {
+            $ev = @($script:LwgModuleRegistry[$m].events)
+            $on = @($ev | Where-Object { $atRisk -contains $_ })
+            if ($on.Count -gt 0) { $hit += "$m (needs $($on -join ', '))" }
+        }
+        $depends = if ($hit.Count -gt 0) { "; the module(s) that would go inert are $($hit -join ', ') - and the banner would still count them active, because it counts the registry and not observed firing" } else { '' }
+
+        if (-not $pi.build_known) {
+            Add-Row -Id 'claude-version' -Status 'WARN' -Detail "CLAUDE_CODE_VERSION is not set in this process, so the Claude Code build was NOT read. Nothing here establishes that $($atRisk -join ', ') exist on it - the events were read out of $($pi.verified_build) and older builds may not carry all of them$depends"
+            return
+        }
+
+        $have = $null
+        $want = $null
+        $raw  = [string]$pi.claude_version
+        $lead = ([regex]::Match($raw, '^\d+(\.\d+)*')).Value
+        if (-not [version]::TryParse($lead, [ref]$have) -or
+            -not [version]::TryParse([string]$pi.verified_build, [ref]$want)) {
+            Add-Row -Id 'claude-version' -Status 'WARN' -Detail "CLAUDE_CODE_VERSION is '$raw', which could not be compared against the verified build $($pi.verified_build) as a version - so this row read a build and still established nothing about $($atRisk -join ', ')$depends"
+            return
+        }
+        if ($have -lt $want) {
+            Add-Row -Id 'claude-version' -Status 'WARN' -Detail "Claude Code $raw is BELOW $($pi.verified_build), the build $($atRisk -join ', ') were read out of. Those registrations may be inert here, and an inert hook is silent$depends"
+            return
+        }
+        Add-Row -Id 'claude-version' -Status 'PASS' -Detail "Claude Code $raw, at or above the $($pi.verified_build) the hook events were read out of. That is a statement about the BUILD ONLY: no event below SessionStart is proved to have fired on this machine by anything in this report"
     }
 
 } catch {
