@@ -36,6 +36,16 @@
   hands a hook, then spelt the way config.json already spells it - so that
   everything after it looks up, writes, clears and verifies the same key.
 
+  WHAT THAT BLOCK STILL CANNOT PROVE IS SAID OUT LOUD rather than left to the
+  exit-2 check, which cannot see it. A slug of the right shape that matches no
+  key in the file may simply be the wrong repository - a transposition has both
+  properties - and the read-back below re-resolves the key this run just wrote,
+  so it agrees with anything. When -Repo names a repository the working
+  directory does not resolve to, the report says so under UNVERIFIED SCOPE and
+  names -ThisRepo, which DERIVES the slug instead of trusting it. It is not a
+  refusal: overriding a repository you are not standing in is legitimate, and
+  this command cannot tell that apart from a typo.
+
   Nothing is written without -Apply, and the explanation of what a change means
   is printed BEFORE the write in both modes - so the preview run and the applied
   run say the same words in the same order, and the operator sees the reasoning
@@ -246,6 +256,36 @@ try {
         if ($twin.Count -eq 1) {
             $repoNote += " (matched the existing repos key `"$($twin[0])`")"
             $Repo = $twin[0]
+        }
+
+        # --- and what NONE of the above can prove - #91 ----------------------
+        # The shape check refuses a slug no hook could produce; the
+        # reconciliation makes the writer and the readers agree on WHICH key.
+        # Neither can say the key is one a hook will ever ASK for. 'owner/nmae'
+        # has the right shape, matches nothing already in the file, and is
+        # written and then "verified" by the exit-2 read-back at the bottom of
+        # this file - which re-resolves the same key it just wrote, through the
+        # same case-insensitive property lookup, and therefore agrees with
+        # anything. #91 calls that verification structurally blind, and it is.
+        #
+        # -ThisRepo is not blind: it DERIVES the slug from the working directory
+        # through the very Get-LwgRepoInfo a hook calls, so its key is one some
+        # hook asks for by construction. So the question this asks is whether
+        # the slug in hand is the one this working directory resolves to - true
+        # for -ThisRepo by definition, and true for a -Repo typed inside the
+        # repository it names.
+        #
+        # NOT A REFUSAL. Writing an override for a repository you are not
+        # standing in is a legitimate thing to do - a second machine, a script,
+        # a repo you are about to clone - and nothing here can tell that apart
+        # from a typo. What is owed is the difference between CHECKED and TAKEN
+        # ON TRUST, said once, in the block the preview prints too, where the
+        # operator can still stop.
+        $repoProven = $ThisRepo
+        $hereSlug   = ''
+        if (-not $repoProven) {
+            try { $hereSlug = "$((Get-LwgRepoInfo -Path (Get-Location).Path).slug)" } catch { $hereSlug = '' }
+            if (-not [string]::IsNullOrWhiteSpace($hereSlug) -and $hereSlug -ieq $Repo) { $repoProven = $true }
         }
     }
 
@@ -483,6 +523,25 @@ try {
     Write-Output '        event. The SessionStart banner and the mode word are computed once per session'
     Write-Output '        and will keep reporting the old ones until a new session starts.'
 
+    # The one thing the canonicalisation above CANNOT establish - #91. Printed
+    # here rather than at the write so the preview run and the applied run say
+    # the same words in the same order, which is this file's own promise and is
+    # asserted by tests\config_behaviour.ps1.
+    if (-not [string]::IsNullOrWhiteSpace($Repo) -and -not $repoProven) {
+        Write-Output ''
+        Write-Output "  UNVERIFIED SCOPE: nothing here checks that `"$Repo`" is a repository you work in."
+        if ([string]::IsNullOrWhiteSpace($hereSlug)) {
+            Write-Output "        $((Get-Location).Path) resolves to no origin remote, so there is nothing to compare it with."
+        } else {
+            Write-Output "        $((Get-Location).Path) resolves to '$hereSlug', which is a different repository."
+        }
+        Write-Output '        The slug is the right SHAPE and is spelt the way config.json spells it, and neither of'
+        Write-Output '        those can catch a slug that is simply the wrong repository - a transposition has both.'
+        Write-Output '        The read-back after the write cannot catch it either: it re-resolves the key this run'
+        Write-Output '        just wrote, so it agrees with anything. Run this from inside the repository with'
+        Write-Output '        -ThisRepo to have the slug DERIVED from its origin remote rather than taken on trust.'
+    }
+
     if (-not $Apply) {
         Write-Output ''
         Write-Output 'PREVIEW ONLY - nothing was written. Re-run the same command with -Apply to make the change.'
@@ -596,6 +655,14 @@ try {
     }
     $eff = Test-LwgModule -Name $Module -Config $after -Repo $Repo
     Write-Output "  verify:  re-read from disk; Test-LwgModule('$Module'$(if ($Repo) { ", repo $Repo" })) now returns $(if ($eff) { 'on' } else { 'off' })"
+    # What that line does NOT say, said - #91. Under an unproven -Repo the
+    # read-back resolves the key this run just wrote and so cannot disagree with
+    # it; leaving 'verify:' as the last word would present a tautology as a
+    # check. The UNVERIFIED SCOPE block above has already explained it, so this
+    # is one line and a pointer, not the explanation again.
+    if (-not [string]::IsNullOrWhiteSpace($Repo) -and -not $repoProven) {
+        Write-Output "           (that resolves the key this run wrote; it does not show any hook asks for `"$Repo`" - see UNVERIFIED SCOPE above)"
+    }
     if ($eff -ne $newEff) {
         Write-Output ''
         Write-Output "FAULT: the file was written but the EFFECTIVE value is $(if ($eff) { 'on' } else { 'off' }), not the $(if ($newEff) { 'on' } else { 'off' }) that was asked for."

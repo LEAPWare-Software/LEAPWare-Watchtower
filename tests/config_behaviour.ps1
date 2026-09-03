@@ -7,7 +7,7 @@
 
   WHAT THIS IS
 
-  bin\lwg-config.ps1 backs /lw-watchtower:config. It is 471 lines of WRITE PATH -
+  bin\lwg-config.ps1 backs /lw-watchtower:config. It is 680 lines of WRITE PATH -
   the only supported way to change a `modules` flag, globally or for one repo -
   and until this file existed NOTHING IN tests\ HAD EVER EXECUTED ANY OF IT. Not
   the refusals it is built around, not the two-phase preview, not the surgical
@@ -57,6 +57,18 @@
              could not tell, because it re-resolves the same bad key through the
              same case-insensitive lookup that just wrote it. A write nothing
              will honour, reported as verified.
+         And a fourth thing, which neither the shape check nor the
+         reconciliation can reach and which is what #91's third "what done
+         looks like" item asks for: a slug of the right shape, matching no key
+         in the file, that is simply the WRONG REPOSITORY. 'owner/nmae' passes
+         both, is written, and is then "verified" by an exit-2 read-back that
+         re-resolves the very key it just wrote through the same
+         case-insensitive property lookup - so it agrees with anything. #91
+         calls that machinery structurally blind to this class, and it is. The
+         requirement is not a refusal, because writing an override for a repo
+         you are not standing in is legitimate and this command cannot tell
+         that apart from a typo; it is that the difference between CHECKED and
+         TAKEN ON TRUST is stated. B8 and B9.
          Section B.
 
   ---------------------------------------------------------------------------
@@ -96,12 +108,24 @@
   CLAUDE_PLUGIN_ROOT matters just as much: left set, Get-LwgPluginRoot in the
   child returns the operator's REAL installed plugin directory.
 
-  The child also runs with its working directory set to <scratch>\work, which is
-  not inside a git repository, so no per-repo override can apply by accident and
-  no case depends on the machine it runs on. -ThisRepo is therefore NOT covered
-  here and that is a gap rather than a decision - a case would need a scratch
-  repo with a local origin, as tests\setup_merge.ps1 section 26 builds. Every
-  repo-scoped case below passes the slug explicitly with -Repo.
+  The child runs with its working directory set to <scratch>\work by default,
+  which is not inside a git repository, so no per-repo override can apply by
+  accident and no case depends on the machine it runs on. Every repo-scoped case
+  below passes the slug explicitly with -Repo.
+
+  ONE CASE OVERRIDES THAT, and it is the only reason the seam exists. B9 runs
+  from <scratch>\repo, a directory carrying a hand-built .git\config whose
+  origin url is https://github.com/owner/name.git. Nothing shells out to git:
+  Get-LwgRepoInfo walks up for .git, reads `config` and matches the url with two
+  regexes, so that file is indistinguishable from a real one to the only code
+  that reads it. B8 and B9 are the same argument run from the two sides of that
+  line - outside any repo, and inside the repo the slug names - and the note
+  under test must fire for the first and not the second. Without the second
+  case the assertion would pass on unconditional text.
+
+  -ThisRepo ITSELF IS STILL NOT COVERED. <scratch>\repo makes it reachable now,
+  which it was not before, but no case passes -ThisRepo, so its own resolution
+  and its disagreement refusal remain unexecuted.
 
   Nothing here reads or writes the operator's ~\.claude tree. No network. No
   elevation. Every path is built at runtime, which is what
@@ -351,10 +375,26 @@ function New-Sandbox {
         data    = (Join-Path $base 'data')
         profile = (Join-Path $base 'profile')
         work    = (Join-Path $base 'work')
+        # A SECOND working directory, and this one IS a git work tree whose
+        # origin is owner/name. Nothing here shells out to git: Get-LwgRepoInfo
+        # walks up for .git, reads `config`, and matches the url with two
+        # regexes, so a hand-built .git\config is indistinguishable from a real
+        # one to the only code that reads it. `work` is deliberately NOT a repo
+        # - the system temp directory has no .git above it - so the two
+        # directories are the two sides of the question B8 and B9 ask.
+        repo    = (Join-Path $base 'repo')
     }
-    foreach ($d in @($sand.root, $sand.plugin, $sand.data, $sand.profile, $sand.work)) {
+    foreach ($d in @($sand.root, $sand.plugin, $sand.data, $sand.profile, $sand.work, $sand.repo)) {
         [void](New-Item -ItemType Directory -Path $d -Force)
     }
+    $dotgit = Join-Path $sand.repo '.git'
+    [void](New-Item -ItemType Directory -Path $dotgit -Force)
+    [IO.File]::WriteAllLines((Join-Path $dotgit 'config'), @(
+        '[core]',
+        '    repositoryformatversion = 0',
+        '[remote "origin"]',
+        '    url = https://github.com/owner/name.git',
+        '    fetch = +refs/heads/*:refs/remotes/origin/*'), [Text.ASCIIEncoding]::new())
     foreach ($sub in @('bin', 'lib')) {
         $src = Join-Path $Root $sub
         if (Test-Path -LiteralPath $src) {
@@ -416,15 +456,23 @@ function Invoke-Config {
     param(
         [hashtable]$Sand,
         [string]$ScriptArgs,
-        [string]$Tag
+        [string]$Tag,
+        # The directory the child is run FROM. Defaults to $Sand.work, which is
+        # inside no repository. bin\lwg-config.ps1 resolves -ThisRepo, and now
+        # the -Repo provenance note, from Get-LwgRepoInfo of the working
+        # directory, so this is the only knob that changes either answer. Only
+        # the `cd /d` moves: the .cmd, .out and .err stay in $Sand.work so a
+        # case cannot leave litter in a directory another case reads.
+        [string]$WorkDir
     )
+    if ([string]::IsNullOrWhiteSpace($WorkDir)) { $WorkDir = $Sand.work }
 
     $of  = Join-Path $Sand.work "$Tag.out"
     $ef  = Join-Path $Sand.work "$Tag.err"
     $bat = Join-Path $Sand.work "$Tag.cmd"
 
     $cmd = ('powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" {1} 1>"{2}" 2>"{3}"' -f $Sand.config, $ScriptArgs, $of, $ef)
-    [IO.File]::WriteAllLines($bat, @('@echo off', ('cd /d "{0}"' -f $Sand.work), $cmd, 'exit /b %ERRORLEVEL%'), [Text.ASCIIEncoding]::new())
+    [IO.File]::WriteAllLines($bat, @('@echo off', ('cd /d "{0}"' -f $WorkDir), $cmd, 'exit /b %ERRORLEVEL%'), [Text.ASCIIEncoding]::new())
 
     $before = Get-Bytes -Path $Sand.cfg
     $prev = Push-ChildEnv -Sand $Sand
@@ -639,6 +687,43 @@ try {
     Add-Result 'CONTROL: the per-repo write does not touch the GLOBAL flag' `
         ($b6.text.Contains('"git_hygiene": true')) `
         'the global modules.git_hygiene must still read true - a per-repo override is an override, not a global edit'
+
+    # THE THIRD THING #91 ASKED FOR, and the one the shape check and the
+    # reconciliation above do NOT supply: say so when the slug cannot be
+    # checked against anything.
+    #
+    # -ThisRepo DERIVES the slug through the same Get-LwgRepoInfo every hook
+    # calls, so the key it writes is by construction a key some hook will ask
+    # for. -Repo is a string. B4 refuses the wrong SHAPE and B7 reconciles the
+    # wrong CASE, and neither can touch 'owner/nmae' - right shape, matching no
+    # existing key, written and then "verified" by a read-back that re-resolves
+    # the very key it just wrote through the same case-insensitive property
+    # lookup. #91: "the exit-2 machinery is documented as the guard against
+    # exactly this class, and it is structurally blind to it."
+    #
+    # So the requirement is not a refusal - writing an override for a repo you
+    # are not standing in is a legitimate thing to do, and this command cannot
+    # tell the two apart. It is that the difference between CHECKED and TAKEN
+    # ON TRUST is stated, where the operator can still stop.
+    Write-ConfigFile -Path $sand.cfg -Text $good
+    $b8 = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -Off -Repo other/elsewhere -Apply' -Tag 'b8'
+
+    Add-Result '-Repo naming a repo this run is not standing in says the slug is TAKEN ON TRUST' `
+        ($b8.code -eq 0 -and $b8.changed -and ($b8.out -like '*UNVERIFIED SCOPE*') -and ($b8.out -like '*-ThisRepo*')) `
+        ("exit was {0} and config.json {1}. The shape check and the reconciliation cannot reach a well-formed slug that is simply the wrong repository, and the exit-2 read-back re-resolves the key it just wrote, so it agrees with anything. #91 asks the command to say so once and name -ThisRepo as the path that does not have to. stdout: {2}" -f `
+            $b8.code, $(if ($b8.changed) { 'CHANGED' } else { 'was NOT changed' }), (Get-FirstLines $b8.out 14))
+
+    # THE DISCRIMINATOR. Unconditional text is not a report. Run from inside a
+    # work tree whose origin IS owner/name - $sand.repo, whose hand-built
+    # .git\config Get-LwgRepoInfo reads exactly as it reads a real one - the
+    # same -Repo argument IS checkable, and the note must be absent.
+    Write-ConfigFile -Path $sand.cfg -Text $good
+    $b9 = Invoke-Config -Sand $sand -WorkDir $sand.repo -ScriptArgs '-Module git_hygiene -Off -Repo owner/name -Apply' -Tag 'b9'
+
+    Add-Result 'CONTROL: the same note is ABSENT when -Repo IS the repo the run is standing in' `
+        ($b9.code -eq 0 -and $b9.changed -and ($b9.out -notlike '*UNVERIFIED SCOPE*') -and $b9.text.Contains('"owner/name"')) `
+        ("exit was {0} and config.json {1}. $($sand.repo) is a work tree whose origin remote is https://github.com/owner/name.git, so Get-LwgRepoInfo hands this run the very slug that was typed and the write IS checked against something. A note that fires here too would be decoration rather than a finding. stdout: {2}" -f `
+            $b9.code, $(if ($b9.changed) { 'CHANGED' } else { 'was NOT changed' }), (Get-FirstLines $b9.out 14))
 
     # =======================================================================
     # SECTION C - two phases: preview, then Apply
