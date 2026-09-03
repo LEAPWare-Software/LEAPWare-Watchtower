@@ -79,7 +79,7 @@ nothing here inspects a shell command, a path or a credential any more.
 `tests/workflow_guard.ps1` came after it, and replaced an evidence rule rather than a test: see
 [The workflow guard](#the-workflow-guard).
 
-A green CI run now means exactly fifteen things: every tracked JSON file parses, every `.ps1` file
+A green CI run now means exactly seventeen things: every tracked JSON file parses, every `.ps1` file
 parses, no workflow file reaches a runner GitHub does not host or a secret — and every other YAML
 file under `.github/` at least *parses*, and the guard was shown able to fire on each of its rules
 rather than only shown to say nothing — `delegate_gate` still
@@ -91,8 +91,9 @@ flag the reader ignores, the toggle still backs up `config.json` and still re-ch
 replacing, the `SubagentStart` fast path still answers the global `modules` flag whichever order the
 top-level keys are written in, no tracked file carries a disclosure the payload guard knows the shape
 of, the evidence engine still tells a probe that could not run from a probe that ran and
-failed, every tracked file was *read* and none names a machine, and no tracked page states a count
-the tree contradicts. **It means nothing more than that** — and note two limits inside it: parsing
+failed, every tracked file was *read* and none names a machine, no tracked page states a count
+the tree contradicts, no pull request reached `main` without referencing an issue, and no commit
+reachable from HEAD carries an identity that is not on the allowlist. **It means nothing more than that** — and note two limits inside it: parsing
 `dependabot.yml` is not validating it against GitHub's schema, and a rule proved to fire on one
 planted shape is not a rule proved correct.
 
@@ -956,7 +957,7 @@ page can carry every count correctly and still describe a plugin that does not e
 
 ## What is not covered
 
-Everything except the fifteen CI check steps named above — which is every module in the plugin bar
+Everything except the seventeen CI check steps named above — which is every module in the plugin bar
 two, since the ten behavioural suites cover the gate, one section of the installer, the two hooks
 that run at turn end, one command's deletions, the evidence engine the two reporting commands share,
 two of the doctor's nine checks, the toggle's write to `config.json`, the `SubagentStart` fast path,
@@ -1049,7 +1050,7 @@ blanket-`UNVERIFIED`s everything.
 PowerShell 5.1** (`shell: powershell`). There is no OS matrix, and `pwsh` is not a substitute:
 `tests\portability_scan.ps1` needs a binary literally named `powershell` and `-ExecutionPolicy`.
 
-**One job, `fast-checks`, with fourteen check steps** after the checkout. It was two jobs with four steps
+**One job, `fast-checks`, with seventeen check steps** after the checkout. It was two jobs with four steps
 until 30 July 2026, then one job with three; the fourth step is the gate suite added with
 `delegate_gate`, the fifth is the workflow guard, and the sixth, seventh and eighth — the installer
 merge suite, the stop-hook behaviour suite and the evidence-state suite — were all added on 31 July
@@ -1083,8 +1084,12 @@ Rename it only together with the branch-protection setting.
 installer's now-empty deny table is still empty: it would print a pass on every run, which reads as a
 verified protection and is the precise class of false assurance this repo exists to refuse.
 
-Triggers are `push` and `pull_request` on `main`, plus `workflow_dispatch`. **Neither trigger carries
-a path filter.** `on.push` held `paths-ignore: ['**.md']` until 31 July 2026, on the reasoning that a
+Triggers are `push` on `main`, `pull_request` on `main` **and on the wave integration branches**
+(`wave*/**`), plus `workflow_dispatch`. The two lists differ on purpose: a base branch that is not
+listed runs no job at all — not a skipped one, nothing that reports a status — and every wave of the
+delivery plan lands on an integration branch before it lands on `main`, so with `[main]` alone every
+pull request into one of those was unguarded (#196). Pushes to an integration branch are still not
+built: the pull request that lands them is. **Neither trigger carries a path filter.** `on.push` held `paths-ignore: ['**.md']` until 31 July 2026, on the reasoning that a
 README edit changes no gate and no JSON — and that reasoning went stale the day the portability scan
 landed, because **the scan reads every tracked file, `.md` included**, and a machine-specific path
 turns up in prose more often than in code. A filter sits on the trigger rather than on a job, so it

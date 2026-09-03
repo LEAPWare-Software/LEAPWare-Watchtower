@@ -142,7 +142,7 @@ than trusting any number written on this page.
   portability scan, and the
   documentation-claim guard. Its display name is still `Fast checks (JSON + PowerShell parse)` **on
   purpose** — a required status check on `main` matches that name, so renaming it would silently stop
-  satisfying the requirement. **Every push to `main` runs all fifteen**, with no path filter on either
+  satisfying the requirement. **Every push to `main` runs all seventeen**, with no path filter on either
   trigger.
 - **The delegate gate got a fast path, measured on one machine.** The off-path cost — every gated
   tool call while `interaction.delegate` is off, which is every operator by default — dropped from a

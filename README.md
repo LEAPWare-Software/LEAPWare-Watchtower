@@ -348,20 +348,20 @@ how an existing `config.json` is read, which is why the next number is `0.4.0` a
 refs. See [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-releases) for the rule and for the part the
 guard cannot see.
 
-CI runs on `windows-latest` under Windows PowerShell 5.1, in **one job with fifteen check steps**:
+CI runs on `windows-latest` under Windows PowerShell 5.1, in **one job with seventeen check steps**:
 JSON validity, PowerShell parse, the workflow guard, the delegate gate suite, the installer merge
 suite, the stop-hook behaviour suite, the uninstaller footprint suite, the evidence-state suite, the
 doctor behaviour suite, the toggle write-path suite, the `SubagentStart` fast-scan suite, the payload
 disclosure guard, the
-portability scan, and the documentation-claim guard. The `gate-regression` job and the
+portability scan, the documentation-claim guard, the pull-request issue-reference guard, and the commit-identity guard. The `gate-regression` job and the
 233-case suite behind it were deleted on 30 July 2026 with the destructive command gate; the
 `permissions.deny` parity step and `tests/deny_parity.ps1` went the same day with `secret_scan`.
 **A green CI run says tracked files parse, name no machine, that no workflow reaches a runner GitHub
 does not host, that `delegate_gate` still refuses what it declares, that the installer's `statusline`
 merge still preserves what it was not asked to touch, that the pinned turn-end cases still behave for
 the six observing modules `tests/stop_behaviour.ps1` reaches, that the uninstaller deletes exactly the state data it listed,
-that the evidence engine does not report a state it never observed, and that no page here states a
-count the tree contradicts. It is not evidence that the other three observing modules work, because
+that the evidence engine does not report a state it never observed, that no page here states a
+count the tree contradicts, and that no pull request arrived without an issue reference. It is not evidence that the other three observing modules work, because
 not one of them is exercised by anything — and for four of the six that are, it is evidence about at
 most two properties apiece and no more.** See [Testing and CI](docs/testing.md).
 

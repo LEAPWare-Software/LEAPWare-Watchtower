@@ -223,6 +223,42 @@ project exists to refuse.
 
 ### Fixed
 
+- **A non-repository identity was published on `main`, and the probe that existed to prevent it
+  could not see the field it was in — PARTIALLY resolved, and the residual is named below.** Three
+  squash commits carried a personal address in a `Co-authored-by:` trailer. `checklist.json`'s
+  `P3-identity` rule read `git log --all --format=%ae%n%ce` — the **author and committer** fields — and
+  never a commit body, so the probe was green while the exposure was live and world-readable. It was
+  also a *denylist*: it forbade one address in two fields, so it could only ever catch an exposure
+  somebody had already found, while claiming to establish "exactly one identity".
+
+  **What this fixes.** `main`'s history was rewritten on 2026-09-03 (`b1e4394` → `21b8f49`), dropping
+  the trailers; every rewritten commit keeps its tree hash, so the content is byte-identical and only
+  message bodies changed. Two root causes were then closed as controls rather than habits: the
+  repository's `squash_merge_commit_message` setting was `COMMIT_MESSAGES`, which is what pre-filled
+  a `Co-authored-by:` line for every distinct branch author, and is now `PR_BODY`; and the machine's
+  *global* git identity was the personal address, which every clone but this one inherited — now
+  overridden by a conditional include keyed on the remote URL, so a clone that does not exist yet
+  still authors correctly. `.github/scripts/identity_scan.ps1` replaces the probe with an
+  **allowlist** across author, committer **and** trailers, and its report masks every address it
+  finds, because a CI log on a public repository is a publisher.
+
+  **What this does NOT cover, and it is not a small residual.** Four pull-request refs on this remote
+  carry the address as the **author and committer** of their tip commits — not merely as a credit
+  line. A pull-request ref is owned by GitHub: deleting the branch does not remove it, no push
+  reaches it, and rewriting `main` does not touch it. **Only GitHub Support can purge one**, and that
+  request is outstanding. The pre-rewrite commits also stay fetchable by SHA until GitHub collects
+  them. So the honest state is *`main` is clean and the refs are not*. The scan is scoped to `main`'s
+  history for exactly that reason: a check that goes red on a condition no contributor can fix is a
+  check somebody eventually deletes.
+
+  **Found while fixing it, by the new guard on its first run:** every Dependabot commit also carries
+  `Signed-off-by: dependabot[bot] <support@github.com>`. Nothing had ever seen it, because nothing
+  had ever read a trailer. It is a GitHub role address and is allowlisted with that reason stated.
+  The guard then found a second one on its own pull request: a `pull_request` event checks out
+  GitHub's ephemeral merge commit, which is authored by the maintainer account's `users.noreply`
+  alias rather than by the repository identity. That alias is GitHub's own privacy mechanism and is
+  the author of any web-UI commit, so it is allowlisted with that reason stated too.
+
 - **The uninstaller reported success and deleted nothing when the data directory was redirected.**
   `bin/lwg-uninstall.ps1` hardcoded `~\.claude\plugins\data` and never read `CLAUDE_PLUGIN_DATA` —
   the variable `lib/common.ps1` calls authoritative and every other component resolves through. An
