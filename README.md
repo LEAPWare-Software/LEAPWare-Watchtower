@@ -348,12 +348,12 @@ how an existing `config.json` is read, which is why the next number is `0.4.0` a
 refs. See [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-releases) for the rule and for the part the
 guard cannot see.
 
-CI runs on `windows-latest` under Windows PowerShell 5.1, in **one job with sixteen check steps**:
+CI runs on `windows-latest` under Windows PowerShell 5.1, in **one job with seventeen check steps**:
 JSON validity, PowerShell parse, the workflow guard, the delegate gate suite, the installer merge
 suite, the stop-hook behaviour suite, the uninstaller footprint suite, the evidence-state suite, the
 doctor behaviour suite, the toggle write-path suite, the `SubagentStart` fast-scan suite, the payload
 disclosure guard, the
-portability scan, the documentation-claim guard, and the pull-request issue-reference guard. The `gate-regression` job and the
+portability scan, the documentation-claim guard, the pull-request issue-reference guard, and the commit-identity guard. The `gate-regression` job and the
 233-case suite behind it were deleted on 30 July 2026 with the destructive command gate; the
 `permissions.deny` parity step and `tests/deny_parity.ps1` went the same day with `secret_scan`.
 **A green CI run says tracked files parse, name no machine, that no workflow reaches a runner GitHub

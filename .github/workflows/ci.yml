@@ -6,7 +6,7 @@ name: CI
 # matrix, and every step runs under Windows PowerShell 5.1 rather than the `pwsh`
 # (PowerShell 7) that GitHub's Windows runners default to.
 #
-# THERE IS ONE JOB, AND TEN OF ITS SIXTEEN CHECK STEPS TEST BEHAVIOUR. The
+# THERE IS ONE JOB, AND TEN OF ITS SEVENTEEN CHECK STEPS TEST BEHAVIOUR. The
 # `gate-regression` job and tests\gate_regression.ps1 went on 30 July 2026 with
 # the destructive command gate; the `permissions.deny parity` step and
 # tests\deny_parity.ps1 went the same day with the secret gate. Neither is coming
@@ -1577,5 +1577,68 @@ jobs:
           }
           if ($env:GITHUB_STEP_SUMMARY) {
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Pull-request issue reference:** $label"
+          }
+          exit $code
+
+      # An identity that is not ours must not reach `main`. On 2026-09-02 a
+      # personal address was found on three squash commits, in `Co-authored-by:`
+      # trailers, on a public repository - and the probe that existed to prevent
+      # it read `%ae` and `%ce` only, never a commit body, so it was GREEN while
+      # the exposure was live. That probe was also a denylist over two fields,
+      # which cannot establish the claim it made.
+      #
+      # .github\scripts\identity_scan.ps1 is an ALLOWLIST across author,
+      # committer AND trailers. It scans the history reachable from HEAD - on a
+      # pull request, the history that would become `main` - and it reports every
+      # offender with the address MASKED, because a CI log on a public repository
+      # is a publisher and echoing the address would re-publish the thing the
+      # guard exists to remove.
+      #
+      # It lives under .github\scripts\ for the same reason the pull-request
+      # guard does: it asserts nothing about the plugin, so counting it among the
+      # files in tests\ would make two documented numbers less true.
+      - name: Commit identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $suite = '.github\scripts\identity_scan.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - no commit identity was checked, which is not the same as every identity being ours"
+            exit 1
+          }
+
+          # Fixtures first: eleven cases over planted repositories, each proving one
+          # rule can FIRE. A guard proved only against a clean history is a guard
+          # proved against nothing.
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $fixtureCode = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+          if ($fixtureCode -ne 0) {
+            Write-Host "::error title=Commit identity::the guard's own fixtures did not pass (exit $fixtureCode), so nothing it says about this history can be trusted"
+            exit $fixtureCode
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite -Live
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # 0/1/2, the contract every guard here uses. Exit 2 means a SHALLOW
+          # checkout or a git failure - the history was never read, which is not
+          # the same as it being clean, and is why this job checks out at
+          # fetch-depth: 0.
+          $label = switch ($code) {
+            0       { 'PASS - every author, committer and trailer on every commit reachable from HEAD is on the allowlist. That is a statement about THIS history only: refs this repository does not own are out of scope by design, and the residual is recorded on #178.' }
+            1       { 'FAIL (exit 1) - an identity that is not on the allowlist is in this history. The addresses above are masked on purpose. If it is a new maintainer or bot, add it to the allowlist WITH A REASON; if it is personal, fix the commit and check git config user.email in the clone that made it.' }
+            2       { 'ABORT (exit 2) - the history was not read: a shallow checkout, or git failed. Not clean, and not a pass.' }
+            255     { 'NOT RUN (exit 255) - the guard could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "commit identity: $label"
+          } else {
+            Write-Host "::error title=Commit identity::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Commit identity:** $label"
           }
           exit $code
