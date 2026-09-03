@@ -438,7 +438,7 @@ try {
             }
         }
         if ($Files -contains 'config.json') {
-            $n += 'config.json changes: module ON/OFF flags travel with the repo, so a pull can change what runs. The flag differences are listed below.'
+            $n += 'config.json changes: config.json is the SHIPPED DEFAULTS, so a pull can change what runs where you have not set the flag yourself. Your own settings are in config.override.json under the state directory, git does not touch that file, and it is merged over whatever arrives. The flag differences below are computed with your override applied to BOTH sides, so they are what will actually change.'
         }
         foreach ($c in $Files) {
             if ($c -like 'commands/*')      { $n += "new or changed slash command ($c) - it appears in the next session, not this one"; break }
@@ -474,8 +474,32 @@ try {
         $show = Git @('show', "${upstream}:config.json")
         if ($show.ok) {
             try {
+                # BOTH SIDES CARRY THE OPERATOR'S OVERRIDE - #11. $mine comes
+                # from Get-LwgConfig, which merges config.override.json over the
+                # shipped defaults; $theirs is the raw incoming file. Comparing
+                # one against the other would report every setting the operator
+                # has made as a flag the PULL is about to move, which it is not:
+                # the override is not in the repository and arrives with nothing.
+                # Applying it to the incoming side too makes this row answer the
+                # question it claims to - what will be different afterwards.
                 $theirs = $show.out | ConvertFrom-Json
                 $mine   = Get-LwgConfig -Path (Join-Path $Root 'config.json')
+                try {
+                    $ovp = Get-LwgConfigOverridePath
+                    if (-not [string]::IsNullOrWhiteSpace($ovp) -and [IO.File]::Exists($ovp)) {
+                        $ovt = [IO.File]::ReadAllText($ovp)
+                        if (-not [string]::IsNullOrWhiteSpace($ovt)) {
+                            $ovo = $ovt | ConvertFrom-Json
+                            if ($ovo -is [System.Management.Automation.PSCustomObject]) {
+                                $theirs = Merge-LwgConfigOverride -Base $theirs -Override $ovo
+                            }
+                        }
+                    }
+                } catch {
+                    # An override that cannot be read is one Get-LwgConfig has
+                    # already discarded from $mine, so both sides are then the
+                    # bare documents and the comparison stays honest.
+                }
                 $diffs = @()
                 # RESOLVED THE WAY A HOOK WILL RESOLVE IT, not by a bare [bool]
                 # on the raw member. Two things were wrong with the cast: a

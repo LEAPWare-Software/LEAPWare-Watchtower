@@ -364,11 +364,18 @@ function Get-LwgClaudeHome {
 # root is a git working tree and writing to it would dirty the repo.
 #
 # CLAUDE_PLUGIN_DATA is authoritative and is what Claude Code hands a plugin
-# HOOK. Three things that run this code are NOT hooks and are therefore never
-# given it: statusline.ps1 (a settings.json command), lib/resolve.ps1 (run by an
-# agent - agents get no plugin env either, verified), and any out-of-harness
-# test run. All three took the fallback, and the fallback was a hardcoded
-# `lw-watchtower`.
+# HOOK. Things that run this code and are NOT hooks are therefore never given
+# it: statusline.ps1 (a settings.json command), any bin\ command an operator or
+# an agent runs directly, and any out-of-harness test run. All of them take the
+# fallback, and the fallback was a hardcoded `lw-watchtower`.
+#
+# HISTORICAL, and named because the measurement below was made against it:
+# lib/resolve.ps1 was the third caller when this was written - a healer run by
+# an agent, which gets no plugin environment either, verified at the time. It
+# was DELETED in wave 1 (#192) along with bin\lwg-resolve.ps1. Nothing about
+# the resolution rule depends on it; it is kept in this sentence only so the
+# evidence below reads as evidence rather than as a claim about a file that is
+# not there.
 #
 # That name is wrong. The plugin is auto-discovered out of the skills dir as
 # `lw-watchtower@skills-dir`, so the data dir Claude Code actually creates and hands
@@ -894,29 +901,182 @@ function Get-LwgDefaultConfig {
     }
 }
 
+# --- the operator override -------------------------------------------------
+# config.json IS THE SHIPPED DEFAULTS AND IS NEVER WRITTEN - #11.
+#
+# It is tracked, it lives inside the plugin's own git working tree, and until
+# 3 September 2026 it was also the file every configuring command rewrote. So
+# arming the one gate this plugin ships left the checkout dirty and
+# /lw-watchtower:update refused to pull for good, on the first thing the
+# documentation tells a new operator to do. `.gitignore`'s own header has always
+# said the opposite: "LW-WATCHTOWER keeps no mutable state in the repo - state
+# lives in $CLAUDE_PLUGIN_DATA."
+#
+# Operator choices now live in one small JSON document under Get-LwgStateDir,
+# and this file MERGES it over the shipped defaults. Everything downstream -
+# every hook, the banner, the doctor, the status line, and the configuring
+# commands' own read-back verification - resolves through this one function, so
+# the value a command verifies is the value a hook reads.
+$script:LwgConfigOverrideName = 'config.override.json'
+
+function Get-LwgConfigOverridePath {
+    <#
+      The override document's path, or $null when the state directory cannot be
+      resolved at all. Deliberately NOT Get-LwgStateDir: that creates the
+      directory, and this is called on the read path - including the blocking
+      gate's - where a read must not have a filesystem side effect. Writers call
+      Get-LwgStateDir themselves, which is where creating it belongs.
+    #>
+    $dir = (Get-LwgStateDirInfo).path
+    if ([string]::IsNullOrWhiteSpace($dir)) { return $null }
+    return [IO.Path]::Combine($dir, $script:LwgConfigOverrideName)
+}
+
+function Merge-LwgConfigOverride {
+    <#
+      $Override laid over $Base, recursively, returning a NEW object - neither
+      input is mutated, because callers hold both and one of them is the shipped
+      defaults.
+
+      THE RULE, in one line: two objects merge member by member; anything else
+      the override wins outright.
+
+      So `interaction.delegate` in the override replaces only that member and
+      leaves `interaction`'s comments and every other block alone, while an
+      ARRAY in the override REPLACES the base array rather than appending to it.
+      That is the right polarity for every array this config has - doc_extensions,
+      default_branches, window_tokens - because an operator writing one is
+      stating the whole list, and there would be no way to remove an entry from a
+      list that only ever grows.
+
+      Member names are matched the way every READER resolves them - PowerShell
+      property lookup, which is case-INSENSITIVE - and not the way the surgical
+      JSON writers match them (-ceq, because JSON names are case-sensitive). The
+      readers are what this feeds, so the readers' rule is the one that applies;
+      #91 is the same distinction made in the other direction.
+    #>
+    param($Base, $Override)
+
+    if ($null -eq $Override) { return $Base }
+    if ($Base     -isnot [System.Management.Automation.PSCustomObject] -or
+        $Override -isnot [System.Management.Automation.PSCustomObject]) {
+        return $Override
+    }
+
+    $out = [pscustomobject]@{}
+    foreach ($p in $Base.PSObject.Properties) {
+        Add-Member -InputObject $out -NotePropertyName $p.Name -NotePropertyValue $p.Value -Force
+    }
+    foreach ($p in $Override.PSObject.Properties) {
+        $b = $Base.PSObject.Properties[$p.Name]
+        if ($null -eq $b) {
+            Add-Member -InputObject $out -NotePropertyName $p.Name -NotePropertyValue $p.Value -Force
+        } else {
+            Add-Member -InputObject $out -NotePropertyName $b.Name `
+                       -NotePropertyValue (Merge-LwgConfigOverride -Base $b.Value -Override $p.Value) -Force
+        }
+    }
+    return $out
+}
+
 function Get-LwgConfig {
     <#
-      Loads config.json from the plugin root. Any failure falls back to the
-      defaults above rather than disabling governance.
+      The shipped defaults from config.json, with the operator's override
+      merged over them. Any failure falls back to the built-in defaults rather
+      than disabling governance.
+
+      Adds three fields to what it returns:
+
+        _source          'file' when config.json parsed and carried a `modules`
+                         block, 'defaults' when it did not. UNCHANGED in meaning
+                         and in spelling - both configuring commands refuse to
+                         write when it is not 'file', and several readers test it.
+        _override        the override document's path when one was read and
+                         merged; '' when there is none, or when there is one
+                         this function would not use.
+        _override_error  why an override that EXISTS was not used; '' otherwise.
+
+      TWO POLARITY DECISIONS, both stated here because both are the difference
+      between a nuisance and a lockout.
+
+      1. A config.json that does not parse discards the override too. The
+         override is merged over the SHIPPED DEFAULTS, and when those could not
+         be read there is nothing to merge onto but the built-in fallback - which
+         deliberately carries no `interaction` and no `supervision` block, so
+         every gate is off. Honouring an override there would let a corrupt
+         config.json arm a blocking gate, which is the one thing this file's
+         fail-open design exists to prevent. Both configuring commands already
+         refuse to write in that state and say so; this is the reading half of
+         the same rule.
+
+      2. An override that does not parse is IGNORED, not fatal, and the reason is
+         carried out in _override_error rather than thrown. Same polarity: a
+         half-written override must not arm a gate, and it must not take the
+         plugin down either. The configuring commands read _override_error and
+         refuse to write over a file they cannot read back, exactly as they
+         already refuse over an unreadable config.json.
     #>
-    param([string]$Path)
+    param(
+        [string]$Path,
+        # Read the shipped defaults ALONE. Used by the configuring commands,
+        # which have to know what the file under them says before they can
+        # report what the override changed.
+        [switch]$NoOverride
+    )
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
         $Path = Join-Path (Get-LwgPluginRoot) 'config.json'
     }
+
+    $base = $null
     try {
         if (Test-Path $Path) {
             $raw = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
             if (-not [string]::IsNullOrWhiteSpace($raw)) {
                 $cfg = $raw | ConvertFrom-Json -ErrorAction Stop
-                if ($null -ne $cfg -and $null -ne $cfg.modules) {
-                    Add-Member -InputObject $cfg -NotePropertyName '_source' -NotePropertyValue 'file' -Force
-                    return $cfg
-                }
+                if ($null -ne $cfg -and $null -ne $cfg.modules) { $base = $cfg }
             }
         }
     } catch { }
-    return (Get-LwgDefaultConfig)
+
+    if ($null -eq $base) {
+        $d = Get-LwgDefaultConfig
+        Add-Member -InputObject $d -NotePropertyName '_override'       -NotePropertyValue '' -Force
+        Add-Member -InputObject $d -NotePropertyName '_override_error' -NotePropertyValue '' -Force
+        return $d
+    }
+
+    $ovPath  = ''
+    $ovError = ''
+    $merged  = $base
+    if (-not $NoOverride) {
+        try {
+            $p = Get-LwgConfigOverridePath
+            if (-not [string]::IsNullOrWhiteSpace($p) -and [IO.File]::Exists($p)) {
+                $txt = [IO.File]::ReadAllText($p)
+                if ([string]::IsNullOrWhiteSpace($txt)) {
+                    $ovError = 'it is empty'
+                } else {
+                    $ov = $null
+                    try { $ov = $txt | ConvertFrom-Json -ErrorAction Stop }
+                    catch { $ovError = "it does not parse - $($_.Exception.Message)" }
+                    if ($ovError -eq '') {
+                        if ($ov -isnot [System.Management.Automation.PSCustomObject]) {
+                            $ovError = 'its top level is not a JSON object'
+                        } else {
+                            $merged = Merge-LwgConfigOverride -Base $base -Override $ov
+                            $ovPath = $p
+                        }
+                    }
+                }
+            }
+        } catch { $ovError = $_.Exception.Message }
+    }
+
+    Add-Member -InputObject $merged -NotePropertyName '_source'         -NotePropertyValue 'file' -Force
+    Add-Member -InputObject $merged -NotePropertyName '_override'       -NotePropertyValue $(if ($ovError -eq '') { $ovPath } else { '' }) -Force
+    Add-Member -InputObject $merged -NotePropertyName '_override_error' -NotePropertyValue $ovError -Force
+    return $merged
 }
 
 # --- repo identity ---------------------------------------------------------
@@ -2194,8 +2354,9 @@ $script:LwgGenericSecretRules = @(
 
     # A CREDENTIAL WITH NO KEY NAME AT ALL, and the reason it is here rather than
     # left to the two above: git and gh print remote URLs into stderr on almost
-    # every failure, and lib/stop_advisories.ps1 and bin/lwg-evidence.ps1 put
-    # that stderr straight through this function. `https://<user>:<password>@host`
+    # every failure, and lib/stop_advisories.ps1 puts that stderr straight
+    # through this function - three times, at :993, :1045 and :1175, for the
+    # git, rev-list and gh calls git_hygiene makes. `https://<user>:<password>@host`
     # names the password nothing, so nothing above can see it. The lookahead for
     # `@` is what keeps `https://github.com/owner/repo` and `git@github.com:o/r`
     # untouched - neither has a colon-delimited userinfo followed by an at-sign.
@@ -2276,13 +2437,18 @@ function Get-LwgRedacted {
       for the first time.
 
       A CONTROL CHARACTER IS ESCAPED, NEVER PASSED THROUGH. This value is
-      written as one field of one JSONL record and it is also PRINTED, a row at
-      a time, into a fixed-column console report - bin\lwg-resolve.ps1 lays out
-      `ts  event  xN  detail` and `detail` is this. The text inside it is a
-      failed task's stderr or a config value: not hostile by assumption, but
-      not authored by this plugin either. A newline in it therefore ends the
-      row early and starts a second one, and a second row that looks exactly
-      like a fault record is a fault record the operator never had. An ESC is
+      written as one field of one JSONL record, and every reader of that record
+      PRINTS it into a row-per-record console report - /lw-watchtower:doctor and
+      /lw-watchtower:update both lay out fixed-column rows whose last column is
+      free text of exactly this kind. The reason was first written against
+      bin\lwg-resolve.ps1, which laid out `ts  event  xN  detail` with `detail`
+      being this value; that command was DELETED in wave 1 (#192) and the reason
+      did not go with it, because it was never a property of that one reader.
+      The text inside is a failed task's stderr or a config value: not hostile
+      by assumption, but not authored by this plugin either. A newline in it
+      therefore ends the row early and starts a second one, and a second row
+      that looks exactly like a fault record is a fault record the operator
+      never had. An ESC is
       worse - it reaches the terminal as an escape sequence and can repaint or
       erase what is already on it. LF, CR and TAB become \n, \r and \t; every
       other C0/C1 control and DEL becomes \xHH. The ambiguity with a literal
@@ -2302,10 +2468,18 @@ function Get-LwgRedacted {
 
       SURROUNDING WHITESPACE IS TRIMMED, and only because the escaping made it
       matter. Captured stderr almost always ends in a newline; escaping that
-      first would put a visible \n at the end of nearly every message, and the
-      callers that PRINT this - bin\lwg-evidence.ps1 builds a one-sentence
-      checklist detail out of it - cannot take it off again, because they call
-      Trim() and a literal backslash-n is not whitespace.
+      first would put a visible \n at the end of nearly every message, and a
+      caller that composes this value into a SENTENCE cannot take it off again,
+      because it would call Trim() and a literal backslash-n is not whitespace.
+      lib/gate_send.ps1 does exactly that at :272 and :283, where the redacted
+      recipient is built into the deny text an operator reads.
+
+      THE ORIGINAL CALLER IS GONE AND THE REASON IS NOT. This paragraph named
+      bin\lwg-evidence.ps1, which built a one-sentence checklist detail out of
+      this value; that command was DELETED in wave 1 (#121, #192). The rule
+      survives it because it was never a property of that one caller - every
+      reader of a log field and every gate that quotes one has the same
+      problem.
 
       IT IS IDEMPOTENT, and the tests pin that: the escapes, the [REDACTED]
       markers, the trim and the trailing ellipsis all survive a second pass

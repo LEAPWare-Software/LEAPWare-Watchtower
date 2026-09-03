@@ -163,15 +163,54 @@ try {
 
     if ([string]::IsNullOrWhiteSpace($ConfigPath)) { $ConfigPath = Join-Path $pluginRoot 'config.json' }
 
-    # --- what is on disk right now -----------------------------------------
-    $file = Read-LwgTextFile -Path $ConfigPath
-    if (-not $file.ok) {
+    # --- WHAT IS READ AND WHAT IS WRITTEN ARE TWO FILES - #11 ----------------
+    # config.json is the SHIPPED DEFAULTS and this command no longer writes it.
+    # It is tracked and inside the plugin's own git working tree, so every write
+    # left the checkout dirty and made /lw-watchtower:update refuse to pull for
+    # good. The operator's choice goes to config.override.json under the state
+    # directory, which Get-LwgConfig merges over the defaults - so the exit-2
+    # read-back below still resolves the same document a hook resolves, which is
+    # the property that makes it a verification rather than a tautology.
+    $baseFile = Read-LwgTextFile -Path $ConfigPath
+    if (-not $baseFile.ok) {
         Write-Output "LW-WATCHTOWER config"
-        Write-Refusal @("cannot read $ConfigPath - $($file.error)")
+        Write-Refusal @("cannot read $ConfigPath - $($baseFile.error)")
         exit $script:Exit
     }
-    $cfg = Get-LwgConfig -Path $ConfigPath
+    $cfg     = Get-LwgConfig -Path $ConfigPath
+    # The defaults ALONE. The pre-write resolution has to merge the PROPOSED
+    # override onto these rather than onto a config already carrying the old one.
+    $cfgBase = Get-LwgConfig -Path $ConfigPath -NoOverride
     $onDefaults = ($cfg._source -ne 'file')
+
+    $ovPath = Get-LwgConfigOverridePath
+    if ([string]::IsNullOrWhiteSpace($ovPath)) {
+        Write-Output 'LW-WATCHTOWER config'
+        Write-Refusal @(
+            'the state directory could not be resolved, so there is nowhere to record a setting.',
+            'Operator settings live in config.override.json under $CLAUDE_PLUGIN_DATA (or',
+            '~/.claude/plugins/data/lw-watchtower*/); config.json in the plugin root is the shipped',
+            'defaults and this command does not write it.'
+        )
+        exit $script:Exit
+    }
+    # SEEDED IF ABSENT, and only when a write was actually asked for. A writer
+    # that assumes its target exists exits 3 on every fresh install, which is
+    # the measurement that killed route 2a on #11. An empty JSON object is the
+    # honest seed - "no operator choice yet" - and Save-LwgTextFile refuses a
+    # file that is not there, so the seed has to land before the read that
+    # produces the SHA.
+    if ($Apply -and -not [IO.File]::Exists($ovPath)) {
+        [void](Get-LwgStateDir)
+        [IO.File]::WriteAllText($ovPath, "{}`r`n", [Text.UTF8Encoding]::new($false))
+    }
+    $file = if ([IO.File]::Exists($ovPath)) { Read-LwgTextFile -Path $ovPath } `
+            else { @{ ok = $true; text = '{}'; bom = $false; sha = ''; bytes = 0; error = '' } }
+    if (-not $file.ok) {
+        Write-Output 'LW-WATCHTOWER config'
+        Write-Refusal @("cannot read $ovPath - $($file.error)")
+        exit $script:Exit
+    }
 
     # Scope resolution happens before anything is printed, because the whole
     # report is scoped by it.
@@ -402,6 +441,44 @@ try {
         exit $script:Exit
     }
 
+    # --- the one module whose flag a SECOND reader resolves for itself - #11 --
+    # Since 3 September 2026 this command writes config.override.json under the
+    # state directory and Get-LwgConfig merges it over the shipped defaults, so
+    # a flag written here is read by every hook that resolves through
+    # Get-LwgConfig - which is all of them but one.
+    #
+    # lib/subagent_start.ps1 is the exception. It reads <pluginRoot>\config.json
+    # DIRECTLY (:459-492), scanning the raw text for modules.context_injection,
+    # and only reaches Get-LwgConfig when it spots a per-repo override. Writing
+    # context_injection to the override would therefore be honoured by the
+    # banner, by /lw-watchtower:doctor and by this command's own read-back
+    # verification, and ignored by the hook the flag exists to switch: the
+    # SubagentStart hook would go on injecting worker facts into every dispatch
+    # while everything that reports on it said the module was off.
+    #
+    # THAT IS THE SILENT NO-OP THIS COMMAND EXISTS TO REFUSE, and it is the same
+    # refusal as the one directly above - a flag written where the reader that
+    # matters does not look. lib/subagent_start.ps1 is not this lane's file to
+    # change; what it needs is one abstain, written out on #11. Until it lands,
+    # this refuses rather than reporting a write that changes nothing.
+    if ($Module -eq 'context_injection' -and ($On -or $Off)) {
+        Write-Refusal @(
+            "'context_injection' is a real, implemented module, and this command cannot switch it right now.",
+            'Operator settings are written to config.override.json under the state directory (#11), which',
+            'every reader resolves through Get-LwgConfig - except lib/subagent_start.ps1, the SubagentStart',
+            'hook this very module IS. It reads config.json in the plugin root directly, by raw text scan,',
+            'for speed, so it would not see the override: the flag would be written, verified against the',
+            'merged config, reported as off by the banner and the doctor, and the hook would go on injecting',
+            'worker facts into every dispatch. A write nothing honours, reported as verified, is the silent',
+            'no-op this command refuses everywhere else.',
+            '',
+            'This is tracked on #11 and the fix is one abstain in lib/subagent_start.ps1. Until it lands, the',
+            'way to switch this module is to edit modules.context_injection in config.json by hand - which',
+            'dirties the plugin checkout, and is why #11 exists.'
+        )
+        exit $script:Exit
+    }
+
     $n = @($On, $Off, $Clear | Where-Object { $_ }).Count
     if ($n -ne 1) {
         Write-Refusal @('pass exactly one of -On, -Off or -Clear.',
@@ -443,8 +520,23 @@ try {
     if ($onDefaults) {
         Write-Refusal @(
             "$ConfigPath does not parse, so the plugin is running on BUILT-IN DEFAULTS and every operator ON/OFF choice is already being ignored.",
-            'Writing here would replace whatever is in that file rather than edit it, and would destroy the evidence of what broke.',
+            'An override is merged over those defaults, not over a file nobody could read, so a write now would be recorded and then resolved against a config that is not the one you meant.',
             'Fix the JSON first - /lw-watchtower:doctor names this as the config-registry check.'
+        )
+        exit $script:Exit
+    }
+
+    # THE SAME REFUSAL FOR THE FILE THIS COMMAND ACTUALLY WRITES - #11. An
+    # override that exists and does not parse is IGNORED by Get-LwgConfig, on
+    # purpose, so a half-written settings file can neither arm a gate nor take
+    # the plugin down. That makes it exactly the state a write must not land on:
+    # the operator's real choices are in there, this command cannot read them
+    # back, and replacing the text would destroy the evidence of what broke.
+    if ("$($cfg._override_error)" -ne '') {
+        Write-Refusal @(
+            "$ovPath exists but $($cfg._override_error), so every operator ON/OFF choice recorded in it is already being ignored.",
+            'Writing here would replace text this command cannot read back, and would destroy whatever else that file was holding.',
+            "Fix or delete $ovPath and run this again. Deleting it is safe: it holds only overrides, and everything falls back to the shipped defaults without it."
         )
         exit $script:Exit
     }
@@ -519,7 +611,7 @@ try {
     }
 
     Write-Output ''
-    Write-Output '  WHEN: hooks read config.json on every invocation, so a change lands on the next hook'
+    Write-Output '  WHEN: hooks resolve the config on every invocation, so a change lands on the next hook'
     Write-Output '        event. The SessionStart banner and the mode word are computed once per session'
     Write-Output '        and will keep reporting the old ones until a new session starts.'
 
@@ -555,28 +647,62 @@ try {
     $lit  = $want.ToString().ToLower()
 
     if ([string]::IsNullOrWhiteSpace($Repo)) {
+        # AN ABSENT MEMBER IS THE NORMAL CASE NOW, not a drifted config - #11.
+        # This used to refuse when modules.<name> was missing, because the file
+        # it edited was config.json, where the config-registry check guarantees
+        # the key exists. The override starts EMPTY and gains only what an
+        # operator has actually set, so the member is created here exactly as
+        # the repo-scoped branch below has always created its own.
         $m = Get-LwgJsonMemberPath -Text $text -Path @('modules', $Module)
-        if (-not $m.found) {
-            Write-Refusal @("config.json has no modules.$Module member to change (its `modules` block has drifted from the registry).",
-                            'Run /lw-watchtower:doctor - the config-registry check reports exactly this.')
-            exit $script:Exit
+        if ($m.found) {
+            $old = $text.Substring($m.value_start, $m.value_end - $m.value_start)
+            $new = $text.Substring(0, $m.value_start) + $lit + $text.Substring($m.value_end)
+            $what = "modules.$Module : $old -> $lit"
+        } else {
+            $modsM = Get-LwgJsonMemberPath -Text $text -Path @('modules')
+            if ($modsM.found -and $text[$modsM.value_start] -eq '{') {
+                $new  = Add-LwgJsonMember -Text $text -ObjStart $modsM.value_start -Fragment ("`"$Module`": $lit")
+                $what = "modules: added `"$Module`": $lit"
+            } else {
+                $rootM = $text.IndexOf('{')
+                if ($rootM -lt 0) {
+                    Write-Refusal @("$ovPath holds no JSON object to write into.")
+                    exit $script:Exit
+                }
+                $new  = Add-LwgJsonMember -Text $text -ObjStart $rootM -Fragment ("`"modules`": { `"$Module`": $lit }")
+                $what = "added modules { `"$Module`": $lit }"
+            }
         }
-        $old = $text.Substring($m.value_start, $m.value_end - $m.value_start)
-        $new = $text.Substring(0, $m.value_start) + $lit + $text.Substring($m.value_end)
-        $what = "modules.$Module : $old -> $lit"
     }
     else {
+        # CREATED IF ABSENT, same reasoning as the global branch above: the
+        # override document starts empty, so it carries no `repos` object until
+        # this command puts one there.
         $reposM = Get-LwgJsonMemberPath -Text $text -Path @('repos')
         if (-not $reposM.found -or $text[$reposM.value_start] -ne '{') {
-            Write-Refusal @('config.json has no `repos` object to hold a per-repo override.')
-            exit $script:Exit
+            if ($Clear) {
+                Write-Output ''
+                Write-Output "  Nothing to clear: $ovPath records no per-repo override at all, so '$Module' already falls through to the global default."
+                exit 0
+            }
+            $rootR = $text.IndexOf('{')
+            if ($rootR -lt 0) {
+                Write-Refusal @("$ovPath holds no JSON object to write into.")
+                exit $script:Exit
+            }
+            $text   = Add-LwgJsonMember -Text $text -ObjStart $rootR -Fragment '"repos": {}'
+            $reposM = Get-LwgJsonMemberPath -Text $text -Path @('repos')
+            if (-not $reposM.found -or $text[$reposM.value_start] -ne '{') {
+                Write-Refusal @("a repos object could not be created in $ovPath; nothing was written.")
+                exit $script:Exit
+            }
         }
         $repoObj = Find-LwgJsonMember -Text $text -ObjStart $reposM.value_start -Key $Repo
 
         if ($Clear) {
             if (-not $repoObj.found) {
                 Write-Output ''
-                Write-Output "  Nothing to clear: config.json has no `"$Repo`" entry, so '$Module' already falls through to the global default."
+                Write-Output "  Nothing to clear: $ovPath has no `"$Repo`" entry, so '$Module' already falls through to the global default."
                 exit 0
             }
             $modsM = Find-LwgJsonMember -Text $text -ObjStart $repoObj.value_start -Key 'modules'
@@ -615,7 +741,7 @@ try {
     }
 
     if ([string]::IsNullOrWhiteSpace($new)) {
-        Write-Refusal @('the edit could not be constructed; config.json was not touched.')
+        Write-Refusal @("the edit could not be constructed; $ovPath was not touched.")
         exit $script:Exit
     }
     if ($new -eq $text) {
@@ -627,11 +753,11 @@ try {
     # would take config.json out of service silently: Get-LwgConfig fails open to
     # defaults and nothing would report an error.
     if (-not (Test-LwgJsonParses -Text $new)) {
-        Write-Refusal @('the edited text does not parse as JSON, so it was NOT written. This is a bug in this script; config.json is untouched.')
+        Write-Refusal @("the edited text does not parse as JSON, so it was NOT written. This is a bug in this script; $ovPath is untouched.")
         exit $script:Exit
     }
 
-    $save = Save-LwgTextFile -Path $ConfigPath -Text $new -ExpectedSha $file.sha -Bom $file.bom -BackupTag 'lwg-config'
+    $save = Save-LwgTextFile -Path $ovPath -Text $new -ExpectedSha $file.sha -Bom $file.bom -BackupTag 'lwg-config'
     if (-not $save.ok) {
         Write-Refusal @("the write did not happen: $($save.reason)")
         exit $script:Exit
@@ -650,7 +776,7 @@ try {
     $after = Get-LwgConfig -Path $ConfigPath
     if ($after._source -ne 'file') {
         Write-Output ''
-        Write-Output 'FAULT: after the write, config.json no longer parses. The backup above is the file as it was.'
+        Write-Output "FAULT: after the write, $ConfigPath no longer parses. The backup above is the file as it was."
         exit 2
     }
     $eff = Test-LwgModule -Name $Module -Config $after -Repo $Repo
@@ -674,6 +800,6 @@ try {
 } catch {
     Write-Output ''
     Write-Output "LW-WATCHTOWER config could not complete: $($_.Exception.Message)"
-    Write-Output 'Nothing above should be read as a description of what config.json now contains.'
+    Write-Output 'Nothing above should be read as a description of what the configuration now contains.'
     exit 3
 }

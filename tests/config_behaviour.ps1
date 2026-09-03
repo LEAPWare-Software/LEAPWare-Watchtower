@@ -307,6 +307,47 @@ function New-RepoBlock {
             '        "' + $Module + '": ' + $Literal + "`n" + '      }' + "`n" + '    }' + "`n" + '  }')
 }
 
+function New-OverrideText {
+    <#
+      The OPERATOR OVERRIDE fixture - the document bin\lwg-config.ps1 actually
+      writes since #11. config.json in the plugin root is the SHIPPED DEFAULTS
+      and is no longer written by anything; the override under the state
+      directory is where a `modules` flag and a `repos` entry now live, and
+      Get-LwgConfig merges it over the defaults.
+
+      It carries the same apostrophe and angle bracket in a "$comment" as
+      New-ConfigText, and for the same reason - the surgical-edit case compares
+      this file's bytes before and after, and a ConvertFrom-Json /
+      ConvertTo-Json round trip would escape both and fail there. The reason
+      moved to this file with the write.
+
+      The `modules` block holds the SAME two real registry names as the defaults
+      - git_hygiene and docs_coupling - so an -Off is a one-literal edit rather
+      than a member insertion, which is what the surgical case is about.
+
+        -Repos   the literal text of the `repos` value. Default '{}'.
+        -Empty   the state a machine is in before anything has been configured.
+    #>
+    param([string]$Repos = '{}', [switch]$Empty)
+
+    if ($Empty) { return "{}" }
+
+    $t = @'
+{
+  "@C@": "scratch override fixture - it's here so a <round trip> would be visible",
+  "modules": {
+    "git_hygiene": true,
+    "docs_coupling": true
+  },
+  "repos": @REPOS@
+}
+'@
+    $t = $t.Replace('@C@', ([char]36 + 'comment'))
+    $t = $t.Replace('@REPOS@', $Repos)
+    $t = ($t -replace "`r`n", "`n") -replace "`n", "`r`n"
+    return $t.TrimEnd([char]13, [char]10)
+}
+
 function Write-ConfigFile {
     <# Seed a config fixture. Bytes, not Set-Content. #>
     param([string]$Path, [string]$Text, [switch]$Bom)
@@ -402,7 +443,14 @@ function New-Sandbox {
         }
     }
     $sand.config = Join-Path $sand.plugin 'bin\lwg-config.ps1'
+    # THE TWO FILES - #11. config.json in the copied plugin root is the SHIPPED
+    # DEFAULTS and this command no longer writes it; the operator's choice goes
+    # to config.override.json under the state directory, which Get-LwgConfig
+    # merges over the defaults. Every assertion below about what a run did to
+    # disk therefore reads .ov, and section G asserts that no run of this suite
+    # ever moved a byte of .cfg.
     $sand.cfg    = Join-Path $sand.plugin 'config.json'
+    $sand.ov     = Join-Path $sand.data   'config.override.json'
     if (-not (Test-Path -LiteralPath $sand.config -PathType Leaf)) {
         throw "the copied tree has no bin\lwg-config.ps1 at $($sand.config)"
     }
@@ -474,7 +522,8 @@ function Invoke-Config {
     $cmd = ('powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" {1} 1>"{2}" 2>"{3}"' -f $Sand.config, $ScriptArgs, $of, $ef)
     [IO.File]::WriteAllLines($bat, @('@echo off', ('cd /d "{0}"' -f $WorkDir), $cmd, 'exit /b %ERRORLEVEL%'), [Text.ASCIIEncoding]::new())
 
-    $before = Get-Bytes -Path $Sand.cfg
+    $before     = Get-Bytes -Path $Sand.ov
+    $baseBefore = Get-Bytes -Path $Sand.cfg
     $prev = Push-ChildEnv -Sand $Sand
     try {
         & $env:ComSpec /c $bat | Out-Null
@@ -482,24 +531,33 @@ function Invoke-Config {
     } finally {
         Pop-ChildEnv -Prev $prev
     }
-    $after = Get-Bytes -Path $Sand.cfg
+    $after     = Get-Bytes -Path $Sand.ov
+    $baseAfter = Get-Bytes -Path $Sand.cfg
 
     $out = ''; $err = ''
     try { $out = [IO.File]::ReadAllText($of) } catch { }
     try { $err = [IO.File]::ReadAllText($ef) } catch { }
 
     $r = @{
-        code    = $code
-        out     = $out
-        err     = $err
-        before  = $before
-        after   = $after
-        text    = (Get-Text $after)
-        changed = ((Get-B64 $before) -ne (Get-B64 $after))
-        tag     = $Tag
+        code         = $code
+        out          = $out
+        err          = $err
+        before       = $before
+        after        = $after
+        text         = (Get-Text $after)
+        changed      = ((Get-B64 $before) -ne (Get-B64 $after))
+        # THE SHIPPED DEFAULTS, TRACKED ON EVERY RUN - #11. Section G reads
+        # this: no invocation of this command, on any path, may move a byte of
+        # the file that is inside the plugin's git working tree.
+        base_before  = $baseBefore
+        base_after   = $baseAfter
+        base_text    = (Get-Text $baseAfter)
+        base_changed = ((Get-B64 $baseBefore) -ne (Get-B64 $baseAfter))
+        tag          = $Tag
     }
     [void]$script:Runs.Add([pscustomobject]@{
-        tag = $Tag; code = $code; changed = $r.changed; preview = ($out -like '*PREVIEW ONLY*') })
+        tag = $Tag; code = $code; changed = $r.changed; base_changed = $r.base_changed
+        preview = ($out -like '*PREVIEW ONLY*') })
     return $r
 }
 
@@ -519,6 +577,10 @@ $sand = $null
 try {
     $sand = New-Sandbox
     $good = New-ConfigText
+    # THE FILE THIS COMMAND WRITES - #11. config.json is seeded on every case as
+    # the shipped DEFAULTS and is asserted never to move; the operator state a
+    # case is about goes here.
+    $goodOv = New-OverrideText
 
     Write-Output ''
     Write-Output 'LW-WATCHTOWER config write-path suite'
@@ -537,6 +599,7 @@ try {
     Write-Output 'A. a module name in the wrong case (#92)'
 
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $a1 = Invoke-Config -Sand $sand -ScriptArgs '-Module Git_Hygiene -Off' -Tag 'a1'
 
     # THE STRONG ONE: an exit code and a banner, not a choice of words. A preview
@@ -552,6 +615,7 @@ try {
         ('the hint that says names are case-sensitive was unreachable for the only input it describes; it must now fire. stdout: ' + (Get-FirstLines $a1.out 6))
 
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $a2 = Invoke-Config -Sand $sand -ScriptArgs '-Module Git_Hygiene -Off -Apply' -Tag 'a2'
 
     Add-Result 'wrong case: -Apply does NOT report config.json as drifted from the registry' `
@@ -564,6 +628,7 @@ try {
         'both runs must leave config.json byte-identical - compared before and after. True at origin/main as well; what was wrong there was the diagnosis, not the write'
 
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $a3 = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -Off -Apply' -Tag 'a3'
 
     Add-Result 'CONTROL: the SAME name in the right case still writes and exits 0' `
@@ -572,8 +637,8 @@ try {
             $a3.code, (($a3.out -split "`r?`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -Last 2) -join ' | '))
 
     Add-Result 'CONTROL: the edit is SURGICAL - only the one literal moved' `
-        ($a3.text -eq $good.Replace('"git_hygiene": true', '"git_hygiene": false')) `
-        'the whole point of the text editor in this script is that config.json keeps its bytes except the edited value; a ConvertFrom-Json / ConvertTo-Json round trip would escape the apostrophe and the angle bracket in the fixture''s comment and fail here'
+        ($a3.text -eq $goodOv.Replace('"git_hygiene": true', '"git_hygiene": false')) `
+        'the whole point of the text editor in this script is that the file it writes keeps its bytes except the edited value; a ConvertFrom-Json / ConvertTo-Json round trip would escape the apostrophe and the angle bracket in the fixture''s comment and fail here'
 
     # =======================================================================
     # SECTION B - -Repo is taken verbatim  (#91)
@@ -585,14 +650,20 @@ try {
     Write-Output ''
     Write-Output 'B. -Repo is taken verbatim (#91)'
 
-    $mixed = New-ConfigText -Repos (New-RepoBlock -Slug 'Owner/Name' -Module 'git_hygiene' -Literal 'false')
+    # THE OVERRIDE IS WHERE A `repos` KEY LIVES NOW - #11, and #91 is unchanged
+    # by that: the writer still matches member names with -ceq and every reader
+    # still resolves them case-insensitively, so the reconciliation this section
+    # is about is the same reconciliation over the same two rules. What moved is
+    # only which document holds the key.
+    $mixedOv = New-OverrideText -Repos (New-RepoBlock -Slug 'Owner/Name' -Module 'git_hygiene' -Literal 'false')
 
     # CONTROL, AND THE PREMISE OF B2. Every reader in this plugin resolves
     # repos.<slug> by PowerShell property lookup, which is case-insensitive, so
     # this command's own table reports the "Owner/Name" override as live for
     # -Repo owner/name. True at origin/main too - that is what makes the next
     # case a contradiction inside one command rather than a matter of taste.
-    Write-ConfigFile -Path $sand.cfg -Text $mixed
+    Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $mixedOv
     $b1 = Invoke-Config -Sand $sand -ScriptArgs '-Repo owner/name' -Tag 'b1'
     $b1row = Get-ModuleRow -Out $b1.out -Module 'git_hygiene'
 
@@ -601,7 +672,8 @@ try {
         ("exit {0}; the git_hygiene row was {1}. The reader is case-insensitive, so the override IS in effect for that slug; the next case asserts the WRITER agrees" -f `
             $b1.code, $(if ($null -eq $b1row) { '<no such row>' } else { ($b1row -join ' | ') }))
 
-    Write-ConfigFile -Path $sand.cfg -Text $mixed
+    Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $mixedOv
     $b2 = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -Clear -Repo owner/name -Apply' -Tag 'b2'
 
     Add-Result '-Clear removes the override the table just called live, whatever case the key is in' `
@@ -636,7 +708,8 @@ try {
     # why the second case below asserts on the gate rather than on the wreckage:
     # the wreckage never happened, and saying it did would be the overstatement
     # this suite exists to catch in someone else's file.
-    Write-ConfigFile -Path $sand.cfg -Text $mixed
+    Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $mixedOv
     $b7 = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -On -Repo owner/name -Apply' -Tag 'b7'
     $b7parses = $false
     try { $null = ($b7.text | ConvertFrom-Json -ErrorAction Stop); $b7parses = $true } catch { }
@@ -652,6 +725,7 @@ try {
         ('the last-gate parse check is a guard against a bug in the editor, not a supported outcome of a valid request. Reaching it means the command built a document with two case-twin `repos` keys - which ConvertFrom-Json refuses outright, so every hook would have fallen back to built-in defaults had it been written - and then told the operator to report a bug instead of naming the slug. It is the only thing standing between #91 and an unloadable config.json. File after: ' + $b7.text)
 
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $b3 = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -Off -Repo "https://github.com/owner/name.git" -Apply' -Tag 'b3'
 
     Add-Result 'a remote URL is reduced to the slug a hook produces, not written verbatim' `
@@ -660,6 +734,7 @@ try {
             $b3.code, $b3.text)
 
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $b4 = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -Off -Repo owner -Apply' -Tag 'b4'
 
     Add-Result 'a slug that is not owner/name is REFUSED, not written' `
@@ -669,6 +744,7 @@ try {
 
     # CONTROL: canonicalisation must not turn a legitimate no-op into a refusal.
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $b5 = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -Clear -Repo owner/name -Apply' -Tag 'b5'
 
     Add-Result 'CONTROL: -Clear on a repo with NO entry still says so and exits 0' `
@@ -678,6 +754,7 @@ try {
 
     # CONTROL: the ordinary per-repo write.
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $b6 = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -Off -Repo owner/name -Apply' -Tag 'b6'
 
     Add-Result 'CONTROL: an ordinary -Repo owner/name write adds the key and exits 0' `
@@ -706,6 +783,7 @@ try {
     # tell the two apart. It is that the difference between CHECKED and TAKEN
     # ON TRUST is stated, where the operator can still stop.
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $b8 = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -Off -Repo other/elsewhere -Apply' -Tag 'b8'
 
     Add-Result '-Repo naming a repo this run is not standing in says the slug is TAKEN ON TRUST' `
@@ -718,6 +796,7 @@ try {
     # .git\config Get-LwgRepoInfo reads exactly as it reads a real one - the
     # same -Repo argument IS checkable, and the note must be absent.
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $b9 = Invoke-Config -Sand $sand -WorkDir $sand.repo -ScriptArgs '-Module git_hygiene -Off -Repo owner/name -Apply' -Tag 'b9'
 
     Add-Result 'CONTROL: the same note is ABSENT when -Repo IS the repo the run is standing in' `
@@ -735,6 +814,7 @@ try {
     Write-Output 'C. preview, then -Apply'
 
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $c1 = Invoke-Config -Sand $sand -ScriptArgs '-Module docs_coupling -Off' -Tag 'c1'
 
     Add-Result 'CONTROL preview: explains the change, writes nothing, exits 0' `
@@ -772,6 +852,7 @@ try {
     Write-Output 'D. a module the registry has never heard of'
 
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $d1 = Invoke-Config -Sand $sand -ScriptArgs '-Module not_a_module -Off -Apply' -Tag 'd1'
 
     Add-Result 'CONTROL unknown module: refused, nothing written, and the known names are listed' `
@@ -793,9 +874,10 @@ try {
     Write-Output ''
     Write-Output 'E. per-repo scope versus global scope'
 
-    $scoped = New-ConfigText -Repos (New-RepoBlock -Slug 'owner/name' -Module 'docs_coupling' -Literal 'false')
+    $scopedOv = New-OverrideText -Repos (New-RepoBlock -Slug 'owner/name' -Module 'docs_coupling' -Literal 'false')
 
-    Write-ConfigFile -Path $sand.cfg -Text $scoped
+    Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $scopedOv
     $e1 = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -Off -Apply' -Tag 'e1'
 
     Add-Result 'CONTROL: a GLOBAL write leaves an existing per-repo override untouched' `
@@ -803,7 +885,8 @@ try {
          $e1.text.Contains('"docs_coupling": false') -and $e1.text.Contains('"docs_coupling": true')) `
         ("exit {0}; the global git_hygiene must move to false while owner/name's docs_coupling override (false) and the global docs_coupling (true) both stay exactly as they were. File after: {1}" -f $e1.code, $e1.text)
 
-    Write-ConfigFile -Path $sand.cfg -Text $scoped
+    Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $scopedOv
     $e2 = Invoke-Config -Sand $sand -ScriptArgs '-Module docs_coupling -On -Repo owner/name -Apply' -Tag 'e2'
 
     Add-Result 'CONTROL: a per-repo write changes the override and not the global' `
@@ -811,7 +894,8 @@ try {
          ($e2.out -like '*scope: repo owner/name*')) `
         ("exit {0}; the override must flip to true, the global must still read true, and the report must name the scope it acted in. File after: {1}" -f $e2.code, $e2.text)
 
-    Write-ConfigFile -Path $sand.cfg -Text $scoped
+    Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $scopedOv
     $e3 = Invoke-Config -Sand $sand -ScriptArgs '-Repo owner/name' -Tag 'e3'
     $e3row = Get-ModuleRow -Out $e3.out -Module 'docs_coupling'
     $e4 = Invoke-Config -Sand $sand -ScriptArgs '' -Tag 'e4'
@@ -840,6 +924,7 @@ try {
 
     $broken = New-ConfigText -BreakJson
     Write-ConfigFile -Path $sand.cfg -Text $broken
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $f1 = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -Off -Apply' -Tag 'f1'
 
     Add-Result 'CONTROL broken config: refused, nothing written, and the doctor is named' `
@@ -893,6 +978,59 @@ try {
         ($previews.Count -ge 1 -and $pLiars.Count -eq 0) `
         ("{0} run(s) printed PREVIEW ONLY and {1} of them changed the file: {2}. 'Nothing is written without -Apply' is the contract the whole two-phase design rests on" -f `
             $previews.Count, $pLiars.Count, $(if ($pLiars.Count) { ($pLiars | ForEach-Object { $_.tag }) -join ', ' } else { 'none' }))
+
+    # THE #11 INVARIANT, over the same set. Every case above says something
+    # about one run; this says what has to be true of ALL of them. config.json
+    # is TRACKED and inside the plugin's own git working tree, so a single byte
+    # moved in it leaves a fresh clone dirty and makes /lw-watchtower:update
+    # refuse to pull for good - which is the whole of #11, and it happened on
+    # every applied write this command made until 3 September 2026.
+    #
+    # It goes RED at 4342980 on every -Apply run here. The floor is what stops
+    # it passing on a command that has stopped writing at all: at least three
+    # runs must have exited 0 having changed the override.
+    $wrote    = @($script:Runs | Where-Object { $_.code -eq 0 -and $_.changed })
+    $dirtiers = @($script:Runs | Where-Object { $_.base_changed })
+    Add-Result 'INVARIANT: no run of this command changed the plugin root config.json at all (#11)' `
+        ($wrote.Count -ge 3 -and $dirtiers.Count -eq 0) `
+        ("{0} run(s) of {1} moved a byte of config.json: {2}. That file is the SHIPPED DEFAULTS, it is tracked, and writing it is what made configuring this plugin disable its own updater. ({3} run(s) wrote the override and exited 0; at least 3 are required, so this cannot pass by the command having stopped writing.)" -f `
+            $dirtiers.Count, $script:Runs.Count, $(if ($dirtiers.Count) { ($dirtiers | ForEach-Object { $_.tag }) -join ', ' } else { 'none' }), $wrote.Count)
+
+    # AND THE OTHER HALF: the write has to be somewhere a hook resolves. The
+    # command's own exit-2 verification re-reads through Get-LwgConfig, which
+    # merges the override over the defaults, so a run that reported WRITTEN and
+    # verified has already been resolved the way a hook resolves it - but only
+    # if the file it wrote is the one Get-LwgConfig merges. This pins the path.
+    $ovLive = @($script:Runs | Where-Object { $_.code -eq 0 -and $_.changed })
+    Add-Result 'INVARIANT: the file every applied write landed in is the one under the state dir (#11)' `
+        ($ovLive.Count -ge 3 -and [IO.File]::Exists($sand.ov)) `
+        ("{0} run(s) wrote and exited 0, and config.override.json {1} in the state directory. A write that landed anywhere else is a write no hook resolves." -f `
+            $ovLive.Count, $(if ([IO.File]::Exists($sand.ov)) { 'exists' } else { 'DOES NOT EXIST' }))
+
+    # THE ONE MODULE THIS COMMAND MUST NOT WRITE, AND WHY IT SAYS SO - #11.
+    # lib/subagent_start.ps1 reads <pluginRoot>\config.json directly, by raw
+    # text scan, and reaches Get-LwgConfig only for a per-repo override. An
+    # override written for context_injection would therefore be honoured by the
+    # banner, by the doctor and by this command's own read-back, and IGNORED by
+    # the hook the flag exists to switch - a write nothing honours, reported as
+    # verified, which is the silent no-op this command exists to refuse. Until
+    # that abstain lands, this refuses, loudly, and names the file and the
+    # issue. NEW SURFACE: at 4342980 the same command writes config.json and
+    # exits 0.
+    Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
+    $g1 = Invoke-Config -Sand $sand -ScriptArgs '-Module context_injection -Off -Apply' -Tag 'g1'
+
+    Add-Result 'context_injection is REFUSED rather than written where a second reader would not see it (#11)' `
+        ($g1.code -eq 1 -and (-not $g1.changed) -and (-not $g1.base_changed) -and `
+         ($g1.out -like '*subagent_start*') -and ($g1.out -like '*#11*')) `
+        ("exit was {0}; the override {1} and config.json {2}. The refusal must name lib/subagent_start.ps1 and the issue, because an operator refused a legitimate request is owed the reason and the way back. stdout: {3}" -f `
+            $g1.code, $(if ($g1.changed) { 'CHANGED' } else { 'was untouched' }), `
+            $(if ($g1.base_changed) { 'CHANGED' } else { 'was untouched' }), (Get-FirstLines $g1.out 6))
+
+    Add-Result 'CONTROL: a module with no second reader is still written (#11)' `
+        (@($script:Runs | Where-Object { $_.tag -eq 'a3' -and $_.code -eq 0 -and $_.changed }).Count -eq 1) `
+        'the refusal above must be about context_injection and not about writing. git_hygiene has no fast reader of its own and case a3 wrote it; without this, refusing every module would satisfy the case above'
 
     # -----------------------------------------------------------------------
     # H. THE SHIPPED config.json ITSELF - #75
@@ -958,6 +1096,15 @@ try {
     # And the sentence that made it dangerous. The array could have been deleted
     # while leaving behind the claim that something checks it, which is the half
     # of this defect that actually misleads a reader.
+    #
+    # A GUARD, NOT A RED. This one PASSES at 4342980: the sentence #75 quotes was
+    # already replaced by a correct one in an earlier pass, and nothing pinned
+    # that correction. H3 is the case that goes red at 4342980. This one keeps
+    # the sentence from coming back beside a fresh copy of the list, which is how
+    # the pair got here in the first place - and it fires on ANY member of the
+    # block, including a removal note that quotes the old wording verbatim
+    # instead of paraphrasing it. It caught exactly that while this change was
+    # being written.
     $machineClaim = ''
     if ($null -ne $statusBlock) {
         foreach ($p in $statusBlock.PSObject.Properties) {
