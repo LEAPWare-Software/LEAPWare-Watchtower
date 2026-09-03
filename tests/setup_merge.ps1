@@ -195,10 +195,13 @@
     no case here induces one. The docstring on Save-Settings states the gap and
     records why the atomic call was measured and rejected; a green run here says
     nothing about it either way.
-  * ANYTHING TO DO WITH permissions.deny. There is no permissions section left
-    in bin\lwg-setup.ps1 to drive: it proposed nothing on any run and was
-    removed, and the two cases here that drove its diff went with it - see the
-    stub where section 22 was. The installer still REPORTS the operator's own
+  * ANYTHING TO DO WITH THE CONTENT OF permissions.deny. There is no permissions
+    section left in bin\lwg-setup.ps1 to drive: it proposed nothing on any run
+    and was removed, and the two cases here that drove its diff went with it -
+    see the stub where section 22 was. What section 28 DOES cover, and all it
+    covers, is that the removal is complete at the door: -Section permissions,
+    -DestructiveGate and -SecretGate are rejected by parameter binding rather
+    than accepted and discarded. The installer still REPORTS the operator's own
     inert deny rules under -Step detect, through Get-InertRules, and no case
     here drives that report. Also not covered: the questions and the doctor
     step. Detection's report is read by the hooks cases, but only for the
@@ -2654,6 +2657,55 @@ try {
     Add-Result 'CONTROL diff statusline: the blurb still says what this section is FOR - the HH health segment' `
         ([bool]($blurb -match '(?i)HH health segment|HH segment')) `
         "the true half of the paragraph. A rewrite that deletes the overstatement and the reason together leaves the operator with no basis to say yes at all. Blurb:`n$blurb"
+
+    # -------------------------------------------------------------------
+    # 28. THE DEAD PERMISSIONS SECTION AND THE TWO DEAD GATE PARAMETERS (#173).
+    #
+    #     THE FIX IS NOT IN THIS COMMIT. Both halves landed in bda8f71 on
+    #     wave1/cuts; these cases are the covering evidence that did not land
+    #     with them, and without which #173 does not close under this project's
+    #     closure rule. They are RED at 21b8f49 - the commit before bda8f71 -
+    #     and that is where the red-first proof for them was taken.
+    #
+    #     WHAT WAS WRONG. -Section permissions printed a section header, a
+    #     blurb and a consent question for a plan builder whose `$rules.Count
+    #     -eq 0` return was taken on every possible run: the deny table was
+    #     emptied on 30 July 2026 and the section could only ever report
+    #     "nothing to add". -DestructiveGate and -SecretGate went on validating
+    #     yes/no answers to questions about the two gates removed on the same
+    #     day. A consent screen for nothing, and two parameters that accept an
+    #     answer and discard it.
+    #
+    #     WHY THE ASSERTION IS "EXIT 1 AND NOTHING ON STDOUT". A parameter
+    #     binding failure is raised by PowerShell before the first line of the
+    #     script runs: it goes to stderr, which Invoke-Setup deliberately does
+    #     not merge (see its header), and the exit code is 1. Every real run of
+    #     this script prints something. So empty stdout is the discriminator
+    #     between "refused at the door" and "ran and did something", and the
+    #     CONTROL below drives the same invocation with the bad argument taken
+    #     out to prove empty stdout is not just this harness failing to capture.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'dead-permissions-section' -Bytes $FixtureBytes
+
+    $p1 = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'diff', '-Section', 'permissions', '-SettingsPath', $t.settings)
+    Add-Result 'diff: -Section permissions is not a value this installer accepts' `
+        ([bool]($p1.code -eq 1 -and [string]::IsNullOrWhiteSpace($p1.out))) `
+        "the permissions section could only ever report 'nothing to add' - a consent screen for work that cannot exist. It must be rejected at binding, not printed. exit $($p1.code), stdout:`n$($p1.out)"
+
+    $p2 = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'detect', '-DestructiveGate', 'yes', '-SettingsPath', $t.settings)
+    Add-Result 'detect: -DestructiveGate is not a parameter this installer accepts' `
+        ([bool]($p2.code -eq 1 -and [string]::IsNullOrWhiteSpace($p2.out))) `
+        "the destructive gate was removed on 30 July 2026. A parameter that validates an answer and then selects nothing tells the caller the feature is still there. exit $($p2.code), stdout:`n$($p2.out)"
+
+    $p3 = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'detect', '-SecretGate', 'no', '-SettingsPath', $t.settings)
+    Add-Result 'detect: -SecretGate is not a parameter this installer accepts' `
+        ([bool]($p3.code -eq 1 -and [string]::IsNullOrWhiteSpace($p3.out))) `
+        "same day, same removal, same reasoning as -DestructiveGate. exit $($p3.code), stdout:`n$($p3.out)"
+
+    $p4 = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'detect', '-SettingsPath', $t.settings)
+    Add-Result 'CONTROL: the same run with the dead argument removed DOES print' `
+        ([bool](-not [string]::IsNullOrWhiteSpace($p4.out))) `
+        "without this, the three cases above are satisfied by a harness that captures no stdout at all, whatever the script does. exit $($p4.code), stdout length $($p4.out.Length)"
 
 } catch {
     $script:Aborted = "$($_.Exception.Message)  [line $($_.InvocationInfo.ScriptLineNumber)]"
