@@ -14,7 +14,7 @@
   no case at all. This file is that coverage, built around the five defects it
   pins.
 
-  THE ONE IT PINS
+  THE TWO IT PINS
 
     #146 CLAUDE_CONFIG_DIR was honoured by NOTHING. Every path in the plugin
          composed $env:USERPROFILE with a literal `.claude`, so on a machine
@@ -26,6 +26,15 @@
          CLAUDE_PLUGIN_DATA cleared and CLAUDE_CONFIG_DIR pointed at a scratch
          tree, and asserts the ledger lands there and that NOTHING is written
          under the profile.
+
+    #60  self_health probe 2 could not fail. It asserted that every declared
+         module "resolves to a real boolean" by testing the RETURN of
+         Test-LwgModule, which is a [bool] on every one of its exit paths by
+         construction - so the predicate was unsatisfiable for every input and
+         the probe reported a pass for every config.json, including the
+         malformed ones it read as though it were checking for them. Probe 2
+         feeds $selfcheck.ok, which feeds Get-LwgSessionMode, which is the mode
+         word the whole plugin is presented through. Section B.
 
   THE SANDBOX
 
@@ -375,10 +384,162 @@ function Test-A5-SessionStartWritesUnderTheConfigDir {
 }
 
 # =========================================================================
+# SECTION B - #60, self_health probe 2
+# =========================================================================
+
+function Invoke-SessionStartCase {
+    <#
+      Run the real hook against a scratch plugin tree carrying $ConfigJson, with
+      its own isolated data directory, and hand back the parsed SessionStart
+      record plus the hook's own stdout envelope.
+    #>
+    param([string]$Name, [string]$ConfigJson = '')
+
+    $root = New-PluginTree (Join-Path $script:Work $Name) -ConfigJson $ConfigJson
+    $prof = New-Dir (Join-Path $script:Work "$Name-profile")
+    $data = New-Dir (Join-Path $script:Work "$Name-data")
+    $hook = Join-Path $root 'lib\session_start.ps1'
+
+    $r = Invoke-Child -ScriptPath $hook -Stdin (New-Payload $root) -WorkDir $root `
+         -EnvSet @{ USERPROFILE = $prof; CLAUDE_PLUGIN_DATA = $data; CLAUDE_PLUGIN_ROOT = $root }
+
+    $envelope = $null
+    try { $envelope = $r.out | ConvertFrom-Json } catch { }
+    $recs = @(Get-LedgerRecords $data)
+    $rec  = @($recs | Where-Object { $_.event -eq 'SessionStart' })
+    return @{
+        code     = $r.code
+        err      = $r.err
+        raw      = $r.out
+        envelope = $envelope
+        record   = $(if ($rec.Count -gt 0) { $rec[-1] } else { $null })
+        records  = $recs
+        data     = $data
+        root     = $root
+    }
+}
+
+function Test-B1-AStringValuedModuleFlagDegradesTheSelfCheck {
+    $cfg = @'
+{
+  "version": "0.4.0",
+  "modules": { "docs_coupling": "false" },
+  "repos": {},
+  "thresholds": {
+    "ratelimit": { "warn_pct": 88, "land_all_pct": 92 },
+    "context":   { "warn_pct": 75, "critical_pct": 90 }
+  }
+}
+'@
+    $c = Invoke-SessionStartCase -Name 'b1' -ConfigJson $cfg
+    if ($null -eq $c.record) {
+        Add-Case 'B1 "docs_coupling": "false" degrades the self-check' $false "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    $problems = @()
+    if ($c.record.selfcheck.modules_resolved -ne $false) {
+        $problems += ('REGRESSION (#60): modules_resolved is [' + $c.record.selfcheck.modules_resolved +
+                      ']. "docs_coupling": "false" is what an operator writes when they mean OFF; [bool] on a ' +
+                      'non-empty string is $true in PowerShell, so the flag was IGNORED and the module left RUNNING - ' +
+                      'and the one probe whose job is "every declared module resolves" reported a pass.')
+    }
+    if ([string]$c.record.mode -ne 'degraded') {
+        $problems += "mode is '$($c.record.mode)', expected 'degraded' - a failed probe must reach the mode word"
+    }
+    if (($c.record.failures -join ' ') -notmatch 'docs_coupling') {
+        $problems += "no failure named docs_coupling: [$($c.record.failures -join '; ')]"
+    }
+    Add-Case 'B1 "docs_coupling": "false" degrades the self-check' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-B2-ASwitchBackedFlagIsCheckedToo {
+    <#
+      delegate_gate has NO `modules` key by design - its flag is
+      interaction.delegate. A probe that read only the `modules` block would
+      walk straight past the flag that arms the only gate this plugin ships,
+      which is the value #60's own worked example turns on.
+    #>
+    $cfg = @'
+{
+  "version": "0.4.0",
+  "modules": {},
+  "interaction": { "delegate": "false" },
+  "repos": {},
+  "thresholds": {
+    "ratelimit": { "warn_pct": 88, "land_all_pct": 92 },
+    "context":   { "warn_pct": 75, "critical_pct": 90 }
+  }
+}
+'@
+    $c = Invoke-SessionStartCase -Name 'b2' -ConfigJson $cfg
+    if ($null -eq $c.record) {
+        Add-Case 'B2 a non-boolean at a switch-backed key degrades the self-check' $false "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    $problems = @()
+    if ($c.record.selfcheck.modules_resolved -ne $false) {
+        $problems += ('REGRESSION (#60): modules_resolved is [' + $c.record.selfcheck.modules_resolved +
+                      '] for "interaction": { "delegate": "false" } - the key that arms the only gate this plugin ships.')
+    }
+    if (($c.record.failures -join ' ') -notmatch 'delegate') {
+        $problems += "no failure named the delegate flag: [$($c.record.failures -join '; ')]"
+    }
+    Add-Case 'B2 a non-boolean at a switch-backed key degrades the self-check' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-B3-JsonNullIsNotABoolean {
+    <#
+      `"git_hygiene": null` is one of the four malformed shapes #60 names. It
+      matters separately from the string case because the obvious repair -
+      `if ($null -ne $raw -and $raw -isnot [bool])` - passes it.
+    #>
+    $cfg = @'
+{
+  "version": "0.4.0",
+  "modules": { "git_hygiene": null },
+  "repos": {},
+  "thresholds": {
+    "ratelimit": { "warn_pct": 88, "land_all_pct": 92 },
+    "context":   { "warn_pct": 75, "critical_pct": 90 }
+  }
+}
+'@
+    $c = Invoke-SessionStartCase -Name 'b3' -ConfigJson $cfg
+    if ($null -eq $c.record) {
+        Add-Case 'B3 "git_hygiene": null is not a boolean either' $false "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    $ok = ($c.record.selfcheck.modules_resolved -eq $false) -and (($c.record.failures -join ' ') -match 'git_hygiene')
+    Add-Case 'B3 "git_hygiene": null is not a boolean either' $ok `
+        ("modules_resolved [$($c.record.selfcheck.modules_resolved)], failures [$($c.record.failures -join '; ')]")
+}
+
+function Test-B4-TheShippedConfigStillPasses {
+    <#
+      The other half of #60, and the half a careless fix breaks: a probe that
+      can fail must still PASS on the config this repository ships. Without
+      this, "make it fail" and "make it always fail" are indistinguishable.
+    #>
+    $c = Invoke-SessionStartCase -Name 'b4'
+    if ($null -eq $c.record) {
+        Add-Case 'B4 the shipped config.json still resolves clean' $false "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    $problems = @()
+    if ($c.record.selfcheck.modules_resolved -ne $true) {
+        $problems += "modules_resolved is [$($c.record.selfcheck.modules_resolved)] on the SHIPPED config.json - failures: [$($c.record.failures -join '; ')]"
+    }
+    if ([string]$c.record.mode -eq 'degraded') {
+        $problems += "mode is 'degraded' on the shipped config.json: [$($c.record.failures -join '; ')]"
+    }
+    Add-Case 'B4 the shipped config.json still resolves clean' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+# =========================================================================
 
 Say ''
 Say 'LW-WATCHTOWER state-resolution and platform suite'
-Say '  A #146 CLAUDE_CONFIG_DIR'
+Say '  A #146 CLAUDE_CONFIG_DIR   B #60 probe 2'
 Say ''
 Say ''
 

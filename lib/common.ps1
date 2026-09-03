@@ -987,6 +987,103 @@ function Test-LwgModule {
     return $enabled
 }
 
+function Get-LwgRawFlagValue {
+    <#
+      The RAW value at $Object.$Name, and whether the member is there at all.
+      Returns @{ present; value }.
+
+      PRESENCE IS NOT "NOT NULL", and that distinction is the whole point of
+      this helper. ConvertFrom-Json maps a JSON `null` onto $null, so
+      `"git_hygiene": null` and an absent `git_hygiene` key are indistinguishable
+      by a $null test - and they are not the same thing. The first is an
+      operator writing something that is not a setting; the second is an
+      operator saying nothing, which is a legitimate config and must stay
+      silent. PSObject.Properties can tell them apart; a value comparison
+      cannot.
+
+      Never throws: an absent block, a $null object or a hashtable rather than a
+      PSCustomObject all yield present = $false.
+    #>
+    param($Object, [string]$Name)
+
+    if ($null -eq $Object) { return @{ present = $false; value = $null } }
+    try {
+        $p = $Object.PSObject.Properties[$Name]
+        if ($null -ne $p) { return @{ present = $true; value = $p.Value } }
+    } catch { }
+    return @{ present = $false; value = $null }
+}
+
+function Get-LwgUnresolvedFlags {
+    <#
+      Every DECLARED module whose configured value is present in config.json but
+      is not a real boolean, and was therefore IGNORED. Returns descriptive
+      strings - `modules.docs_coupling (global, String)` - because a caller
+      reporting this has to name the key the operator actually wrote, not the
+      module the plugin resolved from it.
+
+      WHY THIS EXISTS AS A SEPARATE FUNCTION FROM Test-LwgModule. Test-LwgModule
+      answers "is it on", and it is careful to answer that with a [bool] on
+      every one of its exit paths: a non-boolean at any scope is ignored, logged
+      through Write-LwgInvalidFlag, and resolution continues as if that scope
+      had said nothing. That is the right behaviour and it is what makes the
+      question "did anything get ignored?" unanswerable from its return value -
+      which is exactly how lib/session_start.ps1's probe 2 came to be a check
+      that could not fail. The observable failure is not a bad return type, it
+      is a CONFIGURED VALUE THAT WAS DISCARDED, and only the raw config can
+      show that.
+
+      IT COVERS ALL FOUR SCOPES, because a probe that read one of them would be
+      a smaller version of the same defect:
+
+        modules.<name>                       global, for a plain module
+        <block>.<key>                        global, for a module declaring its
+                                             own `switch` - delegate_gate and
+                                             the three supervision modules have
+                                             NO `modules` key by design, and a
+                                             probe reading only that block would
+                                             walk straight past the flag that
+                                             arms the only gate this plugin
+                                             ships
+        repos.<slug>.modules.<name>          per-repo, plain
+        repos.<slug>.<block>.<key>           per-repo, switch-backed
+
+      Never throws. $Repo empty simply skips the two per-repo scopes.
+    #>
+    param($Config, [string]$Repo)
+
+    if ($null -eq $Config) { $Config = Get-LwgConfig }
+    $bad = @()
+
+    $repoObj = $null
+    if (-not [string]::IsNullOrWhiteSpace($Repo)) {
+        try { $repoObj = $Config.repos.$Repo } catch { }
+    }
+
+    foreach ($m in $script:LwgModules) {
+        $sw = $null
+        try { $sw = $script:LwgModuleRegistry[$m].switch } catch { }
+        if ($null -ne $sw) { $block = [string]$sw.block; $key = [string]$sw.key }
+        else               { $block = 'modules';         $key = $m }
+
+        $scopes = @()
+        try { $scopes += ,@('global', $Config.$block) } catch { }
+        if ($null -ne $repoObj) {
+            try { $scopes += ,@("repo:$Repo", $repoObj.$block) } catch { }
+        }
+
+        foreach ($s in $scopes) {
+            $raw = Get-LwgRawFlagValue -Object $s[1] -Name $key
+            if (-not $raw.present) { continue }
+            if ($raw.value -is [bool]) { continue }
+            $t = 'null'
+            if ($null -ne $raw.value) { try { $t = $raw.value.GetType().Name } catch { $t = 'unknown' } }
+            $bad += ("{0}.{1} ({2}, {3})" -f $block, $key, $s[0], $t)
+        }
+    }
+    return $bad
+}
+
 function Get-LwgEnabledModules {
     <#
       Names of every enabled module, in inventory order. Emitted as a normal

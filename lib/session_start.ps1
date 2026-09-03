@@ -72,14 +72,56 @@ try {
         $selfcheck.config_from_file = ($cfg._source -eq 'file')
         if (-not $selfcheck.config_from_file) { $failures += 'config.json unreadable (running on built-in defaults)' }
 
-        # 2. Every declared module resolves to a real boolean, not $null.
+        # 2. Every declared module resolves to the boolean the operator WROTE.
+        #
+        # THIS PROBE COULD NOT FAIL, and it is worth saying why rather than
+        # quietly replacing it. It read
+        #
+        #     $v = Test-LwgModule -Name $m -Config $cfg -Repo $repo
+        #     if ($v -isnot [bool]) { $unresolved += $m }
+        #
+        # and Test-LwgModule returns a [bool] on every one of its three exit
+        # paths by construction - $enabled starts as the literal $true and is
+        # only ever reassigned from an explicit [bool] cast, and the
+        # switch-backed exit returns Test-LwgFlag, whose own value is
+        # initialised from a [bool]-TYPED parameter. The predicate was
+        # unsatisfiable for every possible input, so the probe reported a pass
+        # for every config.json - including the malformed ones it read as though
+        # it were checking for them. A check wired to nothing, reporting itself
+        # as coverage, inside the module whose whole job is to catch checks
+        # wired to nothing. And it fed $selfcheck.ok, which feeds
+        # Get-LwgSessionMode, which is the mode word the banner, the
+        # model-visible context and /lw-watchtower:doctor all quote.
+        #
+        # The observable failure was never a bad return TYPE. It is a
+        # CONFIGURED VALUE THAT WAS DISCARDED: `"docs_coupling": "false"` is
+        # what an operator writes when they mean off, [bool] on a non-empty
+        # string is $true in PowerShell, and the fix for THAT - ignore the
+        # non-boolean, log it through Write-LwgInvalidFlag, carry on as if the
+        # scope had said nothing - is precisely what put the evidence out of
+        # this probe's reach. So it now reads the RAW config, at all four
+        # scopes, through Get-LwgUnresolvedFlags. It fails on a config in which
+        # a declared module did not resolve to what the operator wrote, and it
+        # passes on the config this repository ships - which is the behaviour
+        # this probe's own comment and docs/modules.md § "Five probes" have
+        # always described.
+        #
+        # Test-LwgModule is still CALLED for every module, and that is not
+        # decoration: "eleven resolutions complete without throwing" is the one
+        # thing the old probe genuinely established, on the SessionStart path
+        # ahead of every hook that depends on it, and dropping it to make room
+        # for the new assertion would trade one piece of evidence for another
+        # rather than adding one.
         $unresolved = @()
         foreach ($m in $script:LwgModules) {
             $v = Test-LwgModule -Name $m -Config $cfg -Repo $repo
-            if ($v -isnot [bool]) { $unresolved += $m }
+            if ($v -isnot [bool]) { $unresolved += "$m did not resolve to a boolean" }
         }
+        $unresolved += @(Get-LwgUnresolvedFlags -Config $cfg -Repo $repo)
         $selfcheck.modules_resolved = ($unresolved.Count -eq 0)
-        if ($unresolved.Count -gt 0) { $failures += "modules did not resolve: $($unresolved -join ',')" }
+        if ($unresolved.Count -gt 0) {
+            $failures += "not a boolean, so it is not a setting - IGNORED, and the module kept its default: $($unresolved -join ', ')"
+        }
 
         # 3. Thresholds yield numbers, so the pressure monitors have something to
         #    compare against rather than falling through to a hardcoded guess.
