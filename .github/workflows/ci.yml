@@ -125,7 +125,24 @@ on:
     # check that never runs. PRs always run, so this check is always reportable.
     branches: [main]
   pull_request:
-    branches: [main]
+    # MAIN AND THE WAVE INTEGRATION BRANCHES, and the second half is the point.
+    #
+    # A base branch that is not listed here runs NO JOB AT ALL - not a skipped
+    # one, not a neutral one, nothing that reports a status. Every wave of the
+    # delivery plan lands on an integration branch before it lands on main, and
+    # with `[main]` alone every pull request into one of those was unguarded:
+    # no documentation-claims run, no commit-identity run, and no
+    # issue-reference guard - which is the ONE part of the issues protocol that
+    # is enforced here rather than reviewed by a human. #190's done-condition
+    # asks for a green Documentation claims step on a branch pull request, and
+    # that was not a thing this workflow could produce. See #196.
+    #
+    # `wave*/**` and not a literal branch name: the alternative is a list
+    # somebody has to extend once per wave, which is the same drift the
+    # `git ls-files` enumerations below exist to avoid.
+    #
+    # STILL NO PATH FILTER, on either trigger, for the reasons above this line.
+    branches: [main, 'wave*/**']
   workflow_dispatch:
 
 permissions:

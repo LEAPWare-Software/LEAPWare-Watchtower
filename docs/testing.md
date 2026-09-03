@@ -1083,8 +1083,12 @@ Rename it only together with the branch-protection setting.
 installer's now-empty deny table is still empty: it would print a pass on every run, which reads as a
 verified protection and is the precise class of false assurance this repo exists to refuse.
 
-Triggers are `push` and `pull_request` on `main`, plus `workflow_dispatch`. **Neither trigger carries
-a path filter.** `on.push` held `paths-ignore: ['**.md']` until 31 July 2026, on the reasoning that a
+Triggers are `push` on `main`, `pull_request` on `main` **and on the wave integration branches**
+(`wave*/**`), plus `workflow_dispatch`. The two lists differ on purpose: a base branch that is not
+listed runs no job at all — not a skipped one, nothing that reports a status — and every wave of the
+delivery plan lands on an integration branch before it lands on `main`, so with `[main]` alone every
+pull request into one of those was unguarded (#196). Pushes to an integration branch are still not
+built: the pull request that lands them is. **Neither trigger carries a path filter.** `on.push` held `paths-ignore: ['**.md']` until 31 July 2026, on the reasoning that a
 README edit changes no gate and no JSON — and that reasoning went stale the day the portability scan
 landed, because **the scan reads every tracked file, `.md` included**, and a machine-specific path
 turns up in prose more often than in code. A filter sits on the trigger rather than on a job, so it
