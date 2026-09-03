@@ -1092,6 +1092,31 @@ if ($SelfTest) {
         # ENTIRE job, self-hosted runner and all, behind a benign first one.
         @{ file = 'r11-dup-jobs.yml';    expect = 'unparseable'
            body = "name: fixture duplicate jobs`non:`n  workflow_dispatch:`njobs:`n  build:`n    runs-on: ubuntu-latest`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`njobs:`n  build:`n    runs-on: self-hosted`n    steps:`n      - name: Nothing`n        run: Write-Output pwned`n" }
+        # THE THREE PERMISSIONS SHAPES (#225). Each one of these parsed clean
+        # and exited 0 against every rule that existed before 3 September 2026,
+        # which is the whole finding: nothing here read a `permissions:` block.
+        #
+        # r12 IS THE SHAPE #183 WAS ARGUED AGAINST. An Actions-deployed Pages
+        # job: a hosted runner, no `${{ secrets.* }}` anywhere, a STEP-level
+        # `uses:` that the external-reusable-workflow rule deliberately does not
+        # look at, and the grant that does the work sitting in a workflow-level
+        # `permissions:` block. `id-token: write` is the one grant on that list
+        # whose blast radius leaves GitHub entirely - it mints an OIDC token
+        # exchangeable with a configured cloud identity provider. The real
+        # action is `actions/deploy-pages`; the name below is invented, because
+        # every fixture in this file names something that does not exist.
+        @{ file = 'r12-permissions-workflow.yml'; expect = 'permissions-write'
+           body = "name: fixture pages deploy grant`non:`n  workflow_dispatch:`npermissions:`n  contents: read`n  pages: write`n  id-token: write`njobs:`n  deploy:`n    runs-on: ubuntu-latest`n    environment: an-invented-environment`n    steps:`n      - name: Nothing`n        uses: an-invented-owner/an-invented-deploy-action@v0`n" }
+        # r13 is the same grant one level down. Job level OVERRIDES workflow
+        # level, so a rule that only read the top of the file would report this
+        # workflow as ungranted while the job it declares runs read-write.
+        @{ file = 'r13-permissions-job.yml';      expect = 'permissions-write'
+           body = "name: fixture job level grant`non:`n  workflow_dispatch:`njobs:`n  build:`n    runs-on: windows-latest`n    permissions:`n      contents: write`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n" }
+        # r14 is the maximal case AND the one a text scan misses outright:
+        # `write-all` is a scalar shorthand for every scope at write, and it
+        # contains no `: write` for a grep to find.
+        @{ file = 'r14-permissions-write-all.yml'; expect = 'permissions-write'
+           body = "name: fixture write-all shorthand`non:`n  workflow_dispatch:`npermissions: write-all`njobs:`n  build:`n    runs-on: windows-latest`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n" }
     )
 
     try {
@@ -1201,6 +1226,56 @@ if ($SelfTest) {
             "expected exit 0, got $($r.Code). The duplicate-key check must be scoped to one mapping; a key repeated in SIBLING mappings is ordinary YAML and every workflow does it. Output: $($r.Out)"
         Add-LwgCase 'two jobs each declaring runs-on: report zero violations' ($r.Out -match 'RESULT: 0 violation\(s\)') `
             "expected a RESULT line reporting 0 violations, got: $($r.Out)"
+
+        # --- permissions: the READ-SCOPED end, which must stay silent -------
+        # Without this row, "report every permissions: block" passes r12, r13
+        # and r14 and reds ci.yml and release.yml, both of which grant only
+        # `contents: read`. It also pins the two shapes that are safe and are
+        # NOT a mapping of `read`: the `read-all` scalar, and `none`.
+        $permRead = Join-Path $fx 'permissions-read'
+        $null = New-Item -ItemType Directory -Path $permRead -Force
+        Set-Content -LiteralPath (Join-Path $permRead 'ok.yml') -Encoding ASCII -Value `
+            "name: fixture read-scoped permissions`non:`n  workflow_dispatch:`npermissions:`n  contents: read`n  actions: none`njobs:`n  build:`n    runs-on: windows-latest`n    permissions: read-all`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n"
+        $r = Invoke-LwgGuard -Dir $permRead
+        Add-LwgCase 'read-scoped permissions - contents: read, actions: none and read-all - exit 0' ($r.Code -eq 0) `
+            "expected exit 0, got $($r.Code). A rule that reports every permissions: block reds this repository's own two workflows and would be turned off within a week. Output: $($r.Out)"
+        Add-LwgCase 'read-scoped permissions report zero violations' ($r.Out -match 'RESULT: 0 violation\(s\)') `
+            "expected a RESULT line reporting 0 violations, got: $($r.Out)"
+
+        # --- permissions: the ALLOWLISTED grant this repository really has --
+        # release.yml's publishing job carries `contents: write`, because
+        # creating a GitHub Release is a write to the repository and no
+        # token-free spelling can do it. The entry that excuses it is anchored
+        # on the emitted text, so this row is what keeps the entry's regex and
+        # the text Add-LwgHit produces from drifting apart: it asserts the exit
+        # code AND the allowlisted COUNT, which is 0 if the two disagree.
+        $permAllow = Join-Path $fx 'permissions-allowlisted'
+        $null = New-Item -ItemType Directory -Path $permAllow -Force
+        Set-Content -LiteralPath (Join-Path $permAllow 'release.yml') -Encoding ASCII -Value `
+            "name: fixture allowlisted release grant`non:`n  workflow_dispatch:`npermissions:`n  contents: read`njobs:`n  release:`n    runs-on: windows-latest`n    permissions:`n      contents: write`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n"
+        $r = Invoke-LwgGuard -Dir $permAllow
+        Add-LwgCase "release.yml's job-level contents: write is allowlisted and exits 0" ($r.Code -eq 0) `
+            "expected exit 0, got $($r.Code). This is the grant the repository actually declares; if it is not excused, the publish workflow cannot exist. Output: $($r.Out)"
+        Add-LwgCase 'the allowlisted release grant is REPORTED as allowlisted, not silently dropped' `
+            ($r.Out -match 'RESULT: 0 violation\(s\), 1 allowlisted') `
+            "expected 'RESULT: 0 violation(s), 1 allowlisted'. A count of 0 means the rule never fired at all and the entry excused nothing - which passes the exit-code row above for the wrong reason. Output: $($r.Out)"
+
+        # --- and the allowlist must not turn the FILE off -------------------
+        # The same shape as identity_scan.ps1's B4: an entry that excuses one
+        # grant in one file must leave every other grant in that file standing.
+        # `id-token: write` added to release.yml is the exact escalation #225
+        # was raised about, and it must still fail even though that file has an
+        # entry.
+        $permScope = Join-Path $fx 'permissions-allowlist-scope'
+        $null = New-Item -ItemType Directory -Path $permScope -Force
+        Set-Content -LiteralPath (Join-Path $permScope 'release.yml') -Encoding ASCII -Value `
+            "name: fixture release grant outside the entry`non:`n  workflow_dispatch:`npermissions:`n  contents: read`njobs:`n  release:`n    runs-on: windows-latest`n    permissions:`n      contents: write`n      id-token: write`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n"
+        $r = Invoke-LwgGuard -Dir $permScope
+        Add-LwgCase 'an allowlist entry for one grant does not excuse a second grant in the same file' ($r.Code -eq 1) `
+            "expected exit 1, got $($r.Code). release.yml is excused for contents: write ONLY; id-token: write in the same job is the escalation #225 is about. Output: $($r.Out)"
+        Add-LwgCase 'the unexcused id-token: write is named under permissions-write' `
+            ($r.Out -match 'release\.yml:\d+:[^\r\n]*id-token[^\r\n]*- permissions-write:') `
+            "no line reported release.yml under rule permissions-write naming id-token. Output: $($r.Out)"
 
         # --- the abort end of the contract ---------------------------------
         # Both of these are exit 2 and NEITHER is reachable from a live run, so
