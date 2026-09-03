@@ -118,6 +118,73 @@ try {
     if ($null -eq $homeInfo) { $homeInfo = @{ path = $null; source = 'unresolved'; exists = $false; raw = $null } }
     $claudeHome = [string]$homeInfo.path
 
+    # ---------------------------------------------------------------------
+    # WHICH FILE IS THE LIVE STATUS LINE? (#77)
+    # ---------------------------------------------------------------------
+    # THE ROW BELOW USED TO ASSUME THE ANSWER AND REPORT AN ABSENCE ABOUT IT.
+    # Section 4's drift row and the re-approval note in Get-Needs both named
+    # <config root>\statusline.ps1 - the target bin\lwg-setup.ps1 writes in its
+    # DEFAULT copy mode - and nothing else. An operator whose status line is
+    # wired through the skills junction, which is the other mode the installer
+    # offers, therefore got:
+    #
+    #     [INFO] statusline   no ...\.claude\statusline.ps1 - the HH segment is
+    #                         not installed on this machine
+    #
+    # about a status line that IS installed, IS this plugin's, and HAD drifted
+    # from the repo copy. The one state the row exists to catch is the one state
+    # it could not see, and the re-approval note told the operator to re-copy a
+    # file that was not the live one.
+    #
+    # THE TARGET IS PULLED OUT OF settings.json, THE SAME WAY CHECK 7 OF
+    # bin\lwg-doctor.ps1 PULLS IT OUT: the first token in statusLine.command
+    # that ends in .ps1, quoted or bare. That check was already right about this
+    # and this file was already wrong, which is two readers of one settings key
+    # disagreeing about which file the operator is running - the divergence this
+    # plugin is named for. The regex is spelled the same way deliberately; if it
+    # changes there, it changes here.
+    #
+    # THE DEFAULT IS A FALLBACK, NOT THE ANSWER. It applies only when no
+    # statusLine.command is set at all, and the row then says which of the two it
+    # is talking about, because "the file you configured has drifted" and "the
+    # file you would have configured is not there" are different sentences and
+    # the operator acts on them differently.
+    #
+    # NOT A HEALTH CHECK. Whether the wired target is this plugin's file is
+    # check 7's question and it answers it properly, with provenance before
+    # drift. This row compares bytes and says what it compared.
+    $slWired    = ''
+    $slSource   = 'none'
+    $slSettings = '<no configuration directory>'
+    if (-not [string]::IsNullOrWhiteSpace($claudeHome)) {
+        $slSettings = Join-Path $claudeHome 'settings.json'
+        try {
+            if (Test-Path -LiteralPath $slSettings) {
+                # PS 5.1's Get-Content -Raw keeps a UTF-8 BOM, which
+                # ConvertFrom-Json rejects. Settings files written by other tools
+                # do carry one. Same TrimStart as check 7.
+                $slRaw = (Get-Content -LiteralPath $slSettings -Raw -ErrorAction Stop).TrimStart([char]0xFEFF)
+                $slCmd = [string](($slRaw | ConvertFrom-Json).statusLine.command)
+                if (-not [string]::IsNullOrWhiteSpace($slCmd)) {
+                    foreach ($tok in ([regex]::Matches($slCmd, '"([^"]+)"|(\S+)'))) {
+                        $tv = if ($tok.Groups[1].Success) { $tok.Groups[1].Value } else { $tok.Groups[2].Value }
+                        if ($tv -match '\.ps1$') { $slWired = $tv; $slSource = 'command'; break }
+                    }
+                    # A statusLine.command that names no .ps1 is a configured
+                    # status line this row cannot identify. It is NOT the default
+                    # case: falling back would compare a file the operator is
+                    # demonstrably not running. Reported as its own state.
+                    if ($slSource -ne 'command') { $slSource = 'unidentified'; $slWired = $slCmd }
+                }
+            }
+        } catch {
+            # A settings.json that will not parse is not evidence about the
+            # status line either way, and section 4 is not the place that
+            # reports it - check 7 is.
+            $slSource = 'unreadable'
+        }
+    }
+
     function Git {
         param([string[]]$A, [int]$Ms = $TimeoutMs)
         return (Invoke-LwgCmdProcess -File 'git' -ProcArgs $A -WorkDir $Root -TimeoutMs $Ms)
@@ -310,7 +377,19 @@ try {
             $n += '.claude-plugin/plugin.json changes: the plugin NAME is what the state directory is resolved from, so a rename moves every log to a new directory and leaves the old one behind. The manifest does NOT name a hooks file - hooks are registered in hooks/hooks.json, which is reported on its own line.'
         }
         if ($Files -contains 'statusline/statusline.ps1') {
-            $n += "statusline/statusline.ps1 changes: the live status line is a COPY at $(if ([string]::IsNullOrWhiteSpace($claudeHome)) { '<the configuration directory, which could not be resolved on this machine>\statusline.ps1' } else { Join-Path $claudeHome 'statusline.ps1' }). git does not touch it. Re-copy it after the pull or it stays stale, silently."
+            # THE SAME RESOLVED TARGET SECTION 4 USES (#77). This note named the
+            # default copy target unconditionally, so on a machine whose status
+            # line is wired through the skills junction it told the operator to
+            # re-copy a file that is not the live one - and the row below then
+            # reported that same file as absent. Two sentences about two
+            # different files, neither of them the one being run.
+            if ($slSource -eq 'command') {
+                $n += "statusline/statusline.ps1 changes: the live status line on this machine is $slWired, which is what statusLine.command names in $slSettings. git does not touch it. Re-copy it after the pull or it stays stale, silently."
+            } elseif ([string]::IsNullOrWhiteSpace($claudeHome)) {
+                $n += 'statusline/statusline.ps1 changes: the live status line is a COPY that git does not touch, and no configuration directory could be resolved on this machine, so this note cannot name it. Find it in your settings.json statusLine.command and re-copy it after the pull.'
+            } else {
+                $n += "statusline/statusline.ps1 changes: no statusLine.command is set in $slSettings, so the live status line - if there is one - is the DEFAULT copy target $(Join-Path $claudeHome 'statusline.ps1'). git does not touch it. Re-copy it after the pull or it stays stale, silently."
+            }
         }
         if ($Files -contains 'config.json') {
             $n += 'config.json changes: module ON/OFF flags travel with the repo, so a pull can change what runs. The flag differences are listed below.'
@@ -356,20 +435,41 @@ try {
 
     # The status-line copy, checked on every run and not only when it changed -
     # it can be stale from an update made weeks ago.
-    $slLive = if ([string]::IsNullOrWhiteSpace($claudeHome)) { '' } else { Join-Path $claudeHome 'statusline.ps1' }
     $slRepo = Join-Path $Root 'statusline\statusline.ps1'
-    if ((-not [string]::IsNullOrWhiteSpace($slLive)) -and (Test-Path -LiteralPath $slLive) -and (Test-Path -LiteralPath $slRepo)) {
-        $a = (Get-FileHash -LiteralPath $slLive -Algorithm SHA256).Hash
-        $b = (Get-FileHash -LiteralPath $slRepo -Algorithm SHA256).Hash
-        if ($a -eq $b) { Add-Row -Id 'statusline' -Status 'OK' -Detail "$slLive is byte-identical to the repo copy" }
-        else {
-            Add-Row -Id 'statusline' -Status 'WARN' -Detail "$slLive DIFFERS from statusline/statusline.ps1 - one of them is stale and nothing on this machine reconciles them"
-            $needs += "the installed status line differs from the repo copy. Copy-Item `"$slRepo`" `"$slLive`" makes the repo version live - check which way round you want it first, because a fix made to the live file is lost."
-        }
+    # WHICH FILE, AND ON WHOSE SAY-SO. Resolved once at the top of the run - see
+    # the block above section 0 - so this row and the re-approval note in
+    # Get-Needs cannot name two different files.
+    $slWhose = switch ($slSource) {
+        'command' { "the file statusLine.command names in $slSettings" }
+        default   { "the DEFAULT copy target - no statusLine.command is set, so this is where the installer's copy mode would have put it" }
+    }
+    if ($slSource -eq 'command') { $slLive = $slWired }
+    elseif ([string]::IsNullOrWhiteSpace($claudeHome)) { $slLive = '' }
+    else { $slLive = Join-Path $claudeHome 'statusline.ps1' }
+
+    if ($slSource -eq 'unidentified') {
+        Add-Row -Id 'statusline' -Status 'WARN' -Detail "statusLine.command is set but names no .ps1 this check could identify, so no file was compared: $slWired. The default copy target was NOT compared instead - it is not what this machine is running."
+    } elseif ($slSource -eq 'unreadable') {
+        Add-Row -Id 'statusline' -Status 'INFO' -Detail "$slSettings could not be read or parsed, so which file is the live status line was not established. This is not evidence that there is none; /lw-watchtower:doctor check 7 is where an unreadable settings file is reported."
     } elseif ([string]::IsNullOrWhiteSpace($slLive)) {
         Add-Row -Id 'statusline' -Status 'INFO' -Detail 'no configuration directory could be resolved, so the live status line was not looked for. This is not evidence that it is missing.'
+    } elseif ((Test-Path -LiteralPath $slLive) -and (Test-Path -LiteralPath $slRepo)) {
+        $a = (Get-FileHash -LiteralPath $slLive -Algorithm SHA256).Hash
+        $b = (Get-FileHash -LiteralPath $slRepo -Algorithm SHA256).Hash
+        if ($a -eq $b) { Add-Row -Id 'statusline' -Status 'OK' -Detail "$slLive is byte-identical to the repo copy ($slWhose)" }
+        else {
+            Add-Row -Id 'statusline' -Status 'WARN' -Detail "$slLive DIFFERS from statusline/statusline.ps1 - one of them is stale and nothing on this machine reconciles them ($slWhose)"
+            $needs += "the installed status line differs from the repo copy. Copy-Item `"$slRepo`" `"$slLive`" makes the repo version live - check which way round you want it first, because a fix made to the live file is lost. That path is $slWhose."
+        }
     } elseif (-not (Test-Path -LiteralPath $slLive)) {
-        Add-Row -Id 'statusline' -Status 'INFO' -Detail "no $slLive - the HH segment is not installed on this machine"
+        if ($slSource -eq 'command') {
+            # A CONFIGURED TARGET THAT IS NOT THERE IS NOT "NOT INSTALLED". The
+            # status line IS wired; the file it is wired to is gone, which
+            # renders as no segments at all rather than as an absent segment.
+            Add-Row -Id 'statusline' -Status 'WARN' -Detail "statusLine.command points at $slLive, which does not exist. The status line is CONFIGURED and BROKEN, which is not the same as not installed - it renders nothing at all."
+        } else {
+            Add-Row -Id 'statusline' -Status 'INFO' -Detail "no $slLive and no statusLine.command in $slSettings - the HH segment is not installed on this machine"
+        }
     }
 
     # ---------------------------------------------------------------------

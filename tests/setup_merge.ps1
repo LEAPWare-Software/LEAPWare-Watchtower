@@ -690,8 +690,17 @@ function New-BehindClone {
       FETCHED at the end, so `behind` is already in its tracking ref and an
       -Offline run can see it - which is the state the -Offline/-Apply cases
       need, and is exactly the state an earlier online run leaves behind.
+
+      -BaseFiles is a hashtable of <relative path> = <byte[]> written into the
+      seed BEFORE the first commit, so they arrive in the consumer already
+      COMMITTED and the checkout is still clean and still exactly one behind.
+      Section 26h needs one: bin\lwg-update.ps1 compares the live status line
+      against <checkout>\statusline\statusline.ps1, and a consumer clone that
+      does not have that file makes the comparison unreachable - the row is not
+      merely wrong then, it is absent, which is a third answer no case should be
+      satisfied by. Defaults to empty, so every case above this one is unchanged.
     #>
-    param([string]$Dir, [string]$IncomingFile = 'notes.md')
+    param([string]$Dir, [string]$IncomingFile = 'notes.md', [hashtable]$BaseFiles = @{})
 
     $bare     = Join-Path $Dir 'upstream.git'
     $seed     = Join-Path $Dir 'seed'
@@ -701,6 +710,11 @@ function New-BehindClone {
     [void](Invoke-Git -WorkDir $Dir -GitArgs @('init', '--bare', '--quiet', $bare))
     [void](Invoke-Git -WorkDir $Dir -GitArgs @('clone', '--quiet', $bare, $seed))
     [IO.File]::WriteAllText((Join-Path $seed 'seed.md'), "lwg fixture seed`r`n")
+    foreach ($rel in @($BaseFiles.Keys)) {
+        $p = Join-Path $seed $rel
+        [void][IO.Directory]::CreateDirectory((Split-Path -Parent $p))
+        [IO.File]::WriteAllBytes($p, $BaseFiles[$rel])
+    }
     [void](Invoke-Git -WorkDir $seed -GitArgs @('add', '-A'))
     [void](Invoke-Git -WorkDir $seed -GitArgs @('commit', '--quiet', '-m', 'lwg fixture: first commit'))
     [void](Invoke-Git -WorkDir $seed -GitArgs @('push', '--quiet', 'origin', 'HEAD:refs/heads/main'))
@@ -2765,6 +2779,87 @@ try {
     Add-Result 'CONTROL update: with git off PATH nothing is reported as up to date' `
         ([bool]($a.out -match 'is not the same as being up to date')) `
         "a check that could not be made is not a check that passed, and this is the row that says so. Output:`n$($a.out)"
+
+    # -------------------------------------------------------------------
+    # 26h. THE STATUS-LINE ROW DESCRIBES THE FILE THIS MACHINE IS RUNNING (#77).
+    #
+    #      bin\lwg-update.ps1's section-4 row compared <config root>\statusline.ps1
+    #      and nothing else - the target bin\lwg-setup.ps1 writes in its DEFAULT
+    #      copy mode. The installer offers a second mode, and an operator whose
+    #      status line is wired through the skills junction got
+    #
+    #        [INFO] statusline   no ...\.claude\statusline.ps1 - the HH segment
+    #                            is not installed on this machine
+    #
+    #      about a status line that IS installed, IS this plugin's, and HAS
+    #      drifted from the repo copy. The one state the row exists to catch was
+    #      the one state it could not see. bin\lwg-doctor.ps1 check 7 was already
+    #      resolving the target out of statusLine.command; this file was not, so
+    #      two readers of one settings key disagreed about which file the
+    #      operator runs.
+    #
+    #      THE FIXTURE IS A5's PROBE, BUILT HERE: a scratch profile whose
+    #      settings.json wires statusLine.command at a DRIFTED copy under
+    #      <profile>\.claude\skills\<plugin>\statusline\statusline.ps1, and NO
+    #      <profile>\.claude\statusline.ps1 at all. Drifted deliberately - the
+    #      copy is the repo bytes plus one comment line - so "found it" and
+    #      "found it and compared it" are different results.
+    #
+    #      BASELINE ec80e88, measured through this harness:
+    #        [INFO] statusline   no ...\profile\.claude\statusline.ps1 - the HH
+    #                            segment is not installed on this machine
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'update-statusline-wired' -Bytes $null
+    $pair = New-BehindClone -Dir (Join-Path $t.dir 'repos') -BaseFiles @{ 'statusline/statusline.ps1' = $repoStatusLineBytes }
+    $wiredDir = Join-Path $t.profile (".claude\skills\" + $PluginName + '\statusline')
+    [void][IO.Directory]::CreateDirectory($wiredDir)
+    $wired = Join-Path $wiredDir 'statusline.ps1'
+    [IO.File]::WriteAllBytes($wired, $repoStatusLineBytes)
+    # The drift, appended as a comment so the file still parses. One byte would
+    # do; a line says what it is for to whoever reads the fixture next.
+    [IO.File]::AppendAllText($wired, "`r`n# lwg fixture: this copy has drifted from the repo copy`r`n")
+    $sp = Join-Path $t.profile '.claude\settings.json'
+    # ConvertTo-Json here rather than a hand-written literal, unlike the fixtures
+    # at the top of this file: those are about the exact SHAPE of a settings
+    # file and a round-trip would destroy them, whereas this one is about a
+    # Windows path inside a JSON string, where hand-escaping the backslashes is
+    # the thing most likely to be got wrong. It was, on the first attempt - the
+    # path came back doubled and the case failed against a correct fix.
+    [IO.File]::WriteAllText($sp,
+        (@{ statusLine = @{ type = 'command'; command = ('powershell -NoProfile -File "' + $wired + '"'); refreshInterval = 120 } } |
+            ConvertTo-Json -Depth 5),
+        (New-Object Text.UTF8Encoding($false)))
+
+    $a = Invoke-Update -ProfileDir $t.profile -Arguments @('-Root', $pair.consumer, '-Offline', '-SkipDoctor')
+    $slRow = (@($a.out -split "`r?`n" | Where-Object { $_ -match '^\s+\[\w+\s*\]\s+statusline\s' }) -join ' ')
+
+    Add-Result 'update: the status-line row does not report a wired status line as not installed' `
+        ([bool]($slRow -and $slRow -notmatch 'not installed on this machine')) `
+        "the status line IS installed, IS this plugin's and HAS drifted, and the row reported its absence. Row:`n$slRow`nOutput:`n$($a.out)"
+    Add-Result 'update: the row names the file statusLine.command actually points at' `
+        ([bool]($slRow -like "*$wired*")) `
+        "the row must compare the file this machine runs, not the default copy target. Expected it to name $wired. Row:`n$slRow"
+    Add-Result 'update: and reports it as DRIFTED, which is the state the row exists to catch' `
+        ([bool]($slRow -match '(?m)\[WARN\]' -and $slRow -match 'DIFFERS')) `
+        "the wired copy is the repo bytes plus one line, so the only correct answer is a drift warning. Row:`n$slRow"
+    Add-Result 'update: the re-approval note names the same file the row does' `
+        ([bool]($a.out -notmatch [regex]::Escape((Join-Path $t.profile '.claude\statusline.ps1')))) `
+        "the note at the top of section 4 named the default copy target unconditionally, so it told the operator to re-copy a file that is not the live one - while the row talked about a third. Output:`n$($a.out)"
+
+    # CONTROL, and it passes at ec80e88 too: with NO statusLine.command set, the
+    # default copy target is still the right thing to talk about. Without this,
+    # "always read settings.json" would pass the four cases above and lose the
+    # machine that has not wired anything up yet.
+    $t2 = New-CaseTree -Tag 'update-statusline-default' -Bytes $null
+    $pair2 = New-BehindClone -Dir (Join-Path $t2.dir 'repos') -BaseFiles @{ 'statusline/statusline.ps1' = $repoStatusLineBytes }
+    $def2 = Join-Path $t2.profile '.claude\statusline.ps1'
+    [IO.File]::WriteAllBytes($def2, $repoStatusLineBytes)
+    [IO.File]::AppendAllText($def2, "`r`n# lwg fixture: the default copy has drifted too`r`n")
+    $b = Invoke-Update -ProfileDir $t2.profile -Arguments @('-Root', $pair2.consumer, '-Offline', '-SkipDoctor')
+    $slRow2 = (@($b.out -split "`r?`n" | Where-Object { $_ -match '^\s+\[\w+\s*\]\s+statusline\s' }) -join ' ')
+    Add-Result 'CONTROL update: with no statusLine.command the default copy target is still compared' `
+        ([bool]($slRow2 -like "*$def2*" -and $slRow2 -match 'DIFFERS')) `
+        "a machine that has never wired the status line up must still be told its default copy has drifted. Row:`n$slRow2`nOutput:`n$($b.out)"
 
     # -------------------------------------------------------------------
     # 27. THE STATUS LINE IS NOT THE ONLY THING THE OPERATOR SEES (#175).
