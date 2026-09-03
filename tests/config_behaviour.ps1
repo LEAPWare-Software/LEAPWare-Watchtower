@@ -894,6 +894,80 @@ try {
         ("{0} run(s) printed PREVIEW ONLY and {1} of them changed the file: {2}. 'Nothing is written without -Apply' is the contract the whole two-phase design rests on" -f `
             $previews.Count, $pLiars.Count, $(if ($pLiars.Count) { ($pLiars | ForEach-Object { $_.tag }) -join ', ' } else { 'none' }))
 
+    # -----------------------------------------------------------------------
+    # H. THE SHIPPED config.json ITSELF - #75
+    #
+    #    Every case above runs against a hand-built fixture, on purpose. This one
+    #    reads the REPOSITORY'S OWN config.json, because the claim it pins is a
+    #    property of the shipped file and of nothing else.
+    #
+    #    $status.implemented was an eleven-name array duplicating
+    #    $LwgModuleRegistry, and the comment beside it said the two were "still
+    #    held to each other by a machine rather than by memory". They were not.
+    #    bin/lwg-doctor.ps1's config-registry check compares the `modules` keys
+    #    against the registry and the declared switch keys and never read the
+    #    array; no rule in tests/doc_claims.ps1 was sourced from it; no hook
+    #    touched it. A hand-maintained copy believed on the strength of a machine
+    #    that does not exist is worse than no copy, because the failure it invites
+    #    is BELIEVING THE LIST: add a module, forget the array, and every check in
+    #    CI stays green while the file reports one fewer module than exists.
+    #
+    #    So it was deleted rather than wired to a check nobody asked for, and this
+    #    case is the guard that keeps it deleted. It is deliberately thin - there
+    #    is no behaviour to drive, only an absence to hold - and it goes RED at
+    #    4342980, where the array is present.
+    #
+    #    THE CONTROLS ARE WHAT MAKE THE ABSENCE MEAN ANYTHING. An assertion that a
+    #    member is absent passes just as well against a file that does not parse,
+    #    a file that is empty, or a path that is wrong, so the same read has to
+    #    prove it found the real document first: the file parses, it carries a
+    #    $status block, and that block still holds the keys nothing asked to
+    #    remove. Without them, deleting config.json outright would turn this
+    #    green.
+    # -----------------------------------------------------------------------
+    Write-Output ''
+    Write-Output 'H. the shipped config.json - #75'
+
+    $shippedPath = Join-Path $Root 'config.json'
+    $shippedRaw  = ''
+    $shippedObj  = $null
+    $shippedWhy  = ''
+    try {
+        $shippedRaw = [IO.File]::ReadAllText($shippedPath, [Text.Encoding]::UTF8).TrimStart([char]0xFEFF)
+        $shippedObj = $shippedRaw | ConvertFrom-Json
+    } catch { $shippedWhy = $_.Exception.Message }
+
+    Add-Result 'H1 CONTROL: the repository''s own config.json is there and parses' `
+        ($null -ne $shippedObj) `
+        ("$shippedPath could not be read or parsed, so H2 and H3 would be asserting an absence over nothing: $shippedWhy")
+
+    $statusBlock = $null
+    if ($null -ne $shippedObj) { $statusBlock = $shippedObj.'$status' }
+    $statusKeys = @()
+    if ($null -ne $statusBlock) { $statusKeys = @($statusBlock.PSObject.Properties.Name) }
+
+    Add-Result 'H2 CONTROL: it still carries a $status block holding the keys nothing asked to remove' `
+        ($statusKeys -contains 'planned' -and $statusKeys -contains 'default_off' -and $statusKeys -contains '$gates_comment') `
+        (('the $status block was read as {0} key(s): {1}. #75 removed ONE member from it; a block that has lost planned, default_off or $gates_comment as well means this case is looking at something other than the shipped file, and H3''s absence would prove nothing.') -f `
+            $statusKeys.Count, $(if ($statusKeys.Count) { $statusKeys -join ', ' } else { 'none' }))
+
+    Add-Result 'H3 $status.implemented is GONE, not hand-maintained beside a machine that never read it (#75)' `
+        ($statusKeys.Count -gt 0 -and $statusKeys -notcontains 'implemented') `
+        (('config.json''s $status block still declares an implemented array. Nothing in the tree reads it - not bin/lwg-doctor.ps1''s config-registry check, not tests/doc_claims.ps1, not any hook - so it is a second copy of $LwgModuleRegistry that goes stale in silence, under a comment that told the next reader a machine was keeping it in step. Keys found: {0}') -f ($statusKeys -join ', '))
+
+    # And the sentence that made it dangerous. The array could have been deleted
+    # while leaving behind the claim that something checks it, which is the half
+    # of this defect that actually misleads a reader.
+    $machineClaim = ''
+    if ($null -ne $statusBlock) {
+        foreach ($p in $statusBlock.PSObject.Properties) {
+            if ($p.Value -is [string] -and $p.Value -match 'held to each other by a machine') { $machineClaim = $p.Name }
+        }
+    }
+    Add-Result 'H4 and no comment in $status still claims a machine holds two module lists together (#75)' `
+        ($null -ne $statusBlock -and $machineClaim -eq '') `
+        (('$status.{0} still says the lists are "held to each other by a machine rather than by memory". No such machine exists: config-registry compares the modules keys against the registry and the declared switch keys, and reads nothing else. Deleting the array while keeping the sentence would leave the misleading half of #75 in place.') -f $machineClaim)
+
 } catch {
     $script:Aborted = $_.Exception.Message
 } finally {
@@ -936,7 +1010,8 @@ Write-Output ''
 Write-Output 'Every case above passed. Read that as "a wrong-case module name is refused before'
 Write-Output 'anything is planned, -Repo is canonicalised once against the shape a hook produces'
 Write-Output 'and the spelling the file already uses, the preview writes nothing and the applied'
-Write-Output 'run says the same words, and every refusal leaves the file byte-identical" - and NOT'
+Write-Output 'run says the same words, every refusal leaves the file byte-identical, and the'
+Write-Output 'shipped config.json declares no second copy of the module registry" - and NOT'
 Write-Output 'as "the write path is safe". See the header for the four things no case here reaches,'
 Write-Output 'the exit-2 fault paths among them.'
 Write-Output 'EXIT: 0'
