@@ -1097,7 +1097,7 @@ function Test-F5-TheShippedConfigIsObserveOnly {
       not unwritten.
     #>
     Invoke-ModeCase -Name 'f5' -CaseName 'F5 the shipped config.json reports mode observe-only, 7/11 modules and 0 gates' `
-        -ConfigJson '' -Mode 'observe-only' -Counts '7/11 modules active' -Gates '0 gates' -Split '(4 off)'
+        -ConfigJson '' -Mode 'observe-only' -Counts '7/11 modules' -Gates '0 gates' -Split '(4 off)'
 }
 
 function Test-F6-SelfHealthOffIsUnverified {
@@ -1127,7 +1127,7 @@ function Test-F6-SelfHealthOffIsUnverified {
 }
 '@
     Invoke-ModeCase -Name 'f6' -CaseName 'F6 self_health off reports mode unverified, never a word that implies a check passed' `
-        -ConfigJson $cfg -Mode 'unverified' -Counts '6/11 modules active' -Gates '0 gates' -Split '(5 off)'
+        -ConfigJson $cfg -Mode 'unverified' -Counts '6/11 modules' -Gates '0 gates' -Split '(5 off)'
 }
 
 function Test-F7-OneLiveGateIsPartial {
@@ -1162,7 +1162,7 @@ function Test-F7-OneLiveGateIsPartial {
 }
 '@
     Invoke-ModeCase -Name 'f7' -CaseName 'F7 one live gate with modules still off reports mode partial and 1 gate' `
-        -ConfigJson $cfg -Mode 'partial' -Counts '8/11 modules active' -Gates '1 gate' -Split '(3 off)'
+        -ConfigJson $cfg -Mode 'partial' -Counts '8/11 modules' -Gates '1 gate' -Split '(3 off)'
 }
 
 function Test-F8-EverythingOnIsEnforcing {
@@ -1210,9 +1210,9 @@ function Test-F8-EverythingOnIsEnforcing {
     $problems = @()
     if ([string]$c.record.mode -ne 'enforcing') { $problems += "the ledger record says mode '$($c.record.mode)', expected 'enforcing'. failures: [$($c.record.failures -join '; ')]" }
     if (-not (Test-BannerMode $banner 'enforcing')) { $problems += "the BANNER does not end on 'enforcing': [$banner]" }
-    if ($banner -notmatch '11/11 modules active') { $problems += "the banner does not say '11/11 modules active': [$banner]" }
+    if ($banner -notmatch '11/11 modules') { $problems += "the banner does not say '11/11 modules': [$banner]" }
     if ($banner -notmatch '3 gates')              { $problems += "the banner does not say '3 gates': [$banner]" }
-    if ($banner -match 'modules active\s*\(')     { $problems += "the banner prints a parenthetical on a config with nothing planned and nothing off: [$banner]" }
+    if ($banner -match '\d+/\d+ modules \w+\s*\(') { $problems += "the banner prints a parenthetical on a config with nothing planned and nothing off: [$banner]" }
     $f = Get-BannerFailure $banner
     if ($f -ne '') { $problems += "the banner is the self-reported failure string '$f': [$banner]" }
     Add-Case 'F8 every implemented module on and three gates armed reports mode enforcing, with no parenthetical' `
@@ -1248,7 +1248,7 @@ function Test-F9-NothingRunningIsInert {
 }
 '@
     Invoke-ModeCase -Name 'f9' -CaseName 'F9 nothing enabled at all reports mode inert, 0/11 modules and 0 gates' `
-        -ConfigJson $cfg -Mode 'inert' -Counts '0/11 modules active' -Gates '0 gates' -Split '(11 off)'
+        -ConfigJson $cfg -Mode 'inert' -Counts '0/11 modules' -Gates '0 gates' -Split '(11 off)'
 }
 
 # =========================================================================
@@ -1275,6 +1275,11 @@ function Test-F9-NothingRunningIsInert {
 # G3 IS THE ONE THAT CANNOT BE FAKED BY A CONSTANT. A banner hardcoded to a
 # plausible string passes G1, G2 and G4; it fails G3, which requires the banner
 # to carry the reason THIS degraded session degraded.
+#
+# G2 CARRIES ONE MORE THING AND IT IS NOT COVERAGE: #132's banner word. Every
+# other case in sections F and G is green at 4342980 and is offered as coverage;
+# G2 is red there, because the banner called its count 'active' when the count
+# is a statement about config.json and the registry. Read its comment.
 # =========================================================================
 
 function Test-G1-TheBannerIsEmittedAndIsNotAFailureString {
@@ -1298,22 +1303,48 @@ function Test-G1-TheBannerIsEmittedAndIsNotAFailureString {
 function Test-G2-TheBannerNumbersAreTheOnesTheConfigImplies {
     <#
       A banner that is present and well-formed can still be wrong about every
-      number on it. On the shipped config the answer is 7 of 11 active, four
+      number on it. On the shipped config the answer is 7 of 11 enabled, four
       built and switched off, no gate live, observe-only - and the last of those
       is asserted here as well as in F5 on purpose: F5 pins the ladder's ANSWER,
       this pins that the banner PRINTS the answer it was given.
+
+      AND THE NOUN (#132). THIS IS THE ONE CASE IN SECTIONS F AND G THAT IS RED
+      AT 4342980, and it is red for a defect rather than for a coverage gap: the
+      banner said 'N/M modules ACTIVE' there. $activeCount comes from
+      Get-LwgActiveModules, whose own docstring says the count is "enabled by
+      config AND backed by code" - the registry and config.json, and nothing
+      that was observed to happen. 'Active' reads as "these ran". Three of the
+      eight events hooks/hooks.json registers on were read out of one specific
+      binary and are simply inert on a build that does not carry them, while
+      this line goes on counting the module, so the word claimed an observation
+      the plugin has never had, in the one line every session reads.
+
+      The other five mode cases assert the FRACTION and not the noun - '7/11
+      modules' - deliberately. They are coverage and are green at that commit,
+      and folding the wording defect into all six would have made five green
+      cases look like five red ones and lost which change did what.
+
+      BOTH DIRECTIONS. Asserting 'enabled' alone would pass on a banner that
+      printed both words; the absence of 'active' is the half that says the
+      overstatement is gone rather than merely joined.
     #>
     $c = Invoke-SessionStartCase -Name 'g2'
     $banner = [string]$c.envelope.systemMessage
     $problems = @()
-    foreach ($want in @('7/11 modules active', '(4 off)', '0 gates', 'observe-only')) {
+    foreach ($want in @('7/11 modules enabled', '(4 off)', '0 gates', 'observe-only')) {
         if ($banner -notmatch [regex]::Escape($want)) { $problems += "the banner does not say '$want'" }
+    }
+    if ($banner -match 'modules active') {
+        $problems += ("REGRESSION (#132): the banner says 'modules active'. The count is Get-LwgActiveModules', " +
+                      "which is enabled-by-config AND backed-by-code - a statement about the registry, not about " +
+                      "anything that was observed to fire. Nothing in this plugin knows whether a registered hook " +
+                      "ran at all, so 'active' claims an observation it does not have.")
     }
     if ($null -ne $c.record -and [string]$c.record.mode -ne 'observe-only') {
         $problems += "the ledger record says mode '$($c.record.mode)' while the banner was asked for 'observe-only' - the two come from one variable and must not be able to disagree"
     }
     if ($problems.Count -gt 0) { $problems += "banner: [$banner]" }
-    Add-Case 'G2 the banner prints the module count, the remainder, the gate count and the mode the config implies' ($problems.Count -eq 0) ($problems -join "`n")
+    Add-Case 'G2 the banner prints the count, the remainder, the gate count and the mode - and calls the count ENABLED, not active (#132)' ($problems.Count -eq 0) ($problems -join "`n")
 }
 
 function Test-G3-ADegradedSessionStillGetsARealBannerCarryingTheReason {

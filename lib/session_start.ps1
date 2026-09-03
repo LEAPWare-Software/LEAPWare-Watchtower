@@ -215,17 +215,37 @@ try {
 
     $dot      = [char]0x00B7
     $gateWord = if ($gateCount -eq 1) { 'gate' } else { 'gates' }
-    # "active" means implemented AND enabled. Whatever the total holds that is
-    # NOT active is stated in the same breath, so the total can never be read as
+    # The count means implemented AND enabled. Whatever the total holds that is
+    # NOT counted is stated in the same breath, so the total can never be read as
     # coverage. When both counts are zero the parenthetical is dropped rather
-    # than printed as "(0 planned)": active and total are then the same number
-    # and there is no remainder to account for, so the phrase would be noise
-    # standing where a real caveat used to be. Every non-zero case still prints.
+    # than printed as "(0 planned)": the count and the total are then the same
+    # number and there is no remainder to account for, so the phrase would be
+    # noise standing where a real caveat used to be. Every non-zero case prints.
+    #
+    # THE WORD IS 'ENABLED', NOT 'ACTIVE' (#132). $activeCount comes from
+    # Get-LwgActiveModules, whose own docstring says the count is "enabled by
+    # config AND backed by code" - a statement about the registry and
+    # config.json, and about nothing that was observed to happen. 'Active' reads
+    # as "these ran", and nothing here knows whether any of them ran: three of
+    # the eight events hooks/hooks.json registers on were read out of one
+    # specific binary, and on a build that does not carry them the registration
+    # is simply inert while this line goes on counting the module. A banner that
+    # claims observation the plugin does not have is the same overstatement as
+    # counting an unbuilt module as coverage, which is the defect this whole
+    # plugin exists to catch, in the one line every session reads.
+    #
+    # A count of what genuinely FIRED is a different thing and is not available
+    # here: the `event` field in lw-watchtower.jsonl carries a semantic record
+    # name rather than the hook event, and most modules write nothing at all on
+    # the quiet path, so "never observed" cannot be read apart from "nothing to
+    # report". Building that needs a per-event observation record on every hook
+    # path - #166's ledger, and v0.5.0's work. Until it exists the honest word is
+    # this one.
     $splitParts = @()
     if ($plannedCount -gt 0) { $splitParts += "$plannedCount planned" }
     if ($offCount -gt 0)     { $splitParts += "$offCount off" }
     $split    = $(if ($splitParts.Count -gt 0) { ' (' + ($splitParts -join ', ') + ')' } else { '' })
-    $banner   = "LW-WATCHTOWER v$version $dot $activeCount/$totalCount modules active$split $dot $gateCount $gateWord $dot $mode"
+    $banner   = "LW-WATCHTOWER v$version $dot $activeCount/$totalCount modules enabled$split $dot $gateCount $gateWord $dot $mode"
     # The mode word alone is not enough here. 'unverified' tells a reader that
     # something is missing but not what, and the one thing they need to know is
     # that the omission is deliberate rather than a fault.
