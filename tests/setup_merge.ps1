@@ -97,6 +97,20 @@
   so the cases below cover BOTH files: it is one defect - one wrong belief about
   where a marketplace install lives - with two symptoms.
 
+  THOSE CASES ARE ABOUT WHAT THE SECTION DECIDES, NOT WHAT IT WRITES, and the
+  distinction cost this file a wrong reading. Sections 17 to 19c establish
+  install-mode detection, hook identity, duplicate registration and what the
+  consent screen discloses; none of them is a merge-writer property. Until
+  SECTION 31 landed, every claim in this suite about the WRITER - unrelated keys
+  preserved by value and order, exactly one backup holding the original bytes, a
+  stale BaseHash refused, a byte-identical second apply, rollback byte for byte -
+  was established for `statusline` and merely INHERITED by `hooks` on the
+  argument that both go through Save-Settings. That is an argument from shared
+  code and not a measurement, and the two paths are not in fact identical above
+  Save-Settings. Section 31 measures the five, on `hooks`, against FIXTURE B.
+  Read that fixture's comment before reading section 31: it is a different
+  fixture for one specific reason.
+
   ---------------------------------------------------------------------------
   SECTIONS 23 AND 26 DO NOT TEST THE INSTALLER AT ALL
   ---------------------------------------------------------------------------
@@ -318,6 +332,67 @@ $FixtureBom   = [byte[]]($Utf8Bom.GetPreamble() + $FixtureBytes)
 # against this rather than against the fixture text, so a case cannot pass by
 # agreeing with a fixture that was itself re-sorted.
 $ExpectedOrder = @('zeta', 'permissions', 'statusLine', 'alpha')
+
+# ---------------------------------------------------------------------------
+# FIXTURE B - THE HOOKS FIXTURE (section 31)
+#
+# FIXTURE A CANNOT BE USED FOR THE HOOKS WRITER PROPERTIES, and the reason is
+# the whole point of the order assertion. Fixture A has no `hooks` key at all,
+# so a hooks apply APPENDS one; "top-level order is unchanged" then only means
+# "the new key went last", which no plausible defect breaks. The property
+# Set-PropValue exists for is REPLACE IN PLACE - Add-Member -Force removes a key
+# and re-appends it, silently moving it to the end of the operator's file - and
+# it can only be falsified by a fixture in which the touched key already exists
+# and is NOT last.
+#
+# So `hooks` sits SECOND of five, holding one registration that is the
+# operator's own: UserPromptSubmit is an event this plugin registers on in
+# hooks/hooks.json zero times, and the script leaf is a fixture name, so the
+# hooks plan iterates past it and it must come out untouched. That is the merge
+# claim inside the touched key, as distinct from the four unrelated top-level
+# keys around it.
+#
+# statusLine is carried over from fixture A deliberately: it is the key the
+# OTHER section writes, so "a hooks apply does not touch it" is a claim worth
+# having and is not available from a fixture that omits it.
+#
+# Written as BYTES with no BOM, for the same reason fixture A is - the backup
+# and rollback cases below compare bytes against exactly these characters.
+# ---------------------------------------------------------------------------
+$HooksFixtureText = @'
+{
+    "zeta": {
+        "one": 1,
+        "two": [ "a", "b" ]
+    },
+    "hooks": {
+        "UserPromptSubmit": [
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "powershell -NoProfile -File lwg-noop-userprompt-fixture.ps1"
+                    }
+                ]
+            }
+        ]
+    },
+    "permissions": {
+        "ask": [ "Bash(lwg-noop-fixture)" ],
+        "defaultMode": "acceptEdits"
+    },
+    "statusLine": {
+        "type": "command",
+        "command": "powershell -NoProfile -File lwg-noop-fixture.ps1",
+        "refreshInterval": 45
+    },
+    "alpha": "keep me"
+}
+'@
+
+$HooksFixtureBytes  = $Utf8NoBom.GetBytes($HooksFixtureText)
+$HooksExpectedOrder = @('zeta', 'hooks', 'permissions', 'statusLine', 'alpha')
 
 # ---------------------------------------------------------------------------
 # HELPERS
@@ -3207,6 +3282,180 @@ try {
     Add-Result 'CLAUDE_CONFIG_DIR: the status line finds the install and the log under the relocated root' `
         ([bool]($s4.out -match 'HH1')) `
         "expected the HH segment to read the fault log under $dd4 and render HH1. Rendering HH? means the install under the relocated root was never found; rendering plain HH means the log was. Output:`n$($s4.out)"
+
+    # ===================================================================
+    # 31. THE FIVE MERGE-WRITER PROPERTIES, ON THE HOOKS SECTION (#142).
+    #
+    #     WHY THIS SECTION EXISTS AT ALL, given sections 17 to 19c. Those cases
+    #     drive -Section hooks and assert what the section DECIDES: install-mode
+    #     detection, hook identity, duplicate registration, and what the consent
+    #     screen discloses. None of them is a writer property. Everything this
+    #     file establishes about the MERGE - unrelated keys preserved by value
+    #     and order, exactly one backup holding the original bytes, a stale
+    #     -BaseHash refused, a byte-identical second apply, rollback byte for
+    #     byte - was established for -Section statusline and for nothing else,
+    #     and the tree said so in its own words: the writer properties are
+    #     "merely INHERITED by hooks, which goes through the same Save-Settings
+    #     path".
+    #
+    #     INHERITED IS AN ARGUMENT FROM SHARED CODE, NOT A MEASUREMENT, and the
+    #     two sections do not in fact share the whole path. New-HooksPlan builds
+    #     its merged object through Get-PropArray and Get-HookSignature, reads
+    #     and rewrites an EXISTING nested object rather than a single scalar
+    #     key, and calls Set-PropValue twice - once per event, once for `hooks`
+    #     itself. Only what is below Save-Settings is common. The five
+    #     properties are about the operator's real settings.json either way, and
+    #     the section that writes the largest structure into it is the one that
+    #     had none of them.
+    #
+    #     BASELINE: 4342980, and these cases are GREEN there. They are COVERAGE
+    #     and they are recorded as coverage: the installer already behaves
+    #     correctly on all five, and nothing here is offered as evidence that a
+    #     defect was fixed. Each one was confirmed FALSIFIABLE against a
+    #     deliberately broken bin\lwg-setup.ps1 rather than assumed to be, which
+    #     is what docs\testing.md requires of a case with no red commit behind
+    #     it - the mutations, and which case each one turns red, are recorded on
+    #     the pull request that brought this section in.
+    #
+    #     -HookMode standalone ON EVERY CALL. Under `auto` the mode depends on
+    #     what the scratch profile happens to look like, and a plan that
+    #     resolved to `plugin` writes nothing at all - every case below would
+    #     then pass vacuously, on a run that did not reach the writer. The diff
+    #     is also checked for a planned registration before the apply, for the
+    #     same reason and in the same shape section 3b uses.
+    # ===================================================================
+    $t = New-CaseTree -Tag 'hooks-writer' -Bytes $HooksFixtureBytes
+    $before = Read-Json $t.settings
+
+    $d = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'diff', '-Section', 'hooks', '-SettingsPath', $t.settings, '-HookMode', 'standalone')
+    $h = Get-BaseHashFrom $d.out
+    if ($h -eq '' -or $h -eq 'none') { throw "the hooks-writer fixture's diff printed no usable BASEHASH ('$h'), so no case in section 31 could establish anything" }
+    if ($d.out -notmatch '(?m)^\d+ registration\(s\) would be ADDED') {
+        throw 'the hooks-writer fixture planned no registration, so the apply below would write nothing and every writer property in section 31 would pass vacuously'
+    }
+
+    $a = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'apply', '-Section', 'hooks', '-SettingsPath', $t.settings, '-BaseHash', $h, '-HookMode', 'standalone')
+    Add-Result 'hooks writer: apply on a populated fixture -> exit 0' ($a.code -eq 0) `
+        "exited $($a.code), expected 0. Output:`n$($a.out)"
+
+    $after = Read-Json $t.settings
+
+    # 31a. ORDER (#142 row 1). `hooks` is SECOND of five and is the key being
+    #      replaced, so this is the replace-in-place claim rather than the
+    #      append one - see fixture B's comment.
+    $order = Get-TopLevelOrder $after
+    Add-Result 'hooks writer: top-level ORDER is unchanged, with the replaced hooks key still second' `
+        ((($order -join ',') -eq ($HooksExpectedOrder -join ','))) `
+        "order after a hooks apply is '$($order -join ', ')', expected '$($HooksExpectedOrder -join ', ')' - the key that was replaced in place has been moved to the end of the operator's file"
+
+    # 31b. VALUES (#142 row 1). The same compressed-JSON comparison
+    #      Compare-UnrelatedKeys makes. statusLine is in this list deliberately:
+    #      it is the key the OTHER section writes, and a hooks apply must not
+    #      touch it.
+    foreach ($k in @('zeta', 'permissions', 'statusLine', 'alpha')) {
+        $b4 = Get-KeyJson $before $k
+        $af = Get-KeyJson $after  $k
+        Add-Result "hooks writer: unrelated key '$k' is value-identical after a hooks apply" ($b4 -eq $af) `
+            "before: $b4`n        after : $af"
+    }
+
+    # 31c. AND THE MERGE INSIDE THE TOUCHED KEY. The four keys above are what
+    #      Compare-UnrelatedKeys guards. Nothing guards the operator's own
+    #      registrations INSIDE hooks, which is where a section that rebuilds a
+    #      nested object can lose them - and losing one is silent, because a
+    #      hook that is not registered simply never fires.
+    #
+    #      COMPARED BY VALUE AND NOT THROUGH Get-HookGroupsFor, which is the
+    #      helper the sections above use and is wrong for this. Its `.ps1`
+    #      regex is bounded by quotes and slashes, so it reads a leaf out of the
+    #      EXEC form this plugin registers in - command plus an args array, each
+    #      element its own JSON string - and takes the whole of a shell-form
+    #      `"command": "powershell -NoProfile -File x.ps1"` as one token. Both
+    #      spellings are legal in settings.json and an operator's own entry is
+    #      as likely to be the second. Measured: the first spelling of this case
+    #      went red against a merge that had in fact carried the entry through
+    #      perfectly, which is a case failing for a reason not in the code under
+    #      test. The compressed-JSON comparison is also the stronger claim -
+    #      "present" would be satisfied by an entry the merge had rewritten.
+    $beforeUps = Get-KeyJson $before.hooks 'UserPromptSubmit'
+    $afterUps  = Get-KeyJson $after.hooks  'UserPromptSubmit'
+    Add-Result 'hooks writer: the operator''s own UserPromptSubmit registration comes through value-identical' `
+        ($beforeUps -ne '(absent)' -and $beforeUps -eq $afterUps) `
+        ("before: $beforeUps`n        after : $afterUps`n" +
+         "        This plugin registers on UserPromptSubmit zero times, so the entry is the operator's and the merge must carry it through untouched. A hook that is not registered simply never fires, so losing one is silent.")
+
+    # 31d. EXACTLY ONE BACKUP, HOLDING THE ORIGINAL BYTES (#142 row 2). The
+    #      hooks path had one Get-SettingsBackups assertion before this, and it
+    #      asserted a count of ZERO on the marketplace write-nothing case.
+    $baks = Get-SettingsBackups $t.dir
+    Add-Result 'hooks writer: exactly one settings backup after one hooks apply' ($baks.Count -eq 1) `
+        "found $($baks.Count): $($baks -join ', ')"
+    if ($baks.Count -eq 1) {
+        Add-Result 'hooks writer: the backup holds the original bytes exactly' `
+            (Test-BytesEqual ([IO.File]::ReadAllBytes($baks[0])) $HooksFixtureBytes) `
+            'the backup is not a byte copy of the file the hooks apply replaced, so restoring it does not restore the original'
+    }
+
+    # 31e. IDEMPOTENCE (#142 row 4). BYTE identity, on a plan that really did
+    #      write - which is what separates this from section 19's second run,
+    #      where the installer had DECLINED to change anything and the second
+    #      run therefore proved nothing about a write it never made.
+    $bytesAfterApply = [IO.File]::ReadAllBytes($t.settings)
+    $d2 = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'diff', '-Section', 'hooks', '-SettingsPath', $t.settings, '-HookMode', 'standalone')
+    $h2 = Get-BaseHashFrom $d2.out
+    $a2 = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'apply', '-Section', 'hooks', '-SettingsPath', $t.settings, '-BaseHash', $h2, '-HookMode', 'standalone')
+    Add-Result 'hooks writer: a second apply -> exit 0 and says it is already in the state requested' `
+        ($a2.code -eq 0 -and $a2.out -match 'Already in the state requested') `
+        "exited $($a2.code). Output:`n$($a2.out)"
+    Add-Result 'hooks writer: a second apply takes no second backup' ((Get-SettingsBackups $t.dir).Count -eq 1) `
+        "there are now $((Get-SettingsBackups $t.dir).Count) backups; a run that wrote nothing took one"
+    Add-Result 'hooks writer: a second apply leaves the file BYTE-identical' `
+        (Test-BytesEqual ([IO.File]::ReadAllBytes($t.settings)) $bytesAfterApply) `
+        'the file changed on a hooks run that reported no change - re-running setup is the commonest thing an operator does with it'
+
+    # 31f. ROLLBACK, BYTE FOR BYTE (#142 row 5). -Step rollback takes no
+    #      -Section: it restores the last backup this installer took, whichever
+    #      section took it, and until now the only section it had ever been
+    #      asked to undo was statusline.
+    $r = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'rollback', '-SettingsPath', $t.settings)
+    Add-Result 'hooks writer: rollback of a hooks apply -> exit 0' ($r.code -eq 0) "exited $($r.code). Output:`n$($r.out)"
+    Add-Result 'hooks writer: rollback restores the original bytes exactly' `
+        (Test-BytesEqual ([IO.File]::ReadAllBytes($t.settings)) $HooksFixtureBytes) `
+        'the restored file is not byte-identical to the fixture the hooks apply replaced, and rollback is what the apply output tells the operator they can rely on'
+    Add-Result 'hooks writer: rollback keeps a pre-rollback copy of what it overwrote' `
+        ((Get-PreRollbackBackups $t.dir).Count -eq 1) `
+        "found $((Get-PreRollbackBackups $t.dir).Count) pre-rollback copies, expected 1 - a rollback the operator did not mean is otherwise unrecoverable"
+
+    # -------------------------------------------------------------------
+    # 31g. A STALE -BaseHash ON THE HOOKS PLAN (#142 row 3).
+    #
+    #      Its own tree, because it must run against a file no apply has
+    #      touched. Both stale-hash cases in this suite drove -Section
+    #      statusline; exit 4 and CONCURRENT MODIFICATION had never been
+    #      asserted on a hooks plan, which is the section that writes the larger
+    #      structure and therefore the one where merging onto a file the
+    #      operator never saw discards the most.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'hooks-stale' -Bytes $HooksFixtureBytes
+    $d = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'diff', '-Section', 'hooks', '-SettingsPath', $t.settings, '-HookMode', 'standalone')
+    $stale = Get-BaseHashFrom $d.out
+    if ($d.out -notmatch '(?m)^\d+ registration\(s\) would be ADDED') {
+        throw 'the hooks-stale fixture planned no registration, so the apply below could short-circuit before the hash check and the refusal cases would pass vacuously'
+    }
+
+    $hooksMutatedBytes = $Utf8NoBom.GetBytes(($HooksFixtureText -replace '"alpha": "keep me"', '"alpha": "somebody else wrote this"'))
+    [IO.File]::WriteAllBytes($t.settings, $hooksMutatedBytes)
+
+    $a = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'apply', '-Section', 'hooks', '-SettingsPath', $t.settings, '-BaseHash', $stale, '-HookMode', 'standalone')
+    Add-Result 'hooks writer: a stale -BaseHash on the hooks plan -> exit 4 and CONCURRENT MODIFICATION' `
+        ($stale -ne '' -and $stale -ne 'none' -and $a.code -eq 4 -and $a.out -match 'CONCURRENT MODIFICATION') `
+        "diff hash was '$stale'; apply exited $($a.code), expected 4 naming CONCURRENT MODIFICATION. Output:`n$($a.out)"
+    Add-Result 'hooks writer: a stale -BaseHash leaves the file as the OTHER writer left it' `
+        (Test-BytesEqual ([IO.File]::ReadAllBytes($t.settings)) $hooksMutatedBytes) `
+        'the concurrent write was overwritten by the hooks merge - which is the data loss the hash check exists to prevent'
+    Add-Result 'hooks writer: a stale -BaseHash takes no backup' `
+        ((Get-SettingsBackups $t.dir).Count -eq 0) `
+        "found $((Get-SettingsBackups $t.dir).Count) .bak on a hooks run that wrote nothing; a backup is a write, and one taken here leaves an artefact the operator has no reason to expect"
 
     # -------------------------------------------------------------------
     # 29. THIS SUITE MUST NOT LEAVE ANYTHING IN THE WORKING DIRECTORY (#214).
