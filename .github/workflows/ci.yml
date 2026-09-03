@@ -1510,11 +1510,23 @@ jobs:
       # tree: a check reporting success for a question it never asked. A skipped
       # step is visible in the run summary; a hollow pass is not.
       #
-      # The body is untrusted text on a public repository, so it is handed over as
-      # an ENVIRONMENT VALUE and never interpolated into a command line. A
-      # ${{ }} expansion of a pull-request body into a shell step is command
-      # injection with this workflow's permissions, and no allowlist entry in
+      # THE BODY IS NEVER INTERPOLATED INTO THIS FILE, and the first version of
+      # this step got that wrong. It passed the body in as
+      # `LWG_PR_BODY: ${{ github.event.pull_request.body }}`, and CI failed on the
+      # pull request that introduced it: a ${{ }} expression is substituted into
+      # the WORKFLOW TEXT before the YAML is parsed, so a multi-line body - or one
+      # holding a quote, a colon, a backtick fence, or the characters ${{ - is
+      # truncated and the remainder spills into the workflow as stray YAML. The
+      # guard received nothing and exited 2.
+      #
+      # It is also the textbook script-injection vector: a pull-request body is
+      # attacker-controlled text on a public repository, and expanding it into a
+      # step runs it with this workflow's permissions. No allowlist entry in
       # tests\workflow_guard.ps1 would make that acceptable.
+      #
+      # So the guard reads the body from the webhook payload on disk -
+      # GITHUB_EVENT_PATH, which the runner sets - and parses it as JSON. Bytes in
+      # a file, never text the runner expands.
       #
       # IT DOES NOT LIVE UNDER tests\ ON PURPOSE. Every file there exercises the
       # PLUGIN; this one checks a pull request's metadata and asserts nothing
@@ -1525,8 +1537,6 @@ jobs:
       - name: Pull-request issue reference
         if: github.event_name == 'pull_request'
         shell: powershell
-        env:
-          LWG_PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           $ErrorActionPreference = 'Continue'
           $suite = '.github\scripts\pr_issue_ref.ps1'
@@ -1555,7 +1565,7 @@ jobs:
           $label = switch ($code) {
             0       { 'PASS - the matcher fixtures passed and the body references an issue and uses no closing keyword. That is a statement about the BODY only: nothing here establishes that the issue exists, is open, or is the one this diff belongs to.' }
             1       { 'FAIL (exit 1) - read the case lines above. Either the body references no issue, or it uses a closing keyword; use "Refs #N" and let the QA agent close the issue with its evidence.' }
-            2       { 'ABORT (exit 2) - LWG_PR_BODY never reached the guard, so the protocol was NOT checked on this pull request. Not clean, and not a pass.' }
+            2       { 'ABORT (exit 2) - no pull-request body reached the guard: GITHUB_EVENT_PATH named no readable payload, or the payload carried no pull_request. The protocol was NOT checked on this pull request. Not clean, and not a pass.' }
             255     { 'NOT RUN (exit 255) - .github\scripts\pr_issue_ref.ps1 could not be invoked.' }
             default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
           }

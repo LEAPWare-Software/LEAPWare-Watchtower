@@ -64,11 +64,26 @@
          LWG_PR_BODY was never handed to it, or no case ran at all. NOT CLEAN,
          and never reported as a pass.
 
-  INPUT. Live mode reads the body from the environment variable LWG_PR_BODY,
-  never from a command-line argument and never interpolated into a command. The
-  body is attacker-controlled text on a public repository: a `${{ }}` expansion
-  of it into a shell line is a command-injection hole, so ci.yml hands it over
-  as an env value and this script treats it as data.
+  INPUT, and the first version of this got it wrong in a way worth recording.
+
+  Live mode reads the body from the WEBHOOK EVENT PAYLOAD on disk: the JSON file
+  at GITHUB_EVENT_PATH, property pull_request.body. LWG_PR_BODY is honoured too,
+  but only as a local testing override.
+
+  The first version had ci.yml pass the body in as an env value written
+  `LWG_PR_BODY: ${{ github.event.pull_request.body }}`. That is broken as well as
+  dangerous, and CI proved it on this very pull request: GitHub substitutes a
+  ${{ }} expression into the WORKFLOW TEXT before the YAML is parsed, so a
+  multi-line body - or one containing a quote, a colon, a backtick fence, or the
+  characters ${{ - truncates the value and spills the rest into the workflow as
+  stray YAML. The guard received nothing and exited 2. A pull-request body is
+  attacker-controlled text on a public repository, so the same substitution is
+  the textbook script-injection vector: the value must never reach the YAML at
+  all.
+
+  Reading the payload file instead is injection-proof: the body is bytes in a
+  JSON file that this script parses, never text the runner expands. It also
+  removes the one thing an author could control about how the check runs.
 #>
 
 [CmdletBinding()]
@@ -144,6 +159,72 @@ function Get-LwgClosingKeywordHits {
     return $out
 }
 
+function Resolve-PrBody {
+    <#
+      Where the body comes from, as a testable function rather than as inline
+      logic in the live branch. It exists because the FIRST version of this
+      guard resolved the body inline, CI proved the resolution wrong, and an
+      inline fix would have been a second untested code path in the same file.
+
+      Returns { body, source, abort }. A non-null `abort` means unestablished:
+      exit 2, never a pass. An EMPTY body is not an abort - it is a real answer
+      that fails rule 1.
+    #>
+    param(
+        # [object], NOT [string]. A [string] parameter COERCES $null to the empty
+        # string, which collapses "unset" into "empty" - the one distinction this
+        # whole guard turns on, since unset is exit 2 and empty is a real answer
+        # that fails rule 1. A fixture caught this: E7 went green against a
+        # [string] signature while the live path would have read a missing
+        # variable as an empty body and judged it.
+        [AllowNull()][object]$EventPath,
+        [AllowNull()][object]$EnvBody
+    )
+
+    $eventPathStr = if ($null -eq $EventPath) { $null } else { [string]$EventPath }
+
+    $out = [pscustomobject]@{ body = $null; source = $null; abort = $null }
+
+    if (-not [string]::IsNullOrWhiteSpace($eventPathStr)) {
+        if (-not (Test-Path -LiteralPath $eventPathStr -PathType Leaf)) {
+            $out.abort = "GITHUB_EVENT_PATH names $eventPathStr, which is not a file, so no body was read"
+            return $out
+        }
+        try {
+            $payload = Get-Content -Raw -LiteralPath $eventPathStr | ConvertFrom-Json
+        } catch {
+            $out.abort = "$eventPathStr is not readable JSON, so no body was read"
+            return $out
+        }
+        $pr = $payload.PSObject.Properties['pull_request']
+        if ($null -eq $pr -or $null -eq $pr.Value) {
+            $out.abort = 'the event payload carries no pull_request, so this did not run on a pull_request event'
+            return $out
+        }
+        $bodyProp = $pr.Value.PSObject.Properties['body']
+        if ($null -ne $bodyProp -and $null -ne $bodyProp.Value) {
+            $out.body   = [string]$bodyProp.Value
+            $out.source = 'the webhook event payload'
+            return $out
+        }
+        # pull_request present, body null: GitHub sends null for an empty
+        # description. That is a body of zero characters, and rule 1 has an
+        # opinion about it - so it is answered, not skipped.
+        $out.body   = ''
+        $out.source = 'the webhook event payload (empty body)'
+        return $out
+    }
+
+    if ($null -ne $EnvBody) {
+        $out.body   = [string]$EnvBody
+        $out.source = 'LWG_PR_BODY (local override)'
+        return $out
+    }
+
+    $out.abort = 'GITHUB_EVENT_PATH names no readable payload and LWG_PR_BODY is not set'
+    return $out
+}
+
 # ---------------------------------------------------------------------------
 # Case bookkeeping - same shape as the other suites: a case is recorded, never
 # inferred, and a run with no cases is an abort rather than a pass.
@@ -213,26 +294,110 @@ if (-not $Live) {
             -Detail 'expected the closing keyword to be caught; it was not, so an auto-close would reach main'
     }
 
-    # The one case that establishes the guard cannot pass by having nothing to
-    # read. It is asserted here rather than left to CI, because CI is where a
-    # missing variable would look like a green step.
-    $liveWouldAbort = [string]::IsNullOrWhiteSpace($null)
-    Add-Case -Name 'D1 an unset body aborts rather than passing' -Ok $liveWouldAbort `
-        -Detail 'a null body must be treated as unestablished, not as compliant'
+    # ---------------------------------------------------------------------
+    # E - WHERE THE BODY COMES FROM. These exist because CI failed on exactly
+    # this. The first version had ci.yml interpolate the body into the workflow
+    # YAML with a ${{ }} expression, which truncated a multi-line body and
+    # handed the guard nothing at all. Every case below plants a real payload
+    # file on disk and resolves from it.
+    # ---------------------------------------------------------------------
+    $fxRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("lwg-prref-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    New-Item -ItemType Directory -Path $fxRoot -Force | Out-Null
+
+    function New-EventFile {
+        param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string]$Json)
+        $f = Join-Path $fxRoot $Name
+        Set-Content -LiteralPath $f -Value $Json -Encoding UTF8
+        return $f
+    }
+
+    # E1 - the body the OLD mechanism could not carry: multi-line, with a code
+    # fence, a quote, a colon, and the literal characters that broke it.
+    $hardBody = @(
+        'What this changes',
+        '',
+        'Refs #184',
+        '',
+        '```',
+        'LWG_PR_BODY: ${{ github.event.pull_request.body }}',
+        '```',
+        '',
+        'Note: "quoted", and a colon: here.'
+    ) -join "`n"
+    $f = New-EventFile -Name 'hard.json' -Json (@{ pull_request = @{ body = $hardBody } } | ConvertTo-Json -Depth 5)
+    $r = Resolve-PrBody -EventPath $f -EnvBody $null
+    $eRefs = @(Get-LwgIssueRefs -Body $r.body)
+    Add-Case -Name 'E1 a multi-line body with a fence, a quote, a colon and an expression survives intact' `
+        -Ok ($null -eq $r.abort -and $eRefs.Count -eq 1 -and $eRefs[0] -eq 184 -and $r.body -match 'colon' -and $r.body -match 'quoted') `
+        -Detail ("this is the shape that broke the interpolated version; abort='{0}' refs='{1}'" -f $r.abort, ($eRefs -join ','))
+
+    # E2 - GitHub sends body: null for an empty description. Zero characters is
+    # a real answer that rule 1 must judge, not a reason to skip the check.
+    $f = New-EventFile -Name 'nullbody.json' -Json '{"pull_request":{"body":null}}'
+    $r = Resolve-PrBody -EventPath $f -EnvBody $null
+    Add-Case -Name 'E2 a null body is judged as empty, not treated as unestablished' `
+        -Ok ($null -eq $r.abort -and $r.body -eq '' -and @(Get-LwgIssueRefs -Body $r.body).Count -eq 0) `
+        -Detail ("expected an empty body and no abort; got abort='{0}'" -f $r.abort)
+
+    # E3 - a payload with no pull_request means this ran on the wrong event.
+    $f = New-EventFile -Name 'push.json' -Json '{"ref":"refs/heads/main"}'
+    $r = Resolve-PrBody -EventPath $f -EnvBody $null
+    Add-Case -Name 'E3 a payload with no pull_request aborts' `
+        -Ok ($null -ne $r.abort -and $r.abort -match 'no pull_request') `
+        -Detail ("expected an abort naming pull_request; got '{0}'" -f $r.abort)
+
+    # E4 - unreadable JSON aborts rather than being read as an empty body.
+    $f = New-EventFile -Name 'broken.json' -Json '{"pull_request":{"body":'
+    $r = Resolve-PrBody -EventPath $f -EnvBody $null
+    Add-Case -Name 'E4 a truncated payload aborts' -Ok ($null -ne $r.abort) `
+        -Detail ("expected an abort; got abort='{0}' body='{1}'" -f $r.abort, $r.body)
+
+    # E5 - a path pointing at nothing aborts, and says so.
+    $r = Resolve-PrBody -EventPath (Join-Path $fxRoot 'absent.json') -EnvBody $null
+    Add-Case -Name 'E5 a GITHUB_EVENT_PATH pointing at nothing aborts' `
+        -Ok ($null -ne $r.abort -and $r.abort -match 'not a file') `
+        -Detail ("expected a not-a-file abort; got '{0}'" -f $r.abort)
+
+    # E6 - with no payload, the env override is used. That is the local testing
+    # path, and it must stay available without becoming the CI path.
+    $r = Resolve-PrBody -EventPath $null -EnvBody 'Refs #7'
+    Add-Case -Name 'E6 the env override is used when there is no payload' `
+        -Ok ($null -eq $r.abort -and $r.body -eq 'Refs #7' -and $r.source -match 'local override') `
+        -Detail ("expected the override; got abort='{0}' source='{1}'" -f $r.abort, $r.source)
+
+    # E7 - neither source: abort.
+    $r = Resolve-PrBody -EventPath $null -EnvBody $null
+    Add-Case -Name 'E7 no payload and no override aborts' -Ok ($null -ne $r.abort) `
+        -Detail ("expected an abort; got abort='{0}'" -f $r.abort)
+
+    # E8 - the payload WINS over the override, so the check cannot be steered by
+    # an environment variable.
+    $f = New-EventFile -Name 'wins.json' -Json '{"pull_request":{"body":"Refs #99"}}'
+    $r = Resolve-PrBody -EventPath $f -EnvBody 'Refs #1'
+    Add-Case -Name 'E8 the event payload takes precedence over the env override' `
+        -Ok ($null -eq $r.abort -and $r.body -eq 'Refs #99') `
+        -Detail ("expected the payload body; got '{0}'" -f $r.body)
+
+    Remove-Item -LiteralPath $fxRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 else {
     # -----------------------------------------------------------------------
     # LIVE MODE.
     # -----------------------------------------------------------------------
-    $bodyVar = [Environment]::GetEnvironmentVariable('LWG_PR_BODY')
+    $resolved = Resolve-PrBody `
+        -EventPath ([Environment]::GetEnvironmentVariable('GITHUB_EVENT_PATH')) `
+        -EnvBody   ([Environment]::GetEnvironmentVariable('LWG_PR_BODY'))
 
-    if ($null -eq $bodyVar) {
-        Write-Output 'ABORTED: LWG_PR_BODY is not set, so no pull-request body was read.'
+    if ($null -ne $resolved.abort) {
+        Write-Output ("ABORTED: {0}." -f $resolved.abort)
         Write-Output 'This guard has no opinion on a push. It is called on pull_request only,'
         Write-Output 'and a run that could not read a body establishes nothing.'
         Write-Output 'EXIT: 2'
         exit 2
     }
+
+    $bodyVar = $resolved.body
+    Write-Output ("      body read from: {0} ({1} character(s))" -f $resolved.source, $bodyVar.Length)
 
     $refs = @(Get-LwgIssueRefs -Body $bodyVar)
     $kws  = @(Get-LwgClosingKeywordHits -Body $bodyVar)
