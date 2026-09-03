@@ -31,6 +31,17 @@
                      stale copy of this plugin's, with the printed remedy being
                      to overwrite it. The inverse was quieter and also wrong: an
                      identical file attested an install that never happened.
+                     #146 is the same row's other half and is about WHICH FILE
+                     it opens: the settings path was composed from
+                     $env:USERPROFILE and a literal `.claude` - the last live
+                     composition of that shape in the tree - so on a machine
+                     that sets CLAUDE_CONFIG_DIR the row health-checked a
+                     settings.json the CLI does not read and reported green
+                     about it. One case drives the relocated directory and every
+                     statusline case above it holds the profile branch that must
+                     not be lost to it. The number of those is not written here:
+                     it is a count, it would go stale, and "every one of them" is
+                     what the claim actually needs.
     sessionstart     #42. It read at most the last 256 KB of the event log and,
                      finding no SessionStart record in that window, reported
                      "the hook is not firing" and failed the run - a definite
@@ -58,7 +69,12 @@
                      goes on counting the modules that need them as active. All
                      three states are driven - unread, below, at or above -
                      because an unread build must not render as one that was
-                     read and matched.
+                     read and matched. Since #218 that distinction lives in the
+                     row's DETAIL and not in its status: unread is a PASS whose
+                     text says it was not read, and only a build that WAS read
+                     and disagrees warns. Cases 27 and 28 assert the exit code
+                     on both sides of that line, because it is the exit code
+                     that #218 was about.
 
   It does NOT drive the other four checks. Case 25 establishes that they RAN and
   nothing else, and a green run here says nothing about what any of them
@@ -339,21 +355,37 @@ function Invoke-Doctor {
       onto a tree it was not written for.
 
       CLAUDE_CODE_VERSION IS A FOURTH SANDBOX VARIABLE and it is SEEDED rather
-      than cleared. The claude-version check WARNs when the build was not read,
-      which is the honest answer and which makes the doctor exit 2 - so a
-      sandbox that left the variable unset would put every exit-0 case in this
-      file on a WARN that has nothing to do with what it seeded, and case 1
-      could no longer establish that a healthy tree reaches 0. The default seed
-      is the verified build READ OUT OF lib\common.ps1, never spelled here: a
-      second copy of that number in this file is a second thing to go stale, and
-      it would go stale silently in the direction of a passing case.
+      than cleared. It is seeded to make every case in this file INDEPENDENT OF
+      THE MACHINE IT RUNS ON: the variable is inherited, and a host that carried
+      an old value would put a claude-version WARN - and therefore exit 2 - on
+      every case here that has nothing to do with what it seeded. The default
+      seed is the verified build READ OUT OF lib\common.ps1, never spelled here:
+      a second copy of that number in this file is a second thing to go stale,
+      and it would go stale silently in the direction of a passing case.
+
+      IT USED TO BE SEEDED FOR A SECOND REASON THAT NO LONGER HOLDS, recorded
+      because the seed outlived it. An unread build was a WARN until #218, so a
+      sandbox that left the variable unset put every exit-0 case in this file on
+      a permanent warning and case 1 could not establish that a healthy tree
+      reaches 0. An unread build is now a PASS whose detail says it was not
+      read, so an unset variable no longer costs the run its exit code - case 27
+      is exactly that assertion. The seed stays for the first reason only.
 
       -Build overrides the seed, and passing '' clears the variable outright,
       which is how the "the build was not read" case is driven. An omitted
       -Build is not the same as an empty one; $PSBoundParameters is what tells
       them apart.
+
+      CLAUDE_CODE_VERSION IS A FIFTH SANDBOX VARIABLE AND IT IS CLEARED (#146).
+      The statusline check resolves the configuration directory through
+      lib\common.ps1's Get-LwgClaudeHomeInfo, whose precedence puts
+      CLAUDE_CONFIG_DIR AHEAD of USERPROFILE - so on a machine that sets it,
+      every case here would silently run against the operator's real
+      configuration directory instead of the scratch profile it seeded, and the
+      statusline cases would report on somebody's live settings.json. Cleared by
+      default, and -ConfigDir is how the one case that wants it set gets it.
     #>
-    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun, [string]$DoctorPath, [string]$Build)
+    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun, [string]$DoctorPath, [string]$Build, [string]$ConfigDir)
 
     if ([string]::IsNullOrWhiteSpace($DoctorPath)) { $DoctorPath = $script:DoctorPath }
     $seedBuild = if ($PSBoundParameters.ContainsKey('Build')) { $Build } else { $script:VerifiedBuild }
@@ -363,6 +395,7 @@ function Invoke-Doctor {
     $prevD = $env:CLAUDE_PLUGIN_DATA
     $prevR = $env:CLAUDE_PLUGIN_ROOT
     $prevC = $env:CLAUDE_CODE_PLUGIN_CACHE_DIR
+    $prevH = $env:CLAUDE_CONFIG_DIR
     $out  = ''
     $code = 255
     try {
@@ -370,6 +403,7 @@ function Invoke-Doctor {
         $env:CLAUDE_PLUGIN_DATA           = $StateDir
         $env:CLAUDE_PLUGIN_ROOT           = ''
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = ''
+        $env:CLAUDE_CONFIG_DIR            = $ConfigDir
         $env:CLAUDE_CODE_VERSION          = $seedBuild
         # -Quiet is passed as a real switch on the child's command line rather
         # than spliced into a string: the only case that uses it asserts what
@@ -387,6 +421,7 @@ function Invoke-Doctor {
         $env:CLAUDE_PLUGIN_DATA           = $prevD
         $env:CLAUDE_PLUGIN_ROOT           = $prevR
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $prevC
+        $env:CLAUDE_CONFIG_DIR            = $prevH
         $env:CLAUDE_CODE_VERSION          = $prevV
     }
     return @{ code = $code; out = $out }
@@ -1654,43 +1689,69 @@ try {
          "This case cannot reach the FAIL branch - that needs a machine this suite is not running on. Full output:`n$($pf.out)")
 
     # -------------------------------------------------------------------
-    # 27. AN UNREAD BUILD IS "I DID NOT LOOK", AND IT IS A WARN.
+    # 27. AN UNREAD BUILD IS "I DID NOT LOOK", IT SAYS SO IN WORDS, AND IT DOES
+    #     NOT COST THE RUN ITS EXIT CODE (#218).
     #
-    #     CLAUDE_CODE_VERSION cleared outright. The row must WARN, must say the
-    #     build was not read, and must NOT claim the events are present. This is
-    #     the same distinction case 21 makes for the event log and the doctor's
-    #     header makes for its own exit codes: "I found a fault" and "I could
-    #     not look" are different statements, and so are "the build matched" and
-    #     "there was no build to read".
+    #     CLAUDE_CODE_VERSION cleared outright - which is what EVERY real run
+    #     looks like, because the CLI never exports that variable. The row must
+    #     be present, must say the build was NOT read, must NOT claim the events
+    #     are present, and the run must still exit 0.
+    #
+    #     THE EXIT CODE IS THE POINT OF THIS CASE and it is asserted rather than
+    #     inferred. The row first shipped as a WARN, on the correct principle
+    #     that an unread version must not render as "read, and it matched" - but
+    #     since the variable is never set, that WARN fired on every machine on
+    #     every run and /doctor could not return 0 on a healthy install, which
+    #     is the regression #218 records. The principle is kept in the DETAIL:
+    #     the negatives below are what stops the fix from being "call it a PASS
+    #     and stop mentioning it".
+    #
+    #     Case 28 is the CONTROL: a version that IS readable and disagrees still
+    #     WARNs and still exits 2, so this case cannot be satisfied by making
+    #     the check unable to warn at all.
+    #
+    #     BASELINE 4342980: RED. The row is a [WARN] there and the run exits 2.
     # -------------------------------------------------------------------
     $t  = New-HealthyCase -Tag 'build-unread' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
     $bv = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -Build ''
     $row = Get-DoctorRow -Text $bv.out -Id 'claude-version'
-    Add-Result 'a build that was never read is reported as unread, not as a build that matched' `
-        ($row.found -and $row.status -eq 'WARN' -and $row.detail -match 'was NOT read' -and
-         $row.detail -match 'SubagentStart' -and $row.detail -notmatch 'at or above') `
-        ("CLAUDE_CODE_VERSION was cleared for this child; expected a [WARN] saying the build was not read and naming the events at risk, " +
-         "got [$($row.status)] $($row.detail) at exit $($bv.code). Full output:`n$($bv.out)")
+    Add-Result 'a build that was never read is reported as unread, in words, and does not cost the run its exit 0' `
+        ($row.found -and $row.status -eq 'PASS' -and $row.detail -match 'was NOT read' -and
+         $row.detail -match 'SubagentStart' -and $row.detail -notmatch 'at or above' -and
+         $bv.code -eq 0) `
+        ("CLAUDE_CODE_VERSION was cleared for this child, which is what every real run looks like; expected a [PASS] " +
+         "saying the build was NOT read, naming the events at risk, and exit 0 - got [$($row.status)] $($row.detail) " +
+         "at exit $($bv.code). Full output:`n$($bv.out)")
 
     # -------------------------------------------------------------------
-    # 28. A BUILD BELOW THE VERIFIED ONE IS A WARN THAT NAMES THE THREE EVENTS.
+    # 28. CONTROL FOR 27. A BUILD BELOW THE VERIFIED ONE IS A WARN THAT NAMES
+    #     THE THREE EVENTS, AND IT STILL EXITS 2.
     #
     #     WARN and not FAIL: an older Claude Code is a real finding about the
     #     machine, not a broken install, and the exit ladder already separates
     #     the two. The seeded version is DERIVED from the verified build rather
     #     than written here, so it stays below it when that number moves.
+    #
+    #     THE EXIT CODE IS ASSERTED HERE FOR THE SAME REASON IT IS ASSERTED IN
+    #     27 (#218). The cheapest way to make 27 pass is to stop this row ever
+    #     warning; this case is what that would cost. A version that WAS read
+    #     and disagrees is a fact about the machine, and it must still reach the
+    #     caller as exit 2 - bin\lwg-setup.ps1 and bin\lwg-update.ps1 both read
+    #     that code as "pass with caveats" and print the row.
     # -------------------------------------------------------------------
     $vb  = [version]$script:VerifiedBuild
     $old = if ($vb.Major -ge 1) { "$($vb.Major - 1).0.0" } else { '0.0.1' }
     $t   = New-HealthyCase -Tag 'build-old' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
     $bv  = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -Build $old
     $row = Get-DoctorRow -Text $bv.out -Id 'claude-version'
-    Add-Result 'a Claude Code below the verified build WARNs and names the three events at risk' `
+    Add-Result 'CONTROL claude-version: a Claude Code below the verified build WARNs, names the three events at risk, and still exits 2' `
         ($row.found -and $row.status -eq 'WARN' -and $row.detail -match [regex]::Escape($old) -and
          $row.detail -match 'BELOW' -and $row.detail -match 'SubagentStart' -and
-         $row.detail -match 'PostToolUseFailure' -and $row.detail -match 'StopFailure') `
+         $row.detail -match 'PostToolUseFailure' -and $row.detail -match 'StopFailure' -and
+         $bv.code -eq 2) `
         ("the child was told it was Claude Code $old against a verified build of $($script:VerifiedBuild); " +
-         "expected a [WARN] saying BELOW and naming all three events, got [$($row.status)] $($row.detail). Full output:`n$($bv.out)")
+         "expected a [WARN] saying BELOW, naming all three events, and exit 2 - got [$($row.status)] $($row.detail) " +
+         "at exit $($bv.code). Full output:`n$($bv.out)")
 
     # -------------------------------------------------------------------
     # 29. CONTROL. THE VERIFIED BUILD ITSELF PASSES, AND THE ROW STAYS HONEST
@@ -1711,7 +1772,62 @@ try {
          "expected a [PASS] that still disclaims observed firing, and exit 0; got [$($row.status)] $($row.detail) at exit $($bv.code). Full output:`n$($bv.out)")
 
     # -------------------------------------------------------------------
-    # 30. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
+    # 30. THE STATUSLINE CHECK READS THE CONFIGURATION DIRECTORY THE CLI
+    #     ACTUALLY USES, NOT $env:USERPROFILE + '.claude' (#146).
+    #
+    #     The setup is the whole case. TWO profiles: the healthy one, which has
+    #     the wired settings.json and a byte copy of the repo status line, and a
+    #     SECOND, EMPTY one. The child is then run with CLAUDE_CONFIG_DIR
+    #     pointing at the healthy profile's .claude and USERPROFILE pointing at
+    #     the empty one - which is the shape of every machine that relocates its
+    #     configuration directory, and which makes the two answers point at
+    #     different trees rather than at the same one by accident.
+    #
+    #     A check that composes the path from USERPROFILE finds nothing there
+    #     and FAILs. A check that resolves it through Get-LwgClaudeHomeInfo finds
+    #     the wired settings.json and PASSes. There is no reading of this case
+    #     that both answers satisfy, which is what the two profiles are for: a
+    #     single-profile version would pass on the composition and on the
+    #     resolution alike and would establish nothing.
+    #
+    #     THE DETAIL IS ASSERTED TOO, and not only the status. The row is
+    #     required to name which root answered, because the failure this case
+    #     exists to stop is not "the doctor errored" - it is the doctor
+    #     attesting a green status line against a settings.json the CLI never
+    #     loads, and a green row that does not say which file it read is exactly
+    #     as unreadable after the fix as before it.
+    #
+    #     THE CONTROL FOR THE OTHER BRANCH IS ALREADY HERE. Every statusline
+    #     case above runs with CLAUDE_CONFIG_DIR CLEARED - Invoke-Doctor clears
+    #     it for exactly this reason - and between them they drive this row
+    #     through PASS, WARN and FAIL off USERPROFILE alone. So a check that
+    #     satisfied this case by reading CLAUDE_CONFIG_DIR and nothing else
+    #     would take every one of them down with it, and the precedence is
+    #     pinned from both sides rather than from the side that changed. How
+    #     many of them there are is deliberately not written here - it is a
+    #     count, and "every one" is the claim that stays true when one is added.
+    #
+    #     BASELINE 4342980: RED. bin\lwg-doctor.ps1:507 reads
+    #     `Join-Path $env:USERPROFILE '.claude\settings.json'` there - the last
+    #     live composition of that shape in the tree - so the row FAILs with
+    #     "no settings file at <the empty profile>".
+    # -------------------------------------------------------------------
+    $t     = New-HealthyCase -Tag 'cfgdir-relocated' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $empty = Join-Path $t.dir 'empty-profile'
+    [void][IO.Directory]::CreateDirectory((Join-Path $empty '.claude'))
+    $relocated = Join-Path $t.profile '.claude'
+    $r   = Invoke-Doctor -ProfileDir $empty -StateDir $t.state -ConfigDir $relocated
+    $row = Get-DoctorRow -Text $r.out -Id 'statusline'
+    Add-Result 'the statusline check reads CLAUDE_CONFIG_DIR''s settings.json, not one composed from USERPROFILE' `
+        ($row.found -and $row.status -eq 'PASS' -and $row.detail -match 'statusline\.ps1' -and
+         $row.detail -notmatch 'no settings file at') `
+        ("CLAUDE_CONFIG_DIR named $relocated, which holds the wired settings.json, while USERPROFILE named " +
+         "$empty, which holds nothing. Expected a [PASS] naming the wired status line; got [$($row.status)] " +
+         "$($row.detail). A [FAIL] saying 'no settings file at' means the check composed the path from " +
+         "USERPROFILE and health-checked a file the CLI does not read. Full output:`n$($r.out)")
+
+    # -------------------------------------------------------------------
+    # 31. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
     #     pointed into the scratch tree; this asserts what that was supposed to
     #     buy rather than assuming it. Nothing under the operator's own
     #     ~\.claude\plugins\data\<plugin>* may have grown a byte or gained a

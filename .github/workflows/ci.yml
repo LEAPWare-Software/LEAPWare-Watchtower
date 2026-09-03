@@ -1870,3 +1870,92 @@ jobs:
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Red-first annotations:** $label"
           }
           exit $code
+
+      # THE FIVE VERSION DECLARATIONS, HELD TO EACH OTHER ON EVERY PUSH AND
+      # EVERY PULL REQUEST (#219). Until this step existed,
+      # .github\scripts\version_declarations.ps1 was invoked from `release.yml`
+      # and from nowhere else - and `release.yml` is TAG-TRIGGERED. So a
+      # declaration that had drifted out of agreement was checked at the moment
+      # a release was being cut, and at no other moment: the tag goes up, the
+      # workflow refuses, and the person cutting the release is debugging a
+      # manifest instead of shipping. `v0.4.0` is the first release this
+      # repository will ever cut, so there is no accumulated evidence that the
+      # five sites have ever agreed at a tag boundary.
+      #
+      # It is the same defect class as #213 - a guard that exists, passes, and
+      # is not run anywhere it could act - and it sits outside tests\, which is
+      # why #213's enumeration of the suites could not have covered it. The
+      # other two executables under .github\scripts\ were checked for the same
+      # gap and do not have it: pr_issue_ref.ps1 and identity_scan.ps1 are both
+      # steps above.
+      #
+      # WHAT THIS STEP ASSERTS IS NOT WHAT release.yml ASSERTS, and the
+      # difference is the reason both exist. NO TAG IS PASSED HERE, because on a
+      # push or a pull request there is no tag to pass, and inventing one would
+      # make this step answer a question nobody asked:
+      #
+      #   here (no -Tag)      the five declaration sites agree WITH EACH OTHER,
+      #                       and - when any tag is visible - the version they
+      #                       declare is not one already published. The two
+      #                       tag-shaped rules report NOT CHECKED, which the
+      #                       guard prints as a decline and never as a pass.
+      #   release.yml (-Tag)  every site states exactly what the TAG says, and
+      #                       CHANGELOG.md's heading for that version is dated.
+      #
+      # An empty `git tag -l` is reported NOT CHECKED rather than clean, so this
+      # step cannot go green on the published-tag rule by never seeing a tag -
+      # which is also why the checkout above is at fetch-depth: 0.
+      #
+      # FIXTURES FIRST, THE TREE SECOND, as in the two steps above: nine planted
+      # trees, one per rule, each proving that rule can FIRE. A guard proved only
+      # against a clean tree is proved against nothing, and until this step
+      # landed the only caller that ran those fixtures was a workflow that had
+      # never executed.
+      #
+      # `!cancelled()` AND NOT `always()`, for the reason written out in full
+      # above the pull-request step: `always()` carries a step through a
+      # CANCELLATION, so a superseded run would go on executing guards nobody is
+      # waiting for. `!cancelled()` buys independence from a sibling's failure
+      # and nothing else, and a grep of this file for `always()` still finds
+      # none. There is no second half to this condition - version declarations
+      # are the same question on a push as on a pull request.
+      - name: Version declarations
+        if: ${{ !cancelled() }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $guard = '.github\scripts\version_declarations.ps1'
+
+          if (-not (Test-Path -LiteralPath $guard -PathType Leaf)) {
+            Write-Host "::error::$guard is missing - no declaration was compared with anything, which is not the same as them agreeing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard
+          $fixtureCode = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+          if ($fixtureCode -ne 0) {
+            Write-Host "::error title=Version declarations::the guard's own fixtures did not pass (exit $fixtureCode), so nothing it says about this tree can be trusted"
+            exit $fixtureCode
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard -Live
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # The 0/1/2 contract every guard in this repository uses.
+          $label = switch ($code) {
+            0       { 'PASS - the guard''s own fixtures passed and the five version declaration sites agree with each other. NO TAG WAS PASSED, so this says nothing about whether they match a release: the tag rule and the changelog rule printed NOT CHECKED above, and release.yml is what asks them. A NOT CHECKED line is a decline, not a pass.' }
+            1       { 'FAIL (exit 1) - read the lines above. A version declaration disagrees with its siblings, or the version declared is one an existing tag already published. Bump all five sites together: .claude-plugin/marketplace.json, .claude-plugin/plugin.json, config.json, lib/common.ps1 and lib/session_start.ps1.' }
+            2       { 'ABORT (exit 2) - a declaration site was missing or unreadable, so nothing about this tree was established. Not clean, and not a pass.' }
+            255     { 'NOT RUN (exit 255) - .github\scripts\version_declarations.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "version declarations: $label"
+          } else {
+            Write-Host "::error title=Version declarations::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Version declarations:** $label"
+          }
+          exit $code

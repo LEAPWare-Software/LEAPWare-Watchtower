@@ -503,10 +503,42 @@ try {
     # docs/troubleshooting.md still promised it on 3 August 2026, and
     # docs/faq.md inverts it, telling a reader that seeing GM is the sign of a
     # stale copy. See docs/gates-removed.md.
+    #
+    # THE CONFIGURATION DIRECTORY IS RESOLVED, NEVER COMPOSED (#146). This line
+    # read `Join-Path $env:USERPROFILE '.claude\settings.json'` until 3 September
+    # 2026, and it was the LAST live composition of that shape in the tree -
+    # every other caller moved onto lib\common.ps1's Get-LwgClaudeHomeInfo when
+    # that function landed. On a machine that sets CLAUDE_CONFIG_DIR the doctor
+    # was therefore health-checking a settings.json the CLI does not read: a
+    # green statusline row about a file nothing loads, which is worse than no
+    # row at all because it converts a broken install into an attested one. The
+    # resolver's own header names this command as one of the two callers that
+    # must report WHICH root it resolved and why, so the path-bearing failures
+    # below say which of CLAUDE_CONFIG_DIR and USERPROFILE answered.
+    #
+    # A MACHINE WITH NEITHER IS A FAIL THAT SAYS SO. $null comes back when
+    # neither variable holds anything; it is carried as $null and reported,
+    # rather than composed onto to produce a path this check invented and then
+    # diagnosed.
     Invoke-Check -Id 'statusline' -Body {
-        $sp = Join-Path $env:USERPROFILE '.claude\settings.json'
+        $homeInfo = $null
+        try { $homeInfo = Get-LwgClaudeHomeInfo } catch { }
+        if ($null -eq $homeInfo) { $homeInfo = @{ path = $null; source = 'unresolved'; exists = $false; raw = $null } }
+        $cfgHome = [string]$homeInfo.path
+        $via = switch ([string]$homeInfo.source) {
+            'env'     { ' (resolved from CLAUDE_CONFIG_DIR)' }
+            'profile' { ' (resolved from USERPROFILE\.claude - CLAUDE_CONFIG_DIR is not set)' }
+            default   { '' }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($cfgHome)) {
+            Add-Row -Id 'statusline' -Status 'FAIL' -Detail 'no Claude Code configuration directory could be resolved: neither CLAUDE_CONFIG_DIR nor USERPROFILE holds a value. There is no settings.json to read, so nothing here says the status line is configured and nothing here says it is not'
+            return
+        }
+
+        $sp = Join-Path $cfgHome 'settings.json'
         if (-not (Test-Path -LiteralPath $sp)) {
-            Add-Row -Id 'statusline' -Status 'FAIL' -Detail "no settings file at $sp - the status line cannot be configured"
+            Add-Row -Id 'statusline' -Status 'FAIL' -Detail "no settings file at $sp$via - the status line cannot be configured"
             return
         }
         # PS 5.1's Get-Content -Raw keeps a UTF-8 BOM, which ConvertFrom-Json
@@ -514,7 +546,7 @@ try {
         $raw = (Get-Content -LiteralPath $sp -Raw).TrimStart([char]0xFEFF)
         $st  = ($raw | ConvertFrom-Json).statusLine
         if ($null -eq $st -or [string]::IsNullOrWhiteSpace([string]$st.command)) {
-            Add-Row -Id 'statusline' -Status 'FAIL' -Detail "$sp has no statusLine.command - the HH segment is not rendered, so this plugin has no visible indicator"
+            Add-Row -Id 'statusline' -Status 'FAIL' -Detail "$sp$via has no statusLine.command - the HH segment is not rendered, so this plugin has no visible indicator"
             return
         }
         # Pull the script path back out of the command line: the first token
@@ -898,16 +930,66 @@ try {
     # about the machine, not a broken install, and the exit ladder at the top of
     # this file already separates the two.
     #
-    # AN UNREAD BUILD IS ALSO A WARN, AND THAT IS THE COSTLY CHOICE. $env:
-    # CLAUDE_CODE_VERSION is set by the CLI on a hook path; a run from a
-    # terminal will usually not have it, so this row WARNs and the doctor exits
-    # 2 on an otherwise healthy tree. The alternative is a PASS row that says
-    # "not read", and lib\common.ps1's own contract for build_known refuses it:
-    # "three states, not two - an unread version must not render as 'read, and
-    # it matched'". A green verdict resting on a fact nobody read is the exact
-    # confident wrong answer this whole component exists to refuse, and both
-    # callers of the doctor - bin\lwg-setup.ps1 and bin\lwg-update.ps1 - already
-    # report exit 2 as "pass with caveats" and print the row.
+    # AN UNREAD BUILD IS A PASS WHOSE DETAIL SAYS IT WAS NOT READ (#218), AND
+    # THE THREE STATES ARE STILL THREE. lib\common.ps1's contract for
+    # build_known - "an unread version must not render as 'read, and it
+    # matched'" - is obeyed here in the DETAIL and not in the status: the row
+    # below says, in words, that the build was never read and that nothing was
+    # established by it. What it does not do is contribute a warning.
+    #
+    #   read, and at or above the verified build  ->  PASS
+    #   read, and disagrees with it               ->  WARN, exit 2
+    #   not readable at all                       ->  PASS, detail says so
+    #
+    # WHY THE THIRD ROW MOVED. This check first shipped (#132, PR #217) with the
+    # unread state as a WARN, on the reasoning that a green verdict must not
+    # rest on a fact nobody read. The reasoning was right and the state was
+    # wrong, because $env:CLAUDE_CODE_VERSION IS NEVER EXPORTED: measured in a
+    # live Claude Code session, eleven CLAUDE* variables are set and the version
+    # is not one of them, on the hook path or the slash-command path. So the
+    # WARN was not an edge case - it was every machine, every run, permanently,
+    # and /doctor could not return 0 on a healthy install.
+    #
+    # A CAVEAT THAT FIRES ON EVERY RUN IS A CAVEAT AN OPERATOR LEARNS TO SKIP,
+    # and the next one - the real one - is skipped with it. This repository
+    # already has that written down about false FAILs and it applies here
+    # unchanged. The distinction being kept is the one the `commands` check
+    # makes: that check FAILs on "scanned zero files" because a broken
+    # enumeration proves nothing, which is a different claim from "the input is
+    # absent". An absent CLAUDE_CODE_VERSION is the second of those - a limit on
+    # what can be observed from here, not a fault in this tree.
+    #
+    # CAN THE VERSION BE DERIVED FROM CLAUDE_CODE_EXECPATH INSTEAD? MEASURED,
+    # AND THE ANSWER IS NO - recorded here so the next reader does not re-open
+    # it. (a) There is no manifest beside the binary: the native install is a
+    # single ~210 MB claude.exe under %USERPROFILE%\.local\bin with no sibling
+    # metadata of any kind. The one version record on disk is
+    # %USERPROFILE%\.local\share\claude\versions\, which is not beside the
+    # binary and which held THREE directories on the machine this was measured
+    # on - so reading it names three answers, and a guess between three is not a
+    # read. The FREE reading, open a file and get a version, does not exist.
+    #
+    # (b) `& $env:CLAUDE_CODE_EXECPATH --version` DOES answer - 91/52/52 ms over
+    # three runs, locally, with no network call - and it is still not done here,
+    # for a reason that is about where the answer would live rather than about
+    # what it costs. Every other consumer of the CLI build reads it from
+    # Get-LwgPlatformInfo, whose header in lib\common.ps1 refuses the subprocess
+    # BY NAME because that function is also called from a SessionStart hook. A
+    # spawn in this row alone would make the doctor's build authoritative and
+    # every other reader's stale, which is a second source of truth for a value
+    # this repository deliberately keeps in one place.
+    #
+    # (c) AND THE CASE PINNING IT WOULD BE VACUOUS WHERE IT MATTERS. CI has no
+    # Claude Code binary, so a case for "EXECPATH was set and the version was
+    # derived" would either be skipped on the runner or need a stub executable
+    # planted to impersonate one. A guard proved only where it cannot fire is
+    # proved against nothing, and that rule is not suspended for convenience.
+    #
+    # IF IT IS WANTED LATER IT BELONGS IN Get-LwgPlatformInfo, behind an
+    # explicit on-demand switch so the hook path keeps its current cost and only
+    # a caller that asks pays for the spawn. That would move this third state
+    # from universal to rare; it would not change what any of the three states
+    # render as, which is why it is not a prerequisite for the ruling above.
     Invoke-Check -Id 'claude-version' -Body {
         $pi     = Get-LwgPlatformInfo
         $atRisk = @('SubagentStart', 'PostToolUseFailure', 'StopFailure')
@@ -923,7 +1005,7 @@ try {
         $depends = if ($hit.Count -gt 0) { "; the module(s) that would go inert are $($hit -join ', ') - and the banner would still count them active, because it counts the registry and not observed firing" } else { '' }
 
         if (-not $pi.build_known) {
-            Add-Row -Id 'claude-version' -Status 'WARN' -Detail "CLAUDE_CODE_VERSION is not set in this process, so the Claude Code build was NOT read. Nothing here establishes that $($atRisk -join ', ') exist on it - the events were read out of $($pi.verified_build) and older builds may not carry all of them$depends"
+            Add-Row -Id 'claude-version' -Status 'PASS' -Detail "The Claude Code build was NOT read: CLAUDE_CODE_VERSION is not set in this process and the CLI does not export it. NOTHING here establishes that $($atRisk -join ', ') exist on this machine - the events were read out of $($pi.verified_build) and older builds may not carry all of them$depends. This is a PASS because it is a limit on what can be observed from here and not a fault in this tree; it is NOT the row saying the build was read and matched"
             return
         }
 
