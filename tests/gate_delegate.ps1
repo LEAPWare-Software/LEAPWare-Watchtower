@@ -90,12 +90,12 @@
   looking for the flag with a substring search.
 
   ---------------------------------------------------------------------------
-  98 CASES, WHY NONE OF THEM MAY BE SKIPPED, AND WHAT SECTION I CANNOT SEE
+  99 CASES, WHY NONE OF THEM MAY BE SKIPPED, AND WHAT SECTION I CANNOT SEE
   ---------------------------------------------------------------------------
-  Sections A-H are 58 cases about the gate's rule. Section I is 11 more about
+  Sections A-H are 58 cases about the gate's rule. Section I is 12 more about
   the FAST PATH in lib/gate_delegate.ps1 - the scan that proves the switch off
   from the raw text of config.json and exits 0 before the JSON engine is ever
-  loaded. Four of those eleven - I7 to I10, added 3 September 2026 - are about
+  loaded. Five of those twelve - I7 to I11, added 3 September 2026 - are about
   the OPERATOR OVERRIDE (#11): config.json became the shipped defaults, the
   configuring commands write config.override.json under the state directory,
   and a scan that read config.json alone would have proved the switch off over
@@ -360,7 +360,7 @@ $script:Aborted = ''
 # that reaches a verdict with the wrong number of cases behind it. A case
 # added on purpose has to move this number, the header, and the documents
 # quoting it in the same edit, which is the coupling that keeps them true.
-$script:ExpectedCases = 98
+$script:ExpectedCases = 99
 
 # The matcher string, as hooks.json actually spells it. Filled in by section A
 # from the one entry that names the gate, and read by section M.
@@ -1643,6 +1643,47 @@ try {
     Add-Result 'I10 CONTROL: the same config.json with NO override file still ALLOWs' `
         $vCtl.ok `
         ("$($vCtl.why)  --  I7's config.json is byte-identical to this one. If this denied too, I7 would be measuring the fixture rather than the override.")
+
+    # I11. THE OVERRIDE'S FILE NAME IS SPELT TWICE, AND THIS IS THE ONLY THING
+    #      HOLDING THE TWO SPELLINGS TOGETHER.
+    #
+    #      lib/common.ps1 declares it once as $script:LwgConfigOverrideName and
+    #      resolves it through Get-LwgConfigOverridePath, which every writer and
+    #      every slow-path reader uses. The fast path in lib/gate_delegate.ps1
+    #      cannot: it deliberately does not dot-source common.ps1, because
+    #      loading it is most of the cost the fast path exists to avoid. So it
+    #      carries the name as a literal.
+    #
+    #      A second copy of a rule that drifts from the first is a bug this
+    #      repository has already shipped, and this one drifts SILENTLY IN THE
+    #      WORST DIRECTION: rename the file in common.ps1 alone and the writers
+    #      write one name while the gate looks for another, so the gate proves
+    #      the switch off over an override that arms it - I7's defect, restored
+    #      by a rename. I7 itself cannot catch that, because it writes the
+    #      fixture at a path of its own and never asks the two files to agree.
+    #
+    #      Both sides are read out of the TREE rather than restated here, so
+    #      this case has no third spelling to go stale.
+    $i11Why  = ''
+    $i11Ok   = $false
+    try {
+        $i11Common = [IO.File]::ReadAllText((Join-Path $Root 'lib\common.ps1'))
+        $i11Gate   = [IO.File]::ReadAllText($GatePath)
+        $i11M = [regex]::Match($i11Common, "(?m)^\s*\`$script:LwgConfigOverrideName\s*=\s*'([^']+)'")
+        if (-not $i11M.Success) {
+            $i11Why = 'lib\common.ps1 declares no $script:LwgConfigOverrideName literal, so the name the writers use could not be read at all and this case established nothing'
+        } else {
+            $i11Name = $i11M.Groups[1].Value
+            $i11Ok = $i11Gate.Contains("'" + $i11Name + "'")
+            if (-not $i11Ok) {
+                $i11Why = ("lib\common.ps1 resolves the override as '{0}' and lib\gate_delegate.ps1 does not carry that literal anywhere, so the writers and the gate are looking at two different files" -f $i11Name)
+            }
+        }
+    } catch { $i11Why = "the two files could not be read: $($_.Exception.Message)" }
+
+    Add-Result 'I11 the fast path and Get-LwgConfigOverridePath spell the override file the same way' `
+        $i11Ok `
+        ("$i11Why  --  the fast path cannot call Get-LwgConfigOverridePath without loading common.ps1, which is the cost it exists to avoid, so it holds the name as a literal. Nothing but this case makes the two agree, and a rename that moved only one of them would put I7's defect back with no test failing.")
 
     # -------------------------------------------------------------------
     # J. THE MEMBER NAMES, AND WHAT A NON-BOOLEAN VALUE MEANS.
