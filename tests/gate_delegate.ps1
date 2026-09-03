@@ -90,13 +90,19 @@
   looking for the flag with a substring search.
 
   ---------------------------------------------------------------------------
-  93 CASES, WHY NONE OF THEM MAY BE SKIPPED, AND WHAT SECTION I CANNOT SEE
+  94 CASES, WHY NONE OF THEM MAY BE SKIPPED, AND WHAT SECTION I CANNOT SEE
   ---------------------------------------------------------------------------
   Sections A-H are 58 cases about the gate's rule. Section I is 7 more about
   the FAST PATH in lib/gate_delegate.ps1 - the scan that proves the switch off
   from the raw text of config.json and exits 0 before the JSON engine is ever
-  loaded. Section J is 10 more about the member NAMES that scan matches on, and
-  about what a non-boolean value in the switch means. Section K is 8 more, and
+  loaded. Section J is 11 more about the member NAMES that scan matches on, and
+  about what a non-boolean value in the switch means. Ten of the eleven pipe a
+  payload into the gate and read what comes back; the eleventh, J7b, is the
+  only case in this file that calls the fast scan DIRECTLY, because an
+  abstention and a swallowed throw are byte-identical from outside the gate
+  process and J7 beside it therefore cannot tell them apart.
+
+  Section K is 8 more, and
   it is the only section here that runs something OTHER than the gate: it puts
   bin/lwg-toggle.ps1 - the command an operator reads the gate's state off - in
   front of the same configs and requires the same answer. That pair had already
@@ -105,8 +111,9 @@
 
   Section M is 3 more, and it is the only section here that asks a question
   about the CLI rather than about the gate: WOULD THE HOOK HAVE BEEN INVOKED?
-  Every case in A-L pipes a payload straight into the gate script, which models
-  a hook the CLI already decided to run - and the gate is tool-blind on purpose,
+  Every case in A-L but J7b pipes a payload straight into the gate script,
+  which models a hook the CLI already decided to run - and the gate is
+  tool-blind on purpose,
   so a tool the matcher never selects passes all of its cases by being handed a
   hook run that would not have happened. It is written after the section it
   covers because a suite that only tests the thing it can invoke is exactly how
@@ -135,8 +142,10 @@
   SUITE instead of on something the suite tests: that the operator's live event
   log is the same size after the run as it was before it. It is the case that
   would have caught the leak described above, and it is the only shape of case
-  that could have. Every other case here reads an exit code, a stream, or a file
-  this suite created under the temp directory, and a record appended to a file in
+  that could have. Every other case here reads an exit code, a stream, a file
+  this suite created under the temp directory, or - J7b alone - the return
+  value of a function lifted out of the gate and run in a runspace of its own,
+  and a record appended to a file in
   the operator's profile moves none of those - so all 79 of them stayed green
   for as long as the leak ran. A promise that nothing real is touched is worth
   exactly what the assertion behind it is worth, and until section L there was
@@ -145,7 +154,7 @@
 
   THE COUNT ABOVE IS NOW A CONSTANT THIS FILE CHECKS, not only a sentence.
   $script:ExpectedCases is declared once below and a completed run whose tally
-  does not match it ABORTS with exit 2 instead of printing a number. 58 + 7 + 10
+  does not match it ABORTS with exit 2 instead of printing a number. 58 + 7 + 11
   + 8 + 3 + 2 + 4 + 1 is the arithmetic; if you add a case, that constant, this
   paragraph, the heading above and the tracked documents quoting the number all
   move in the same edit, which is the point of it.
@@ -232,9 +241,10 @@ $TogglePath = Join-Path $Root 'bin\lwg-toggle.ps1'
 # exit 3 on a missing file - which is what happened, and it is worth saying how
 # it was missed: the fixture and the toggle live in different files, so no
 # file-level ownership boundary couples them, and the suite's tally is "N of M"
-# with M unchanged at 93, so `doc_claims` reads the M and every "93 of 93" in
-# the tree stayed green while eight cases were failing. Add a file here
-# whenever the toggle grows a dot-source.
+# with M unchanged at the number this file declares - 93 on the day this
+# happened - so `doc_claims` reads the M and every "93 of 93" in the tree stayed
+# green while eight cases were failing. Add a file here whenever the toggle
+# grows a dot-source.
 $CmdlibPath = Join-Path $Root 'bin\lwg-cmdlib.ps1'
 # The OTHER reporter, and it MOVED. Until this edit it was bin\lwg-status.ps1,
 # a report command that did nothing else; that command is deleted and the one
@@ -345,7 +355,7 @@ $script:Aborted = ''
 # that reaches a verdict with the wrong number of cases behind it. A case
 # added on purpose has to move this number, the header, and the documents
 # quoting it in the same edit, which is the coupling that keeps them true.
-$script:ExpectedCases = 93
+$script:ExpectedCases = 94
 
 # The matcher string, as hooks.json actually spells it. Filled in by section A
 # from the one entry that names the gate, and read by section M.
@@ -1566,6 +1576,14 @@ try {
     #    implemented as "crash on a backslash": an escaped member name that has
     #    nothing to do with this gate must still produce the right answer.
     #
+    #    J7 CANNOT DO THAT ALONE, AND THAT IS WHY J7b IS NEXT TO IT. J7 asserts
+    #    exit 0 and silence, which the gate also produces when the scan threw
+    #    and the bare `catch { }` at the call site swallowed it - measured, with
+    #    the abstain rule rewritten as a throw this whole file reported 93 of 93.
+    #    J7b calls the scan in process, over J7's own config text, and requires
+    #    it to RETURN $false. Read the two together: J7b says the rule abstained,
+    #    J7 says the gate then answered correctly, and neither says the other.
+    #
     #    J8 and J9 pin M5 - a value that is not a boolean. They are the two
     #    cases in this file whose answer CHANGED, so read them with the
     #    reasoning attached rather than as pins that were always there.
@@ -1677,6 +1695,208 @@ try {
         $v = if ($jc.deny) { Test-IsDeny $r } else { Test-IsAllow $r }
         Add-Result $jc.name $v.ok ("$($v.why)  --  $($jc.why)")
     }
+
+    # J7b THE CASE THAT CAN ACTUALLY SEE THE ABSTAIN RULE, because J7 above
+    #     cannot. J7 is a black-box ALLOW case and Test-IsAllow is exit 0 and
+    #     silence - which is what the fast path emits when it proves the switch
+    #     off, what the slow path emits when IT decides the switch is off, and
+    #     what lib\gate_delegate.ps1's
+    #
+    #         try { if (Test-LwgFastDelegateOff) { exit 0 } } catch { }
+    #
+    #     leaves behind when the scan THREW and was swallowed. Three states, one
+    #     observable. So J7 cannot tell "abstain" from "throw", which is the one
+    #     thing the note at the head of this section says it is here for.
+    #
+    #     MEASURED ON THIS TREE, 3 September 2026. With the escaped-name rule in
+    #     Get-LwgFastJsonMembers rewritten from `return $null` to
+    #     `throw 'MUTANT A: abstain implemented as a hard throw'` - the exact
+    #     mistake J7's note names - this suite reported
+    #
+    #         RESULT: 93 of 93 case(s) passed in 74917 ms
+    #         EXIT: 0
+    #
+    #     and J7 was one of the 93. Not one case in the file moved: J3 and J4
+    #     carry escaped names and expect DENY, and the slow path still denies
+    #     correctly. The swallow at the call site is deliberate and correct -
+    #     the consequence of swallowing is that the slow path runs and answers -
+    #     and that is precisely why nothing observable from OUTSIDE the gate
+    #     process can be the instrument for this property.
+    #
+    #     SO THE SCANNER IS CALLED IN PROCESS. The two functions are lifted out
+    #     of lib\gate_delegate.ps1 by AST - FunctionDefinitionAst, not a regex,
+    #     and NOT a dot-source, because dot-sourcing that file runs its
+    #     top-level fast path and would exit this process - and invoked over the
+    #     SAME config text J7 hands the gate, read out of the table above by tag
+    #     so the two cases cannot drift apart. J7's config spells its `version`
+    #     member with the `v` written as a \u escape, which makes it a name this
+    #     scanner cannot decode, so the scan must ABSTAIN: the contract is that
+    #     Test-LwgFastDelegateOff RETURNS $false and hands the question to the
+    #     slow path. A throw is invisible from outside; from in here it is a red
+    #     line.
+    #
+    #     WHAT THIS DOES NOT ESTABLISH, said rather than left to be assumed. It
+    #     is a white-box case over two functions, not a run of the gate. It says
+    #     the abstain rule abstains, and it says nothing about what the gate as
+    #     a whole then answers - J7 next to it is what says that, over the same
+    #     config, through a real child process. Neither is the other, and the
+    #     pair is the coverage. It also does not make J10 redundant: J10 is
+    #     still the only case here that can tell which path answered a real
+    #     invocation, and this one never invokes the gate at all.
+    #
+    #     AND IT IS NOT THE STRUCTURAL FIX. The tri-state return #135 proposes -
+    #     the fast path recording its own abstentions once the logger is up -
+    #     would let J7 assert this from the outside and would make J10's clock
+    #     unnecessary. That is a change to shipped behaviour and is not made
+    #     here. This case is what the suite can have without one.
+    #     TWO ARMS, AND THE FIRST ONE IS NOT CEREMONY. `$false` is what this
+    #     scanner returns for every doubt it has, so "it returned $false" is on
+    #     its own the same bare negative the rest of this batch is about: a
+    #     harness that lifted the scanner wrongly, or a scanner that had been
+    #     gutted to `return $false`, satisfies it. So the case first runs a
+    #     config the scan MUST prove off and requires `$true`, and only then
+    #     asks J7's config for the abstention. A failure in the first arm says
+    #     "the harness could not look", which is a different sentence from "the
+    #     rule threw" and must not be confused with it.
+    #
+    #     THAT ARM EARNED ITS PLACE IMMEDIATELY, TWICE. The first version of
+    #     this case lifted the two functions and not the script-level
+    #     $LwgFastScanChars they scan with, so every call died on
+    #     `IndexOfAny ... Value cannot be null`; the second lifted it but ran the
+    #     text through `& [scriptblock]::Create(...)`, where a bare assignment
+    #     lands in the block's own child scope and `$script:` inside the function
+    #     still resolves to THIS file's scope, so it was null again. Both times,
+    #     with only the abstain arm, the case went red under the mutant for a
+    #     reason that had nothing to do with the mutant. A red that means the
+    #     wrong thing is the same defect as a green that means nothing.
+    #
+    #     SO THE LIFTED TEXT RUNS IN A FRESH RUNSPACE, via [powershell]::Create()
+    #     and AddScript, where there is no enclosing script file and `$script:`
+    #     resolves to that runspace's own top level - which is where AddScript's
+    #     top-level assignment lands. That is also why the lifted text is used
+    #     VERBATIM: rewriting `$LwgFastScanChars =` to `$script:...` on the way
+    #     past would work today and would be a copy of the gate's source with an
+    #     edit in it, which is the thing this case exists to avoid. The runspace
+    #     is disposed in the finally, and the environment variables are restored
+    #     there too, because they are process-wide and the runspace reads them
+    #     from the same process.
+    $j7bJson = ''
+    foreach ($jc in $jCases) { if ($jc.tag -eq 'name-escaped-irrelevant') { $j7bJson = [string]$jc.json } }
+    $j7bOk   = $false
+    $j7bWhy  = 'the J7 row could not be found in $jCases by its tag, so this case had nothing to run against - it did NOT pass and it did NOT establish anything'
+    if ($j7bJson -ne '') {
+        # The abstain specimen is J7's own text, read out of the table above so
+        # the two cases cannot drift. The control is the plainest provable-off
+        # config there is: no escape anywhere, so the rule under test is not
+        # reached and the scan must conclude OFF.
+        $j7bRootAbstain = New-LwgRawRoot -Base $work -Name 'j7b-abstain' -Json $j7bJson
+        $j7bRootOff     = New-LwgRawRoot -Base $work -Name 'j7b-control' -Json (
+            $jHead + '"interaction":{"delegate":false},' + $jTail)
+        $j7bPrevRoot = $env:CLAUDE_PLUGIN_ROOT
+        $j7bPrevData = $env:CLAUDE_PLUGIN_DATA
+        # WHICH ARM WAS RUNNING WHEN SOMETHING THREW. Without this the one catch
+        # below reports every throw as "the scan THREW instead of abstaining",
+        # including a throw in the control arm - which is the misattribution this
+        # case's own comment argues against, committed by the case itself.
+        $j7bArm = 'harness'
+        try {
+            $j7bAst  = [System.Management.Automation.Language.Parser]::ParseFile($GatePath, [ref]$null, [ref]$null)
+            $j7bText = ''
+
+            # The scan characters are script-level state in the gate, not a
+            # parameter, so the two functions are useless without them. Lifted
+            # by AST like the functions rather than copied here: a literal
+            # written out in this file would be a second statement of which
+            # characters JSON structure can hide behind, and the two could
+            # disagree without anything noticing.
+            $j7bVars = @($j7bAst.FindAll({
+                param($n)
+                $n -is [System.Management.Automation.Language.AssignmentStatementAst]
+            }, $true) | Where-Object { $_.Left.Extent.Text -eq '$LwgFastScanChars' })
+            if ($j7bVars.Count -ne 1) {
+                throw ("lib\gate_delegate.ps1 holds {0} assignment(s) to `$LwgFastScanChars, expected exactly 1 - the scanner cannot be run without it" -f $j7bVars.Count)
+            }
+            $j7bText += $j7bVars[0].Extent.Text + [Environment]::NewLine
+
+            foreach ($fnName in @('Get-LwgFastJsonMembers', 'Test-LwgFastDelegateOff')) {
+                $j7bDefs = @($j7bAst.FindAll({
+                    param($n)
+                    $n -is [System.Management.Automation.Language.FunctionDefinitionAst]
+                }, $true) | Where-Object { $_.Name -eq $fnName })
+                if ($j7bDefs.Count -ne 1) {
+                    throw ("lib\gate_delegate.ps1 holds {0} definition(s) of {1}, expected exactly 1 - the scanner this case is about could not be located" -f $j7bDefs.Count, $fnName)
+                }
+                $j7bText += $j7bDefs[0].Extent.Text + [Environment]::NewLine
+            }
+            $j7bScript = $j7bText + [Environment]::NewLine + 'Test-LwgFastDelegateOff'
+
+            # One call, run in a fresh runspace over whichever root the
+            # environment names. Same env-var dance Invoke-Gate does for the
+            # child process. A non-terminating error inside is treated as a
+            # throw: HadErrors is checked before the return value is read, so a
+            # scan that wrote to the error stream and returned something anyway
+            # cannot be mistaken for a clean answer.
+            $j7bCall = {
+                param([string]$Root, [string]$Script)
+                $env:CLAUDE_PLUGIN_ROOT = $Root
+                $env:CLAUDE_PLUGIN_DATA = Join-Path $Root 'data'
+                $sh = [powershell]::Create()
+                try {
+                    [void]$sh.AddScript($Script)
+                    $out = $sh.Invoke()
+                    if ($sh.HadErrors) {
+                        throw (($sh.Streams.Error | ForEach-Object { $_.ToString() }) -join ' | ')
+                    }
+                    if (@($out).Count -ne 1) { throw "the scan produced $(@($out).Count) output object(s), expected exactly 1" }
+                    return @($out)[0]
+                } finally { $sh.Dispose() }
+            }
+
+            # Arm 1, the control: the harness works and the scan can still say
+            # yes. No escape anywhere in that config, so the rule under test is
+            # never reached and the only answer is $true.
+            $j7bArm = 'control'
+            $j7bCtl = & $j7bCall $j7bRootOff $j7bScript
+            if (-not ($j7bCtl -is [bool] -and $j7bCtl -eq $true)) {
+                $j7bWhy = ("THE HARNESS COULD NOT LOOK, which is not the same as the rule being wrong: over a config with no escape in it at all the scan returned [{0}] where it must return the boolean True. Read this as 'this case established nothing', and fix it before reading anything into the arm below." -f $j7bCtl)
+            } else {
+                # Arm 2, the property: an escaped member name must abstain, and
+                # must abstain by RETURNING.
+                $j7bArm = 'abstain'
+                $j7bRet = & $j7bCall $j7bRootAbstain $j7bScript
+                $j7bOk  = ($j7bRet -is [bool] -and $j7bRet -eq $false)
+                $j7bWhy = if ($j7bOk) { '' } else {
+                    "over J7's config the scan returned [$j7bRet] of type [$(if ($null -eq $j7bRet) { 'null' } else { $j7bRet.GetType().Name })] where it must return the boolean False"
+                }
+            }
+        } catch {
+            # READ OUT BEFORE THE SWITCH, and that is not style. `switch` rebinds
+            # $_ to its own input inside every branch, so $_.Exception.Message
+            # written in there is the message of a STRING and comes back empty -
+            # measured, on the first run of this catch: the mutant threw
+            # 'MUTANT A: abstain implemented as a hard throw' and the case
+            # reported "the scan THREW instead of abstaining:" with nothing
+            # after the colon. A red with the reason deleted out of it is most
+            # of the way back to a red that means nothing.
+            $j7bErr = $_.Exception.Message
+            $j7bWhy = switch ($j7bArm) {
+                'abstain' { "the scan THREW instead of abstaining: $j7bErr" }
+                'control' { "THE HARNESS COULD NOT LOOK: the control arm threw before the rule under test was ever reached, so this case established NOTHING about the abstain rule - $j7bErr" }
+                default   { "THE HARNESS COULD NOT LOOK: the scanner could not be lifted out of lib\gate_delegate.ps1 at all, so this case established NOTHING - $j7bErr" }
+            }
+        } finally {
+            $env:CLAUDE_PLUGIN_ROOT = $j7bPrevRoot
+            $env:CLAUDE_PLUGIN_DATA = $j7bPrevData
+        }
+    }
+    Add-Result 'J7b the abstain rule abstains rather than throws, over J7''s own config, called in process' `
+        $j7bOk `
+        ("$j7bWhy  --  " +
+         'abstain is not throw. An escaped member name is a name this scanner cannot decode, so it must return $false ' +
+         'and let the slow path answer, and it must do that by RETURNING. A throw is caught by the bare `catch { }` at ' +
+         'the call site, the slow path then answers correctly, and the gate exits 0 in silence - which is byte-identical ' +
+         'to an abstention, so J7 above stays green over it. Measured: with the rule rewritten as a throw this suite ' +
+         'reported 93 of 93. This case is the only thing in the file that can see the difference.')
 
     # J10. THE ONLY CASE HERE THAT CAN SEE WHICH PATH ANSWERED, and it sees it
     #      by the clock, because the design leaves no other window: the fast
