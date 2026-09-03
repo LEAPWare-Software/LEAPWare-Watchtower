@@ -106,7 +106,7 @@ try {
 
     # --- mode ---------------------------------------------------------------
     # The ladder itself lives in common.ps1 (Get-LwgSessionMode) because
-    # /lw-watchtower:status has to report the same word off the same rules. The mode
+    # /lw-watchtower:doctor has to report the same word off the same rules. The mode
     # is the headline of everything this plugin says about itself, so a second
     # copy that drifted would be the loudest lie available to it. Every reason
     # the order is what it is is documented at the function.

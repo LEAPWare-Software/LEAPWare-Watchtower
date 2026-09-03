@@ -43,7 +43,7 @@ Rules for reporting it:
   on screen originates in a worker they never reach.
 - **It is a module.** `delegate_gate` is in `$LwgModuleRegistry` with `kind = 'gate'` — the only
   entry that is — so the banner counts it and the live-gate count moves with this switch. Its flag
-  stays out of the `modules` block on purpose: one gate, one switch. `/lw-watchtower:status` reports
+  stays out of the `modules` block on purpose: one gate, one switch. `/lw-watchtower:doctor` reports
   gates *shipped* and gates *live* as separate numbers.
 - The exit code is the verdict: `0` reported or changed, `2` the argument was rejected and
   **nothing was written**, `3` the toggle could not complete and `config.json` was not changed.

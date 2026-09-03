@@ -64,7 +64,7 @@ Rules for reporting it:
   `/lw-watchtower:doctor`, do not attempt a write.
 
 This command changes an INTENTION. Whether the intention is doing anything is a separate
-question: `/lw-watchtower:status` reports what is actually active. **Every module you can switch here is
+question: `/lw-watchtower:doctor` reports what is actually active. **Every module you can switch here is
 an observer**, and turning one on starts a warning, never a refusal — **nothing in this repo tests
 that any of those warnings fires.** `destructive_gate` and `secret_scan` were removed on 30 July
 2026 at the owner's instruction, along with the regression suite, the deny parity test and the

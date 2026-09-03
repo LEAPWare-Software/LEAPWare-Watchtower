@@ -62,7 +62,7 @@ project exists to refuse.
   `lw-gmhh.jsonl` inside it are still exactly where they were. **No file was moved, copied or
   deleted by this change.** What an existing install loses is continuity, not records:
 
-  - The status line's `HH` segment, `/lw-watchtower:sitrep`'s governance counts and the health fault
+  - The status line's `HH` segment, the `sitrep` command's governance counts and the health fault
     count all resolve `lw-watchtower*` and start again from zero. Historical `GateDeny` records,
     faults and advisories are readable only by opening the old file yourself.
   - `bin/lwg-doctor.ps1` was **not** taught the old name. On a pre-rename machine its `state-dir`
@@ -105,7 +105,7 @@ project exists to refuse.
 
   **One thing an operator has to fix by hand.** An `outputStyle` value of `lw-gmhh-brief` (or any of
   the other four) in a settings file now names a file that does not exist.
-  `/lw-watchtower:verbosity` and `/lw-watchtower:plain` print the style the preference asks for
+  the `verbosity` and `plain` commands print the style the preference asks for
   beside the `outputStyle` actually set, so the mismatch is visible; neither writes that key, for
   the reasons in `bin/lwg-toggle.ps1`. Re-pick it under `/config`.
 

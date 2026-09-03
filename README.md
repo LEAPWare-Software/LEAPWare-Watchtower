@@ -154,7 +154,7 @@ the one gate on this project's plan that can be built completely rather than par
 [`lib/gate_delegate.ps1`](lib/gate_delegate.ps1), registered as a `PreToolUse` hook on
 `Edit|Write|NotebookEdit|Bash|PowerShell`. `PowerShell` joined that matcher on **1 August 2026**:
 this is a Windows-only plugin, the CLI offers both shell tools there, and until then an armed gate
-could be walked round by asking for the other shell while `/lw-watchtower:status` reported it live.
+could be walked round by asking for the other shell while `/lw-watchtower:doctor` reported it live.
 
 It has one rule and no exceptions to it:
 
@@ -262,30 +262,23 @@ back.** The two removed gates went first, so nothing could write a trip; the led
 `GM` segment and the 12 remaining ledger files went hours later by a further explicit owner
 decision — the files backed up, not destroyed. A `delegate_gate` denial is written to
 `lw-watchtower.jsonl` as a `GateDeny` event and **nothing tracks it as an open item**: nothing records,
-reads, closes or acknowledges a trip, and the status line has no governance segment. `/lw-watchtower:sitrep`
-counts `GateDeny` records as history. The design, and what an indicator would have to rebuild, is
+reads, closes or acknowledges a trip, and the status line has no governance segment. The `sitrep`
+command counted `GateDeny` records as history, and it went on 2 September 2026, so nothing counts
+them now either. The design, and what an indicator would have to rebuild, is
 preserved at
 [The trip ledger](docs/architecture.md#the-trip-ledger--removed-and-recorded-here-as-a-design) and
 [Gates were removed deliberately](docs/gates-removed.md).
 
 ## Commands
 
-Twelve slash commands. Claude Code namespaces a plugin's commands with the plugin name and the
+Six slash commands. Claude Code namespaces a plugin's commands with the plugin name and the
 prefix **cannot be suppressed**, so they are `/lw-watchtower:…` and nothing shorter.
 
-**Report on governance** — these read and print; none of them changes anything.
+**Report on governance** — this reads and prints; it changes nothing.
 
 | Command | What it does |
 | --- | --- |
-| `/lw-watchtower:status` | Reports which modules are active, planned or off, the mode, and **two** gate counts — how many ship and how many are live, which are `1` and `0` by default. Reports; never judges. |
-| `/lw-watchtower:doctor` | Wiring checks aimed at what is **not** working, counted in its own output. Exits non-zero when it finds something. |
-
-**Report on the plan** — evidence-derived, never self-asserted.
-
-| Command | What it does |
-| --- | --- |
-| `/lw-watchtower:checklist` | Plan state with every item derived from a commit, a file, an exit code or a CI conclusion. An item with no evidence renders `unverified`, which is **not** a synonym for incomplete. |
-| `/lw-watchtower:sitrep` | Work in flight, work finished since the last sitrep, blockers and decisions awaiting you. Separates verified from reported, and names what it could not determine. |
+| `/lw-watchtower:doctor` | Wiring checks aimed at what is **not** working, counted in its own output, then the module roster — every module with its kind, whether it is enabled and, the only column that reports behaviour, its state. Exits non-zero when it finds something. |
 
 **Lifecycle** — the four that can change your machine all dry-run by default.
 
@@ -295,17 +288,21 @@ prefix **cannot be suppressed**, so they are `/lw-watchtower:…` and nothing sh
 | `/lw-watchtower:config` | Module switchboard: turn a governance module on or off, globally or for one repo, after being told exactly what the change does. Needs `-Apply` to write. |
 | `/lw-watchtower:update` | Fetches and reports what is new and what would need re-approval. Fast-forward only; merges nothing without `-Apply`. |
 | `/lw-watchtower:uninstall` | Reports this plugin's whole footprint and what removing it would take, and names everything it **cannot** remove. Dry run by default. |
-| `/lw-watchtower:resolve` | Marks one session's outstanding health faults resolved, with the data directory and the session both pinned — or refuses and says why. |
 
-**Preferences** — three commands, and **one of them is enforced and two are not**. Read
-[what each one does and does not do](docs/commands.md#the-three-preference-commands-and-what-each-one-actually-does)
-before treating any of them as a control.
+**Preferences** — one command, and it is the one thing here that is enforced. Read
+[what it does and does not do](docs/commands.md#lw-watchtowerdelegate-the-one-preference-command-left)
+before treating it as a control.
 
 | Command | Default | Enforced | What it does |
 | --- | --- | --- | --- |
-| `/lw-watchtower:verbosity` | `default` | no | How much an answer carries: `brief`, `default` or `verbose`, set by name. **One key with three levels, not switches** — `output_style.verbosity` holds exactly one of them, so setting a level unsets the others. Was two commands, `brief` and `verbose`, until they were merged. Records the preference; activating the output style is a manual step the script spells out. |
-| `/lw-watchtower:plain` | off | no | Plain English, no unexplained tooling jargon. A separate axis from verbosity — jargon, not length. Same manual step. |
 | `/lw-watchtower:delegate` | off | **yes** | Reserve the chat session for the operator and send all work to subagents. Arms `delegate_gate`, which really refuses `Edit`, `Write`, `NotebookEdit`, `Bash` and `PowerShell` on the main thread. **Read [The one gate](#the-one-gate) before turning it on** — it cannot be turned off again from the main thread. |
+
+**Six commands were removed on 2 September 2026** — `lw-watchtower:status`, folded into the doctor
+that already printed the same roster off the same registry; `lw-watchtower:checklist` and
+`lw-watchtower:sitrep`, which reported the maintainer's own project on a consumer's machine;
+`lw-watchtower:resolve`, which hand-cleared a fault count it could not clear in the case that
+mattered; and `lw-watchtower:verbosity` and `lw-watchtower:plain`, which recorded an output-style
+preference that nothing applied. [Commands](docs/commands.md) carries the reasoning for each.
 
 `lw-watchtower:ask` and `lw-watchtower:ask-inline` were here until 30 July 2026 and were **removed** by an
 explicit owner decision. (Both are written without a leading slash, here and everywhere else, because

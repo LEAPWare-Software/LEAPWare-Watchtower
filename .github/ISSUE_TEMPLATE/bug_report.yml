@@ -44,7 +44,7 @@ body:
         - A hook that does not fire at all
         - The SessionStart banner (module counts, mode word)
         - The status line (HH / ORC segments)
-        - A slash command (/lw-watchtower:status, :doctor, :config, :sitrep)
+        - A slash command (/lw-watchtower:doctor, :config, :setup, :update, :uninstall, :delegate)
         - Setup or uninstall writing settings.json
         - delegate_gate (a call reached the main thread that the armed gate should have refused)
         - delegate_gate (it refused something it should not have, or the switch does not take)

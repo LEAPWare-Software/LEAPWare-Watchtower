@@ -19,8 +19,6 @@ in place:
 | command | script | writes |
 | --- | --- | --- |
 | `/lw-watchtower:delegate` | `bin/lwg-toggle.ps1` | `interaction.delegate` |
-| `/lw-watchtower:plain` | `bin/lwg-toggle.ps1` | `interaction.plain` |
-| `/lw-watchtower:verbosity` | `bin/lwg-toggle.ps1` | `interaction.verbosity` |
 | `/lw-watchtower:config` | `bin/lwg-config.ps1` | any `modules` flag, global or per-repo |
 
 Both scripts resolve the file as `Join-Path $pluginRoot 'config.json'`, and `$pluginRoot` is
@@ -80,7 +78,7 @@ each removal so neither has to be inferred from an absence.
 
 **One gate does ship, and its switch is deliberately not here.** `delegate_gate` is switched by
 `interaction.delegate`, further down this file, because one gate must have exactly one switch — see
-[`output_style` and `interaction`](#output_style-and-interaction--two-preferences-and-one-gate-switch).
+[`interaction`](#interaction--the-one-gate-switch).
 `$status.gates_live` reads `0` because that number counts gates that are **live**, and the gate ships
 off. **No flag in the `modules` block turns blocking on or off**; `interaction.delegate` is the only
 key in this file that does.
@@ -268,49 +266,35 @@ standing rules reads none of it. Only facts that *go stale* and that workers rep
 belong there. Anything durable belongs in `CLAUDE.md`, which is snapshotted once and costs nothing
 per dispatch.
 
-## `output_style` and `interaction` — two preferences and one gate switch
+## `interaction` — the one gate switch
 
-These two blocks hold the three keys set by `/lw-watchtower:verbosity`, `:plain` and `:delegate`.
-**Hand-editing them works exactly as well as running the commands**, except that the commands also
-state what each one does and does not do.
+This block holds the single key set by `/lw-watchtower:delegate`. **Hand-editing it works exactly as
+well as running the command**, except that the command also states what it does and does not do.
 
 | Block | Keys | Default when absent |
 | --- | --- | --- |
-| `output_style` | `verbosity` — one of `brief`, `default`, `verbose` | `"default"` |
-| `output_style` | `plain` | `false` |
 | `interaction` | `delegate` | `false` — it arms a **blocking gate**, and nothing here arms itself |
+
+**`output_style` went on 2 September 2026**, with the `verbosity` and `plain` commands that wrote it
+and the five output-style files they named. Both keys recorded a preference that **nothing applied**:
+the style Claude Code uses is the `outputStyle` key in a settings file, and this plugin never wrote
+it. A config written before that date may still carry an `output_style` block; nothing reads it.
 
 **`interaction.ask` and `interaction.ask_inline` were in this block and were removed on 30 July
 2026**, with the two commands that wrote them, by an explicit owner decision. Both defaulted to
 `true` and enforced nothing, and neither can be built — see
-[the four deleted commands](commands.md#commands) and `$removed_keys_comment` in
+[Commands](commands.md#commands) and `$removed_keys_comment` in
 [`config.json`](../config.json). A flag left here would be a setting nothing reads.
 
-> **Three commands, three keys — one apiece.** `verbosity` is a *level*, not a switch: it holds one
-> of three values and `/lw-watchtower:verbosity` sets it by name. It was two commands, `lw-watchtower:brief` and
-> `lw-watchtower:verbose`, over this one key until 30 July 2026; the stored value did not change in the
-> merge. Two booleans were rejected because a per-repo override is merged *key by key* — `brief`
-> global and `verbose` per-repo would have contradicted each other from two individually valid
-> writes, and no rule inside the toggle script could have stopped it. A value that is not one of the
-> three is **ignored and named as unrecognised**, never coerced. An `output_style.brief` key — the
-> boolean `verbosity` replaced — is dead, and is **named as obsolete** at whichever scope it
-> survives at rather than being migrated or deleted for you. See
-> [`verbosity` is one key with three levels](commands.md#verbosity-is-one-key-with-three-levels).
+**The key sits outside `modules`, and the reason is polarity:** `Get-LwgConfig` fails **open**, so an
+unreadable `config.json` switches every `modules` flag *on*. That is the right polarity for an
+observing module and the wrong one for a gate, where it would arm a blocking hook off a file nobody
+could read. Outside `modules` it is read through a `Get-LwgModuleOption`-shaped accessor that returns
+the built-in default when the key is absent, so a corrupt config leaves the gate **off**.
 
-**Every one of these three keys sits outside `modules`, and for one shared reason:** `Get-LwgConfig`
-fails **open**, so an unreadable `config.json` switches every `modules` flag *on*. That is the right
-polarity for an observing module and the wrong one for both an answer-formatting preference — it
-would rewrite every answer you see — and for a gate, where it would arm a blocking hook off a file
-nobody could read. Outside `modules` they are read through a `Get-LwgModuleOption`-shaped accessor
-that returns the built-in default when the key is absent, so a corrupt config leaves verbosity at
-`default`, `plain` off, and the gate **off**.
-
-**Where they differ is the module count.** `verbosity` and `plain` are absent from
-`$LwgModuleRegistry` too — the banner's `n/10` counts governance coverage and an answer-formatting
-preference is not governance. `interaction.delegate` **is** in the registry, as `delegate_gate` of
-`kind = 'gate'`, because a gate is governance in its strongest form. So the total is 10, and running
-`/lw-watchtower:delegate` moves both the active count and the live gate count; running the other two moves
-nothing.
+`interaction.delegate` **is** in `$LwgModuleRegistry`, as `delegate_gate` of `kind = 'gate'`, because
+a gate is governance in its strongest form — so running `/lw-watchtower:delegate` moves both the
+active count and the live gate count.
 
 > **One gate, one switch.** The `delegate_gate` registry entry declares
 > `switch = @{ block = 'interaction'; key = 'delegate'; default = $false }` instead of taking a
@@ -341,13 +325,6 @@ includes the command that would turn it off again**, which runs through `Bash`; 
 [what each preference command actually does](commands.md#the-three-preference-commands-and-what-each-one-actually-does).
 
 ## Output styles
-
-The five output styles in [`output-styles/`](../output-styles/) are **not** modules. The `.md` files
-themselves are configured nowhere — the style Claude Code applies is the `outputStyle` key in a
-settings file, written by `/config`, and **nothing in this plugin writes that key**. The
-`output_style` block above records which style you *want*; it does not activate one. See
-[Output styles](output-styles.md) — including why they are not configured here, and the four things
-they cannot do.
 
 ## `permissions.deny`
 

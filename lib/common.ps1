@@ -928,7 +928,7 @@ function Get-LwgActiveGates {
       backed by code, AND switched on. A gate that ships but is switched off
       counts ZERO here, and the banner must say 0 - "a gate exists" and "a gate
       is blocking" are different facts and the count reports only the second.
-      $script:LwgGates is the other one; /lw-watchtower:status prints both.
+      $script:LwgGates is the other one; /lw-watchtower:doctor prints both.
 
       Three names can reach this list today - delegate_gate, send_liveness_gate
       and completion_audit - each only when its own switch is on, which none is
@@ -946,7 +946,7 @@ function Get-LwgActiveGates {
 function Get-LwgSessionMode {
     <#
       The one word a session is allowed to call itself. Lifted out of
-      lib/session_start.ps1 in Phase 10 because /lw-watchtower:status has to report the
+      lib/session_start.ps1 in Phase 10 because /lw-watchtower:doctor has to report the
       same word and a second copy of this ladder is a second thing to keep
       correct - the mode is the headline, so a drifted copy would be the loudest
       possible lie the plugin could tell about itself.

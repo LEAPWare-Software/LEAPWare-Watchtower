@@ -31,7 +31,6 @@ If you are here to find out what this plugin **cannot** do, the consolidated ans
 
 - [How do I turn a module off?](#how-do-i-turn-a-module-off)
 - [I turned `delegate` on and now I cannot turn it off](#i-turned-delegate-on-and-now-i-cannot-turn-it-off)
-- [I ran `/lw-watchtower:verbosity brief` and nothing changed](#i-ran-lw-watchtowerverbosity-brief-and-nothing-changed)
 - [What is a trip, and why can I not see any?](#what-is-a-trip-and-why-can-i-not-see-any)
 - [An advisory warned me and it was wrong](#an-advisory-warned-me-and-it-was-wrong)
 - [Does it see files changed by a shell command?](#does-it-see-files-changed-by-a-shell-command)
@@ -39,7 +38,6 @@ If you are here to find out what this plugin **cannot** do, the consolidated ans
 
 **The plan and the tests**
 
-- [What does `unverified` mean in the checklist?](#what-does-unverified-mean-in-the-checklist)
 - [Can I run the tests myself?](#can-i-run-the-tests-myself)
 - [Why is there no CI badge in the README?](#why-is-there-no-ci-badge-in-the-readme)
 - [What version is this? Is there a release?](#what-version-is-this-is-there-a-release)
@@ -205,9 +203,6 @@ Three things that will **not** carry over, stated so they are not a surprise:
   it still carries 181 rules the installer wrote back then; the new one gets none, and nothing here
   renews or copies them. The two machines will behave differently and nothing in the plugin will say
   so.
-- **`/lw-watchtower:checklist` cannot measure plan drift there.** The source plan lives outside the repo
-  under one user profile. On the new machine the command correctly prints `STALENESS NOT MEASURED`
-  with the reason. That is an honest report of a gap, not the gap being closed.
 - **The status-line copy drifts silently** from the tracked original, in both directions. The doctor
   detects it; nothing prevents it.
 
@@ -355,25 +350,6 @@ Two ways back:
 The deny message states both. If a per-repo override under `repos[slug].interaction.delegate` set it,
 that is the key to clear rather than the global one.
 
-## I ran `/lw-watchtower:verbosity brief` and nothing changed
-
-That command **records a preference. It does not activate a style**, and it says so when it runs.
-
-The style Claude Code applies is the `outputStyle` key in a settings file, and **nothing in this
-plugin writes that key**. What `/lw-watchtower:verbosity` and `/lw-watchtower:plain` do is store the preference in
-`config.json`, work out which of the five shipped style files the two axes imply, check that file is
-present, read back what the settings key currently says, and print the manual step:
-
-> Run `/config` → **Output style**.
-
-Even after that, **the change does not take effect in the session you make it in.** An output style is
-read into the system prompt once at session start, so it needs `/clear` or a new session — and
-`/clear` discards the conversation.
-
-Two further limits: an output style reaches the **main conversation only** (a subagent runs its own
-system prompt), and it is **advisory** — there is no hook between the model and the transcript, so
-nothing can block assistant text. See [What these cannot do](output-styles.md#what-these-cannot-do).
-
 ## What is a trip, and why can I not see any?
 
 A **trip** was a durable, per-session record that a gate had refused something — written on the deny
@@ -393,8 +369,8 @@ hand when there was no fact to close on, and surfaced by a `GM` segment on the s
 
 **`delegate_gate` did not bring it back.** When it denies, it writes a `GateDeny` event to
 `lw-watchtower.jsonl` and **nothing tracks it as an open item**: nothing records, reads, closes or
-acknowledges a trip. `/lw-watchtower:sitrep` counts `GateDeny` records under `GOVERNANCE` as history, and
-nothing can clear one — that is an audit trail, not a ledger, which is exactly why the ledger was
+acknowledges a trip. The `sitrep` command counted `GateDeny` records under `GOVERNANCE` as history
+and went on 2 September 2026, so nothing counts them now and nothing can clear one — that is an audit trail, not a ledger, which is exactly why the ledger was
 built in the first place.
 
 If your status line still shows a `GM` segment, you are running a copy of `statusline/statusline.ps1`
@@ -474,48 +450,12 @@ once.
 Because the directory name comes from the plugin id, renaming the plugin renamed the directory —
 `lw-watchtower*` from that day on. **No data was deleted and none was moved.** The old directory
 still holds everything it held; nothing in this plugin reads it any more, so history in it does not
-appear on the status line or in `/lw-watchtower:sitrep`, and the counts start again from zero.
+appear on the status line, and the counts start again from zero.
 `/lw-watchtower:uninstall` is the one component that still knows the old name: it sweeps for it,
 reports what it finds marked `LEGACY`, and — like every other data directory — leaves it alone
 unless you pass `-RemoveData` with the confirmation token. See `## [0.4.0]` in
 [CHANGELOG.md](../CHANGELOG.md).
 
-## What does `unverified` mean in the checklist?
-
-It means **the probe could not be run, so the item's state is unknown.** It is a third state, not a
-quieter "not started", and `/lw-watchtower:checklist` says so on every run: *do not count them either way.*
-
-There is deliberately no code path that turns "I could not look" into "it is not done". The states
-are `DONE`, `IN PROGRESS`, `BLOCKED`, `NOT STARTED` and `UNVERIFIED`, and unverified **outranks
-blocked** — an item whose evidence never ran must not be described as though its state were known.
-
-Real reasons it appears on this tree:
-
-- The evidence kind is `manual`, which **can never pass by design**. Eight of the 40 items are these:
-  an org-level setting, a decision recorded outside the repo. The honest report is "unverified
-  forever", not a checkbox somebody can tick by hand.
-- A probe was denied the answer. `gh api …/branches/main/protection` returned HTTP 403 for this
-  repository until **2026-08-28**, and a 403 is indistinguishable from "no protection is configured"
-  — the two conclusions are opposite and the API answer is the same, so the item declares that
-  nonzero exit as unverified rather than reporting a false negative. The visibility flip lifted the
-  403 here; **the rule is unchanged and still right**, because it runs on whatever repository and
-  plan it is pointed at, and a 403 is what it gets on any it cannot read.
-- A tool was missing or timed out. `git` or `gh` not on `PATH`, or a child killed on its timeout.
-- **A probe ran and never reached the question.** The big one is `git` outside a repository: on a
-  marketplace install the plugin directory has no `.git`, so every git-backed rule exits `128`
-  having read nothing. Also here: an interpreter refusing a script that is not installed, and a
-  command that exits as expected while printing **nothing** under a rule that proves its item from
-  that output. Until 31 July 2026 all three rendered as `NOT STARTED` — see
-  [The evidence-state suite](testing.md#the-evidence-state-suite), which is the CI step that now
-  stops them coming back.
-
-Two related distinctions worth knowing:
-
-- **`[x*]` is a qualified tick** — the probe passed *and* the caveat printed beneath it limits what
-  passing proves. Read the caveat, not the tick.
-- **A loose evidence rule is not detectable by anything.** That is why every DONE row prints the
-  evidence it rests on. On this tree, half the DONE items rest on a file existing and nothing else —
-  see [Most checklist ticks rest on a file existing](limitations.md#most-checklist-ticks-rest-on-a-file-existing).
 
 ## Can I run the tests myself?
 
@@ -596,7 +536,7 @@ names the *plan* being worked towards, not the version that ships. It agreed wit
 ## Why do the commands all start with `/lw-watchtower:`?
 
 Claude Code namespaces a plugin's commands with the plugin name and **the prefix cannot be
-suppressed**. So they are `/lw-watchtower:status`, `/lw-watchtower:doctor` and so on, and nothing shorter.
+suppressed**. So they are `/lw-watchtower:doctor`, `/lw-watchtower:config` and so on, and nothing shorter.
 
 You may notice that removed commands are written in this documentation **without** a leading slash —
 `lw-watchtower:tripped`, and the verify command that went with the destructive gate. That is not a typo:

@@ -165,4 +165,4 @@ Restores the newest backup this command took, after keeping a copy of the curren
   no install-time question about it: an operator who declined it here and later ran
   `/lw-watchtower:delegate on` would own a switch wired to a hook that was never registered. A finished
   install leaves a session in `observe-only` mode, which is the intended end state and not a partial
-  one. It does not report what is running; that is `/lw-watchtower:status`.
+  one. It does not report what is running; that is `/lw-watchtower:doctor`.

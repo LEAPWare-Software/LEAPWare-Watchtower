@@ -9,9 +9,10 @@
   `.claude-plugin/marketplace.json` declares `"source": "./"`. There is no
   exclusion mechanism on that form, so EVERY TRACKED FILE IN THIS REPOSITORY IS
   THE SHIPPED PAYLOAD. A consumer who installs this plugin receives the whole
-  root, and `/lw-watchtower:checklist` renders one of those files on their
-  machine - `commands/checklist.md` instructs the model to print the output
-  verbatim, so whatever the manifest carries reaches a stranger's screen.
+  root, and the `checklist` command rendered one of those files on their
+  machine - `commands/checklist.md` instructed the model to print the output
+  verbatim, so whatever the manifest carried reached a stranger's screen. That
+  command went in 0.4.0; the files it rendered still ship, so these rules stay.
 
   Four disclosures reached the payload that way and none of them was caught by
   anything, because every guard in tests\ answers a different question:
@@ -255,7 +256,7 @@ $Rules = @(
     @{
         id      = 'release-plan-heading'
         name    = 'a maintainer release-plan section heading'
-        why     = 'rendered by /lw-watchtower:checklist on a consumer machine, a phase of the maintainer''s go-public plan reads as a phase of the consumer''s own work.'
+        why     = 'rendered on a consumer machine, a phase of the maintainer''s go-public plan reads as a phase of the consumer''s own work. The `checklist` command that rendered it went in 0.4.0; the file still ships, so the rule stays.'
         pattern = '(?i)Phase\s+8\s*[-–]\s*Go\s+public'
     }
     @{

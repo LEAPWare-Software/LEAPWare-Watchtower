@@ -27,7 +27,7 @@
       OUT=[{"hookSpecificOutput":{"hookEventName":"SubagentStart",
             "additionalContext":"...","suppressOutput":true}]
 
-  The module is switched OFF in the global block, /lw-watchtower:status, the
+  The module is switched OFF in the global block, /lw-watchtower:doctor, the
   SessionStart banner and Test-LwgModule all agree that it is off, and it
   injected into the worker anyway. The same bytes with the two top-level keys in
   the shipped order printed NOTHING. That is the whole defect: a raw-text scanner

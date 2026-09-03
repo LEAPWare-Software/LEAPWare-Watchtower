@@ -24,9 +24,7 @@ config.json                  module switchboard, per-repo overrides, thresholds,
                              per-module tuning (module_config), plus the
                              output_style and interaction preference blocks,
                              which are NOT modules and are counted nowhere
-checklist.json               the plan the /lw-watchtower:checklist evidence probes are
-                             run against. Data, not code
-commands/*.md                twelve slash commands - prose only; every one of
+commands/*.md                six slash commands - prose only; every one of
                              them is a thin wrapper that runs a script in bin/
                              and reports its output. The logic is never in the
                              command prose - see docs/commands.md
@@ -82,7 +80,7 @@ output-styles/               five output styles - two axes (verbosity x plain)
 lib/common.ps1               module registry (implemented vs planned vs blocked -
                              source of truth for the banner), config load, module
                              resolution, the session-mode ladder (shared by the
-                             banner and /lw-watchtower:status so the two cannot drift),
+                             banner and /lw-watchtower:doctor so the two cannot drift),
                              repo identity from cwd (bounded .git walk
                              + origin remote parse), state-dir resolution,
                              append-with-retry writer, rotation,
@@ -130,10 +128,6 @@ lib/subagent_start.ps1       context_injection - SubagentStart, once per dispatc
 lib/supervisor.ps1           failure_capture - the five-event health hook handler,
                              and the one place log_rotation is invoked (above the
                              failure_capture gate, so the two are independent)
-lib/resolve.ps1              appends a Resolved marker. NOT invoked directly:
-                             outside a hook it picks its data directory by
-                             mtime. bin/lwg-resolve.ps1 is what the healer and
-                             /lw-watchtower:resolve run
 tests/gate_delegate.ps1      93 cases against lib/gate_delegate.ps1, each run
                              through a real pipe into a real child process. One
                              of TEN behavioural suites, and the only one that
@@ -877,7 +871,7 @@ removed. Open trips were never dropped — the 200-entry cap evicted closed entr
 and counted what it evicted.
 
 Those `GateCleared` and `GateDeny` records are in `lw-watchtower.jsonl`, which survives, so the history is
-still readable: `/lw-watchtower:sitrep` counts the uncleared denials under `GOVERNANCE`. Nothing can clear
+still readable, and nothing reads it back as an open item. Nothing can clear
 one now — `GateCleared` was only ever written by the sweep.
 
 **Why it lives outside the plugin.** `statusLine` is a top-level key that Claude Code reads only from
