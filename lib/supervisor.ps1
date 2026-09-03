@@ -701,9 +701,14 @@ if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $scri
             # THE DEDUPE LEDGER IS READ BEFORE THE RECORD IS WRITTEN, not after.
             # It used to be read below, which meant the record could only ever
             # carry the STANDING orphan count - and the status line takes a PEAK
-            # of that since the last Resolved marker, so an acknowledged orphan
-            # re-raised HH at the very next turn end and the `resolve` command could
-            # never stick. See the SubagentStop branch for the full account.
+            # of that count over the log tail it reads, so an acknowledged orphan
+            # re-raised HH at the very next turn end and the acknowledgement
+            # never stuck. THE COMMAND THAT ONCE LOWERED THAT PEAK, AND THE
+            # RECORD IT WROTE, ARE DELETED - statusline/statusline.ps1 carries
+            # the tombstone - so nothing lowers it now. That makes writing the
+            # right number here the only thing between one dead agent and an
+            # indicator that stays red for the session. See the SubagentStop
+            # branch for the full account.
             $seenPath = Join-Path (Get-LwgStateDir) 'alerted.json'
             $seen = @()
             if (Test-Path $seenPath) {
@@ -809,13 +814,19 @@ if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $scri
             # An orphan is STANDING: the dead transcript stays on disk for the
             # life of the session, so every later trigger re-detects it. The
             # record used to be written before this line, carrying the standing
-            # count, and the status line takes a PEAK of that count since the
-            # last Resolved marker. So the `resolve` command would clear HH, the very
-            # next SubagentStop would re-record the same standing orphan, and HH
-            # went red again seconds later - permanently, with the operator's
-            # only remedy being to switch the module off. A red light that cannot
-            # be turned off is not a signal, and this module exists to avoid
-            # teaching people to ignore it.
+            # count, and the status line takes a PEAK of that count over the log
+            # tail it reads. While a clearing command still existed it would
+            # lower HH, the very next SubagentStop would re-record the same
+            # standing orphan, and HH went red again seconds later - permanently,
+            # with the operator's only remedy being to switch the module off. A
+            # red light that cannot be turned off is not a signal, and this
+            # module exists to avoid teaching people to ignore it.
+            #
+            # THAT CLEARING COMMAND IS NOW DELETED, which raises the stakes on
+            # this line rather than retiring the argument: there is no clearing
+            # step at all any more, nothing lowers the peak, and the only reason
+            # a re-detected orphan does not keep pushing HH up is that this
+            # branch records `orphans_new` instead of the standing count.
             #
             # Both numbers are now recorded and they answer different questions.
             # `orphans` is the STANDING count and stays the evidence trail - E7

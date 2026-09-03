@@ -878,11 +878,18 @@ try {
     # let the rows below say "I could not work out where to look" rather than
     # the far more dangerous "absent".
     #
-    # The discovery root is still swept for SIBLINGS afterwards, the same union
-    # bin\lwg-resolve.ps1 builds and for the same reason: the resolver names the
-    # ONE directory that is live, and a footprint has to name the dead ones too
-    # or removal leaves them behind. That sweep is enumeration, not resolution -
-    # it can only add directories to the report, never decide which is live.
+    # The discovery root is still swept for SIBLINGS afterwards, and the reason
+    # is a property of resolution itself rather than of any one caller:
+    # Get-LwgStateDirInfo names the ONE directory that is live, and a footprint
+    # has to name the dead ones too or removal leaves them behind. That sweep is
+    # enumeration, not resolution - it can only add directories to the report,
+    # never decide which is live.
+    #
+    # This paragraph used to justify the sweep by pointing at a second script
+    # that built the same union. That script was deleted in wave 1, and a
+    # comment that explains live behaviour by reference to a file which is not
+    # in the payload sends the next reader looking for it. The reason stands on
+    # its own and is stated on its own.
     #
     # $stateInfo is the resolution done at the top of this run, printed in the
     # header - one resolution, one answer, no second opinion down here.

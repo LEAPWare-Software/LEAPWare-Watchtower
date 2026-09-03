@@ -62,6 +62,20 @@
        release plan, rendered on a consumer's machine by a command that presents
        every row as a finding, reads as a phase of THEIR work rather than of a
        project they have never heard of.
+    6. A DELETED SCRIPT, NAMED AS LIVE BY A SHIPPED FILE. Not a privacy
+       disclosure like the five below it, and it is here rather than in a suite
+       of its own for the reason this file exists at all: it is a property of
+       what a STRANGER RECEIVES, and every other guard in tests\ answers a
+       different question. A consumer's model reads a shipped page or a
+       maintainer reads a shipped comment, follows it to a script that is not
+       in the payload, and the failure is silent in both directions - the
+       invocation fails, or the reader reasons from a mechanism that does not
+       exist. Wave 1 deleted the state resolver, its library half, its command
+       and the marker the clearing mechanism turned on, and eleven tracked
+       sites went on naming them. See DETECTION RULES and, immediately after
+       them, HISTORICAL MENTIONS - naming a deleted thing AND SAYING IT IS
+       DELETED is the opposite of this defect, and the two are told apart one
+       line at a time rather than one file at a time.
     5. VISIBILITY-CONDITIONED CONTAINMENT. A sentence asserting that the exposure
        reaches no further than whoever can already read the repository, resting
        on the repository not yet being published, is true today and becomes a
@@ -188,6 +202,13 @@ $RegionMarker = '^\s*(?:#|<!--)\s*LWG-PAYLOAD-REGION:\s*(begin|end)\b'
 #   name    what the rule looks for, printed beside every hit
 #   why     what is disclosed to a consumer when this ships
 #   pattern the regex
+#   scope   OPTIONAL path globs. Omit it and the rule runs on every tracked
+#           file, which is the default and right for every disclosure rule -
+#           a personal address is a disclosure wherever it sits. A rule is
+#           scoped only when what it forbids is a property of a file's ROLE
+#           rather than of its text, and S7 below asserts that a scoped rule
+#           actually reached a file, because a scope that matches nothing is a
+#           rule switched off with nobody told.
 #
 # PRECISION NOTES, each one measured against this tree rather than assumed:
 #
@@ -275,8 +296,97 @@ $Rules = @(
                   '|(?i)\b403\s+for\s+a\s+private\s+repo\b' +
                   '|(?i)\bnot\s+configurable\s+while\s+the\s+repo(?:sitory)?\s+is\s+private\b'
     }
+    @{
+        id      = 'deleted-script'
+        name    = 'shipped file naming a script this branch deleted'
+        why     = 'a shipped file naming a script that is not in the payload sends whoever reads it - a model following an instruction, or a maintainer following a comment - to something that is not there. The failure is silent: the invocation fails, or the reader concludes the mechanism exists and reasons from it. THE FOUR NAMES ARE #192''s DONE-CONDITION, not a general sweep for every removed file: the resolver, its library half, its command, and the marker the whole clearing mechanism turned on. All four went in wave 1 with the decision that state comes from the ledger rather than from a hand-cleared fault count.'
+        # WHAT THIS RULE CANNOT DO, and it is the same limit every rule here
+        # has: it reads text, so it cannot tell an instruction from a memoir.
+        # THE HISTORICAL MENTIONS TABLE below is what draws that line, and it
+        # draws it one LINE at a time rather than one file at a time - a file
+        # is allowed to keep the sentence that records a removal without being
+        # allowed to keep a live instruction three hundred lines later.
+        # THE COMMAND ALTERNATIVE IS SPLIT ACROSS A CONCATENATION, and it is
+        # not a stylistic tic. bin\lwg-doctor.ps1's `commands` check scans every
+        # tracked .ps1 and .md for `/<plugin>:<name>` and FAILS when the command
+        # page is not in commands\ - which is how the six deleted commands were
+        # found. Writing this rule's needle out in reading order made a guard
+        # naming a deleted command indistinguishable, to that check, from a page
+        # inviting an operator to run one, and it turned the doctor red the day
+        # this rule was added. The same lesson this file's header records about
+        # the pull ref: a guard may not spell its own target. The split breaks
+        # the doctor's literal without weakening this pattern, which is compiled
+        # from the joined string.
+        pattern = '(?i)lwg-resolve' +
+                  '|(?i)\blib[\\/]resolve\.ps1' +
+                  '|(?i)/lw-watchtower' + ':resolve\b' +
+                  '|(?i)\bResolved\W{0,3}marker\b'
+        # SCOPED TO THE SHIPPED EXECUTABLE PAYLOAD, MINUS commands/ AND agents/,
+        # AND THE OMISSION IS TEMPORARY AND LOUD. #192's done-condition says
+        # "no SHIPPED file", and the whole root ships - but commands/update.md
+        # still names the deleted library, and a fixer may not edit a document.
+        # That page is wave D's (#195). Including commands/ here would make this
+        # branch's CI permanently red on a file nobody in this wave is allowed
+        # to touch, which is a guard that has to be switched off to be merged,
+        # which is not a guard. RE-ENABLE commands/ AND agents/ THE MOMENT #195
+        # LANDS: they are text a model reads, which is the surface #192 was
+        # filed about in the first place. tests/ is out for a different reason -
+        # it ships under `"source": "./"` like everything else, but its three
+        # remaining sites are assertion prose in a file this pass does not own,
+        # and they are recorded on #192 rather than ledger'd here.
+        scope   = @('bin/*', 'lib/*', 'hooks/*', 'statusline/*', 'context/*',
+                    'config.json', '.claude-plugin/*')
+    }
 )
 # LWG-PAYLOAD-REGION: end
+
+# ===========================================================================
+# HISTORICAL MENTIONS
+#
+#   files  repo-relative path, matched exactly
+#   rules  rule ids this entry covers in that file
+#   test   a regex matched against the LINE. It identifies ONE line.
+#   why    why naming the deleted thing on that line is honest
+#
+# THE DISTINCTION THIS TABLE EXISTS TO DRAW. `deleted-script` above forbids
+# naming a deleted script AS LIVE. It does not forbid recording that the thing
+# existed and was removed - that record is the opposite of the defect, and
+# #198 established the form for it in CHANGELOG.md: name what went, and say it
+# went. A guard that could not tell the two apart would push every honest
+# tombstone out of the tree and leave the next reader wondering why a branch
+# in statusline/statusline.ps1 reads a field nothing writes.
+#
+# WHY THE TEST IS A LINE PATTERN AND NOT A LINE NUMBER. A number goes stale on
+# the next edit above it and then silently excuses whatever moved into its
+# place - a line-numbered allowlist is a vacuous one waiting for a reflow.
+#
+# WHY THE TEST PATTERNS DO NOT SPELL THE FORBIDDEN NAMES. Same discipline as
+# the ledger below and as THE ENCODED NEEDLE: this table sits OUTSIDE the
+# exempt region, so a test that quoted the string it excuses would put that
+# string back into the payload and would be a counter-example to its own rule.
+# Each entry keys on a distinctive phrase from its line instead. That is also
+# why they are narrow: a phrase from one sentence cannot excuse a live
+# instruction written somewhere else in the same file.
+#
+# AN ENTRY THAT MATCHES NOTHING IS PRINTED, NOT FAILED. Zero means the file was
+# fixed or reflowed, and going red on a fix punishes the person who made it -
+# the same reasoning the ledger states below. It is printed so a table that has
+# rotted into decoration is visible rather than assumed.
+# ===========================================================================
+$HistoricalMentions = @(
+    @{ files = 'lib/common.ps1'
+       rules = @('deleted-script')
+       test  = 'how the healer wrote a'
+       why   = 'past tense, recounting the founding defect: a healer wrote a clearing record into the wrong file while the log it was meant to clear stayed empty. The sentence is the reason the surrounding code exists and cannot be told without naming what did it.' }
+    @{ files = 'statusline/statusline.ps1'
+       rules = @('deleted-script')
+       test  = '^\s*#\s*writers of that record were'
+       why   = 'the tombstone on the arm that used to zero the health counters. It names the two writers AND says both are deleted, in the same sentence, which is the form #198 settled on. Without it the missing arm reads as an oversight rather than as a decision, and the next reader re-adds it.' }
+    @{ files = 'statusline/statusline.ps1'
+       rules = @('deleted-script')
+       test  = 'to name the tasks\..{0,40}:136 read'
+       why   = 'the record of why three readers of one log disagreed about one number. The sentence that follows it states outright that two of the three are deleted and that this file is the last of them, so the mention is dated on the spot rather than left to be checked.' }
+)
 
 # ===========================================================================
 # THE BARRED LEDGER
@@ -313,6 +423,10 @@ $BarredLedger = @(
        rules = @('visibility-conditioned')
        issue = '#124'
        why   = 'the branch-protection 403 the page describes stops being returned at the flip. Outside this pass''s ownership. Phrased without the trigger words on purpose - this table is prose in a tracked file, so a ledger entry quoting the sentence it excuses would itself be a hit.' }
+    @{ files = 'lib/common.ps1'
+       rules = @('deleted-script')
+       issue = '#192 (lane C4)'
+       why   = 'TWO SITES, BOTH LIVE, BOTH IN SHIPPED CODE AND NEITHER HONEST. One says the deleted library is run by an agent, in the present tense and with a "verified" that makes it read as checked-and-current; the other gives the deleted resolver''s console report as the STATED REASON the redaction helper escapes control characters, so live behaviour is justified by a file that is not in the payload. They are real, they are still shipping, and this entry is not an acceptance of them - lib/common.ps1 belongs to another lane in this same wave and its pull request was open when this guard landed. TEMPORARY: DELETE THIS ENTRY when that lane merges, and this rule goes red until the two lines are rewritten. A third site in the same file - the founding-defect sentence - is honestly historical and is covered by the HISTORICAL MENTIONS table above, so removing this entry does not take that one with it.' }
     @{ files = '.gitignore'
        rules = @('visibility-conditioned')
        issue = '#124'
@@ -326,6 +440,14 @@ $openRegion = New-Object System.Collections.ArrayList
 $strayMark  = New-Object System.Collections.ArrayList
 $hits       = New-Object System.Collections.ArrayList
 $ledgered   = New-Object System.Collections.ArrayList
+$historical = New-Object System.Collections.ArrayList
+# Per-entry match counts for the historical table, and per-rule file counts for
+# any rule carrying a scope. Both are derived every run, and both are printed:
+# an entry excusing nothing and a scope reaching nothing are the two ways this
+# mechanism can rot into decoration, and neither is visible unless counted.
+$histCount  = @{}
+foreach ($h in $HistoricalMentions) { $histCount[$h.test] = 0 }
+$scopedFiles = @{}
 $fileCount  = 0
 
 Write-Output '==========================================================================='
@@ -339,6 +461,35 @@ function Test-Ledgered {
         if ($e.rules -contains '*' -or $e.rules -contains $RuleId) { return $e }
     }
     return $null
+}
+
+function Test-Historical {
+    <#
+      The historical-mention entry covering this exact line, or $null. Checked
+      BEFORE the ledger, so a file that is ledger'd for a live site still has
+      its honest tombstones classified as tombstones - which is what lets the
+      ledger entry be deleted later without taking them with it.
+    #>
+    param([string]$Rel, [string]$RuleId, [string]$Line)
+    foreach ($e in $HistoricalMentions) {
+        if ($e.files -ne $Rel) { continue }
+        if ($e.rules -notcontains $RuleId) { continue }
+        if ($Line -match $e.test) { return $e }
+    }
+    return $null
+}
+
+function Test-RuleInScope {
+    <#
+      Whether a rule is asked of this file at all. No `scope` key means every
+      file, which is what every disclosure rule uses. This decides whether the
+      QUESTION is put; the ledger and the historical table decide whether an
+      ANSWER is excused, and the three are reported separately on purpose.
+    #>
+    param($Rule, [string]$Rel)
+    if (-not $Rule.ContainsKey('scope')) { return $true }
+    foreach ($g in $Rule.scope) { if ($g -eq '*' -or $Rel -like $g) { return $true } }
+    return $false
 }
 
 try {
@@ -378,6 +529,12 @@ try {
         $inRegion = $false
         $isOwner  = $ownerPaths -contains $rel
 
+        foreach ($r in $Rules) {
+            if (-not $r.ContainsKey('scope')) { continue }
+            if (-not $scopedFiles.ContainsKey($r.id)) { $scopedFiles[$r.id] = 0 }
+            if (Test-RuleInScope -Rule $r -Rel $rel) { $scopedFiles[$r.id]++ }
+        }
+
         for ($i = 0; $i -lt $lines.Count; $i++) {
             $line = $lines[$i]
             $m = $markerRx.Match($line)
@@ -394,11 +551,24 @@ try {
             if ($inRegion) { continue }
 
             foreach ($r in $Rules) {
+                if (-not (Test-RuleInScope -Rule $r -Rel $rel)) { continue }
                 if ($compiled[$r.id].IsMatch($line)) {
-                    $entry = Test-Ledgered -Rel $rel -RuleId $r.id
                     $rec = [pscustomobject]@{
                         file = $rel; line = ($i + 1); rule = $r.id; name = $r.name; why = $r.why
                     }
+                    # ORDER: historical, then ledger, then hit. A tombstone is
+                    # not a disclosure at all, so it is classified before the
+                    # question of who owns the file arises - which is what lets
+                    # a temporary ledger entry be deleted without taking the
+                    # file's honest history with it.
+                    $hist = Test-Historical -Rel $rel -RuleId $r.id -Line $line
+                    if ($hist) {
+                        $histCount[$hist.test]++
+                        $rec | Add-Member -NotePropertyName histWhy -NotePropertyValue $hist.why
+                        [void]$historical.Add($rec)
+                        continue
+                    }
+                    $entry = Test-Ledgered -Rel $rel -RuleId $r.id
                     if ($entry) {
                         $rec | Add-Member -NotePropertyName issue -NotePropertyValue $entry.issue
                         [void]$ledgered.Add($rec)
@@ -409,6 +579,26 @@ try {
             }
         }
         if ($isOwner -and $inRegion) { [void]$openRegion.Add($rel) }
+    }
+
+    # ----------------------------------------------------------------------
+    # THE HISTORICAL TABLE, PRINTED WHOLE - INCLUDING THE ENTRIES THAT MATCHED
+    # NOTHING. A per-entry count is the only honest answer to "is this table
+    # still doing what it says?", because the `why` beside it is prose written
+    # once and the number is derived every run. A zero means the file was fixed
+    # or reflowed, which is not a failure and is not hidden either.
+    # ----------------------------------------------------------------------
+    if ($HistoricalMentions.Count -gt 0) {
+        Write-Output "HISTORICAL MENTIONS - a deleted thing NAMED AS DELETED, which is the opposite of the defect ($($historical.Count) line(s) over $($HistoricalMentions.Count) entr(y/ies)):"
+        foreach ($h in $HistoricalMentions) {
+            $n = $histCount[$h.test]
+            Write-Output ("  {0,3}  {1,-30}  {2}" -f $n, $h.files,
+                $(if ($n -eq 0) { 'MATCHED NOTHING - the line was fixed, reflowed or never existed. Re-read this entry.' } else { $h.why }))
+        }
+        foreach ($h in $historical) {
+            Write-Output ("       {0}:{1}  {2}" -f $h.file, $h.line, $h.rule)
+        }
+        Write-Output ''
     }
 
     # ----------------------------------------------------------------------
@@ -452,6 +642,20 @@ try {
         ($AddressPattern -ne 'rot13:(?v)ovm_grpu_rkrp' -and $AddressPattern.Length -gt 6 -and $AddressPattern.StartsWith('(?i)')) `
         "the rot13 needle did not decode, so the personal-address rule was matching a literal that appears nowhere and would have been permanently and silently green - the exact 'reports healthy while doing nothing' shape this plugin is named for"
 
+    # A SCOPE THAT MATCHES NOTHING IS A RULE SWITCHED OFF, and it produces the
+    # same output as a rule that ran everywhere and found nothing: a green line.
+    # One mistyped glob would have made `deleted-script` permanently and
+    # silently green over a payload it never opened - the "reports healthy while
+    # doing nothing" shape this plugin is named for, built into its own guard.
+    # It is S6's argument applied to the other channel that can switch a rule
+    # off without saying so. This asserts the scoped rules reached a file; it
+    # says nothing about whether the scope is the RIGHT one, which is a
+    # judgement and is argued at the rule.
+    $emptyScope = @($scopedFiles.Keys | Where-Object { $scopedFiles[$_] -eq 0 })
+    Add-Result 'S7  every scoped rule was applied to at least one tracked file' `
+        ($emptyScope.Count -eq 0) `
+        ("$($emptyScope.Count) rule(s) declare a scope that matched no tracked file, so they asked nothing of anything and could not have found anything: " + ($emptyScope -join ', '))
+
     # ----------------------------------------------------------------------
     # RULE CASES - one per rule, over the payload, minus the ledger
     # ----------------------------------------------------------------------
@@ -487,8 +691,8 @@ if ($script:Results.Count -eq 0) {
     exit 2
 }
 
-Write-Output ("RESULT: {0} of {1} case(s) passed in {2} ms   ({3} file(s) read, {4} ledger'd site(s))" -f `
-    $script:Pass, $script:Results.Count, [int]$sw.Elapsed.TotalMilliseconds, $fileCount, $ledgered.Count)
+Write-Output ("RESULT: {0} of {1} case(s) passed in {2} ms   ({3} file(s) read, {4} ledger'd site(s), {5} historical mention(s))" -f `
+    $script:Pass, $script:Results.Count, [int]$sw.Elapsed.TotalMilliseconds, $fileCount, $ledgered.Count, $historical.Count)
 
 # 2 takes precedence over 1: a run that did not read everything cannot report
 # "checked, and dirty" either. These are the structural cases, by name.
@@ -515,7 +719,9 @@ if ($fail.Count -gt 0) {
 
 Write-Output ''
 Write-Output 'Every tracked file was read and no unledger''d disclosure is in the payload.'
-Write-Output 'Read that as "these five shapes are absent", not as "the payload is safe to'
+Write-Output 'Read that as "these six shapes are absent", not as "the payload is safe to'
 Write-Output 'publish" - this guard knows the disclosures it was told about and no others.'
+Write-Output 'The sixth is scoped: the deleted-script rule is not yet asked of commands/ or'
+Write-Output 'agents/, which is stated at the rule and is re-enabled when #195 lands.'
 Write-Output 'EXIT: 0'
 exit 0

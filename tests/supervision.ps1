@@ -957,14 +957,18 @@ try {
         ($r.code -eq 2 -and $r.err -like '*aaaaaaaaaaaaaaaa3*') `
         "expected exit 2 naming the orphan on SubagentStop; got exit $($r.code), stderr: $($r.err)"
 
-    # E12 - HH MUST BE CLEARABLE. A standing orphan is re-detected at every
-    # later trigger, and the status line takes a PEAK of the recorded count
-    # since the last Resolved marker. While the record carried only the standing
-    # count, the `resolve` command cleared HH and the next SubagentStop turned it red
-    # again within seconds, permanently - the operator's only remedy being to
-    # switch the module off, which is how a health indicator teaches people to
-    # ignore it. The first run must report the orphan as NEW; the second must
-    # record it as standing but NOT new.
+    # E12 - AN ACKNOWLEDGED ORPHAN MUST STOP COUNTING AS NEW. A standing orphan
+    # is re-detected at every later trigger, and the status line takes a PEAK of
+    # the recorded count over the log tail it reads. While the record carried
+    # only the standing count, the clearing command that existed then lowered HH
+    # and the next SubagentStop turned it red again within seconds, permanently -
+    # the operator's only remedy being to switch the module off, which is how a
+    # health indicator teaches people to ignore it.
+    #
+    # THAT COMMAND IS DELETED and nothing lowers the peak now, so this case is
+    # no longer about clearing: it pins the WRITER, which is the only defence
+    # left. The first run must report the orphan as NEW; the second must record
+    # it as standing but NOT new.
     $e12 = New-LwgSession -Base $work -Tag 'e12'
     [void](Add-LwgAgent -Sess $e12 -AgentId 'aaaaaaaaaaaaaaaa4' -AgeMinutes 40)
     [void](Write-LwgHealth -RootDir $rootOn -Records @(
@@ -976,7 +980,7 @@ try {
               -ScriptArgs '-HookEvent SubagentStop' -Payload (New-LwgStopPayload -Sess $e12 -HookActive $false)
     $h12 = ''
     try { $h12 = [IO.File]::ReadAllText((Join-Path (Join-Path $rootOn 'data') 'health.jsonl')) } catch { }
-    Add-Result 'E12 a standing orphan records orphans_new:0 on re-detection, so HH can be cleared' `
+    Add-Result 'E12 a standing orphan records orphans_new:0 on re-detection, so HH stops rising' `
         ($r1.code -eq 2 -and $r2.code -eq 0 -and $h12 -like '*"orphans_new":1*' -and $h12 -like '*"orphans_new":0*') `
         "expected first run exit 2 with orphans_new:1 and second exit 0 with orphans_new:0; got $($r1.code)/$($r2.code), health: $h12"
 
