@@ -446,7 +446,26 @@ try {
         foreach ($c in $Files) {
             if ($c -like 'output-styles/*') { $n += "output style changed ($c) - a style is only re-read when a session starts"; break }
         }
-        return , @($n)
+        # PLAIN, NOT `return , @($n)` - #222. The unary comma wraps
+        # UNCONDITIONALLY, so what left this function was a ONE-ELEMENT array
+        # holding the whole list, and the caller's own `@(...)` could not undo
+        # it. Measured, both branches were wrong: empty needs rendered
+        # "NEEDS RE-APPROVAL OR RE-INSTALL (1):" over a BLANK bullet, and three
+        # needs rendered "(1):" over one bullet with all three space-joined by
+        # $OFS in "    - $n". A block whose entire job is to ENUMERATE what an
+        # operator must re-approve could not say "three things need your
+        # attention", and nothing caught it: the block still rendered, the exit
+        # code was unchanged, and the two assertions section 26 makes about it
+        # are negative substring tests that the joining left true.
+        #
+        # `,` is the right idiom when a caller takes the value bare, because
+        # PowerShell unrolls a returned collection - the trap this repo has
+        # shipped three times as `return ,$on`, `return ,$tokens` and
+        # `return $hashset` (lib/common.ps1:961-964). It is the WRONG idiom
+        # here, because both call sites already wrap in `@(...)`, which is what
+        # re-forms the array from the unrolled elements and yields an EMPTY
+        # array for no needs.
+        return @($n)
     }
     $needs = @(Get-Needs -Files $changed)
 
