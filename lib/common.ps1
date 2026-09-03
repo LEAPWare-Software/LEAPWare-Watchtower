@@ -385,6 +385,165 @@ function Get-LwgPluginName {
     return $name
 }
 
+# --- where a marketplace install actually lives ----------------------------
+# TWO FILES PROBED ~\.claude\plugins\repos TO DECIDE THIS, AND THAT DIRECTORY
+# DOES NOT EXIST. Measured on a live Claude Code install: plugins\ holds
+# blocklist.json, cache, data, installed_plugins.json, known_marketplaces.json,
+# marketplaces and plugin-catalog-cache.json - and no `repos`. Marketplace
+# installs live under
+#
+#     plugins\cache\<marketplace>\<plugin>\<version-or-sha>\
+#
+# which is THREE levels below cache, not one below a directory that is never
+# created, and plugins\installed_plugins.json records the resolved installPath
+# outright, keyed `<plugin>@<marketplace>` and carrying the install `scope`.
+#
+# [IO.Directory]::Exists on a directory that is never created returns $false
+# unconditionally, so the probe was not merely wrong, it was CONSTANT - and the
+# boolean it produced drove five decisions at once in bin/lwg-setup.ps1: the
+# "NOT DISCOVERABLE ... so not one of its hooks fires" report, the standalone
+# recommendation, the standalone default under -HookMode auto, the second full
+# copy of every hook registration written into settings.json, and - gated on
+# the SAME boolean - the DUPLICATE-FIRING WARNING that exists to stop exactly
+# that. The safeguard was disarmed by the identical bug that created the hazard.
+# statusline/statusline.ps1 spelled the same constant and rendered purple `HH?`,
+# documented as "not installed", on an installed and working plugin.
+#
+# THE CONSTANT IS SPELLED ONCE, HERE, because it was spelled twice and was wrong
+# in both. The status line deliberately dot-sources nothing, for render cost, so
+# if it must keep its own copy the two have to cross-reference each other in
+# comment - that is stated in the issue and is a job for the batch that owns
+# that file.
+#
+# THIS RESOLVER READS AND NEVER GUESSES. installed_plugins.json first, because
+# it is the CLI's own record of the answer, it survives a layout change, and it
+# carries the scope. The cache walk is the fallback for a machine whose record
+# is missing or unreadable, and it matches on the PLUGIN NAME rather than
+# counting any directory - counting is how a marketplace holding somebody else's
+# plugin would read as an install of this one. `probed` comes back with the
+# paths that were actually looked at, so a caller can say WHERE it looked:
+# "I COULD NOT FIND IT" IS NOT "IT IS NOT THERE", which is a rule this project
+# has already written down once, in lib/gate_delegate.ps1.
+
+$script:LwgMarketplaceInfo = $null
+
+function Get-LwgMarketplaceInstall {
+    <#
+      Is this plugin installed from a marketplace, and where? Returns a
+      HASHTABLE:
+
+        @{ installed; source; paths; scopes; probed; home }
+
+        installed  $true only when a real install was IDENTIFIED
+        source     'installed_plugins' | 'cache' | 'none' | 'unknown'
+                   'unknown' means no configuration root could be resolved at
+                   all, which is not the same as "no install" and must not be
+                   reported as one
+        paths      the resolved install root(s)
+        scopes     the `scope` values installed_plugins.json recorded for them,
+                   which distinguishes a project-scoped install from a user one
+        probed     the paths this function actually looked at
+        home       the configuration root it looked under
+
+      Memoised; -Refresh re-runs it. Never throws. NOT on any hook fast path -
+      its callers are the installer, the doctor and the status line - so a
+      ConvertFrom-Json here costs nothing a gate pays for.
+    #>
+    param([switch]$Refresh)
+
+    if (-not $Refresh -and $null -ne $script:LwgMarketplaceInfo) { return $script:LwgMarketplaceInfo }
+
+    $info = @{ installed = $false; source = 'unknown'; paths = @(); scopes = @(); probed = @(); home = $null }
+    try {
+        $home_ = Get-LwgClaudeHome
+        $info.home = $home_
+        if ([string]::IsNullOrWhiteSpace($home_)) {
+            $script:LwgMarketplaceInfo = $info
+            return $info
+        }
+
+        $name = Get-LwgPluginName
+        if ([string]::IsNullOrWhiteSpace($name)) { $name = 'lw-watchtower' }
+
+        # 1. the CLI's own record.
+        $reg = [IO.Path]::Combine($home_, 'plugins\installed_plugins.json')
+        $info.probed += $reg
+        $paths  = @()
+        $scopes = @()
+        try {
+            if ([IO.File]::Exists($reg)) {
+                $json = [IO.File]::ReadAllText($reg) | ConvertFrom-Json
+                # THE MAP IS NESTED. Measured on a live install:
+                #
+                #     { "version": 2,
+                #       "plugins": { "static-analysis@trailofbits": [ { scope,
+                #                    projectPath, installPath, version, ... } ] } }
+                #
+                # so the plugin entries are under `plugins` and the top level
+                # holds a schema version beside it. Reading the top level as the
+                # map matches nothing - `version` and `plugins` are not
+                # `<plugin>@<marketplace>` - and this function would then fall
+                # silently through to the cache walk, reporting source 'cache'
+                # on a machine whose CLI recorded the answer outright and losing
+                # the `scope` that distinguishes a project install from a user
+                # one. That is a resolver quietly taking its weaker branch,
+                # which is the shape of the defect this whole function replaces.
+                # The top level is still read when there is no `plugins` member,
+                # so a file written to a schema this has not seen degrades to the
+                # flat reading rather than to nothing.
+                $map = $json
+                try { if ($null -ne $json.PSObject.Properties['plugins']) { $map = $json.plugins } } catch { }
+                foreach ($p in $map.PSObject.Properties) {
+                    # `<plugin>@<marketplace>`. Split on the LAST '@' so a
+                    # plugin name that carries one does not lose its tail.
+                    $at = $p.Name.LastIndexOf('@')
+                    $pn = if ($at -ge 0) { $p.Name.Substring(0, $at) } else { $p.Name }
+                    if ($pn -ne $name) { continue }
+                    foreach ($e in @($p.Value)) {
+                        $ip = [string]$e.installPath
+                        if ([string]::IsNullOrWhiteSpace($ip)) { continue }
+                        $paths  += $ip
+                        $scopes += [string]$e.scope
+                    }
+                }
+            }
+        } catch { }
+        if ($paths.Count -gt 0) {
+            $info.installed = $true; $info.source = 'installed_plugins'
+            $info.paths = $paths; $info.scopes = $scopes
+            $script:LwgMarketplaceInfo = $info
+            return $info
+        }
+
+        # 2. the cache layout, as a fallback.
+        $cache = [IO.Path]::Combine($home_, 'plugins\cache')
+        $info.probed += $cache
+        $found = @()
+        try {
+            if ([IO.Directory]::Exists($cache)) {
+                foreach ($mkt in [IO.Directory]::GetDirectories($cache)) {
+                    $pdir = [IO.Path]::Combine($mkt, $name)
+                    if (-not [IO.Directory]::Exists($pdir)) { continue }
+                    $vers = @()
+                    try { $vers = @([IO.Directory]::GetDirectories($pdir)) } catch { }
+                    # A version directory is the plugin ROOT. With none, the
+                    # plugin directory itself is the best answer available and
+                    # is reported rather than discarded.
+                    if ($vers.Count -gt 0) { $found += $vers } else { $found += $pdir }
+                }
+            }
+        } catch { }
+        if ($found.Count -gt 0) {
+            $info.installed = $true; $info.source = 'cache'; $info.paths = $found
+        } else {
+            $info.source = 'none'
+        }
+    } catch { }
+
+    $script:LwgMarketplaceInfo = $info
+    return $info
+}
+
 function Get-LwgStateDirInfo {
     <#
       Resolve the state dir and SAY HOW. Returns a HASHTABLE:

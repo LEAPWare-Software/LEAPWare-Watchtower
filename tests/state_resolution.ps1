@@ -14,7 +14,7 @@
   no case at all. This file is that coverage, built around the five defects it
   pins.
 
-  THE THREE IT PINS
+  THE FOUR IT PINS
 
     #146 CLAUDE_CONFIG_DIR was honoured by NOTHING. Every path in the plugin
          composed $env:USERPROFILE with a literal `.claude`, so on a machine
@@ -41,6 +41,14 @@
          read that file. It was the only file the plugin wrote with no bound of
          any kind, inside a plugin whose log_rotation module reports itself as
          capping the logs. Section C.
+
+    #8   marketplace detection probed ~\.claude\plugins\repos, a directory that
+         does not exist on a live Claude Code install. Real installs live under
+         plugins\cache\<marketplace>\<plugin>\<version>\ and are recorded in
+         plugins\installed_plugins.json. Section D covers the shared resolver
+         this suite's sibling batches will call; the two CALL SITES
+         (bin\lwg-setup.ps1 and statusline\statusline.ps1) are not touched here
+         and the defect stays open in both until they are.
 
   THE SANDBOX
 
@@ -583,11 +591,119 @@ function Test-C1-SelfcheckProbeDoesNotGrow {
 }
 
 # =========================================================================
+# SECTION D - #8, where a marketplace install actually lives
+# =========================================================================
+
+function Invoke-MarketplaceProbe {
+    param([string]$Name, [string]$ClaudeHome)
+    $root = New-PluginTree (Join-Path $script:Work $Name)
+    $prof = New-Dir (Join-Path $script:Work "$Name-profile")
+    $probe = New-Probe -Root $root -Name 'probe' -Body @"
+    `$i = Get-LwgMarketplaceInstall
+    `$o['installed'] = `$i.installed
+    `$o['source']    = `$i.source
+    `$o['paths']     = @(`$i.paths)
+    `$o['scopes']    = @(`$i.scopes)
+    `$o['probed']    = @(`$i.probed)
+"@
+    $r = Invoke-Child -ScriptPath $probe -EnvSet @{ USERPROFILE = $prof; CLAUDE_CONFIG_DIR = $ClaudeHome }
+    return (Read-Json $r "the marketplace probe ($Name)")
+}
+
+function Test-D1-InstalledPluginsJsonIsRead {
+    $home_ = New-Dir (Join-Path $script:Work 'd1-home')
+    $inst  = New-Dir ([IO.Path]::Combine($home_, 'plugins\cache\OZ-Marketplace\lw-watchtower\0.4.0'))
+    New-Dir ([IO.Path]::Combine($inst, '.claude-plugin')) | Out-Null
+    # THE REAL SHAPE, read off a live install rather than guessed: a schema
+    # `version` beside a `plugins` map, NOT a flat map of `<plugin>@<marketplace>`
+    # keys at the top level. A resolver reading the top level as the map matches
+    # nothing here and falls silently through to the cache walk, which still
+    # reports installed = $true - so a fixture with the flat shape would pass a
+    # resolver that is wrong on every real machine.
+    $j = @{
+        version = 2
+        plugins = @{
+            'lw-watchtower@OZ-Marketplace' = @(
+                @{ scope = 'user'; installPath = $inst; version = '0.4.0' }
+            )
+            'static-analysis@trailofbits' = @(
+                @{ scope = 'project'; projectPath = 'C:\somewhere\else'
+                   installPath = ([IO.Path]::Combine($home_, 'plugins\cache\trailofbits\static-analysis\1.2.1')); version = '1.2.1' }
+            )
+        }
+    } | ConvertTo-Json -Depth 6
+    [IO.File]::WriteAllText([IO.Path]::Combine($home_, 'plugins\installed_plugins.json'), $j, [Text.UTF8Encoding]::new($false))
+
+    $res = Invoke-MarketplaceProbe -Name 'd1' -ClaudeHome $home_
+    if (-not $res.ok) { Add-Case 'D1 installed_plugins.json names the resolved installPath' $false $res.why; return }
+    $o = $res.obj
+    if ($o.error) {
+        Add-Case 'D1 installed_plugins.json names the resolved installPath' $false `
+            ("REGRESSION (#8): there is no shared marketplace resolver - $($o.error). The constant was spelled twice, " +
+             "in bin\lwg-setup.ps1 and statusline\statusline.ps1, and was wrong in both.")
+        return
+    }
+    $problems = @()
+    if ($o.installed -ne $true)                  { $problems += "installed is [$($o.installed)], expected true" }
+    if ([string]$o.source -ne 'installed_plugins') { $problems += "source is '$($o.source)', expected 'installed_plugins' - the CLI's own record is the strongest answer available" }
+    if (@($o.paths) -notcontains $inst)          { $problems += "paths [$(@($o.paths) -join '; ')] does not carry the recorded installPath [$inst]" }
+    # The scope is half of what makes this record worth reading rather than the
+    # cache walk: it is what distinguishes a project-scoped install from a
+    # user-scoped one, and it exists nowhere on disk except here.
+    if (@($o.scopes) -notcontains 'user')        { $problems += "scopes [$(@($o.scopes) -join '; ')] does not carry the recorded scope 'user'" }
+    if (@($o.paths).Count -ne 1)                 { $problems += "paths carries $(@($o.paths).Count) entr(ies); the other plugin in the fixture must not be matched" }
+    Add-Case 'D1 installed_plugins.json names the resolved installPath' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-D2-TheCacheLayoutIsWalked {
+    <#
+      The fallback when installed_plugins.json is absent or unreadable. The
+      nesting is cache\<marketplace>\<plugin>\<version>\ - THREE levels below
+      cache, not one below a `repos` directory that does not exist.
+    #>
+    $home_ = New-Dir (Join-Path $script:Work 'd2-home')
+    $inst  = New-Dir ([IO.Path]::Combine($home_, 'plugins\cache\OZ-Marketplace\lw-watchtower\655b7d9c5431'))
+    New-Dir ([IO.Path]::Combine($home_, 'plugins\cache\caveman\caveman\655b7d9c5431')) | Out-Null
+
+    $res = Invoke-MarketplaceProbe -Name 'd2' -ClaudeHome $home_
+    if (-not $res.ok) { Add-Case 'D2 the cache\<marketplace>\<plugin>\<version> layout is walked' $false $res.why; return }
+    $o = $res.obj
+    if ($o.error) { Add-Case 'D2 the cache\<marketplace>\<plugin>\<version> layout is walked' $false "REGRESSION (#8): $($o.error)"; return }
+    $problems = @()
+    if ($o.installed -ne $true)     { $problems += "installed is [$($o.installed)], expected true" }
+    if ([string]$o.source -ne 'cache') { $problems += "source is '$($o.source)', expected 'cache'" }
+    if (@($o.paths) -notcontains $inst) { $problems += "paths [$(@($o.paths) -join '; ')] does not carry [$inst]" }
+    # It must match on the PLUGIN NAME, not count any directory under cache.
+    if (@($o.paths) -match 'caveman') { $problems += "the walk matched another marketplace's plugin: [$(@($o.paths) -join '; ')]" }
+    Add-Case 'D2 the cache\<marketplace>\<plugin>\<version> layout is walked' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-D3-AbsenceIsReportedAsAbsenceAndNotAsRepos {
+    $home_ = New-Dir (Join-Path $script:Work 'd3-home')
+    New-Dir ([IO.Path]::Combine($home_, 'plugins\cache')) | Out-Null
+
+    $res = Invoke-MarketplaceProbe -Name 'd3' -ClaudeHome $home_
+    if (-not $res.ok) { Add-Case 'D3 no marketplace install is reported as none, and plugins\repos is never probed' $false $res.why; return }
+    $o = $res.obj
+    if ($o.error) { Add-Case 'D3 no marketplace install is reported as none, and plugins\repos is never probed' $false "REGRESSION (#8): $($o.error)"; return }
+    $problems = @()
+    if ($o.installed -ne $false)  { $problems += "installed is [$($o.installed)], expected false" }
+    if (@($o.paths).Count -ne 0)  { $problems += "paths is not empty: [$(@($o.paths) -join '; ')]" }
+    if (@($o.probed).Count -eq 0) { $problems += 'probed is empty - a resolver that cannot say WHERE it looked cannot be distinguished from one that did not look' }
+    foreach ($p in @($o.probed)) {
+        if ([string]$p -match '(?i)plugins\\repos') {
+            $problems += "REGRESSION (#8): it still probes [$p]. That directory does not exist on a live Claude Code install; marketplace installs live under plugins\cache\<marketplace>\<plugin>\<version>."
+        }
+    }
+    Add-Case 'D3 no marketplace install is reported as none, and plugins\repos is never probed' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+# =========================================================================
 
 Say ''
 Say 'LW-WATCHTOWER state-resolution and platform suite'
 Say '  A #146 CLAUDE_CONFIG_DIR   B #60 probe 2   C #106 selfcheck.probe'
-Say ''
+Say '  D #8 marketplace layout'
 Say ''
 
 try {
