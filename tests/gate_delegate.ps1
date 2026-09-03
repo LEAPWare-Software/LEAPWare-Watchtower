@@ -114,9 +114,12 @@
   other shell tool one line away - while this header said 80 of 80.
 
   Section P is 2 more, and it is the only thing in this tree that reads a line
-  of what /lw-watchtower:status prints. It is the third reader of the same switch -
-  the gate, the toggle and the status command - and until 3 August 2026 it was
-  the one nothing checked.
+  of the informational roster bin\lwg-doctor.ps1 prints below its verdict. That
+  roster is the third reader of the same switch - the gate, the toggle and the
+  report - and until 3 August 2026 it was the one nothing checked. It used to
+  be a command of its own, bin\lwg-status.ps1; the command is deleted and these
+  two cases followed the output into the doctor rather than being deleted with
+  it, because neither property is covered anywhere else in this file.
 
   Section N is 4 more, and it is the only section here that reads PROSE. Four
   claims other files make about this gate - that no PreToolUse hook is
@@ -233,10 +236,26 @@ $TogglePath = Join-Path $Root 'bin\lwg-toggle.ps1'
 # the tree stayed green while eight cases were failing. Add a file here
 # whenever the toggle grows a dot-source.
 $CmdlibPath = Join-Path $Root 'bin\lwg-cmdlib.ps1'
-# The OTHER reporter. /lw-watchtower:status renders the gate's switch and the file
-# behind it, and section P is the only thing in this tree that reads what it
-# actually prints.
-$StatusPath = Join-Path $Root 'bin\lwg-status.ps1'
+# The OTHER reporter, and it MOVED. Until this edit it was bin\lwg-status.ps1,
+# a report command that did nothing else; that command is deleted and the one
+# thing it printed which nothing else did - the per-module listing and a
+# paragraph per gate - now prints at the foot of bin\lwg-doctor.ps1 as an
+# INFORMATIONAL block, below RESULT: and below the verdict prose. Section P
+# follows the output rather than the file name: it renders the gate's switch
+# and the file behind it, and section P is still the only thing in this tree
+# that reads what that surface actually prints.
+#
+# WHAT CHANGED IN THE CASES AND WHAT DID NOT. The two properties are identical -
+# the stored value is not rendered as a config.json assignment, and a registry
+# `impl` path that is not on disk is said to be missing. The EXIT ASSERTION had
+# to change and the change is not cosmetic: the report command exited 0 because
+# reporting was its whole job, while the doctor exits on its VERDICT, and
+# against a fixture root holding four files most of its nine checks fail. So
+# these cases assert the doctor COMPLETED - a `RESULT:` line, which the abort
+# path at exit 3 never prints - and deliberately assert nothing about which
+# code it chose. A case here that demanded exit 0 would be asserting the
+# fixture is a healthy plugin install, which it is not and is not meant to be.
+$DoctorPath = Join-Path $Root 'bin\lwg-doctor.ps1'
 
 # The tools the gate is registered on. Written out ONCE here, and every
 # assertion about the tool list is made against this - including the one that
@@ -256,7 +275,8 @@ $StatusPath = Join-Path $Root 'bin\lwg-status.ps1'
 #
 # The matcher named Bash and not PowerShell, so with interaction.delegate ON the main thread
 # could run any command it liked by picking the other shell, while
-# /lw-watchtower:status went on printing "1 gate(s) LIVE: delegate_gate - it can
+# the report command lw-watchtower:status (deleted; its roster now prints at the
+# foot of bin\lwg-doctor.ps1) went on printing "1 gate(s) LIVE: delegate_gate - it can
 # refuse a tool call right now". A gate reporting healthy while doing nothing is
 # the defect this repository exists to prevent, and it was open on the only OS
 # this plugin ships to.
@@ -680,35 +700,52 @@ function Invoke-Toggle {
     return @{ code = $code; out = $out; err = $err }
 }
 
-function New-LwgStatusRoot {
+function New-LwgReportRoot {
     <#
-      New-LwgToggleRoot's sibling for the OTHER command that reports the gate's
-      switch: bin\lwg-status.ps1. Same construction and for the same forced
-      reason - the command resolves its plugin root as the parent of its own
-      script directory and reads config.json from there, so the only way to
-      point it at a fixture is to stand it next to one.
+      New-LwgToggleRoot's sibling for the OTHER surface that reports the gate's
+      switch: the informational roster at the foot of bin\lwg-doctor.ps1. Same
+      construction and for the same forced reason - the script resolves its
+      plugin root as the parent of its own script directory and reads
+      config.json from there, so the only way to point it at a fixture is to
+      stand it next to one.
 
       lib\gate_delegate.ps1 is copied in as well, and not for show: section P
-      asserts that status says so when a registry entry's `impl` path is not on
-      disk, and it can only do that against a root where the file's presence is
-      something the fixture controls.
+      asserts that the roster says so when a registry entry's `impl` path is not
+      on disk, and it can only do that against a root where the file's presence
+      is something the fixture controls.
+
+      FOUR FILES IS THE WHOLE FIXTURE AND THAT IS DELIBERATE. The doctor's nine
+      checks want a plugin manifest, a hooks.json, a resolvable state dir and a
+      commands\ directory, and none of them is here - so most of them FAIL, and
+      section P asserts nothing about them. The roster is computed from the
+      module registry in lib\common.ps1 and the config.json this fixture wrote,
+      which are exactly the two things a fixture can control, and it prints
+      below the verdict prose whatever the checks decided.
     #>
     param([string]$Base, [string]$Name, [string]$Json, [bool]$WithGateFile = $true)
 
     $dir = New-LwgRawRoot -Base $Base -Name $Name -Json $Json
     [void][IO.Directory]::CreateDirectory((Join-Path $dir 'bin'))
     [void][IO.Directory]::CreateDirectory((Join-Path $dir 'lib'))
-    [IO.File]::Copy($StatusPath, (Join-Path $dir 'bin\lwg-status.ps1'), $true)
+    [IO.File]::Copy($DoctorPath, (Join-Path $dir 'bin\lwg-doctor.ps1'), $true)
     [IO.File]::Copy($CommonPath, (Join-Path $dir 'lib\common.ps1'),     $true)
     if ($WithGateFile) { [IO.File]::Copy($GatePath, (Join-Path $dir 'lib\gate_delegate.ps1'), $true) }
     return $dir
 }
 
-function Invoke-Status {
+function Invoke-Report {
     <#
-      Run `/lw-watchtower:status` against $FakeRoot in a real child process and return
+      Run the doctor against $FakeRoot in a real child process and return
       @{ code; out; err }. Same cmd-file arrangement as Invoke-Toggle, and the
       same environment window around it.
+
+      USERPROFILE IS REDIRECTED HERE AND IS NOT IN THE TOGGLE'S WINDOW. The
+      doctor's status-line check reads <profile>\.claude\settings.json, which on
+      a developer's machine is the operator's REAL one. The read is harmless and
+      the row is not asserted on, but a suite that reaches out of its scratch
+      tree for a file is a suite whose result depends on the machine it ran on,
+      and this file's own header says a case that cannot be reproduced is not a
+      case. Restored in the finally with the other two.
     #>
     param([string]$FakeRoot, [string]$WorkDir, [string]$Tag)
 
@@ -717,31 +754,54 @@ function Invoke-Status {
     $bat = Join-Path $WorkDir "$Tag.cmd"
     foreach ($f in @($of, $ef)) { if ([IO.File]::Exists($f)) { [IO.File]::WriteAllText($f, '') } }
 
+    $prof = Join-Path $FakeRoot 'profile'
+    [void][IO.Directory]::CreateDirectory((Join-Path $prof '.claude'))
+
     $lines = @(
         '@echo off'
         ('cd /d "{0}"' -f $WorkDir)
         ('powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" 1>"{1}" 2>"{2}"' -f `
-            (Join-Path $FakeRoot 'bin\lwg-status.ps1'), $of, $ef)
+            (Join-Path $FakeRoot 'bin\lwg-doctor.ps1'), $of, $ef)
         'exit /b %ERRORLEVEL%'
     )
     [IO.File]::WriteAllLines($bat, $lines, [Text.ASCIIEncoding]::new())
 
     $prevRoot = $env:CLAUDE_PLUGIN_ROOT
     $prevData = $env:CLAUDE_PLUGIN_DATA
+    $prevProf = $env:USERPROFILE
     try {
         $env:CLAUDE_PLUGIN_ROOT = $FakeRoot
         $env:CLAUDE_PLUGIN_DATA = Join-Path $FakeRoot 'data'
+        $env:USERPROFILE        = $prof
         & $env:ComSpec /c $bat | Out-Null
         $code = $LASTEXITCODE
     } finally {
         $env:CLAUDE_PLUGIN_ROOT = $prevRoot
         $env:CLAUDE_PLUGIN_DATA = $prevData
+        $env:USERPROFILE        = $prevProf
     }
 
     $out = ''; $err = ''
     try { $out = [IO.File]::ReadAllText($of) } catch { }
     try { $err = [IO.File]::ReadAllText($ef) } catch { }
     return @{ code = $code; out = $out; err = $err }
+}
+
+function Get-RosterText {
+    <#
+      Everything from the roster's heading to the end of the doctor's stdout,
+      or '' when the heading is not there.
+
+      '' IS NEVER TREATED AS A PASS by either case that calls this. A missing
+      heading means the block did not run - the doctor aborted, or the roster
+      threw into its own catch - and both are things a case must go red on
+      rather than quietly satisfy a -notmatch over an empty string. Section P
+      asserts $p1Roster/$p2Roster is non-empty alongside every match.
+    #>
+    param([string]$Text)
+    $i = $Text.IndexOf('WHAT IS SWITCHED ON')
+    if ($i -lt 0) { return '' }
+    return $Text.Substring($i)
 }
 
 function Get-ToggleEffective {
@@ -866,7 +926,11 @@ try {
     Write-Output "  gate : $GatePath"
     Write-Output ''
 
-    foreach ($p in @($GatePath, $HooksPath, $CfgPath, $CommonPath, $TogglePath)) {
+    # $DoctorPath joined this list when section P was re-pointed at the doctor's
+    # informational roster: it is copied into a fixture, and a missing source
+    # file should name itself here rather than surface as a copy exception from
+    # inside a case.
+    foreach ($p in @($GatePath, $HooksPath, $CfgPath, $CommonPath, $TogglePath, $DoctorPath)) {
         if (-not [IO.File]::Exists($p)) { throw "missing: $p" }
     }
 
@@ -1499,7 +1563,7 @@ try {
             name = 'J1  a capitalised "Interaction" block holding delegate true -> DENY'
             deny = $true; repo = $false
             json = $jHead + '"Interaction":{"delegate":true},' + $jTail
-            why  = 'ConvertFrom-Json plus PowerShell property access reads this as delegate = true, so the gate is armed. A scanner comparing names Ordinal finds no `interaction` member, calls it absent, applies the built-in default of off and exits 0 - the fail-open this section exists for, and the one /lw-watchtower:status kept reporting as a live gate'
+            why  = 'ConvertFrom-Json plus PowerShell property access reads this as delegate = true, so the gate is armed. A scanner comparing names Ordinal finds no `interaction` member, calls it absent, applies the built-in default of off and exits 0 - the fail-open this section exists for, and the one the gate roster would keep reporting as a live gate'
         }
         @{
             tag  = 'name-cap-repos'
@@ -1818,7 +1882,7 @@ try {
     #    THAT IS NOT HYPOTHETICAL. hooks/hooks.json registered the gate on
     #    Edit|Write|NotebookEdit|Bash and omitted PowerShell, on a plugin that
     #    supports Windows and only Windows, where the CLI offers both shells.
-    #    With interaction.delegate ON, /lw-watchtower:status printed
+    #    With interaction.delegate ON, the gate roster printed
     #
     #        1 gate(s) LIVE: delegate_gate - it can refuse a tool call right now
     #
@@ -1895,57 +1959,90 @@ try {
     }
 
     # -------------------------------------------------------------------
-    # P. THE THIRD READER OF THE SWITCH: /lw-watchtower:status.
+    # P. THE THIRD READER OF THE SWITCH: THE DOCTOR'S INFORMATIONAL ROSTER.
     #
-    #    Section K established that the gate and /lw-watchtower:delegate agree about a
-    #    config. /lw-watchtower:status is the surface an operator checks when they
-    #    want to know whether anything is blocking on this machine, and until
+    #    Section K established that the gate and the delegate toggle agree about
+    #    a config. The roster is the surface an operator reads when they want to
+    #    know whether anything is blocking on this machine, and until
     #    3 August 2026 nothing here read a line of what it prints.
     #
-    #    P1 IS THE SAME DEFECT SHAPE AS K1, IN A DIFFERENT COMMAND. The GATES
-    #    block printed the RESOLVED answer formatted as a config.json
-    #    assignment - "switch : interaction.delegate = false" - with the value
-    #    spelled in JSON literals, so it read as a quotation of the file. Only a
-    #    real boolean is a setting, so on a config holding "delegate": "true"
-    #    the resolver ignores the string, the default stands, and the operator
-    #    got a command telling them `interaction.delegate = false` over a file
-    #    plainly saying true, with nothing on screen saying a written value had
-    #    been rejected. bin/lwg-config.ps1 had already refused to make that
-    #    mistake, in a comment naming this exact hazard.
+    #    IT USED TO BE ITS OWN COMMAND. These two cases drove bin\lwg-status.ps1,
+    #    a report command with no other job; that command is deleted and the
+    #    block it printed - a paragraph per gate, then a per-module listing -
+    #    moved into bin\lwg-doctor.ps1 below the verdict prose. THE CASES WERE
+    #    RE-POINTED RATHER THAN DELETED because the properties are not covered
+    #    anywhere else: K8 makes the non-boolean claim about the TOGGLE, which
+    #    is a different renderer with a different output, and nothing at all in
+    #    this tree besides P2 reads an impl-path-not-on-disk note.
+    #
+    #    WHAT THE EXIT ASSERTION IS NOW, AND WHY IT IS WEAKER ON PURPOSE. The
+    #    old command exited 0 because reporting was its whole job. The doctor
+    #    exits on its verdict, and against a fixture root of four files most of
+    #    its nine checks fail - so these cases assert only that it COMPLETED,
+    #    by requiring the RESULT: line that its abort path (exit 3) never
+    #    prints. Demanding a particular code here would be asserting that a
+    #    four-file fixture is a healthy plugin install, which it is not.
+    #
+    #    P1 IS THE SAME DEFECT SHAPE AS K1, IN A DIFFERENT RENDERER. The block
+    #    printed the RESOLVED answer formatted as a config.json assignment -
+    #    "switch : interaction.delegate = false" - with the value spelled in
+    #    JSON literals, so it read as a quotation of the file. Only a real
+    #    boolean is a setting, so on a config holding "delegate": "true" the
+    #    resolver ignores the string, the default stands, and the operator was
+    #    told `interaction.delegate = false` over a file plainly saying true,
+    #    with nothing on screen saying a written value had been rejected.
+    #    bin/lwg-config.ps1 had already refused to make that mistake, in a
+    #    comment naming this exact hazard.
     #
     #    P2 IS THE OTHER HALF OF THE SAME LINE. `code:` is a registry string
     #    literal. Nothing opened the file, so a gate whose implementation had
     #    been deleted still printed its path under a heading promising that
-    #    turning the switch on would make it LIVE. status reports and does not
-    #    judge, so the fix is a note on the line rather than a failure - and
-    #    /lw-watchtower:doctor, which is where a missing file SHOULD become a FAIL
-    #    row, still does not check it. That gap is not closed by this case.
+    #    turning the switch on would make it LIVE. The roster reports and does
+    #    not judge, so the finding is a note on the line rather than a failure -
+    #    and the doctor's nine checks, which is where a missing impl file SHOULD
+    #    become a FAIL row, still do not test it. Moving the block did not close
+    #    that gap and neither case here pretends it did: P2 asserts the NOTE,
+    #    and asserts nothing about the verdict.
     # -------------------------------------------------------------------
     $pHead = '{"version":"0.4.0","modules":{"failure_capture":true},'
     $pTail = '"repos":{"$comment":"nothing here"}}'
 
-    $rootP1 = New-LwgStatusRoot -Base $work -Name 'status-string-true' -Json (
+    $rootP1 = New-LwgReportRoot -Base $work -Name 'report-string-true' -Json (
         $pHead + '"interaction":{"delegate":"true"},' + $pTail)
-    $p1 = Invoke-Status -FakeRoot $rootP1 -WorkDir $work -Tag 'status-string-true'
-    $p1Assign = ($p1.out -match '(?m)interaction\.delegate\s*=\s*(true|false)')
-    $p1Names  = ($p1.out -match '(?i)NOT A BOOLEAN' -and $p1.out -match "(?m)in file\s*:")
-    Add-Result 'P1 status does not render the resolved answer as a config.json assignment' `
-        ($p1.code -eq 0 -and -not $p1Assign -and $p1Names) `
-        ("bin\lwg-status.ps1 exited $($p1.code) on a config holding `"delegate`": `"true`". " +
-         $(if ($p1Assign) { 'It printed "interaction.delegate = <value>", which reads as a quotation of config.json and is the RESOLVED answer. ' } else { '' }) +
-         $(if (-not $p1Names) { 'It never says the stored value was not a boolean and was ignored. ' } else { '' }) +
-         "Its GATES block was:`n$(($p1.out -split "`n" | Where-Object { $_ -match 'switch|in file|resolved|delegate_gate|code' }) -join "`n")")
+    $p1 = Invoke-Report -FakeRoot $rootP1 -WorkDir $work -Tag 'report-string-true'
+    # SCOPED TO THE ROSTER, NOT TO THE WHOLE REPORT, and the difference is not
+    # hypothetical. When these cases drove bin\lwg-status.ps1 the whole of stdout
+    # WAS the roster; the doctor prints nine check rows above it, and the
+    # config-registry row's detail is free prose about the same key. A future
+    # detail string spelling `interaction.delegate = true` would red P1 over a
+    # sentence in a different component. Get-RosterText cuts at the heading, so
+    # both cases read the block they are about - and a missing heading makes
+    # $p1Ran false rather than making the negative match vacuously true, which
+    # is the failure mode a substring search invites.
+    $p1Roster = Get-RosterText $p1.out
+    $p1Ran    = ($p1.out -match '(?m)^RESULT:' -and $p1Roster -ne '')
+    $p1Assign = ($p1Roster -match '(?m)interaction\.delegate\s*=\s*(true|false)')
+    $p1Names  = ($p1Roster -match '(?i)NOT A BOOLEAN' -and $p1Roster -match "(?m)in file\s*:")
+    Add-Result 'P1 the roster does not render the resolved answer as a config.json assignment' `
+        ($p1Ran -and -not $p1Assign -and $p1Names) `
+        ("bin\lwg-doctor.ps1 exited $($p1.code) on a config holding `"delegate`": `"true`". " +
+         $(if (-not $p1Ran) { 'It printed no RESULT: line or no roster heading, so the block never ran - nothing about the rendering was established. ' } else { '' }) +
+         $(if ($p1Assign) { 'Its roster printed "interaction.delegate = <value>", which reads as a quotation of config.json and is the RESOLVED answer. ' } else { '' }) +
+         $(if (-not $p1Names) { 'Its roster never says the stored value was not a boolean and was ignored. ' } else { '' }) +
+         "Its GATES block was:`n$(($p1Roster -split "`n" | Where-Object { $_ -match 'switch|in file|resolved|delegate_gate|code' }) -join "`n")")
 
-    $rootP2 = New-LwgStatusRoot -Base $work -Name 'status-no-gate-file' -WithGateFile $false -Json (
+    $rootP2 = New-LwgReportRoot -Base $work -Name 'report-no-gate-file' -WithGateFile $false -Json (
         $pHead + '"interaction":{"delegate":false},' + $pTail)
-    $p2 = Invoke-Status -FakeRoot $rootP2 -WorkDir $work -Tag 'status-no-gate-file'
-    Add-Result 'P2 status says so when the registry names an impl file that is not on disk' `
-        ($p2.code -eq 0 -and $p2.out -match '(?i)NOT ON DISK') `
-        ("bin\lwg-status.ps1 exited $($p2.code) against a plugin root with NO lib\gate_delegate.ps1 " +
-         "and still printed the registry's impl string with nothing to say the file is absent. " +
+    $p2 = Invoke-Report -FakeRoot $rootP2 -WorkDir $work -Tag 'report-no-gate-file'
+    $p2Roster = Get-RosterText $p2.out
+    Add-Result 'P2 the roster says so when the registry names an impl file that is not on disk' `
+        (($p2.out -match '(?m)^RESULT:') -and $p2Roster -ne '' -and $p2Roster -match '(?i)NOT ON DISK') `
+        ("bin\lwg-doctor.ps1 exited $($p2.code) against a plugin root with NO lib\gate_delegate.ps1 " +
+         "and its roster still printed the registry's impl string with nothing to say the file is absent " +
+         '(or the block never ran, which the missing RESULT: line or missing heading would show). ' +
          "`$LwgModuleRegistry's status and impl fields are literals, so BUILT and code: are statements " +
          "about lib\common.ps1 rather than about disk. Its GATES block was:`n" +
-         (($p2.out -split "`n" | Where-Object { $_ -match 'code|delegate_gate' }) -join "`n"))
+         (($p2Roster -split "`n" | Where-Object { $_ -match 'code|delegate_gate' }) -join "`n"))
 
     # -------------------------------------------------------------------
     # N. WHAT THE REST OF THE TREE SAYS THIS GATE IS.

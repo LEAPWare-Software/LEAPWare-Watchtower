@@ -378,19 +378,37 @@ try {
             $p = Git @('pull', '--ff-only') ([Math]::Max($TimeoutMs, 20000))
             $why = Get-LwgToolReport -Tool 'git pull --ff-only' -Result $p
             if ($why) {
-                # THE FOUR FAILURE STATES ARE FOUR DIFFERENT FACTS.
+                # THE FOUR FAILURE STATES ARE FOUR DIFFERENT FACTS, AND NOT ONE
+                # OF THEM IS A FACT ABOUT THE CHECKOUT.
                 # Get-LwgToolReport distinguishes missing / timeout / nonzero /
-                # error and this caller used to flatten them, appending the same
-                # two claims to all four: that the checkout is unchanged, and
-                # that the cause is branch divergence. Only `nonzero` can mean
-                # divergence, and `timeout` is the state where the checkout is
-                # MOST likely to have moved - Process.Kill() ends the git process
-                # it started, not a child transport, and it cannot roll back a
-                # merge already part-way onto disk or remove .git/index.lock.
+                # error, and this row used to append to them two claims nothing
+                # here had established: that the checkout is unchanged, and that
+                # the cause is branch divergence. `nonzero` carried both and
+                # missing/error carried the first. Neither survives the header's
+                # own promise at lines 21-22.
                 #
-                # So nothing is asserted about the tree any more. It is asked,
-                # with the same command this script already runs twice; if that
-                # command itself fails, THAT is the answer worth printing.
+                #   * "nothing was merged" is not observed. `git pull` fetches
+                #     and THEN merges, and a non-zero exit reported by git is a
+                #     different fact from a checkout that did not move. On
+                #     `timeout` the claim is not merely unproven, it is false in
+                #     the ordinary case: Process.Kill() ends the git process
+                #     this script started and not a child of it, so a
+                #     post-merge hook that outlives the bound leaves a
+                #     fast-forward already on disk with HEAD moved. A case in
+                #     section 26 of tests\setup_merge.ps1 builds exactly that
+                #     and reads HEAD before and after.
+                #   * "the branches have diverged" is a guess. --ff-only refuses
+                #     for other reasons too, and where divergence IS the reason
+                #     git says so itself on stderr - which $why already prints.
+                #   * "git never ran" was wrong for `error`, which comes from
+                #     the plumbing AFTER Process.Start returned. Only `missing`
+                #     means never started.
+                #
+                # So this row now reports what is established and nothing else:
+                # git's own account, the state the pull failed in, and UNKNOWN.
+                # The tree is not asserted about - it is ASKED about, with the
+                # same command this script already runs twice; if that command
+                # itself fails, THAT is the answer worth printing.
                 $after = Git @('status', '--porcelain=v2', '--branch') 6000
                 $state = if ($after.ok) {
                     $ab = @($after.out -split "`r?`n" | Where-Object { $_ -like '# branch.ab*' })
@@ -399,14 +417,18 @@ try {
                 } else {
                     "git status could not be run afterwards either ($($after.state)) - if .git\index.lock is present, that is what to clear first"
                 }
-                if ($p.state -eq 'timeout') {
-                    $pullKilled = $true
-                    Add-Row -Id 'pull' -Status 'FAIL' -Detail "$why - the pull was killed MID-OPERATION, so the tree state is UNKNOWN: a fetch may have landed, a merge may be part-applied, and .git\index.lock may have outlived the kill. $state"
-                } elseif ($p.state -eq 'nonzero') {
-                    Add-Row -Id 'pull' -Status 'FAIL' -Detail "$why - git refused and reported it, so nothing was merged. A fast-forward that will not apply usually means the branches have diverged; resolve that by hand. $state"
-                } else {
-                    Add-Row -Id 'pull' -Status 'FAIL' -Detail "$why - git never ran, so nothing was merged. $state"
-                }
+                # `timeout` alone earns a further sentence, and it is mechanism
+                # rather than a claim about this tree: it says what the kill can
+                # and cannot have undone, in the same hedged terms every clause
+                # of it is actually known in.
+                $killed = if ($p.state -eq 'timeout') {
+                    ' Process.Kill() was sent to the git process this script started and to no child of it, so a fetch may have landed, a fast-forward may already be on disk, and .git\index.lock may have outlived the kill.'
+                } else { '' }
+                if ($p.state -eq 'timeout') { $pullKilled = $true }
+                # No second "not clean" here: Get-LwgToolReport's own line
+                # already ends in one on the timeout state, and a row that says
+                # the same thing twice reads as two findings.
+                Add-Row -Id 'pull' -Status 'FAIL' -Detail "$why - the pull FAILED in state '$($p.state)', so the state of the checkout is UNKNOWN: nothing here establishes what did or did not land. $state$killed"
             } else {
                 $pulled = $true
                 # git prints a file-by-file summary; the line that says what

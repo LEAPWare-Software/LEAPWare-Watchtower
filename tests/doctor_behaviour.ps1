@@ -36,6 +36,16 @@
   about them. In particular it says nothing about sessionstart, which is owned
   by a separate issue and deliberately untouched here.
 
+  IT ALSO DRIVES ONE THING THAT IS NOT A CHECK AT ALL: the informational roster
+  at the foot of the report - the per-gate paragraphs and the module table that
+  used to be bin\lwg-status.ps1, a report command now deleted. Cases 16-18 are
+  about the BOUNDARY that move has to keep rather than about the content: the
+  roster must print, it must print below the RESULT: line, it must add no row
+  the header counts, and the exit code must stay the one the tally implies. A
+  report merged into a diagnosis is one edit away from becoming part of the
+  diagnosis, and every gate here ships OFF, so a leak would fail a correct
+  default install.
+
   ---------------------------------------------------------------------------
   HOW A CASE IS RUN, AND WHY IT CANNOT REACH THE OPERATOR'S OWN STATE
   ---------------------------------------------------------------------------
@@ -76,11 +86,16 @@
   from the lw-gmhh -> lw-watchtower rename, so the red proof was taken by
   restoring bin\, lib\ and statusline\ to fd8d023 with this file left in place.
 
-  SEVEN OF THE SIXTEEN CASES PASS AT fd8d023 TOO, and every one of them is
+  SEVEN OF THE NINETEEN CASES PASS AT fd8d023 TOO, and every one of them is
   labelled CONTROL in its name and in its comment. None is offered as evidence
   that anything was fixed. They exist because the cheapest way to pass the other
   nine is to answer "not ours" to everything and "FAIL" to every config, and the
   controls are what make that not work.
+
+  THREE OF THE NINETEEN HAVE NO fd8d023 BASELINE AT ALL - cases 16-18, on the
+  informational roster, which did not exist there and is not a defect being
+  fixed. They pin a boundary rather than a repair, and their red proof is a
+  mutation stated in their own comment, not an old commit.
 
   ---------------------------------------------------------------------------
   WHAT IS DELIBERATELY NOT COVERED
@@ -109,7 +124,14 @@
     tests\setup_merge.ps1 section 23 is where the renderer is driven.
   * THE OTHER SEVEN CHECKS, and the doctor's exit code on anything but the two
     rows below. Case 3 asserts exit 1 for a seeded non-boolean switch because
-    that is the fault's contract with a caller; no other case reads the code.
+    that is the fault's contract with a caller. Cases 17 and 18 read the code
+    without asserting a VALUE for it - 17 requires it to equal what the printed
+    tally implies, 18 requires the -Quiet run to match the loud one - so neither
+    says anything about which code a healthy tree produces.
+  * WHAT THE ROSTER SAYS. Cases 16-18 assert that it renders, where it renders
+    and what it may not touch. Whether a gate's `resolved:` line is CORRECT is
+    tests\gate_delegate.ps1 section P, which drives the same block against
+    fixture configs this suite has no way to build.
   * CONFIGINVALIDFLAG IN THE EVENT LOG. Test-LwgFlag writes one and no command
     surfaces it. Surfacing it is a new capability rather than this defect, and
     nothing here asserts on the log's contents.
@@ -215,7 +237,7 @@ function Invoke-Doctor {
       Windows PowerShell 5.1 that wraps a native command's stderr in
       NativeCommandError records and corrupts both the output and $?.
     #>
-    param([string]$ProfileDir, [string]$StateDir)
+    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun)
 
     $prev  = $env:USERPROFILE
     $prevD = $env:CLAUDE_PLUGIN_DATA
@@ -228,7 +250,15 @@ function Invoke-Doctor {
         $env:CLAUDE_PLUGIN_DATA           = $StateDir
         $env:CLAUDE_PLUGIN_ROOT           = ''
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = ''
-        $lines = & powershell -NoProfile -ExecutionPolicy Bypass -File $script:DoctorPath
+        # -Quiet is passed as a real switch on the child's command line rather
+        # than spliced into a string: the only case that uses it asserts what
+        # the shipped switch does, and a hand-built argument list is a second
+        # thing that can be wrong.
+        $lines = if ($QuietRun) {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $script:DoctorPath -Quiet
+        } else {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $script:DoctorPath
+        }
         $code  = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
         $out   = ($lines | Out-String)
     } finally {
@@ -869,7 +899,152 @@ try {
         "expected a WARN saying provenance was not established, with no remedy anywhere in the report; got [$($row.status)] $($row.detail). Full output:`n$($r.out)"
 
     # -------------------------------------------------------------------
-    # 16. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
+    # 16-18. THE INFORMATIONAL ROSTER AT THE FOOT, AND THE THING IT MUST NOT
+    #        TOUCH.
+    #
+    #        bin\lwg-status.ps1 was a report command with no other job; it is
+    #        deleted, and the one thing it printed that the doctor did not - a
+    #        paragraph per gate and a per-module ON/OFF listing - moved to the
+    #        foot of bin\lwg-doctor.ps1. THE RISK THE MOVE CREATES IS THE ONLY
+    #        REASON THESE CASES EXIST: a report merged into a diagnosis is one
+    #        edit away from becoming part of the diagnosis. An OFF gate is the
+    #        SHIPPED state of all three gates this plugin has, so a roster that
+    #        leaked into the verdict would turn a correct default install into
+    #        "NOT healthy" - the false alarm this repository exists to prevent,
+    #        pointing the other way.
+    #
+    #        WHY THE ASSERTIONS ARE SHAPED THE WAY THEY ARE, since the obvious
+    #        shape is wrong. "The doctor still exits 0" cannot be used: the copy
+    #        this suite drives is the checkout, its commands check scans the
+    #        whole tree, and the moment any tracked file references a command
+    #        whose markdown is gone that check FAILS for reasons that have
+    #        nothing to do with this block. So case 17 DERIVES the expected code
+    #        from the RESULT tally the doctor printed - a tally computed above
+    #        the roster, from rows the roster cannot add to - and asserts the
+    #        process agreed with it. That holds at exit 0, 1 and 2 alike, and it
+    #        goes red exactly when the roster starts moving the verdict.
+    #
+    #        BASELINE: there is no fd8d023 baseline for these three. The block
+    #        did not exist there and neither did the command it came from in its
+    #        current shape; what they pin is the boundary the move must keep,
+    #        and the red proof for that boundary is a mutation rather than an
+    #        old commit. Case 17 records both mutations, what each case actually
+    #        reported under them, and the one mutation shape neither reaches.
+    # -------------------------------------------------------------------
+
+    # -------------------------------------------------------------------
+    # 16. IT RENDERS, IT RENDERS AFTER THE VERDICT LINE, AND IT ADDS NO ROW.
+    #
+    #     Four facts, and the last is the one with teeth. The doctor's header
+    #     counts CHECKS, Get-DoctorRow and the CI log both key on the
+    #     `  [PASS] id  detail` row shape, and this suite's other fifteen cases
+    #     read rows by that pattern - so a roster line that happened to be
+    #     shaped like a row would be read as a tenth check by every one of them.
+    #     The count of row-shaped lines is therefore asserted against the number
+    #     in the header rather than against a literal 9, which keeps this case
+    #     true when a tenth check is written on purpose and false when the
+    #     roster grows one by accident.
+    # -------------------------------------------------------------------
+    Set-CaseConfig -Mutate $null
+    $t = New-HealthyCase -Tag 'roster-render' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $rr = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+
+    $hdr        = [regex]::Match($rr.out, '(?m)^LW-WATCHTOWER doctor - (\d+) checks')
+    $rowLines   = @([regex]::Matches($rr.out, '(?m)^\s+\[(?:PASS|WARN|FAIL)\]\s+\S+'))
+    $iResult    = $rr.out.IndexOf('RESULT:')
+    $iRoster    = $rr.out.IndexOf('WHAT IS SWITCHED ON')
+    $gateBlock  = ($rr.out -match '(?m)^\s+GATES\s*$' -and
+                   $rr.out -match '(?m)^\s+delegate_gate\s+(LIVE|OFF)' -and
+                   $rr.out -match '(?m)^\s+switch  :' -and
+                   $rr.out -match '(?m)^\s+in file :' -and
+                   $rr.out -match '(?m)^\s+resolved:' -and
+                   $rr.out -match '(?m)^\s+code    :')
+    $modTable   = ($rr.out -match '(?m)^\s+MODULE\s+KIND\s+BUILT\s+ENABLED\s+STATE' -and
+                   $rr.out -match '(?m)^\s+delegate_gate\s+gate\s+')
+    $counts     = ($rr.out -match '(?m)^\s+\d+ gate\(s\) SHIPPED:' -and $rr.out -match '(?m)^\s+\d+ gate\(s\) LIVE:')
+    $rowsMatchHeader = ($hdr.Success -and $rowLines.Count -eq [int]$hdr.Groups[1].Value)
+
+    Add-Result 'the informational roster renders below RESULT: and adds no check row' `
+        ($hdr.Success -and $rowsMatchHeader -and $iRoster -gt 0 -and $iResult -gt 0 -and
+         $iRoster -gt $iResult -and $counts -and $gateBlock -and $modTable) `
+        ("header said $(if ($hdr.Success) { $hdr.Groups[1].Value } else { '<no header>' }) check(s) and " +
+         "$($rowLines.Count) row-shaped line(s) were printed; roster at index $iRoster, RESULT: at index $iResult; " +
+         "SHIPPED/LIVE counts $(if ($counts) { 'present' } else { 'MISSING' }); " +
+         "gate paragraph $(if ($gateBlock) { 'present' } else { 'MISSING' }); " +
+         "module table $(if ($modTable) { 'present' } else { 'MISSING' }). Full output:`n$($rr.out)")
+
+    # -------------------------------------------------------------------
+    # 17. THE EXIT CODE IS THE ONE THE TALLY IMPLIES, WITH THE ROSTER PRINTED.
+    #
+    #     3 beats 1 beats 2 beats 0 is the doctor's own contract; the roster is
+    #     not in it. This reads the RESULT: line the doctor printed, derives the
+    #     code that line demands, and requires the process to have exited on it
+    #     while the roster was on screen. It asserts NOTHING about which code
+    #     that is, so it survives the commands check going red on a tree whose
+    #     docs are mid-reconciliation.
+    #
+    #     RED PROOF, AND IT IS A MUTATION RATHER THAN A COMMIT. Both mutations
+    #     below were applied to bin\lwg-doctor.ps1, run, and reverted against a
+    #     checksum before this file was kept. What each reported is quoted,
+    #     because "it would go red" is a prediction and this repository has
+    #     already been bitten by one written as a fact.
+    #
+    #       exit 2 as the last statement inside the roster's try
+    #           this case went RED: "the doctor printed 'RESULT: 8 passed,
+    #           0 warning(s), 1 failure(s)', which demands exit 1, and the
+    #           process exited 2 with the roster printed". Case 3 caught it too,
+    #           which is worth knowing rather than hiding - it is not the only
+    #           net under an exit-code change. CASE 18 STAYED GREEN, correctly:
+    #           both its runs exited 2, so a code moved identically in both is
+    #           invisible to a case that compares them.
+    #       a Write-Output '  [WARN] roster  leaked' inside the roster
+    #           CASE 16 went red, this one did not: "header said 9 check(s) and
+    #           10 row-shaped line(s) were printed". A line that only LOOKS like
+    #           a row cannot move an exit code, and case 16 is the one that sees
+    #           it - which is why the pair is kept rather than either alone.
+    #
+    #     WHAT NEITHER MUTATION REACHES, said plainly: an `Add-Row` inside the
+    #     roster is INERT and would leave every case here green. $fails, $warns
+    #     and $pass are snapshotted, the rows printed, and the verdict decided
+    #     ABOVE the roster, so a row appended below changes nothing observable.
+    #     That is a property of the ordering rather than of these cases, and if
+    #     the roster is ever moved above the report it stops holding.
+    # -------------------------------------------------------------------
+    $tally = [regex]::Match($rr.out, '(?m)^RESULT: (\d+) passed, (\d+) warning\(s\), (\d+) failure\(s\)')
+    $want  = -1
+    if ($tally.Success) {
+        $want = if ([int]$tally.Groups[3].Value -gt 0) { 1 }
+                elseif ([int]$tally.Groups[2].Value -gt 0) { 2 }
+                else { 0 }
+    }
+    Add-Result 'the roster does not move the exit code: it is still the one the tally implies' `
+        ($tally.Success -and $iRoster -gt 0 -and $rr.code -eq $want) `
+        ("the doctor printed '$(if ($tally.Success) { $tally.Value } else { '<no RESULT: line>' })', which demands " +
+         "exit $want, and the process exited $($rr.code) with the roster $(if ($iRoster -gt 0) { 'printed' } else { 'ABSENT - so nothing about it was established' }). " +
+         "Full output:`n$($rr.out)")
+
+    # -------------------------------------------------------------------
+    # 18. -Quiet DROPS THE MODULE TABLE AND KEEPS THE GATES.
+    #
+    #     The PR template runs the doctor with -Quiet, so the quiet path is the
+    #     one a reviewer actually sees. A gate that can refuse a tool call is
+    #     not noise at any verbosity and must survive; a thirteen-row inventory
+    #     of observers is, and must not. The exit code is asserted identical to
+    #     the loud run over the SAME sandbox, which is the -Quiet contract the
+    #     script's own param block states: quiet changes what is shown, never
+    #     what is judged.
+    # -------------------------------------------------------------------
+    $rq = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -QuietRun
+    $qGates = ($rq.out -match '(?m)^\s+GATES\s*$' -and $rq.out -match '(?m)^\s+delegate_gate\s+(LIVE|OFF)')
+    $qTable = ($rq.out -match '(?m)^\s+MODULE\s+KIND\s+BUILT\s+ENABLED\s+STATE')
+    Add-Result '-Quiet keeps the gate paragraphs, drops the module table, and changes no code' `
+        ($qGates -and -not $qTable -and $rq.code -eq $rr.code) `
+        ("with -Quiet the gate paragraphs were $(if ($qGates) { 'kept' } else { 'DROPPED - a live gate can now go unreported at the verbosity the PR template uses' }) " +
+         "and the module table was $(if ($qTable) { 'STILL PRINTED' } else { 'dropped' }); " +
+         "exit was $($rq.code) against $($rr.code) for the same sandbox without -Quiet. Full output:`n$($rq.out)")
+
+    # -------------------------------------------------------------------
+    # 19. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
     #     pointed into the scratch tree; this asserts what that was supposed to
     #     buy rather than assuming it. Nothing under the operator's own
     #     ~\.claude\plugins\data\<plugin>* may have grown a byte or gained a

@@ -1,69 +1,55 @@
 #requires -version 5
 <#
-  LW-WATCHTOWER preference settings - verbosity, plain, delegate.
+  LW-WATCHTOWER preference settings - delegate.
 
-      powershell -NoProfile -ExecutionPolicy Bypass -File bin\lwg-toggle.ps1 -Flag verbosity
-      powershell -NoProfile -ExecutionPolicy Bypass -File bin\lwg-toggle.ps1 -Flag verbosity brief
+      powershell -NoProfile -ExecutionPolicy Bypass -File bin\lwg-toggle.ps1 -Flag delegate
+      powershell -NoProfile -ExecutionPolicy Bypass -File bin\lwg-toggle.ps1 -Flag delegate on
       powershell -NoProfile -ExecutionPolicy Bypass -File bin\lwg-toggle.ps1 -Flag delegate on -Scope repo
 
-  Backs /lw-watchtower:verbosity, :plain and :delegate. The three commands share ONE
-  script on purpose. They differ only in which key they write and in which
-  sentence they print about enforcement; three copies of the
-  read/validate/write/report path would be three things to keep correct, and
-  this repo has already shipped the bug where a second copy of a rule drifted
-  from the first (see Get-LwgSessionMode in lib/common.ps1, which was lifted
-  out of session_start.ps1 for exactly that reason). The per-flag facts live in
-  $script:LwgFlags below and nowhere else.
+  Backs /lw-watchtower:delegate. It is the ONE flag left here, and the
+  read/validate/write/report path is still written once rather than folded into
+  the command prose, because this repo has already shipped the bug where a
+  second copy of a rule drifted from the first (see Get-LwgSessionMode in
+  lib/common.ps1, which was lifted out of session_start.ps1 for exactly that
+  reason). The per-flag facts live in $script:LwgFlags below and nowhere else.
 
-  IT WAS FIVE FLAGS UNTIL 30 JULY 2026. `ask` and `ask-inline` were removed
-  that day by an explicit owner decision, along with commands/ask.md,
-  commands/ask-inline.md and the interaction.ask / interaction.ask_inline keys.
-  Both had been ON by default since they shipped while enforcing nothing, and
-  neither can be built: a Stop hook can refuse to end a turn but cannot stop
-  prose that has already appeared and cannot detect a question that should have
-  been asked and was not, and nothing can merge questions after they have been
-  asked. Those two names are written here WITHOUT a leading slash, for the same
-  reason the dead verbosity names below are - see the paragraph on
-  bin\lwg-doctor.ps1.
+  IT WAS FIVE FLAGS, THEN THREE, AND IS NOW ONE.
 
-  TWO AXES, AND THEY ARE DIFFERENT SHAPES. `plain` and `delegate` are booleans
-  and take `on` or `off`. `verbosity` is a LEVEL and takes one of `brief`,
-  `default` or `verbose` by name, because the key it writes -
-  output_style.verbosity - holds exactly one of those three.
+  `ask` and `ask-inline` went on 30 JULY 2026 by an explicit owner decision,
+  along with commands/ask.md, commands/ask-inline.md and the interaction.ask /
+  interaction.ask_inline keys. Both had been ON by default since they shipped
+  while enforcing nothing, and neither can be built: a Stop hook can refuse to
+  end a turn but cannot stop prose that has already appeared and cannot detect a
+  question that should have been asked and was not, and nothing can merge
+  questions after they have been asked.
 
-  VERBOSITY WAS TWO COMMANDS AND IS NOW ONE. lw-watchtower:brief and lw-watchtower:verbose
-  both wrote this single key, so `on` claimed it and `off` released it back to
-  `default` only when the command being turned off was the one holding it -
-  which meant `brief off` while the key read `verbose` wrote nothing at all,
-  correctly and confusingly. Two switches over one three-value setting is a
-  surface that describes a model which is not there. The level is now set by
-  name, and the name is the value written.
+  `verbosity` and `plain` went with the whole output-style feature, along with
+  commands/verbosity.md, commands/plain.md, the output-styles/ directory and
+  config.json's `output_style` block. They wrote two keys that NOTHING in this
+  plugin read. The style Claude Code actually applies is the `outputStyle` key
+  in a settings file; this plugin never wrote that key and was right not to - a
+  settings file is not part of it, and the /config picker already owns that
+  value - so the two commands recorded a preference, printed an ACTIVATION block
+  explaining that they had activated nothing, and sent the operator away to set
+  the real thing by hand. A switch reported as a control while it controls
+  nothing is the exact defect this plugin exists to catch, and it shipped two.
 
-  Those two dead names are written WITHOUT their leading slash here and
-  everywhere else in this file, and in what it prints. bin\lwg-doctor.ps1 scans
-  this repo for /<plugin>:<name> and fails on one with no commands\<name>.md
-  behind it - which is the right rule, because a live-looking reference to a
-  command that no longer exists is a signpost to nothing.
+  ALL FOUR DEAD NAMES ARE WRITTEN WITHOUT A LEADING SLASH here and everywhere
+  else in this file, and in what it prints. bin\lwg-doctor.ps1 scans this repo
+  for /<plugin>:<name> and fails on one with no commands\<name>.md behind it -
+  which is the right rule, because a live-looking reference to a command that no
+  longer exists is a signpost to nothing.
 
-  It is still ONE key rather than two booleans, and that part was never about
-  taste: a per-repo override is merged KEY BY KEY, so `brief` could have been
-  true globally while `verbose` was true for one repo, and no write-time rule
-  inside this script could have prevented it. Exclusivity enforced at write time
-  is a rule that holds only where the writer runs; one key holding one value
-  cannot contradict itself at any scope, under any hand edit, in any merge.
-
-  A value that key cannot hold is NAMED as unrecognised rather than coerced, and
-  so is the dead `output_style.brief` boolean `verbosity` replaced. Both are
-  reported and neither is rewritten: this script does not delete or migrate a key
-  during what the operator asked to be a read. A stale key nobody mentions is a
-  preference that stops working in silence, which is the one failure a switch
-  that reports its own state has no excuse for.
+  ONE FLAG IS STILL A TABLE. $script:LwgFlags below holds a single entry and
+  keeps the shape it had at five, because the alternative is spreading
+  `delegate`'s block, key, default and enforcement prose through the body of
+  this script, where the next reader has to go and find them before they can
+  change one of them.
 
   Exit codes - a caller reads these and nothing else:
 
       0  the state was reported, or the state was changed and reported
-      2  the argument was not one this flag accepts - `on`/`off` for a boolean,
-         a level name for `verbosity` - or the scope could not be used.
+      2  the argument was not `on` or `off`, or the scope could not be used.
          Nothing was written. Usage was printed.
       3  the toggle could not complete - config.json could not be read, could
          not be written, would not have parsed afterwards, or was refused
@@ -76,8 +62,8 @@
 
   EXIT 3 MEANS THE BYTES ARE AS THEY WERE, on every path this file reaches
   deterministically, and until 3 August 2026 that was false on two of them.
-  commands\delegate.md, commands\plain.md and commands\verbosity.md all state it
-  as well, so it is a claim made in four places about a file on disk.
+  commands\delegate.md states it as well, so it is a claim made in two places
+  about a file on disk.
 
   The first false path: a config.json that is valid JSON but carries no
   top-level `modules` block made Get-LwgConfig fall back to the built-in
@@ -96,14 +82,25 @@
     3. the write goes through Save-LwgTextFile, so a copy of the file as it was
        exists before anything is replaced, and its path is printed.
 
-  The second false path, found by review on 3 August 2026 and NOT introduced by
-  the three fixes above - `-Flag plain on` with USERPROFILE unset wrote the file
-  and exited 3 at fd8d023 and at 19bb85d as well. The write was fine; the REPORT
-  after it threw, because the ACTIVATION block builds a settings path out of an
-  environment variable this plugin does not own, and every throw in this file
-  lands in one handler that exits 3. The handler now asks whether the write
-  completed and was verified first, and exits 0 when it did, naming the
-  reporting fault. See the catch at the bottom.
+  The second false path was found by review on 3 August 2026, and NOTHING THAT
+  SHIPS NOW REACHES IT - which is a different statement from fixed. The write
+  completed and the REPORT printed after it threw: with USERPROFILE unset, the
+  output-style ACTIVATION block built a settings path out of a variable this
+  plugin does not own, and every throw in this file lands in one handler that
+  exited 3 on a file it had just rewritten. That block went with the output
+  styles, and no line left here reads the environment. The GUARD stays, and is
+  the reason this paragraph is not simply deleted: the handler asks whether the
+  write completed and was verified first, and exits 0 when it did, naming the
+  reporting fault.
+
+  NO DETERMINISTIC PATH REACHES THAT GUARD NOW, and it is kept anyway - the same
+  standing the post-write read-back handler below has. It guards the CLASS of a
+  report that throws over a file that was written, rather than the one line that
+  used to do it; hardening that Join-Path would have left the next line free to
+  reopen the hole, and the next line printed after a verified write is the one
+  nobody has written yet. A class guard on a path nothing takes costs an exit
+  code being right instead of wrong on the day someone adds one. See the catch
+  at the bottom.
 
   THE ONE STATE STILL NOT COVERED, named rather than left to be discovered: if
   something else writes config.json AFTER this command's write and BEFORE its
@@ -113,7 +110,7 @@
   which of the two states the file is in and where the backup is. Nothing
   deterministic reaches that state and no case in tests\toggle_behaviour.ps1
   constructs one. It is the only path on which exit 3 and "the bytes are as they
-  were" can still disagree, and the three commands\*.md exit-code lines describe
+  were" can still disagree, and commands\delegate.md's exit-code lines describe
   it not at all.
 
   A READ IS NOT A WRITE. Running with no argument on a broken config.json still
@@ -135,43 +132,30 @@
   characters for a 33,175-byte config.json - so every parser message that reaches
   the operator here goes through Get-LwgBriefParseError first.
 
-  WHAT THIS SCRIPT DOES NOT DO, and says so on every run:
+  WHAT THIS SCRIPT DOES, and says so on every run. `delegate` is ENFORCED, and
+  it prints an ENFORCED block saying what it blocks. Since 30 July 2026
+  interaction.delegate is the switch on delegate_gate - lib/gate_delegate.ps1, a
+  PreToolUse hook that refuses Edit, Write, NotebookEdit, Bash and PowerShell
+  for calls that did not come from a subagent. Turning it on from here really
+  does block. Turning it OFF again from here does not work, because this command
+  runs through Bash; the ENFORCED block says so, and says what to do instead.
 
-  * It does NOT activate an output style. The three verbosity levels and
-    `plain` are delivered by the files in output-styles/, and the style Claude
-    Code actually applies is the `outputStyle` key in a settings file. This script
-    does not write that key - see the ACTIVATION block it prints - because a
-    settings file is not part of this plugin and writing one behind the CLI's
-    back would be a second source of truth for a value the /config picker
-    already owns correctly.
-  * `delegate` is the ONE flag here that is enforced, and it prints an ENFORCED
-    block rather than a NOT WIRED one. Since 30 July 2026 interaction.delegate
-    is the switch on delegate_gate - lib/gate_delegate.ps1, a PreToolUse hook
-    that refuses Edit, Write, NotebookEdit, Bash and PowerShell for calls that
-    did not come from a subagent. Turning it on from here really does block. Turning it OFF
-    again from here does not work, because this command runs through Bash; the
-    ENFORCED block says so, and says what to do instead.
+  That block is printed by the SCRIPT rather than left to the command prose,
+  because a switch that reports itself as wired when it is not - or as unwired
+  when it is - is the exact defect this plugin exists to catch. There is no
+  NOT WIRED counterpart left to print: the two flags that needed one were the
+  output-style pair, and they are gone.
 
-  Both of those are printed by the script rather than left to the command
-  prose, because a switch that reports itself as wired when it is not - or as
-  unwired when it is - is the exact defect this plugin exists to catch.
-
-  WHY NOT $LwgModuleRegistry, AND THE ONE EXCEPTION. `verbosity` and `plain` are
-  deliberately absent from the module registry and from config.json's `modules`
-  block and must stay absent. Get-LwgConfig fails OPEN - a corrupt or unreadable
-  config turns every module ON - which is the right polarity for a guardrail and
-  the wrong one for a preference: it would silently switch verbosity to `brief`
-  and rewrite every answer. And the banner's n/10 counts governance coverage; an
-  answer-formatting preference is not governance. So they live in their own
-  `output_style` block, read with a Get-LwgModuleOption-shaped accessor that
-  returns the built-in default when the key is absent.
-
-  `delegate` is different and is IN the registry, as delegate_gate. It is
-  governance - it is the only gate - so it belongs in the count. What stayed
-  out is its FLAG: the registry entry declares `switch = interaction.delegate`
-  rather than taking a `modules` key, because two switches over one gate lets an
-  operator turn it on here and have it silently do nothing. The key is still
-  read through the same accessor shape, so an unreadable config leaves the gate
+  WHY THE FLAG IS NOT IN config.json's `modules` BLOCK. `delegate` IS in the
+  module registry, as delegate_gate: it is governance - it is the only gate - so
+  it belongs in the banner count. What stayed OUT is its FLAG. The registry
+  entry declares `switch = interaction.delegate` rather than taking a `modules`
+  key, because two switches over one gate lets an operator turn it on here and
+  have it silently do nothing. Get-LwgConfig also fails OPEN - a corrupt or
+  unreadable config turns every `modules` flag ON - and arming a blocking gate
+  off an unreadable file is the opposite of what this plugin argues for. The key
+  is read through a Get-LwgModuleOption-shaped accessor that returns the
+  built-in default when it is absent, so an unreadable config leaves the gate
   off rather than switching a blocking hook on by accident.
 #>
 
@@ -180,14 +164,12 @@ param(
     # Which preference. Not free text - an unknown name is a binding error
     # before any config is read, so a typo can never write a key nothing reads.
     [Parameter(Mandatory = $true)]
-    [ValidateSet('verbosity', 'plain', 'delegate')]
+    [ValidateSet('delegate')]
     [string]$Flag,
 
-    # For a boolean flag: `on`, `off`, or nothing at all to report the current
-    # state. For `verbosity`: `brief`, `default`, `verbose`, or nothing at all.
-    # Deliberately NOT a ValidateSet: what is accepted depends on the flag, and
-    # a rejected value must print this script's own usage text and exit 2, not
-    # a PowerShell binding exception.
+    # `on`, `off`, or nothing at all to report the current state.
+    # Deliberately NOT a ValidateSet: a rejected value must print this script's
+    # own usage text and exit 2, not a PowerShell binding exception.
     [Parameter(Position = 0)]
     [AllowEmptyString()][AllowNull()]
     [string]$Value,
@@ -226,53 +208,23 @@ $script:LwgBackup   = ''       # the copy taken before that write
 #             where the command name is hyphenated: `$cfg.interaction.ask-inline`
 #             is a subtraction in PowerShell, and a config key you cannot read
 #             with ordinary property access is a trap for the next reader.
-# axis        'bool' - the key is this flag's own true/false and the argument
-#             is `on` or `off`.
-#             'level' - the key holds one of `levels` by name and the argument
-#             IS that name. There is no on/off for a level: the three values
-#             are mutually exclusive by construction, which is the whole reason
-#             this is one key rather than two booleans. See the header.
-# levels      'level' axis only. The accepted names, in the order the usage
-#             text prints them, each with the sentence the report shows beside
-#             it. The keys here and $script:LwgVerbosityValues are the same
-#             three names; the list below is checked against it at load.
-# default     the value when the key is absent. The verbosity axis defaults to
-#             `default` - the level at which it does nothing - and `plain` and
-#             `delegate` default OFF, because their on state changes behaviour
-#             the operator did not ask for. For `delegate` that is stronger than
-#             a preference: it arms the only gate this plugin ships, and a
-#             blocking gate switched on by default is the opposite of what this
-#             plugin argues for. Its default is stated TWICE - here, and on the
-#             registry entry's `switch` field in lib/common.ps1, which is what
-#             the gate itself reads. They must agree; tests/gate_delegate.ps1
-#             asserts the shipped config leaves the gate off.
-# wired       for a flag that IS enforced: what it blocks and what that costs.
-# notWired    for a flag that is not: why the switch is a request, not a
-#             control. A flag carries one or the other, never both.
+# default     the value when the key is absent. `delegate` defaults OFF, and
+#             that is stronger than a preference: its on state arms the only
+#             gate this plugin ships, and a blocking gate switched on by default
+#             is the opposite of what this plugin argues for. Its default is
+#             stated TWICE - here, and on the registry entry's `switch` field in
+#             lib/common.ps1, which is what the gate itself reads. They must
+#             agree; tests/gate_delegate.ps1 asserts the shipped config leaves
+#             the gate off.
+# wired       what this flag blocks and what that costs. Every flag left in this
+#             table is enforced; the ones that were not are gone.
 $script:LwgFlags = @{
-    'verbosity' = @{
-        block   = 'output_style'; key = 'verbosity'; kind = 'style'
-        axis    = 'level'; default = 'default'
-        summary = 'how much an answer carries - one key, one of three levels, never two at once'
-        levels  = [ordered]@{
-            'brief'   = 'terse answers - a 150-word ceiling on prose, first sentence answers the question'
-            'default' = 'neither ceiling nor expansion - the built-in voice, and this axis switched off'
-            'verbose' = 'expansive answers - reasoning, rejected alternatives and evidence shown in full'
-        }
-    }
-    'plain' = @{
-        block   = 'output_style'; key = 'plain'; default = $false; kind = 'style'
-        axis    = 'bool'
-        summary = 'plain English - no unexplained tooling jargon, acronyms expanded on first use'
-    }
     'delegate' = @{
-        block   = 'interaction'; key = 'delegate'; default = $false; kind = 'interaction'; axis = 'bool'
+        block   = 'interaction'; key = 'delegate'; default = $false
         summary = 'reserve the chat session for operator communication - all work goes to subagents'
         onText  = 'Do the work in subagents. The chat session is for talking to the operator: dispatch with the Agent tool and report back, rather than editing, running or building on the main thread. A worker cannot see this conversation, so every dispatch must restate the context, the absolute paths, the definition of done and the prohibitions.'
         offText = 'Work may be done directly on the main thread.'
-        # Not `notWired` - this is the one switch in this file that IS wired, and
-        # the block is named for what it now has to say instead: what the gate
-        # refuses, and what refusing it costs. See the header.
+        # What the gate refuses, and what refusing it costs. See the header.
         wired = @(
             'delegate IS enforced, and it is the only thing in this plugin that is. Turning it on'
             'arms delegate_gate - lib/gate_delegate.ps1, a PreToolUse hook on'
@@ -393,8 +345,8 @@ function Find-JsonMember {
           @{ keyStart; keyEnd; valStart; valEnd }
 
       or $null when the object has no such member. Only that object's OWN
-      members are considered - a nested object is skipped whole, so `"verbosity"`
-      inside `repos` is never mistaken for `"verbosity"` at the top level.
+      members are considered - a nested object is skipped whole, so `"delegate"`
+      inside `repos` is never mistaken for `"delegate"` at the top level.
 
       A hashtable, deliberately: PowerShell enumerates a returned collection but
       NOT a returned hashtable. Names are compared with -eq, which is
@@ -462,17 +414,19 @@ function New-JsonNestedMember {
 function Set-JsonLiteralAtPath {
     <#
       Return $Raw with the value at $Path replaced by the JSON literal $Leaf -
-      `true`, `false`, or a quoted string such as `"brief"`. Existing members
-      are overwritten in place; missing ones are inserted as the first member of
-      the deepest object that does exist, creating any intermediate objects on
-      the way. Throws when the path runs into a member that is not an object -
-      better a loud failure than a silent write into the wrong shape.
+      `true` or `false`. Existing members are overwritten in place; missing ones
+      are inserted as the first member of the deepest object that does exist,
+      creating any intermediate objects on the way. Throws when the path runs
+      into a member that is not an object - better a loud failure than a silent
+      write into the wrong shape.
 
-      $Leaf is a literal rather than a typed value because this file writes two
-      kinds - the booleans of `plain`, `ask`, `ask_inline` and `delegate`, and
-      the three-value string of `verbosity`. The caller builds the literal; the
-      only strings this script ever passes are the three names in
-      $script:LwgVerbosityValues, so no escaping is needed and none is done.
+      $Leaf is a LITERAL rather than a typed value, and it stays that way now
+      that only booleans are written. It carried the three-value string of the
+      removed `verbosity` axis as well, so the parameter has already been the
+      seam that let one writer serve two shapes; narrowing it to [bool] here
+      would move that decision into this function and have to be undone by the
+      next flag that is not one. Nothing this script passes needs escaping, so
+      none is done.
     #>
     param([string]$Raw, [string[]]$Path, [string]$Leaf)
 
@@ -510,78 +464,35 @@ function Set-JsonLiteralAtPath {
 
 # --- reading the current state --------------------------------------------
 
-# The only three values output_style.verbosity may hold. Anything else in the
-# file is a hand edit this script does not understand, and it is REPORTED as
-# unrecognised rather than coerced into one of these - silently reading an
-# unknown value as `default` would tell the operator their setting is off when
-# the file plainly says something else.
-#
-# DERIVED from the flag table rather than written out again. The accepted
-# arguments, the accepted file values and the levels the usage text lists are
-# the same three names, and a second copy of that list is a second thing to keep
-# correct - which is the drift this whole script was collapsed into one file to
-# avoid. The insertion order of that [ordered] table is the order printed here.
-$script:LwgVerbosityValues = @($script:LwgFlags['verbosity'].levels.Keys)
-
-# The boolean this axis used before $script:LwgVerbosityValues replaced it.
-# Nothing reads it. It is named here so the report can say it is being ignored -
-# a dead key left unmentioned is a preference that stops working quietly, which
-# is worse than one that never worked.
-$script:LwgLegacyVerbosityKey = 'brief'
-
-function ConvertTo-LwgVerbosity {
-    <#
-      Normalise a raw config value to one of $script:LwgVerbosityValues, or
-      return $null when it is present and unrecognised. An absent value is the
-      caller's problem, not this function's.
-    #>
-    param($Raw)
-    $s = ([string]$Raw).Trim().ToLowerInvariant()
-    if ($script:LwgVerbosityValues -contains $s) { return $s }
-    return $null
-}
-
 function Get-LwgPrefGlobal {
     <#
-      The global default for a flag, as a bool for a 'bool' axis and as one of
-      the three verbosity names for a 'level' axis. Shaped like
-      Get-LwgModuleOption: absent means the built-in default, never $null, so a
-      stripped-down or missing config still yields a usable answer.
+      The global default for a flag, as a bool. Shaped like Get-LwgModuleOption:
+      absent means the built-in default, never $null, so a stripped-down or
+      missing config still yields a usable answer.
 
       This is where the fail-CLOSED polarity actually lives. Get-LwgConfig
       returns the built-in module defaults when config.json is unreadable, and
-      those defaults contain no `output_style` block at all - so an unreadable
-      config yields verbosity `default`, which is neither brief nor verbose,
-      rather than switching one of them on.
+      those defaults carry no `interaction` block at all - so an unreadable
+      config yields `delegate` OFF rather than arming a blocking gate.
 
-      An unrecognised verbosity string also falls back to $Default here, and
-      the caller prints a line naming the value it could not read. Falling back
-      quietly is what would make this dishonest; falling back loudly is just
-      what a reader has to do with a value it does not know.
-
-      A BOOL AXIS NOW APPLIES THE SAME RULE TO THE SAME EFFECT: only a real
-      boolean is a setting. This is Test-LwgFlag's rule (lib\common.ps1), and it
-      is here because it MUST be the same rule - Test-LwgFlag is what the gate
-      reads and this is what /lw-watchtower:delegate prints. While this line was a
-      bare [bool] and Test-LwgFlag was not, `"delegate": "false"` made this
-      command report ON for a config the gate read as OFF: a reporter that
-      disagrees with the reader, which is the founding defect this plugin
-      exists to catch, shipped inside the plugin itself.
+      ONLY A REAL BOOLEAN IS A SETTING. This is Test-LwgFlag's rule
+      (lib\common.ps1), and it is here because it MUST be the same rule -
+      Test-LwgFlag is what the gate reads and this is what /lw-watchtower:delegate
+      prints. While this line was a bare [bool] and Test-LwgFlag was not,
+      `"delegate": "false"` made this command report ON for a config the gate
+      read as OFF: a reporter that disagrees with the reader, which is the
+      founding defect this plugin exists to catch, shipped inside the plugin
+      itself.
 
       An ignored global leaves $Default, exactly as an absent one does, and the
       fact is logged through Write-LwgInvalidFlag - the same helper Test-LwgFlag
       uses, so one broken config produces one kind of record. The caller also
       NAMES it on screen, next to the state it is printing.
     #>
-    param($Config, [string]$Block, [string]$Key, $Default, [string]$Axis = 'bool')
+    param($Config, [string]$Block, [string]$Key, $Default)
     try {
         $v = $Config.$Block.$Key
         if ($null -ne $v) {
-            if ($Axis -eq 'level') {
-                $n = ConvertTo-LwgVerbosity -Raw $v
-                if ($null -ne $n) { return $n }
-                return $Default
-            }
             if ($v -is [bool]) { return $v }
             Write-LwgInvalidFlag -Block $Block -Key $Key -Scope 'global' -Value $v
             return $Default
@@ -597,25 +508,21 @@ function Get-LwgPrefRepo {
       "overridden to the same value the global already has" look identical in
       the effective value and are different facts about the config.
 
-      An unrecognised verbosity override also returns $null - the override
-      cannot be applied - and the caller names it.
-
-      A NON-BOOLEAN OVERRIDE ON A BOOL AXIS RETURNS $null FOR THE SAME REASON,
-      and $null here already means the right thing: the override is not applied
-      and the global stands. That is precisely Test-LwgFlag's "ignored at that
-      scope - resolution continues as if that level had said nothing", which
-      matters most in the direction that costs something: a garbage per-repo
-      override must NOT disarm a global `true` an operator did arm. Logged
-      through Write-LwgInvalidFlag, and named on screen by the caller.
+      A NON-BOOLEAN OVERRIDE RETURNS $null FOR THE SAME REASON, and $null here
+      already means the right thing: the override is not applied and the global
+      stands. That is precisely Test-LwgFlag's "ignored at that scope -
+      resolution continues as if that level had said nothing", which matters
+      most in the direction that costs something: a garbage per-repo override
+      must NOT disarm a global `true` an operator did arm. Logged through
+      Write-LwgInvalidFlag, and named on screen by the caller.
     #>
-    param($Config, [string]$Repo, [string]$Block, [string]$Key, [string]$Axis = 'bool')
+    param($Config, [string]$Repo, [string]$Block, [string]$Key)
     if ([string]::IsNullOrWhiteSpace($Repo)) { return $null }
     try {
         $o = $Config.repos.$Repo
         if ($null -eq $o) { return $null }
         $v = $o.$Block.$Key
         if ($null -ne $v) {
-            if ($Axis -eq 'level') { return (ConvertTo-LwgVerbosity -Raw $v) }
             if ($v -is [bool]) { return $v }
             Write-LwgInvalidFlag -Block $Block -Key $Key -Scope "repo:$Repo" -Value $v
             return $null
@@ -644,11 +551,7 @@ function Get-LwgPrefRaw {
 
 function Test-LwgFlagOn {
     <#
-      Is this flag on, given the axis value? A 'bool' axis only - the value IS
-      the answer. A level has no on/off and is deliberately not squeezed into
-      one: `default` is the level at which this axis does nothing, and calling
-      that "off" would make `brief` and `verbose` both read as "on", which is
-      the two-switch surface this command was merged to stop describing.
+      Is this flag on, given the resolved value? The value IS the answer.
 
       THE LAST GUARD RATHER THAN THE FIRST. Get-LwgPrefGlobal and
       Get-LwgPrefRepo above have already applied the boolean-only rule, so on
@@ -665,43 +568,17 @@ function Test-LwgFlagOn {
       makes the answer printed here the answer the gate reaches.
     #>
     param($Spec, $Value)
-    if ($Spec.axis -eq 'level') { throw 'Test-LwgFlagOn does not apply to a level axis' }
     if ($Value -is [bool]) { return $Value }
     Write-LwgInvalidFlag -Block ([string]$Spec.block) -Key ([string]$Spec.key) -Scope 'resolved' -Value $Value
     return [bool]$Spec.default
-}
-
-function Get-OutputStyleSetting {
-    <#
-      Read the `outputStyle` key out of a settings file WITHOUT writing it.
-      Returns @{ path; state; value } where state is one of 'set', 'unset',
-      'absent' or 'unreadable'. 'unreadable' is never collapsed into 'unset':
-      a settings file we could not parse is not a settings file that says
-      nothing.
-    #>
-    param([string]$Path)
-    $r = @{ path = $Path; state = 'absent'; value = '' }
-    try {
-        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $r }
-        $raw = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
-        if ([string]::IsNullOrWhiteSpace($raw)) { $r.state = 'unset'; return $r }
-        $o = $raw | ConvertFrom-Json -ErrorAction Stop
-        $v = $o.outputStyle
-        if ($null -ne $v -and -not [string]::IsNullOrWhiteSpace([string]$v)) {
-            $r.state = 'set'; $r.value = [string]$v
-        } else {
-            $r.state = 'unset'
-        }
-    } catch { $r.state = 'unreadable' }
-    return $r
 }
 
 function Write-Wrapped {
     <#
       Print $Text at $Width, indented by $Indent, breaking on spaces only.
       A plain loop rather than a regex: the lookbehind-with-\G trick that does
-      this in one expression is unreadable, and one of the two flags this prints
-      for is the one that asks for plain language.
+      this in one expression is unreadable, and this text is read by an operator
+      who has just armed a gate that will refuse their next edit.
     #>
     param([string]$Text, [string]$Indent = '  ', [int]$Width = 84)
     $line = ''
@@ -749,30 +626,11 @@ function Write-LwgToggleRefusal {
 }
 
 function Show-Usage {
-    param([string]$FlagName, [string]$Bad, [string]$Axis = 'bool')
+    param([string]$FlagName, [string]$Bad)
     if ($null -ne $Bad -and $Bad -ne '') {
         Write-Output ("Not a value this command accepts: '{0}'" -f $Bad)
     }
     $c = "/lw-watchtower:$FlagName"
-    if ($Axis -eq 'level') {
-        $spec = $script:LwgFlags[$FlagName]
-        $w    = $c.Length + 14
-        Write-Output ''
-        Write-Output ('Usage:  ' + $c.PadRight($w) + 'report the current level, change nothing')
-        foreach ($lv in @($spec.levels.Keys)) {
-            Write-Output ('        ' + ($c + ' ' + $lv).PadRight($w) + $spec.levels[$lv])
-        }
-        Write-Output ('        ' + ($c + ' brief repo').PadRight($w) + 'set the level for THIS repository only')
-        Write-Output ''
-        Write-Output ('Only {0} are accepted. `on`, `off`, `short`, `long` and' -f (($script:LwgVerbosityValues | ForEach-Object { "``$_``" }) -join ', '))
-        Write-Output '`terse` are all rejected on purpose. This is a level rather than a switch -'
-        Write-Output 'one key holds one of the three - and a command that guesses which level you'
-        Write-Output 'meant is a command you cannot be sure you set. Nothing was written.'
-        Write-Output ''
-        Write-Output 'Directly:'
-        Write-Output ("  powershell -NoProfile -ExecutionPolicy Bypass -File bin\lwg-toggle.ps1 -Flag {0} [{1}] [-Scope global|repo]" -f $FlagName, ($script:LwgVerbosityValues -join '|'))
-        return
-    }
     $w = $c.Length + 12
     Write-Output ''
     Write-Output ('Usage:  ' + $c.PadRight($w)              + 'report the current state, change nothing')
@@ -800,32 +658,18 @@ try {
     $spec  = $script:LwgFlags[$Flag]
     $block = $spec.block
     $key   = $spec.key
-    $axis  = if ($spec.axis) { [string]$spec.axis } else { 'bool' }
 
     # --- validate the argument BEFORE reading anything ---------------------
-    # $want is $true/$false on a bool axis and one of the three level names on a
-    # level axis; $null on either means "no argument was given, report only".
+    # $want is $true/$false; $null means "no argument was given, report only".
     $want = $null
     $raw  = if ($null -eq $Value) { '' } else { $Value.Trim() }
     if ($raw -ne '') {
-        if ($axis -eq 'level') {
-            # ConvertTo-LwgVerbosity is the SAME normaliser used to read the
-            # file, so an argument this command accepts and a config value it
-            # honours can never be two different sets.
-            $want = ConvertTo-LwgVerbosity -Raw $raw
-            if ($null -eq $want) {
-                Show-Usage -FlagName $Flag -Bad $raw -Axis $axis
+        switch ($raw.ToLowerInvariant()) {
+            'on'  { $want = $true }
+            'off' { $want = $false }
+            default {
+                Show-Usage -FlagName $Flag -Bad $raw
                 exit 2
-            }
-        }
-        else {
-            switch ($raw.ToLowerInvariant()) {
-                'on'  { $want = $true }
-                'off' { $want = $false }
-                default {
-                    Show-Usage -FlagName $Flag -Bad $raw -Axis $axis
-                    exit 2
-                }
             }
         }
     }
@@ -855,7 +699,7 @@ try {
         Write-Output ("  remotes : {0}" -f $repoInfo.remote_count)
         Write-Output ''
         Write-Output ("Use /lw-watchtower:{0} {1} without the word 'repo' to set the global default instead." -f `
-            $Flag, $(if ($raw) { $raw } elseif ($axis -eq 'level') { ($script:LwgVerbosityValues -join '|') } else { 'on|off' }))
+            $Flag, $(if ($raw) { $raw } else { 'on|off' }))
         exit 2
     }
 
@@ -908,8 +752,8 @@ try {
         exit 3
     }
 
-    $beforeGlobal = Get-LwgPrefGlobal -Config $cfg -Block $block -Key $key -Default $spec.default -Axis $axis
-    $beforeRepo   = Get-LwgPrefRepo   -Config $cfg -Repo $repo -Block $block -Key $key -Axis $axis
+    $beforeGlobal = Get-LwgPrefGlobal -Config $cfg -Block $block -Key $key -Default $spec.default
+    $beforeRepo   = Get-LwgPrefRepo   -Config $cfg -Repo $repo -Block $block -Key $key
     $beforeEff    = if ($null -ne $beforeRepo) { $beforeRepo } else { $beforeGlobal }
 
     # --- write, if we were asked to ----------------------------------------
@@ -922,35 +766,13 @@ try {
         $path = if ($Scope -eq 'repo') { @('repos', $repo, $block, $key) } else { @($block, $key) }
         $wasHere = if ($Scope -eq 'repo') { $beforeRepo } else { $beforeGlobal }
 
-        if ($axis -eq 'level') {
-            # The argument IS the value, so there is no case in which the write
-            # has to be skipped: setting the level to the one already held
-            # rewrites the same three characters, and a repo override asked for
-            # explicitly is created even when it matches the global.
-            #
-            # `wasHere` for a repo scope falls back to the global when there is
-            # no override, because that is the level that actually applies here
-            # and it is what the operator is changing FROM.
-            $stateHere = if ($Scope -eq 'repo' -and $null -eq $beforeRepo) { $beforeGlobal } else { $wasHere }
-            $leaf      = '"' + $want + '"'
-
-            if ($Scope -eq 'repo' -and $null -eq $beforeRepo) {
-                $changeLine = ("repo override CREATED for {0}: verbosity = '{1}'  (was '{2}', inherited from the global default)" -f $repo, $want, $stateHere)
-            } elseif ([string]$stateHere -eq [string]$want) {
-                $changeLine = ("no change - the {0} verbosity was already '{1}'" -f $Scope, $want)
-            } else {
-                $changeLine = ("{0}: verbosity '{1}' -> '{2}'" -f $Scope, $stateHere, $want)
-            }
-        }
-        else {
-            $leaf = if ($want) { 'true' } else { 'false' }
-            if ($Scope -eq 'repo' -and $null -eq $beforeRepo) {
-                $changeLine = ("repo override CREATED for {0}: {1}" -f $repo, $(if ($want) { 'on' } else { 'off' }))
-            } elseif ($wasHere -eq $want) {
-                $changeLine = ("no change - the {0} value was already {1}" -f $Scope, $(if ($want) { 'on' } else { 'off' }))
-            } else {
-                $changeLine = ("{0}: {1} -> {2}" -f $Scope, $(if ($wasHere) { 'on' } else { 'off' }), $(if ($want) { 'on' } else { 'off' }))
-            }
+        $leaf = if ($want) { 'true' } else { 'false' }
+        if ($Scope -eq 'repo' -and $null -eq $beforeRepo) {
+            $changeLine = ("repo override CREATED for {0}: {1}" -f $repo, $(if ($want) { 'on' } else { 'off' }))
+        } elseif ($wasHere -eq $want) {
+            $changeLine = ("no change - the {0} value was already {1}" -f $Scope, $(if ($want) { 'on' } else { 'off' }))
+        } else {
+            $changeLine = ("{0}: {1} -> {2}" -f $Scope, $(if ($wasHere) { 'on' } else { 'off' }), $(if ($want) { 'on' } else { 'off' }))
         }
 
         # The text that was read at the top, with the SHA and the BOM flag that
@@ -982,18 +804,11 @@ try {
         if ($null -eq $parsed.modules) {
             throw 'the edit would leave config.json without a top-level "modules" block, so every reader would fall back to the built-in defaults and this setting would be ignored; nothing was written'
         }
-        $wouldGlobal = Get-LwgPrefGlobal -Config $parsed -Block $block -Key $key -Default $spec.default -Axis $axis
-        $wouldRepo   = Get-LwgPrefRepo   -Config $parsed -Repo $repo -Block $block -Key $key -Axis $axis
+        $wouldGlobal = Get-LwgPrefGlobal -Config $parsed -Block $block -Key $key -Default $spec.default
+        $wouldRepo   = Get-LwgPrefRepo   -Config $parsed -Repo $repo -Block $block -Key $key
         $wouldHere   = if ($Scope -eq 'repo') { $wouldRepo } else { $wouldGlobal }
-        if ($axis -eq 'level') {
-            if ([string]$wouldHere -ne [string]$want) {
-                throw "the edited text does not read back as '$want' - it reads as '$wouldHere' - so nothing was written"
-            }
-        }
-        else {
-            if ((Test-LwgFlagOn -Spec $spec -Value $wouldHere) -ne $want) {
-                throw ("the edited text does not read back as {0} - so nothing was written" -f $(if ($want) { 'on' } else { 'off' }))
-            }
+        if ((Test-LwgFlagOn -Spec $spec -Value $wouldHere) -ne $want) {
+            throw ("the edited text does not read back as {0} - so nothing was written" -f $(if ($want) { 'on' } else { 'off' }))
         }
 
         # --- the write -------------------------------------------------------
@@ -1028,14 +843,10 @@ try {
         # was already resolved above, so this can only disagree if the bytes on
         # disk are no longer the ones this command wrote.
         $cfg          = Get-LwgConfig -Path $cfgPath
-        $afterGlobal  = Get-LwgPrefGlobal -Config $cfg -Block $block -Key $key -Default $spec.default -Axis $axis
-        $afterRepo    = Get-LwgPrefRepo   -Config $cfg -Repo $repo -Block $block -Key $key -Axis $axis
+        $afterGlobal  = Get-LwgPrefGlobal -Config $cfg -Block $block -Key $key -Default $spec.default
+        $afterRepo    = Get-LwgPrefRepo   -Config $cfg -Repo $repo -Block $block -Key $key
         $writtenHere  = if ($Scope -eq 'repo') { $afterRepo } else { $afterGlobal }
-        $readBackBad  = if ($axis -eq 'level') {
-            ([string]$writtenHere -ne [string]$want)
-        } else {
-            ((Test-LwgFlagOn -Spec $spec -Value $writtenHere) -ne $want)
-        }
+        $readBackBad  = ((Test-LwgFlagOn -Spec $spec -Value $writtenHere) -ne $want)
         if ($readBackBad) {
             # WHAT THIS DOES NOT DO, AND WHY THERE IS NO AUTOMATIC ROLLBACK.
             # A restore-from-backup lived here for one day, on 3 August 2026, and
@@ -1059,8 +870,8 @@ try {
             } else {
                 "config.json WAS written by this command and has been written again by something else since; the copy taken before this command's write is at $backup"
             }
-            $reads = if ($axis -eq 'level') { "'$writtenHere'" } else { $(if (Test-LwgFlagOn -Spec $spec -Value $writtenHere) { 'on' } else { 'off' }) }
-            $asked = if ($axis -eq 'level') { "'$want'" } else { $(if ($want) { 'on' } else { 'off' }) }
+            $reads = if (Test-LwgFlagOn -Spec $spec -Value $writtenHere) { 'on' } else { 'off' }
+            $asked = if ($want) { 'on' } else { 'off' }
             throw "$Flag reads back as $reads rather than $asked after the write; $tail"
         }
         # The write happened AND the file on disk resolves to what was asked for.
@@ -1073,22 +884,14 @@ try {
     }
 
     $afterEff   = if ($null -ne $afterRepo) { $afterRepo } else { $afterGlobal }
-    $afterEffOn = if ($axis -eq 'level') { $null } else { (Test-LwgFlagOn -Spec $spec -Value $afterEff) }
-    # A level prints as the name it holds. There is no on/off column for it, and
-    # inventing one would put `brief` and `verbose` both in an "on" state - the
-    # two-switch fiction this command exists to have stopped telling.
+    $afterEffOn = (Test-LwgFlagOn -Spec $spec -Value $afterEff)
     $shown = {
         param($v)
-        if ($axis -eq 'level') { ("'{0}'" -f $v) }
-        else { if (Test-LwgFlagOn -Spec $spec -Value $v) { 'on' } else { 'off' } }
+        if (Test-LwgFlagOn -Spec $spec -Value $v) { 'on' } else { 'off' }
     }
 
     # --- report -------------------------------------------------------------
-    if ($axis -eq 'level') {
-        Write-Output ("{0} is '{1}'    ({2})" -f $Flag, $afterEff, $spec.levels[[string]$afterEff])
-    } else {
-        Write-Output ("{0} is {1}    ({2})" -f $Flag, $(if ($afterEffOn) { 'ON' } else { 'OFF' }), $spec.summary)
-    }
+    Write-Output ("{0} is {1}    ({2})" -f $Flag, $(if ($afterEffOn) { 'ON' } else { 'OFF' }), $spec.summary)
     Write-Output ''
     Write-Output ("  changed        : {0}" -f $changeLine)
     Write-Output ("  global default : {0}" -f (& $shown $afterGlobal))
@@ -1103,7 +906,7 @@ try {
         Write-Output '                   to drop the override and follow the global default again,'
         Write-Output ("                   delete repos[`"{0}`"] from config.json by hand" -f $repo)
     }
-    Write-Output ("  effective here : {0}" -f $(if ($axis -eq 'level') { "'$afterEff'" } elseif ($afterEffOn) { 'ON' } else { 'OFF' }))
+    Write-Output ("  effective here : {0}" -f $(if ($afterEffOn) { 'ON' } else { 'OFF' }))
     Write-Output ("  stored in      : {0} -> {1}.{2}" -f $cfgPath, $block, $key)
     if ($backup) {
         # Printed for the same reason /lw-watchtower:config prints it
@@ -1113,203 +916,61 @@ try {
     }
     Write-Output ("  config source  : {0}" -f $(if ($cfg._source -eq 'file') { 'config.json' } else { 'BUILT-IN DEFAULTS - config.json is unreadable, so what you see is the fallback' }))
 
-    # A value this script cannot read is NAMED, on either axis, and on a bool
-    # axis that is not politeness. The state printed above is the one the reader
-    # reaches - Test-LwgFlag in lib\common.ps1 applies the same boolean-only
-    # rule - so without this block an operator who wrote `"delegate": "false"`
-    # sees OFF, is told nothing, and still has the string in their config for
-    # the next reader to disagree about. The level axis prints its own,
-    # differently worded version further down; the two are separate because a
-    # level's unreadable value is a NAME nobody recognises and a boolean's is a
-    # TYPE that is not a boolean, and one sentence covering both would say
-    # neither.
-    if ($axis -ne 'level') {
-        foreach ($sc in @('global', 'repo')) {
-            $rawBool = Get-LwgPrefRaw -Config $cfg -Repo $repo -Block $block -Key $key -Scope $sc
-            if ($null -eq $rawBool -or $rawBool -is [bool]) { continue }
-            $where = if ($sc -eq 'repo') { ('repos["{0}"].{1}.{2}' -f $repo, $block, $key) } else { ('{0}.{1}' -f $block, $key) }
-            Write-Output ''
-            Write-Output ("  NOT A BOOLEAN at the {0} scope: {1} is '{2}', a {3} rather than true or false." -f `
-                $sc, $where, $rawBool, $rawBool.GetType().Name)
-            Write-Output '  It is being IGNORED, not honoured, and not read as false either - a value that'
-            Write-Output '  is not a boolean is not a setting, so that scope is skipped entirely and the'
-            Write-Output ("  state above is what applies. The same rule is what {0} itself reads." -f $Flag)
-            Write-Output ("  Run ``/lw-watchtower:{0} on`` or ``/lw-watchtower:{0} off`` to overwrite it." -f $Flag)
-        }
-    }
-
-    if ($axis -eq 'level') {
-        # One key, three levels. Said on every run, because the operator who
-        # reads "brief" here has to know what the other two names are and that
-        # holding one means not holding the others.
+    # A value this script cannot read is NAMED, and that is not politeness. The
+    # state printed above is the one the reader reaches - Test-LwgFlag in
+    # lib\common.ps1 applies the same boolean-only rule - so without this block
+    # an operator who wrote `"delegate": "false"` sees OFF, is told nothing, and
+    # still has the string in their config for the next reader to disagree about.
+    foreach ($sc in @('global', 'repo')) {
+        $rawBool = Get-LwgPrefRaw -Config $cfg -Repo $repo -Block $block -Key $key -Scope $sc
+        if ($null -eq $rawBool -or $rawBool -is [bool]) { continue }
+        $where = if ($sc -eq 'repo') { ('repos["{0}"].{1}.{2}' -f $repo, $block, $key) } else { ('{0}.{1}' -f $block, $key) }
         Write-Output ''
-        Write-Output ("  ONE KEY, THREE LEVELS. {0}.{1} holds exactly one of {2}," -f $block, $key, ($script:LwgVerbosityValues -join ', '))
-        Write-Output '  so a level is never "on" alongside another - setting one is unsetting the rest,'
-        Write-Output '  and `default` is the level at which this axis does nothing.'
-        Write-Output ''
-        # No leading slash on the two dead names - see the header.
-        Write-Output '  THIS WAS TWO COMMANDS UNTIL NOW. lw-watchtower:brief and lw-watchtower:verbose wrote this'
-        Write-Output '  same key, so `brief off` while the key read `verbose` correctly wrote nothing at'
-        Write-Output '  all and had to explain why every time. Two switches over one three-value setting'
-        Write-Output '  describe a model that is not there. The level is now named directly.'
-        Write-Output '  It is still one key rather than two booleans because a per-repo override is'
-        Write-Output '  merged key by key - two keys could have been set at different scopes and'
-        Write-Output '  contradicted each other with no writer present to stop it.'
-
-        # A value nobody here understands is named, never coerced quietly.
-        foreach ($sc in @('global', 'repo')) {
-            $rawVal = Get-LwgPrefRaw -Config $cfg -Repo $repo -Block $block -Key $key -Scope $sc
-            if ($null -eq $rawVal) { continue }
-            if ($null -ne (ConvertTo-LwgVerbosity -Raw $rawVal)) { continue }
-            Write-Output ''
-            Write-Output ("  UNRECOGNISED VALUE at the {0} scope: {1}.{2} is '{3}', which is not one of" -f $sc, $block, $key, $rawVal)
-            Write-Output ("  {0}. It is being IGNORED, not honoured - the state above is what applies." -f ($script:LwgVerbosityValues -join ', '))
-            Write-Output '  Fix it by hand, or run this command with a level name to overwrite it.'
-        }
-
-        # A value this script cannot read is named above; a KEY it no longer
-        # reads has to be named too, and for the same reason. `output_style.brief`
-        # was this axis's old boolean before the three-value key replaced it.
-        # Nothing reads it now, so an operator who set it under the old schema
-        # keeps a file that plainly states a preference and a plugin that plainly
-        # ignores it - the exact silence the block above exists to break.
-        #
-        # It is REPORTED, never rewritten. Deleting a key on someone's behalf
-        # while they asked only to read a setting is a worse surprise than the
-        # stale key, and migrating it would have to guess whether `false` meant
-        # `default` or `verbose`. The operator is told the one command that sets
-        # the live key and left to remove the dead one.
-        foreach ($sc in @('global', 'repo')) {
-            $legacy = Get-LwgPrefRaw -Config $cfg -Repo $repo -Block $block -Key $script:LwgLegacyVerbosityKey -Scope $sc
-            if ($null -eq $legacy) { continue }
-            # Name the key by its full path, because "delete output_style.brief"
-            # sends a reader to the wrong place when the stale copy is the one
-            # nested under a repo override.
-            $where = if ($sc -eq 'repo') {
-                ('repos["{0}"].{1}.{2}' -f $repo, $block, $script:LwgLegacyVerbosityKey)
-            } else {
-                ('{0}.{1}' -f $block, $script:LwgLegacyVerbosityKey)
-            }
-            Write-Output ''
-            Write-Output ("  OBSOLETE KEY at the {0} scope: {1} is '{2}', and that key was replaced by" -f $sc, $where, $legacy)
-            Write-Output ("  {0}.{1}. It is being IGNORED, not honoured - the state above is what applies." -f $block, $key)
-            Write-Output ("  Run ``/lw-watchtower:{0} brief`` or ``/lw-watchtower:{0} verbose`` to set the preference again," -f $Flag)
-            Write-Output ("  then delete {0} from config.json by hand - this command will not touch it." -f $where)
-        }
-    }
-
-    if ($spec.kind -eq 'style') {
-        # --- what the operator still has to do themselves -------------------
-        # Two independent axes - verbosity (three values) and plain (two) - and
-        # `outputStyle` is a single string, so the six combinations map onto
-        # five shipped files plus the built-in Default. The mapping is computed
-        # here and nowhere else; the command prose is told to print what this
-        # works out rather than to work it out itself.
-        $sVerb = $script:LwgFlags['verbosity']
-        $gVerb = Get-LwgPrefGlobal -Config $cfg -Block $sVerb.block -Key $sVerb.key -Default $sVerb.default -Axis 'level'
-        $rVerb = Get-LwgPrefRepo   -Config $cfg -Repo $repo -Block $sVerb.block -Key $sVerb.key -Axis 'level'
-        $effVerb = if ($null -ne $rVerb) { $rVerb } else { $gVerb }
-
-        $sPlain = $script:LwgFlags['plain']
-        $gPlain = Get-LwgPrefGlobal -Config $cfg -Block $sPlain.block -Key $sPlain.key -Default $sPlain.default -Axis 'bool'
-        $rPlain = Get-LwgPrefRepo   -Config $cfg -Repo $repo -Block $sPlain.block -Key $sPlain.key -Axis 'bool'
-        $effPlain = if ($null -ne $rPlain) { $rPlain } else { $gPlain }
-
-        $target = switch ("$effVerb/$effPlain") {
-            'brief/True'    { 'lw-watchtower-brief-plain' }
-            'brief/False'   { 'lw-watchtower-brief' }
-            'verbose/True'  { 'lw-watchtower-verbose-plain' }
-            'verbose/False' { 'lw-watchtower-verbose' }
-            'default/True'  { 'lw-watchtower-plain' }
-            default         { '' }
-        }
-
-        $styleFile = if ($target) { Join-Path $pluginRoot ("output-styles\{0}.md" -f $target) } else { '' }
-        $styleOk   = if ($target) { Test-Path -LiteralPath $styleFile -PathType Leaf } else { $true }
-
-        # Read-only. Nothing here writes a settings file - see the header.
-        $projRoot = if ($repoInfo.root) { $repoInfo.root } else { (Get-Location).Path }
-        $probes = @(
-            (Get-OutputStyleSetting -Path (Join-Path $projRoot '.claude\settings.local.json'))
-            (Get-OutputStyleSetting -Path (Join-Path $projRoot '.claude\settings.json'))
-            (Get-OutputStyleSetting -Path (Join-Path $env:USERPROFILE '.claude\settings.json'))
-        )
-        $live = $null
-        foreach ($p in $probes) { if ($p.state -eq 'set') { $live = $p; break } }
-
-        Write-Output ''
-        Write-Output 'ACTIVATION - this command did NOT activate anything'
-        Write-Output ''
-        Write-Output ("  preferences here        : verbosity '{0}', plain {1}" -f $effVerb, $(if ($effPlain) { 'on' } else { 'off' }))
-        Write-Output ("  preference now asks for : {0}" -f $(if ($target) { $target } else { 'Default (the built-in style - verbosity `default` and plain off)' }))
-        if ($target) {
-            Write-Output ("  style file              : {0}  [{1}]" -f $styleFile, $(if ($styleOk) { 'present' } else { 'MISSING - the style cannot load' }))
-        }
-        Write-Output ("  outputStyle in settings : {0}" -f `
-            $(if ($null -ne $live) { "'$($live.value)'  (from $($live.path))" } else { 'not set in any settings file checked' }))
-        foreach ($p in $probes) {
-            Write-Output ("      {0,-11} {1}" -f $p.state, $p.path)
-        }
-        Write-Output ''
-        Write-Output '  The style Claude Code applies is the `outputStyle` key in a settings file,'
-        Write-Output '  and this command does not write it. Two reasons, both deliberate:'
-        Write-Output '  a settings file is not part of this plugin, and the /config picker already'
-        Write-Output '  owns that value and writes whatever string the installed plugin actually'
-        Write-Output '  needs - a string this repo has NOT confirmed against a live install, since'
-        Write-Output '  a plugin-supplied style may or may not be namespaced in that value.'
-        Write-Output ''
-        Write-Output '  To activate:  run /config, choose Output style, pick the entry above.'
-        Write-Output '                Then /clear, or start a new session.'
-        Write-Output ''
-        Write-Output '  IT WILL NOT TAKE EFFECT IN THIS SESSION. An output style is read into the'
-        Write-Output '  system prompt once, at session start. Changing it mid-session changes'
-        Write-Output '  nothing until the prompt is rebuilt, and /clear discards the conversation.'
-        Write-Output '  (/output-style was removed in Claude Code 2.1.91 - /config is the route.)'
-        Write-Output ''
-        Write-Output '  Output styles also reach the MAIN CONVERSATION ONLY. A subagent runs its'
-        Write-Output '  own system prompt, so every dispatched worker answers in its own voice'
-        Write-Output '  regardless of this setting.'
-    }
-    else {
-        Write-Output ''
-        Write-Output 'IN EFFECT FROM NOW ON, in this session:'
-        Write-Output ''
-        Write-Wrapped -Text $(if ($afterEff) { $spec.onText } else { $spec.offText }) -Indent '  '
-        Write-Output ''
-        # Two headings over one block, chosen by which key the flag carries. The
-        # heading is the first thing read, so a wired switch printing NOT WIRED -
-        # or an unwired one printing ENFORCED - would be the loudest possible lie
-        # this command could tell about itself. There is no default: a flag
-        # carrying neither key prints nothing, which is visibly wrong rather than
-        # quietly wrong.
-        if ($spec.wired) {
-            Write-Output 'ENFORCED - what this switch actually blocks, and what that costs'
-            Write-Output ''
-            foreach ($line in @($spec.wired)) { Write-Output ("  {0}" -f $line) }
-        }
-        elseif ($spec.notWired) {
-            Write-Output 'NOT WIRED - read this before treating the line above as a control'
-            Write-Output ''
-            foreach ($line in @($spec.notWired)) { Write-Output ("  {0}" -f $line) }
-        }
+        Write-Output ("  NOT A BOOLEAN at the {0} scope: {1} is '{2}', a {3} rather than true or false." -f `
+            $sc, $where, $rawBool, $rawBool.GetType().Name)
+        Write-Output '  It is being IGNORED, not honoured, and not read as false either - a value that'
+        Write-Output '  is not a boolean is not a setting, so that scope is skipped entirely and the'
+        Write-Output ("  state above is what applies. The same rule is what {0} itself reads." -f $Flag)
+        Write-Output ("  Run ``/lw-watchtower:{0} on`` or ``/lw-watchtower:{0} off`` to overwrite it." -f $Flag)
     }
 
     Write-Output ''
+    Write-Output 'IN EFFECT FROM NOW ON, in this session:'
+    Write-Output ''
+    Write-Wrapped -Text $(if ($afterEff) { $spec.onText } else { $spec.offText }) -Indent '  '
+    Write-Output ''
+    # The heading is the first thing read, so a switch that prints ENFORCED
+    # while enforcing nothing would be the loudest possible lie this command
+    # could tell about itself. It is guarded on $spec.wired rather than printed
+    # unconditionally: a flag added to the table with no `wired` block prints
+    # NOTHING here, which is visibly wrong rather than quietly wrong. The
+    # alternative heading, NOT WIRED, went with the two flags that needed it -
+    # the output-style pair - and is deliberately not kept as dead prose: an
+    # unwired switch has no business being in this table at all.
     if ($spec.wired) {
-        # The banner number DOES move for this one, and saying otherwise would
-        # make the operator distrust the count when it changed under them.
-        Write-Output ("  A governance module. {0} is the switch on delegate_gate in the module" -f $Flag)
-        Write-Output '  registry in lib/common.ps1 - kind "gate", the only one - so the banner counts it'
-        Write-Output '  and the live-gate count moves with it. Its FLAG stays out of the "modules" block'
-        Write-Output '  on purpose: one gate must have one switch, and Get-LwgConfig fails OPEN, which'
-        Write-Output '  would arm a blocking hook off an unreadable config. Read the state back with'
-        Write-Output '  /lw-watchtower:status, which reports gates shipped and gates live as separate numbers.'
-    } else {
-        Write-Output ("  Not a governance module. {0} is absent from the module registry in" -f $Flag)
-        Write-Output '  lib/common.ps1 and from the "modules" block of config.json on purpose, so it'
-        Write-Output '  does not appear in the banner n/10 count and does not inherit the fail-OPEN'
-        Write-Output '  behaviour of Get-LwgConfig. The module count is unchanged by this command.'
+        Write-Output 'ENFORCED - what this switch actually blocks, and what that costs'
+        Write-Output ''
+        foreach ($line in @($spec.wired)) { Write-Output ("  {0}" -f $line) }
     }
+
+    # The banner number DOES move for this one, and saying otherwise would make
+    # the operator distrust the count when it changed under them. There is no
+    # "not a governance module" counterpart any more: every flag left in this
+    # table is one.
+    #
+    # The last line named a slash command that reported gates shipped against
+    # gates live. It names the SessionStart banner instead, because that command
+    # is being removed in the same pass this text is written in and a signpost
+    # to a command that does not exist is what bin\lwg-doctor.ps1's `commands`
+    # check fails on - see the header on the dead names.
+    Write-Output ''
+    Write-Output ("  A governance module. {0} is the switch on delegate_gate in the module" -f $Flag)
+    Write-Output '  registry in lib/common.ps1 - kind "gate", the only one - so the banner counts it'
+    Write-Output '  and the live-gate count moves with it. Its FLAG stays out of the "modules" block'
+    Write-Output '  on purpose: one gate must have one switch, and Get-LwgConfig fails OPEN, which'
+    Write-Output '  would arm a blocking hook off an unreadable config. The SessionStart banner'
+    Write-Output '  reports gates shipped and gates live as separate numbers; start a new session,'
+    Write-Output '  or read interaction.delegate in config.json, to see this land.'
 
     exit 0
 
@@ -1317,18 +978,26 @@ try {
     if ($script:LwgVerified) {
         # THE WRITE HAPPENED AND WAS VERIFIED; WHAT FAILED IS THE REPORT AFTER IT.
         # Exit 3 here would state, in the words of this file's own table and of
-        # all three command documents, that config.json was not changed - and it
-        # was. Until 3 August 2026 that is exactly what happened: with
-        # USERPROFILE unset, `Join-Path $env:USERPROFILE '.claude\settings.json'`
-        # in the ACTIVATION block threw under $ErrorActionPreference='Stop' and
-        # /lw-watchtower:plain exited 3 on a file it had just rewritten.
+        # commands\delegate.md, that config.json was not changed - and it was.
+        # Until 3 August 2026 that is exactly what happened: with USERPROFILE
+        # unset, `Join-Path $env:USERPROFILE '.claude\settings.json'` in the
+        # output-style ACTIVATION block threw under $ErrorActionPreference='Stop'
+        # and the toggle exited 3 on a file it had just rewritten. (That command
+        # is named without its leading slash - see the header.)
         #
-        # The class is guarded rather than that one line, and deliberately: the
-        # report reads a settings file whose path comes from an environment this
-        # plugin does not own, and hardening one Join-Path leaves the next
-        # environment-fed line to reopen the same hole. What a caller needs from
-        # the exit code is whether the file changed; it did, so this is 0, and
-        # the reporting fault is named rather than swallowed.
+        # THE ACTIVATION BLOCK IS GONE AND THIS GUARD STAYS, because it was
+        # never a patch on that Join-Path: it guards the CLASS of a report that
+        # throws over a file that was written, and hardening one line would only
+        # have left the next one to reopen the same hole.
+        #
+        # NOTHING DETERMINISTIC REACHES IT NOW, and that is stated rather than
+        # dressed up: every line printed after $script:LwgVerified is set is a
+        # Write-Output over values already resolved, and the two accessors that
+        # could reach Write-LwgInvalidFlag ran BEFORE it was set and swallow
+        # their own faults. The read-back handler above is kept on the same
+        # terms. What a caller needs from the exit code is whether the file
+        # changed; it did, so this is 0, and the reporting fault is named rather
+        # than swallowed - by whichever report line reopens this, not by this one.
         Write-Output ''
         Write-Output ("The {0} change WAS MADE: config.json was written and re-read from disk, and it" -f $Flag)
         Write-Output 'holds the value that was asked for. The exit code is 0 because the file changed.'

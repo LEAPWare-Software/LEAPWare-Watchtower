@@ -33,19 +33,18 @@ try {
     $repo    = Get-LwgRepo $payload
 
     # --- module gate -------------------------------------------------------
-    # Flags off means zero side effects: no file is created, nothing is appended,
+    # Flag off means zero side effects: no file is created, nothing is appended,
     # and the Stop half then finds no list and stays silent too.
     #
-    # TWO modules read this list. docs_coupling asks whether documentation kept
-    # up with source; mission_drift asks whether the files touched relate to
-    # anything that was asked for. Either one being on is reason to record, and
-    # gating on docs_coupling alone would have made mission_drift silently
-    # inert for anyone who had switched docs_coupling off - a module that looks
-    # enabled and observes nothing, which is the exact defect this plugin exists
-    # to catch.
-    $recordEdits = (Test-LwgModule -Name 'docs_coupling' -Config $cfg -Repo $repo) -or
-                   (Test-LwgModule -Name 'mission_drift' -Config $cfg -Repo $repo)
-    if (-not $recordEdits) { exit 0 }
+    # ONE module reads this list, and the gate names it. It used to be a
+    # two-term `-or`, because mission_drift read the same list and gating on
+    # docs_coupling alone would have made it silently inert for anyone who had
+    # switched docs_coupling off - a module that looks enabled and observes
+    # nothing, which is the exact defect this plugin exists to catch. That
+    # module is gone; the widened gate went with it rather than being left as a
+    # disjunction with one arm, which would read as though a second reader
+    # still existed.
+    if (-not (Test-LwgModule -Name 'docs_coupling' -Config $cfg -Repo $repo)) { exit 0 }
 
     # Write and Edit report tool_input.file_path; NotebookEdit reports
     # notebook_path. Anything else is not an edit we can attribute to a file.
@@ -64,13 +63,11 @@ try {
     # edit in that session was ever recorded. The premise in the paragraph above
     # is true of a REPEAT edit to a file already in the list and false of a file
     # edited for the first time after the cap - and a size check cannot tell the
-    # two apart. What it produced was two reading modules observing nothing
-    # while reporting active: docs_coupling kept warning that "no documentation
-    # did" about a session that had spent an hour editing documentation, because
-    # no doc path could be recorded any more; mission_drift's `$considered`
-    # froze, so its skip guard stopped it assessing at all and any real drift
-    # after that point was invisible. That is the exact defect the gate comment
-    # 20 lines above names as the reason this hook records for either module.
+    # two apart. What it produced was a reading module observing nothing while
+    # reporting active: docs_coupling kept warning that "no documentation did"
+    # about a session that had spent an hour editing documentation, because no
+    # doc path could be recorded any more. That is the exact defect the gate
+    # comment 20 lines above names as the reason this hook records at all.
     #
     # SO IT ROLLS, and it rolls through Invoke-LwgRotate rather than a bespoke
     # read-modify-write here. That function already has the properties this
@@ -101,7 +98,7 @@ try {
         # hook can write and nothing it admits can be dropped here.
         if (Invoke-LwgRotate -FileName $file -MaxBytes 262144 -KeepLines 2000 -Archives 1 -MaxLineChars 1100) {
             Write-LwgEvent -Event 'EditListRolled' -Payload $payload -Extra @{
-                module = 'docs_coupling+mission_drift'
+                module = 'docs_coupling'
                 file   = $file
                 note   = 'the per-session edit list passed 256 KB and was rolled; the oldest entries are in the .1 archive and are no longer read at turn end'
             } | Out-Null
@@ -113,7 +110,7 @@ try {
     # append of any length - and $path is `tool_input.file_path` straight off
     # the payload, with Add-LwgLine imposing no bound of its own. One oversized
     # value did three things: it occupied most of the 256 KB tail window the
-    # Stop half reads, displacing the real edit history for both modules while
+    # Stop half reads, displacing the real edit history docs_coupling reads while
     # leaving the file under the cap so the picture stayed wrong rather than
     # obviously broken; it went into the `sample` field of a DocsCoupling record
     # in a log that does not rotate; and it reached the operator's systemMessage
@@ -131,7 +128,7 @@ try {
     #
     # WHAT THE CAP COSTS, and it is not nothing. A truncated path loses its
     # TAIL, which is where the extension is, so Get-LwgPathClass reads it as
-    # 'other' rather than 'source' or 'doc' and both modules stop counting it.
+    # 'other' rather than 'source' or 'doc' and docs_coupling stops counting it.
     # That is a new blind spot traded for a bounded one, and the size is chosen
     # around it: MAX_PATH is 260 and 1024 is well past any path a real edit tool
     # produces even with long-path support on, so the trade bites only on values

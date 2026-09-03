@@ -874,8 +874,19 @@ function Test-HookRegistrationInSettingsIsDetectedAndCounted {
           reason. It named lib/session_start.ps1 until 3 August 2026, which is a
           shipped leaf, so the leaf rule covered for the CLAUDE_PLUGIN_ROOT rule
           and that branch could be deleted whole with this case still green.
-          bin/lwg-sitrep.ps1 is in this plugin and is not a hook, so only the
+          It then named bin/lwg-sitrep.ps1, which satisfied that constraint
+          until the script was deleted; a fixture naming a .ps1 this plugin does
+          NOT ship is the decoy's shape, not this one's, so it moved again.
+          bin/lwg-update.ps1 is in this plugin and is not a hook, so only the
           CLAUDE_PLUGIN_ROOT signal can reach it.
+
+          THE STRING IS THE FIXTURE, NOT A DEPENDENCY ON THE FILE. The signal
+          this branch pins is bin\lwg-uninstall.ps1's `$Text.Contains(
+          'CLAUDE_PLUGIN_ROOT')`, which reads the registration text and never
+          touches the disk, so the case would go on passing with a script that
+          does not exist. That is exactly why the name has to be maintained by
+          hand: nothing here fails when it rots, and a fixture naming a deleted
+          script quietly stops standing for the thing the case says it does.
         * an absolute path into a DIFFERENT checkout, recognisable only by the
           script leaf name, which is the shape bin\lwg-setup.ps1's own
           Get-HookIdentity keys on because the root is exactly the thing that
@@ -898,7 +909,7 @@ function Test-HookRegistrationInSettingsIsDetectedAndCounted {
     $mine  = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $Root 'lib\gate_delegate.ps1') + '"'
     $notAHook = Join-Path $Root 'bin\lwg-doctor.ps1'
     $rootOnly = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $notAHook + '"'
-    $unsub = 'powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/bin/lwg-sitrep.ps1"'
+    $unsub = 'powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/bin/lwg-update.ps1"'
     $other = Join-Path $t.elsewhere 'another-checkout\lib\supervisor.ps1'
     $far   = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $other + '" -HookEvent Stop'
     $alien = Join-Path $t.elsewhere 'some-other-tool\bin\unrelated_thing.ps1'
@@ -919,7 +930,7 @@ function Test-HookRegistrationInSettingsIsDetectedAndCounted {
     }
     if ($left -notlike "*$notAHook*")        { $bad += 'LEFT BEHIND never names the registration that only the clone root can identify - a script in this checkout that hooks.json does not register' }
     if ($left -notlike "*$other*")           { $bad += 'LEFT BEHIND never names the registration from another checkout, which the leaf name identifies' }
-    if ($left -notmatch 'lwg-sitrep\.ps1')   { $bad += 'LEFT BEHIND never names the unsubstituted ${CLAUDE_PLUGIN_ROOT} registration, which nothing but that signal can reach' }
+    if ($left -notmatch 'lwg-update\.ps1')   { $bad += 'LEFT BEHIND never names the unsubstituted ${CLAUDE_PLUGIN_ROOT} registration, which nothing but that signal can reach' }
     if ($left -like "*$alien*")              { $bad += "a .ps1 this plugin does not ship was attributed to it: $alien" }
 
     Add-Result -Name 'dry run: hand-added settings.json hook registrations are found in all three spellings, and a foreign one is not' `
@@ -996,6 +1007,13 @@ function Test-HookPathInArgsArrayIsRead {
       fixtures above: an args array holding ${CLAUDE_PLUGIN_ROOT} or a shipped
       leaf would be found by a scan that never looked at args at all.
 
+      IT NAMED bin\lwg-status.ps1 UNTIL THAT SCRIPT WAS DELETED. Nothing failed
+      when it went - the signal here is `$norm.Contains($RootNorm)`, a string
+      test over the registration, with no Test-Path anywhere in the chain - so
+      the case stayed green while its fixture named a file this plugin no longer
+      ships, which is the decoy's shape rather than this one's. bin\lwg-config.ps1
+      is shipped, is in this checkout, and is not a hooks.json leaf.
+
       The negative half is the same shape with an args array naming somebody
       else's script, so this pins reading args rather than counting any entry
       that happens to have them.
@@ -1003,7 +1021,7 @@ function Test-HookPathInArgsArrayIsRead {
     $bad = @()
 
     $t1 = New-CaseTree 'hooks-args-ours'
-    $ours = (Join-Path $Root 'bin\lwg-status.ps1')
+    $ours = (Join-Path $Root 'bin\lwg-config.ps1')
     $j1 = "{`r`n  `"hooks`": {`r`n    `"LwgTestEvent1`": [`r`n      {`r`n        `"hooks`": [`r`n" +
           "          { `"type`": `"command`", `"command`": `"powershell`", `"args`": [ `"-NoProfile`", `"-File`", `"" +
           $ours.Replace('\', '\\') + "`" ] }`r`n        ]`r`n      }`r`n    ]`r`n  }`r`n}`r`n"

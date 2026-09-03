@@ -30,16 +30,32 @@ Rules for reporting it:
   happening. That block is the point of the command; summarising it to "turning off X" throws
   away the part the user needs to decide.
 - **Do not paraphrase a refusal into a limitation of yours.** Exit `1` means the script declined
-  and printed why - most often because the module is declared in `config.json` but has no code
-  behind it. Say which modules those are, in its words. Never offer to edit `config.json` by
-  hand instead: enabling a name with nothing behind it is the exact defect this plugin exists
-  to catch, and doing it manually is the same lie with an extra step.
+  and printed why, and nothing was written. What it actually refuses: a name that is not in the
+  registry (it offers the near-miss when the name is only miscased); a module whose flag lives
+  outside the `modules` block this command writes, where it names the command that does own the
+  switch; a wrong `-On`/`-Off`/`-Clear` combination, or `-Clear` with no repo scope; a `-Repo`
+  that is not the `owner/name` shape a hook produces, or that disagrees with `-ThisRepo`, or a
+  `-ThisRepo` where no origin remote resolves to a slug at all; a `config.json` it cannot read,
+  or one that does not parse; and a write stopped at the last moment - the member is missing, the
+  file changed underneath it, or the edited text would not have parsed as JSON. Give its reason
+  in its words, and when it names another command, send the operator there. One further refusal -
+  enabling a module that is declared with no code behind it - is defined but **fires for nothing
+  today**: every name in the registry is implemented, so that list is empty and the script never
+  prints it. Do not offer it as the cause, and do not go hunting for modules to name. Never offer
+  to edit `config.json` by hand instead: enabling a name with nothing behind it is the exact
+  defect this plugin exists to catch, and doing it manually is the same lie with an extra step.
 - **`-Apply` is not implied.** If the user said "turn off git_hygiene", that is a request to
   show them the effect first. Do not run `-Apply` in the same breath unless they have already
   seen the preview or explicitly asked for the change to be made now.
 - **Exit `2` is a fault, not a success with a caveat.** It means the file was written and the
   effective value is still not what was asked for. Report it as broken, name the backup path
   the script printed, and do not describe the change as done.
+- **Exit `3` means it could not complete, not that nothing was wrong.** The script threw and
+  stopped wherever it had got to: it prints `LW-WATCHTOWER config could not complete: <error>`
+  and then that nothing above should be read as a description of what `config.json` now contains.
+  It can fire before the header line is printed, so those two lines may be the whole output.
+  Quote the error, report it as the script failing, and do not tell the user the change was made
+  **or** that it was not - the run establishes neither, and the file has to be looked at.
 - **Repeat the WHEN line.** A flag lands on the next hook event, but the SessionStart banner,
   the mode word and the status line keep reporting the old picture until a new session starts.
   A user who turns something off and sees the old banner will otherwise think the command failed.

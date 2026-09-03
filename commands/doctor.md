@@ -1,5 +1,5 @@
 ---
-description: "LW-WATCHTOWER health check - reports what is NOT working: hook registration, state-dir resolution, status-line wiring, config drift and the last SessionStart self-check"
+description: "LW-WATCHTOWER health check - reports what is NOT working: hook registration, state-dir resolution, status-line wiring, config drift and the last SessionStart self-check, then an informational roster of which modules and gates are switched on"
 allowed-tools: "Bash(powershell:*)"
 ---
 
@@ -33,6 +33,25 @@ Rules for reporting it:
   reported.
 - Exit `3` is not exit `1`. "I found a fault" and "I could not look" are different statements
   and must not be collapsed.
+
+## The `WHAT IS SWITCHED ON` block at the foot is a REPORT, not a check
+
+It prints after the checks, after `RESULT:`, and it moves nothing: no row, no verdict, no exit
+code. Report it as description, never as diagnosis.
+
+- **Report BOTH gate numbers, and never collapse them.** The block prints gates `SHIPPED` and
+  gates `LIVE`. Saying "three gates" alone claims protection that is switched off; saying "no
+  gates" alone hides a capability the operator owns and was never told about. `OFF` is the
+  **shipped state** of every gate here - it is not a fault and it is not something the doctor
+  failed to fix.
+- **The `STATE` column is the only one that reports behaviour.** `ENABLED` is an intention.
+  Never describe an enabled-but-unbuilt module as running, or as coverage.
+- **Do not recompute or re-count.** If it says `N of M` modules are active, say `N of M`. Do not
+  add up the table yourself and offer a different figure.
+- A gate reading `*** NOT ON DISK ***` under `code    :` is a real finding worth naming, but it
+  is still not a `[FAIL]` row - no check tests it. Say so rather than upgrading it.
+- `-Quiet` drops the module table and keeps the gate paragraphs. If the user ran `-Quiet`, do
+  not describe a table that was not printed.
 
 The script prints its own blind spots on every run, including green ones. **Repeat them.**
 A doctor that passes has checked the plugin's *wiring*, not its *behaviour*: it does not establish

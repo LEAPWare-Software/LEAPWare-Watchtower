@@ -40,8 +40,11 @@
 #>
 
 param(
-    # Print only the verdict line and any WARN/FAIL rows. The exit code is
-    # identical either way - quiet changes what is shown, never what is judged.
+    # Print only the verdict line and any WARN/FAIL rows, and drop the module
+    # inventory from the informational roster at the foot. The GATES paragraphs
+    # in that roster survive -Quiet on purpose: a gate that can refuse a tool
+    # call is not noise at any verbosity. The exit code is identical either
+    # way - quiet changes what is shown, never what is judged.
     [switch]$Quiet
 )
 
@@ -606,14 +609,16 @@ try {
         #
         # Read the script out of the command body rather than assuming
         # bin\lwg-<name>.ps1. The naming convention is not the contract and is
-        # not even true: verbosity, plain and delegate all invoke the one
-        # bin\lwg-toggle.ps1 with a different -Flag, because three copies of the
-        # same read/validate/write/report path would be three things to keep
-        # correct. Asserting the convention would fail those three for being
-        # written properly, while still missing a command that names a script it
-        # does not have. What matters is that the file it actually invokes is on
-        # disk, which is the same ${CLAUDE_PLUGIN_ROOT} test the hooks-declared
-        # check applies to hook scripts.
+        # not even true: delegate invokes bin\lwg-toggle.ps1 with a -Flag, and
+        # it is the survivor of three commands that shared that one script -
+        # verbosity and plain were deleted with the output styles they switched
+        # - because a copy of the read/validate/write/report path per command
+        # would be one more thing to keep correct. Asserting the convention
+        # would fail delegate for being written properly, while still missing a
+        # command that names a script it does not have. What matters is that the
+        # file it actually invokes is on disk, which is the same
+        # ${CLAUDE_PLUGIN_ROOT} test the hooks-declared check applies to hook
+        # scripts.
         $scriptRe = [regex]'\$\{CLAUDE_PLUGIN_ROOT\}[\\/]+([A-Za-z0-9_./\\-]+\.ps1)'
         foreach ($c in $cmds) {
             $n    = $c.BaseName
@@ -683,87 +688,6 @@ try {
         Add-Row -Id 'commands' -Status 'PASS' -Detail "$($cmds.Count) command(s), each with its backing script: $(($names | ForEach-Object { "/${p}:$_" }) -join ', '); $($refs.Count) distinct command(s) referenced across $scanned scanned file(s), all declared"
     }
 
-    # ---------------------------------------------------------------------
-    # 9. verification_gate has something that can DISARM it
-    # ---------------------------------------------------------------------
-    # THE ASSERTION, stated exactly, because its plan wording is terse: while
-    # verification_gate is enabled, ZERO verify-class roles being installed is a
-    # FAULT, and this check fails on it. docs/roles.md is the reasoning - "with
-    # no verify-class role installed, verification_gate can only ever nag and
-    # never clear: it warns when the newest work-agent record is newer than the
-    # newest verify-agent record, and with no verifier there is never a verify
-    # record to be newer than." A module in that state is not off, and it does
-    # not report itself broken; it is on, counted toward the SessionStart
-    # banner's coverage number, and permanently unable to reach the outcome it
-    # exists to ask for. That is the founding-defect shape, and it is exactly
-    # what an install that deleted agents\lw-verifier.md would have.
-    #
-    # A role counts as verify-class two ways, and both are counted because both
-    # are how the classifier itself decides (lib/stop_advisories.ps1):
-    #
-    #   lw-class    the role's own frontmatter says `lw-class: verify`. This is
-    #               the authoritative one and it wins wherever it is present.
-    #   config-name the role declares no class, and its name is in
-    #               module_config.verification_gate.verify_agents. Only a name
-    #               with a role file ON DISK is counted - a name in the array
-    #               with no role behind it cannot disarm anything, and counting
-    #               it here would be this check reporting a list as coverage,
-    #               which is the defect one paragraph up.
-    #
-    # It is a LOWER BOUND and says so. Roles shipped by OTHER plugins are not
-    # enumerable from here (no other plugin's install path is derivable), so a
-    # machine may have a verifier this cannot see. That direction is safe: it can
-    # produce a spurious FAIL, never a false PASS, and a spurious FAIL is a
-    # sentence the operator can read and disagree with.
-    Invoke-Check -Id 'agent-roles' -Body {
-        $cfg   = Get-LwgConfig
-        $on    = Test-LwgModule -Name 'verification_gate' -Config $cfg
-        $roles = @(Get-LwgInstalledAgents -ProjectRoot ((Get-Location).Path))
-
-        if ($roles.Count -eq 0) {
-            # An enumeration that found nothing has checked nothing. Same rule as
-            # the reference scan in check 8.
-            $where = @(Get-LwgAgentRoots -ProjectRoot ((Get-Location).Path) | ForEach-Object { $_.path })
-            $st = if ($on) { 'FAIL' } else { 'WARN' }
-            Add-Row -Id 'agent-roles' -Status $st -Detail "no agent role file found in any scope ($($where -join '; ')) - nothing can be classified, so verification_gate cannot see work OR verification$(if ($on) { ', and it is ENABLED' } else { ' (it is switched off)' })"
-            return
-        }
-
-        $named    = @($cfg.module_config.verification_gate.verify_agents | ForEach-Object { [string]$_ })
-        $classed  = @($roles | Where-Object { $_.class -eq 'verify' })
-        $bynameOnly = @($roles | Where-Object {
-            $_.class -eq '' -and ($named -contains $_.name -or $named -contains "$(Get-LwgPluginName):$($_.name)") })
-        $declaring = @($roles | Where-Object { $_.class -ne '' })
-
-        $verifiers = $classed.Count + $bynameOnly.Count
-
-        if ($on -and $verifiers -eq 0) {
-            Add-Row -Id 'agent-roles' -Status 'FAIL' -Detail "verification_gate is ENABLED and ZERO verify-class roles are installed across $($roles.Count) role(s) - no role declares lw-class: verify and no installed role is named in module_config.verification_gate.verify_agents, so the advisory can nag and can NEVER clear. Restore agents\lw-verifier.md, or install a role whose frontmatter carries lw-class: verify"
-            return
-        }
-
-        $how = @()
-        if ($classed.Count -gt 0)     { $how += "$($classed.Count) by lw-class ($(@($classed | ForEach-Object { $_.name }) -join ', '))" }
-        if ($bynameOnly.Count -gt 0)  { $how += "$($bynameOnly.Count) by verify_agents name ($(@($bynameOnly | ForEach-Object { $_.name }) -join ', '))" }
-
-        if (-not $on) {
-            Add-Row -Id 'agent-roles' -Status 'PASS' -Detail "verification_gate is switched OFF, so nothing here can be violated; $($roles.Count) role(s) visible, $verifiers verify-class"
-            return
-        }
-
-        # The classifier reads lw-class. If NOT ONE installed role declares it,
-        # the key is being read and is answering nothing, and every classification
-        # is resting on the hand-maintained arrays - working, but the state the
-        # arrays were supposed to be retired from. Said out loud rather than left
-        # to be inferred from a green line.
-        if ($declaring.Count -eq 0) {
-            Add-Row -Id 'agent-roles' -Status 'WARN' -Detail "verification_gate is enabled and $verifiers verify-class role(s) resolve ($($how -join '; ')), but NOT ONE of the $($roles.Count) installed role(s) declares lw-class - every classification is falling back to the config.json name arrays, which have to be maintained by hand"
-            return
-        }
-
-        Add-Row -Id 'agent-roles' -Status 'PASS' -Detail "verification_gate is enabled and $verifiers verify-class role(s) can disarm it: $($how -join '; '). $($declaring.Count) of $($roles.Count) visible role(s) declare lw-class (lower bound - other plugins' roles are not enumerable from here)"
-    }
-
 } catch {
     # Anything that escapes the per-check handlers - a failed dot-source, a
     # missing common.ps1 - means the checkup did not happen. That is code 3,
@@ -801,15 +725,15 @@ Write-Output ("RESULT: {0} passed, {1} warning(s), {2} failure(s)" -f $pass.Coun
 Write-Output ''
 Write-Output "NOT checked here: whether the advisories actually fire, and whether Claude Code has"
 Write-Output "this plugin ENABLED in the current session - a hook can be perfectly configured and"
-Write-Output "still be switched off. EIGHT of the TEN observing modules - mission_drift,"
-Write-Output "failure_capture, context_pressure, docs_coupling, git_hygiene and log_rotation"
+Write-Output "still be switched off. SEVEN of the EIGHT observing modules - failure_capture,"
+Write-Output "context_pressure, docs_coupling, git_hygiene and log_rotation"
 Write-Output "(tests\stop_behaviour.ps1), orphan_watch (tests\supervision.ps1) and context_injection"
 Write-Output "(tests\subagent_scan.ps1) - are exercised by suites CI runs on every push and every"
-Write-Output "PR, though for four of those eight that is one to three cases on at most two"
-Write-Output "properties and not end to end. The other TWO - verification_gate and self_health -"
-Write-Output "are exercised by nothing, anywhere. Neither fact is established by this command: no"
-Write-Output "test is run here, and a green run above says nothing about whether any advisory"
-Write-Output "would fire."
+Write-Output "PR, though for four of those seven - context_pressure, docs_coupling, git_hygiene and"
+Write-Output "log_rotation - that is one to three cases on at most two properties and not end to"
+Write-Output "end. The other ONE - self_health - is exercised by nothing, anywhere. Neither fact"
+Write-Output "is established by this command: no test is run here, and a green run above says"
+Write-Output "nothing about whether any advisory would fire."
 Write-Output ''
 Write-Output "THREE GATES SHIP, ALL OFF BY DEFAULT, AND NOTHING HERE EXERCISES ANY OF THEM."
 Write-Output "delegate_gate (lib\gate_delegate.ps1, PreToolUse, refuses Edit, Write, NotebookEdit,"
@@ -820,9 +744,205 @@ Write-Output "(lib\gate_stop.ps1, a blocking turn-end hook on Stop and SubagentS
 Write-Output "completion claim resting on a queued message when supervision.completion_audit is on)."
 Write-Output "The checks above confirm each is registered and that its switch is a real key; whether"
 Write-Output "each actually refuses a call is tested by tests\gate_delegate.ps1 and"
-Write-Output "tests\supervision.ps1, not here. Run /lw-watchtower:status for whether any is armed. The two"
-Write-Output "gates removed on 30 July 2026 - the destructive command gate, then secret_scan - are gone"
-Write-Output "and are not coming back by accident: nothing here inspects a shell command or a credential."
+Write-Output "tests\supervision.ps1, not here. WHICH OF THEM IS ARMED ON THIS MACHINE is the roster"
+Write-Output "printed below, derived from the registry and the live config rather than from this"
+Write-Output "paragraph. The two gates removed on 30 July 2026 - the destructive command gate, then"
+Write-Output "secret_scan - are gone and are not coming back by accident: nothing here inspects a"
+Write-Output "shell command or a credential."
+
+# --- INFORMATIONAL: what is switched on -------------------------------------
+#
+# THIS IS NOT A CHECK, AND THE DISTINCTION IS LOAD-BEARING RATHER THAN
+# PEDANTIC. Nothing below calls Add-Row, so the "- N checks" header, the row
+# list, the RESULT tally and the VERDICT are all computed before this block
+# runs and cannot be moved by it. The exit code is decided underneath from
+# $fails and $warns only. A reader who takes an OFF gate here for a fault has
+# read a report as a diagnosis; OFF is the shipped state.
+#
+# WHERE IT CAME FROM. bin\lwg-status.ps1 is deleted and this is the one thing
+# it printed that nothing else did: the per-module ON/OFF listing and a
+# paragraph per gate. Both are DERIVED - $LwgModuleRegistry plus the resolved
+# config - so a module or gate added later appears here with no edit to this
+# block. It EXTENDS the static roster above rather than repeating it: that
+# paragraph names the three gates this plugin ships, which is a fact about the
+# source tree; this one says which of them can refuse a call on this machine,
+# right now, which is a fact about the config in front of it.
+#
+# IT ALSO CANNOT ABORT THE DOCTOR. The whole block sits in its own try, and a
+# throw is reported as one line saying the roster is missing - never as a
+# check, never as an abort, and never as an exit code. A report that could
+# take the diagnosis down with it would be worse than no report.
+#
+# -Quiet SUPPRESSES THE MODULE TABLE AND KEEPS THE GATES, which is exactly
+# what bin\lwg-status.ps1's -Brief did. A gate that can block work is not
+# noise at any verbosity; an eleven-row module inventory is.
+try {
+    $iCfg   = Get-LwgConfig
+    # Outside a hook there is no payload, so repo identity comes from the cwd -
+    # which is what Get-LwgRepo does with a payload anyway. Per-repo overrides
+    # in config.json therefore apply here exactly as they would in a session,
+    # and the repo they were resolved for is named on the line below because
+    # nothing else in this report says which config actually won.
+    $iRepo  = ''
+    try { $iRepo = (Get-LwgRepoInfo -Path (Get-Location).Path).slug } catch { $iRepo = '' }
+
+    $iEnabled     = @(Get-LwgEnabledModules     -Config $iCfg -Repo $iRepo)
+    $iActive      = @(Get-LwgActiveModules      -Config $iCfg -Repo $iRepo)
+    $iActiveGates = @(Get-LwgActiveGates        -Config $iCfg -Repo $iRepo)
+    $iAll         = @($script:LwgModules)
+    # TWO gate numbers, and collapsing them into one is the whole reason this
+    # section exists. $iShipped is what is DECLARED kind 'gate' in the
+    # registry; $iActiveGates is what is switched on and can refuse a call
+    # right now. Reporting only the first would claim protection that is
+    # switched off; reporting only the second would hide that a gate exists at
+    # all, and an operator cannot turn on a thing they were never told they
+    # have.
+    $iShipped     = @($script:LwgGates)
+
+    Write-Output ''
+    Write-Output 'WHAT IS SWITCHED ON (informational - no check above depends on any of it):'
+    Write-Output ''
+    # "declared implemented", NOT "backed by code". $iActive is `enabled in
+    # config` AND `the registry says status = 'implemented'`, and the second
+    # half is a string literal in lib\common.ps1 - nothing here opens a file.
+    # A module whose implementation had been deleted would still be counted,
+    # so the count is left as a count and honestly labelled. The GATES block
+    # below is the one that says outright when a registry path is not on disk.
+    Write-Output ("  {0} of {1} modules ACTIVE (enabled in config AND declared implemented in the registry)" -f $iActive.Count, $iAll.Count)
+    Write-Output ("  {0} gate(s) SHIPPED: {1}" -f $iShipped.Count, $(if ($iShipped.Count) { $iShipped -join ', ' } else { 'none - this plugin has no blocking code at all' }))
+    Write-Output ("  {0} gate(s) LIVE: {1}" -f $iActiveGates.Count, $(if ($iActiveGates.Count) { ($iActiveGates -join ', ') + ' - these can BLOCK a tool call outright' } else { 'none - nothing can be blocked right now' }))
+    Write-Output ("  resolved for repo: {0}   config: {1}" -f `
+        $(if ($iRepo) { $iRepo } else { '(not in a repo)' }), `
+        $(if ($iCfg._source -eq 'file') { 'config.json' } else { 'BUILT-IN DEFAULTS (config.json unreadable)' }))
+
+    # --- the gates, one paragraph each --------------------------------------
+    # Printed even under -Quiet. The two counts above are numbers; this is the
+    # sentence that stops "3 shipped, 0 live" being read as either "protected"
+    # or "there is nothing here".
+    if ($iShipped.Count -gt 0) {
+        Write-Output ''
+        Write-Output '  GATES'
+        foreach ($g in $iShipped) {
+            $e     = $script:LwgModuleRegistry[$g]
+            $live  = $iActiveGates -contains $g
+            $sw2   = $e.switch
+            $where = if ($null -ne $sw2) { "$($sw2.block).$($sw2.key)" } else { "modules.$g" }
+            $dflt  = if ($null -ne $sw2) { [bool]$sw2.default } else { $true }
+
+            # THE KEY PATH AND THE EFFECTIVE ANSWER ARE NOT JOINED BY AN `=`,
+            # and that is deliberate. Printing
+            #
+            #     switch  : interaction.delegate = false
+            #
+            # puts the RESOLVED answer beside the key spelled in JSON literals,
+            # so the line reads as a quotation of config.json and is not one.
+            # Only a real boolean is a setting: a quoted "true" at that key is
+            # ignored by the resolver and the built-in default stands, so an
+            # operator could open the file, read `"delegate": "true"`, and be
+            # told `interaction.delegate = false` with nothing on screen saying
+            # a written value had been rejected.
+            #
+            # So three facts on three lines: where the switch lives, what is
+            # STORED there, and what it RESOLVED to. Format-LwgFlagState is the
+            # renderer the config command uses, and it has the third word -
+            # 'ignored' - that a bare boolean cannot express.
+            #
+            # WHAT THIS STILL DOES NOT DO: name the winning SCOPE. A per-repo
+            # override that differs from the global resolves correctly and
+            # reports correctly, and the `in file` line shows the GLOBAL value
+            # only, so on that config the two lines disagree with no
+            # explanation.
+            #
+            # THE FALLBACK PATH GETS ITS OWN SENTENCE or this reproduces the
+            # defect it is fixing. Get-LwgConfig FAILS OPEN: an unparseable
+            # config.json returns the built-in defaults, which carry no
+            # `interaction` block at all. Reading it for the stored value on
+            # that path yields $null, and printing "not present" would be a
+            # second line reading as a quotation of a file that was never read.
+            $fromFile  = ($iCfg._source -eq 'file')
+            $storedRaw = $null
+            if ($fromFile) {
+                if ($null -ne $sw2) {
+                    try { $storedRaw = $iCfg.($sw2.block).($sw2.key) } catch { $storedRaw = $null }
+                } else {
+                    try { $storedRaw = $iCfg.modules.$g } catch { $storedRaw = $null }
+                }
+            }
+            $storedText =
+                if (-not $fromFile)                { 'NOT READ - config.json did not parse, so this is the built-in default and not the file. See the config-registry row above' }
+                elseif ($null -eq $storedRaw)      { 'not present - the built-in default stands' }
+                elseif ($storedRaw -isnot [bool])  { "'$storedRaw' - NOT A BOOLEAN, so it is IGNORED and the built-in default stands" }
+                else                               { Format-LwgFlagState $storedRaw }
+
+            Write-Output ("    {0}  {1}" -f $g, $(if ($live) { 'LIVE - it can refuse a tool call right now' } else { 'OFF - it refuses nothing' }))
+            Write-Output ("      switch  : {0}   (ships {1})" -f $where, $(if ($dflt) { 'ON' } else { 'OFF BY DEFAULT' }))
+            Write-Output ("      in file : {0}" -f $storedText)
+            Write-Output ("      resolved: {0}" -f $(if ($live) { 'on' } else { 'off' }))
+
+            # `code:` IS A REGISTRY STRING AND SAYS SO WHEN THE FILE IS NOT
+            # THERE. $e.impl is a display field: for delegate_gate it is a
+            # path, for log_rotation it is 'lib/common.ps1 (Invoke-LwgRotate),
+            # called from lib/supervisor.ps1'. Nothing above read the disk for
+            # it, so a gate whose implementation had been deleted would print
+            # its file name under a heading promising the switch would make it
+            # LIVE. THE FINDING IS STATED ON THE LINE AND IS NOT TURNED INTO A
+            # FAILURE - this block is informational, and a missing impl file
+            # becoming a FAIL row is a CHECK someone has to write above.
+            $implPath = ''
+            if ($e.impl -match '^[A-Za-z0-9_./\\-]+\.ps1$') { $implPath = [string]$e.impl }
+            $implNote = ''
+            if ($implPath) {
+                $full = Join-Path $pluginRoot ($implPath -replace '/', '\')
+                if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+                    $implNote = '   *** NOT ON DISK - the registry names a file that is not there ***'
+                }
+            }
+            Write-Output ("      code    : {0}{1}" -f $e.impl, $implNote)
+        }
+        Write-Output ''
+        Write-Output '    OFF BY DEFAULT IS THE SHIPPED STATE, not a fault and not something for this'
+        Write-Output '    report to fix silently. A gate that blocks work the operator did not ask to'
+        Write-Output '    have blocked gets the whole plugin disabled, so nothing here arms itself.'
+        Write-Output '    Turn one on and the LIVE count above moves with it. No check above reads'
+        Write-Output '    these lines, so an OFF gate never costs a passing verdict.'
+    }
+
+    if (-not $Quiet) {
+        Write-Output ''
+        # STATE is the only column that answers "is this doing anything". The
+        # other three exist so a reader can see WHY, because "off" and "cannot
+        # be built" are different facts and one column would flatten them into
+        # the same silence.
+        Write-Output '  MODULE                 KIND     BUILT        ENABLED  STATE'
+        Write-Output '  ---------------------- -------- ------------ -------- -------------------------'
+        foreach ($m in $iAll) {
+            $e     = $script:LwgModuleRegistry[$m]
+            $isOn  = $iEnabled -contains $m
+            $built = if ($e.blocked -eq $true) { 'BLOCKED' } elseif ($e.status -eq 'implemented') { 'yes' } else { 'no' }
+            $state =
+                if ($iActive -contains $m)          { 'ACTIVE' }
+                elseif ($e.blocked -eq $true)       { 'inert - no hook can supply its data' }
+                elseif ($e.status -ne 'implemented'){ 'inert - not written yet' }
+                # A module switched from outside the `modules` block names the
+                # key that actually holds it. "switched off in config" would
+                # send a reader to a flag that is not there.
+                elseif ($null -ne $e.switch)        { "off - $($e.switch.block).$($e.switch.key) is false" }
+                else                                { 'off - switched off in config' }
+            Write-Output ('  {0} {1} {2} {3} {4}' -f `
+                $m.PadRight(22), $e.kind.PadRight(8), $built.PadRight(12), `
+                $(if ($isOn) { 'on' } else { 'off' }).PadRight(8), $state)
+        }
+        Write-Output ''
+        Write-Output '  A flag set to on is an INTENTION. Only the STATE column reports behaviour:'
+        Write-Output '  an enabled module with no code behind it is inert, and is counted nowhere'
+        Write-Output '  as coverage. Nothing in this table was checked by anything above it.'
+    }
+} catch {
+    Write-Output ''
+    Write-Output "  (the module and gate roster could not be produced: $($_.Exception.Message))"
+    Write-Output '  Nothing above or below is affected: this block is a report, not a check, and'
+    Write-Output '  the verdict was decided before it ran.'
+}
 
 if ($fails.Count -gt 0) {
     Write-Output ''

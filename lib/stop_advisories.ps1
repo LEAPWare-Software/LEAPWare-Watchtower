@@ -1,18 +1,18 @@
 #requires -version 5
 <#
-  LW-WATCHTOWER advisory handler - context_pressure, verification_gate, docs_coupling,
-  git_hygiene and mission_drift, on the Stop event.
+  LW-WATCHTOWER advisory handler - context_pressure, docs_coupling and
+  git_hygiene, on the Stop event.
 
   Invoked from hooks/hooks.json in exec form:
       command: "powershell"
       args:    ["-NoProfile","-ExecutionPolicy","Bypass","-File",
                 "${CLAUDE_PLUGIN_ROOT}/lib/stop_advisories.ps1"]
 
-  WHY ONE SCRIPT FOR FIVE MODULES
+  WHY ONE SCRIPT FOR THREE MODULES
   Stop fires at the end of every single turn, and each registered hook is a
   separate PowerShell process - roughly 285 ms of interpreter startup that buys
-  nothing. Five hooks would put well over a second on every turn end. So the
-  five modules share one process and each gates itself independently: switching
+  nothing. Three hooks would put most of a second on every turn end. So the
+  three modules share one process and each gates itself independently: switching
   one off leaves the others running, and switching all of them off makes this
   script exit before it resolves a repo or touches the state dir.
 
@@ -49,42 +49,6 @@ function Format-Tokens([int]$n) {
     if ($n -ge 1000000) { return ('{0:0.0}M' -f ($n / 1000000.0)) }
     if ($n -ge 1000)    { return ('{0:0}k'   -f ($n / 1000.0)) }
     return [string]$n
-}
-
-function Expand-LwgAgentName {
-    <#
-      Every spelling one configured agent name can arrive as, for
-      verification_gate's two lists: the name as written, plus its bare form if
-      it was written with a `<plugin>:` prefix.
-
-      An agent role shipped by a plugin is reported by SubagentStop under its
-      NAMESPACED name - "lw-watchtower:lw-verifier" - while the same role copied into
-      ~/.claude/agents is reported bare, as "lw-verifier". An operator may
-      reasonably write either into config.json, so neither spelling can be
-      required. Expanding the configured side here and stripping the observed
-      side at the match point means the two meet whichever way round they were
-      written.
-
-      EVERY return is comma-wrapped, and that is load-bearing rather than style.
-      PowerShell unrolls a returned collection, so a bare `return @()` reaches the
-      caller as $null - and in Windows PowerShell 5.1 `foreach ($x in $null)`
-      runs ONCE, with $x null, which would put a null into a
-      HashSet[string] whose comparer throws on one. `,@(...)` returns the array
-      itself, so the empty case iterates zero times and the one-name case
-      iterates over the NAME rather than over its characters.
-    #>
-    param([string]$Name)
-
-    $n = [string]$Name
-    if ([string]::IsNullOrWhiteSpace($n)) { return ,@() }
-    $n = $n.Trim()
-
-    # A plugin name cannot contain ':', so the FIRST colon is the separator. A
-    # trailing colon with nothing after it is not a prefix, it is a typo, and
-    # stripping it would add the empty string to the match set.
-    $ci = $n.IndexOf(':')
-    if ($ci -ge 0 -and $ci -lt ($n.Length - 1)) { return ,@($n, $n.Substring($ci + 1)) }
-    return ,@($n)
 }
 
 # --- subprocess plumbing (git_hygiene only) --------------------------------
@@ -413,18 +377,16 @@ try {
     # rather than each block re-asking. With every one of them off this script
     # exits without resolving a repo, reading the state dir or spawning anything.
     $onContext = Test-LwgModule -Name 'context_pressure'  -Config $cfg -Repo $repo
-    $onVerify  = Test-LwgModule -Name 'verification_gate' -Config $cfg -Repo $repo
     $onDocs    = Test-LwgModule -Name 'docs_coupling'     -Config $cfg -Repo $repo
     $onGit     = Test-LwgModule -Name 'git_hygiene'       -Config $cfg -Repo $repo
-    $onMission = Test-LwgModule -Name 'mission_drift'     -Config $cfg -Repo $repo
-    # A sixth flag, $onTrips, sat here. It was a Test-Path for this session's
+    # A fourth flag, $onTrips, sat here. It was a Test-Path for this session's
     # trips-<sessionkey>.json rather than a module lookup, because no module owned
     # it any more: the gates that wrote trips went on 30 July 2026 and the sweep
     # below was kept only so ledgers written BEFORE that could still reach a
     # close. The ledger files were removed later the same day and lib/trips.ps1
     # with them, so the Test-Path can no longer be true for anything and the file
     # it decided whether to dot-source no longer exists.
-    if (-not ($onContext -or $onVerify -or $onDocs -or $onGit -or $onMission)) { exit 0 }
+    if (-not ($onContext -or $onDocs -or $onGit)) { exit 0 }
 
     $sessionId = [string]$payload.session_id
     $sessKey   = Get-LwgSessionKey -SessionId $sessionId
@@ -436,7 +398,7 @@ try {
     # git_hygiene, part one - LAUNCH ONLY
     # =====================================================================
     # `git status` is the only subprocess this script starts. It is launched
-    # HERE, before the four in-process modules run, and collected after them, so
+    # HERE, before the two in-process modules run, and collected after them, so
     # the child runs alongside their work instead of after it. Nothing between
     # here and the collection point depends on the answer.
     #
@@ -666,247 +628,6 @@ try {
     }
 
     # =====================================================================
-    # verification_gate  (ADVISORY - it does not gate anything)
-    # =====================================================================
-    # DATA SOURCE: health.jsonl, written by lib/supervisor.ps1's SubagentStop
-    # handler, which records agent_type from the payload. Confirmed against the
-    # live log: SubagentStop records carry the MAIN session id, so they join to
-    # this Stop event on `session`.
-    #
-    # HEURISTIC, and its failure modes, stated up front because a governance
-    # warning that people cannot reason about gets ignored:
-    #
-    #   Warn when the newest work-agent SubagentStop for this session is NEWER
-    #   than the newest verify-agent SubagentStop (or there is no verify record
-    #   at all).
-    #
-    #   FALSE NEGATIVES - it will stay silent when it should not:
-    #     * work done by the main thread itself, with no subagent, is invisible
-    #     * a SubagentStop whose agent_type is null is invisible (about half the
-    #       records in the inherited log are null - older CLI builds did not
-    #       populate the field)
-    #     * a worker not on the work_agents list is invisible
-    #   FALSE POSITIVES - it will warn when nothing was wrong:
-    #     * an implementer dispatched to READ or investigate, changing nothing
-    #     * verification done by the user, or by the orchestrator reading the
-    #       diff itself, leaves no SubagentStop record
-    #     * a verifier run in a different session for the same work
-    #
-    #   It is gated on evidence of WORK, not on the turn merely ending, which is
-    #   what keeps a session that only answered a question from being nagged.
-    #
-    # HOW A ROLE IS CLASSIFIED, since 30 July 2026: from the `lw-class` key in
-    # the role's OWN frontmatter - `work`, `verify` or `neutral` - resolved by
-    # Get-LwgAgentClassInfo, which turns the observed agent_type back into the
-    # .md file it names and reads the key out of it. That is the design in
-    # docs/roles.md, and until this landed nothing anywhere read the key: all six
-    # shipped roles declared it, the module was enabled and counted as coverage,
-    # and it classified from two hand-maintained name arrays - a switch wired to
-    # nothing reporting itself as coverage, which is the founding defect this
-    # plugin exists to catch, committed by the plugin that exists to catch it.
-    #
-    # THE ARRAYS ARE KEPT, AS A FALLBACK AND ONLY AS ONE. `lw-class` wins
-    # wherever it is present. They are consulted only for a role that declares
-    # no class, and they are not redundant: the generic entries (`implementer`,
-    # `qa-agent`, `code-review`) name no file at all and so can never declare a
-    # key. The four hq-* names that sat here alongside them were struck on 31
-    # July 2026, after the user-scope role files that carried them had been
-    # renamed to lw-* and given an explicit lw-class; the consequence for a
-    # machine that still has hq-* role files is recorded at config.json's
-    # $classifier_comment. Removing the generic entries would silently
-    # unclassify every role that has no file to declare a key in.
-    #
-    # A NAME THAT RESOLVES TO NO FILE AND IS IN NEITHER ARRAY IS "NO
-    # INFORMATION", handled exactly like an empty agent_type: it neither arms the
-    # gate nor disarms it. It is NOT counted as work, because nagging on evidence
-    # of nothing is how this channel gets ignored, and it is NOT counted as
-    # verification, because that would silence the gate on the same absence.
-    if ($onVerify) {
-        try {
-            if (-not [string]::IsNullOrWhiteSpace($sessionId)) {
-                # The DEFAULTS carry the plugin's own shipped roles as well as the
-                # bare names, so this module is not blind on an install whose
-                # config.json is missing, stripped or unreadable. Get-LwgConfig
-                # fails open to built-in defaults, and a default list naming only
-                # roles that exist on one laptop is a gate that reports itself
-                # configured and matches nothing.
-                $workAgents = @(Get-LwgModuleOption -Config $cfg -Module 'verification_gate' -Key 'work_agents' `
-                    -Default @('lw-implementer', 'lw-scribe', 'lw-healer',
-                               'implementer', 'scribe', 'engineer', 'healer'))
-                $verifyAgents = @(Get-LwgModuleOption -Config $cfg -Module 'verification_gate' -Key 'verify_agents' `
-                    -Default @('lw-verifier', 'verifier', 'qa-agent',
-                               'code-review', 'security-adversarial-review'))
-
-                # Both the namespaced and the bare spelling of every configured
-                # name go into the set. The match below normalises the OBSERVED
-                # side only, and an operator may have written either spelling
-                # here, so the configured side is expanded rather than assumed.
-                # See the note on the prefix at the match itself.
-                $workSet   = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-                foreach ($a in $workAgents)   { foreach ($n in (Expand-LwgAgentName $a)) { [void]$workSet.Add($n) } }
-                $verifySet = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-                foreach ($a in $verifyAgents) { foreach ($n in (Expand-LwgAgentName $a)) { [void]$verifySet.Add($n) } }
-
-                # @() is load-bearing. Get-LwgHealthRecords emits a stream, and
-                # an unwrapped single record has a $null .Count that compares as
-                # 0 - which would make this module report "no work happened" on
-                # exactly the sessions that had one work record.
-                $recs = @(Get-LwgHealthRecords -Session $sessionId -Event 'SubagentStop' -Tail 400)
-
-                # One sweep. ISO-8601 'o' timestamps compare correctly as plain
-                # strings, so the newest of each kind is just a running maximum -
-                # Sort-Object with a script block over a few hundred records
-                # costs more than everything else this module does put together.
-                $workCount   = 0
-                $verifyCount = 0
-                $workTs      = ''
-                $verifyTs    = ''
-                $workTypes   = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-
-                # How each classified record was decided, for the event record.
-                # A gate that cannot say WHY it classified something the way it
-                # did is a gate nobody can debug, and these two numbers are also
-                # how the migration off the arrays is measured.
-                $byClass = 0
-                $byName  = 0
-                $unknown = 0
-
-                # The project scope of the precedence chain, from the payload's
-                # own cwd. Absent or unreadable simply drops that scope: the user
-                # and plugin scopes still resolve, and a role that only exists in
-                # a project directory this hook cannot see is unresolved, which is
-                # "no information" like every other unresolved name.
-                $projRoot = [string]$payload.cwd
-
-                # One VERDICT per distinct agent_type, not per record. A hashtable,
-                # so the lookup is case-insensitive on the key exactly as the two
-                # name sets are.
-                #
-                # Get-LwgAgentClassInfo memoises the file lookup already, so this
-                # saves no I/O - it saves the CALL. Measured on one machine: 400
-                # fully-memoised calls to it cost 42 ms of pure PowerShell
-                # function-call overhead, for an answer that cannot differ between
-                # two records naming the same role. A hashtable hit is what is
-                # left, and there are five distinct names behind those 400 records.
-                $verdict = @{}
-
-                foreach ($r in $recs) {
-                    if ($r.event -ne 'SubagentStop') { continue }
-                    $at = [string]$r.agent_type
-
-                    # AN EMPTY agent_type IS "NO INFORMATION", NEVER "NOT A
-                    # VERIFIER". About 28% of observed SubagentStop records carry
-                    # the empty string, and such a record is unclassifiable by any
-                    # scheme: it can neither arm the gate nor disarm it. `continue`
-                    # is the only correct handling and it must stay - counting it
-                    # as work would nag on evidence of nothing, and counting it as
-                    # verification would silence the gate on the same evidence.
-                    if ([string]::IsNullOrWhiteSpace($at)) { continue }
-
-                    $ts = [string]$r.ts
-
-                    # --- 1. the role's own declaration ----------------------
-                    # A PLUGIN-SHIPPED ROLE ARRIVES NAMESPACED. Verified from a
-                    # live record: dispatching this plugin's own explorer logs
-                    # agent_type "lw-watchtower:lw-explorer", while the same role
-                    # copied into ~/.claude/agents logs it bare. Both
-                    # spellings have to keep working, so the prefix is stripped
-                    # for the lookup and used to decide which scope to search
-                    # first. Get-LwgAgentClassInfo does both, and memoises, so a
-                    # session's handful of distinct names costs a handful of
-                    # [IO.File]::Exists probes for the whole 400-record sweep.
-                    if ($verdict.ContainsKey($at)) {
-                        $v    = $verdict[$at]
-                        $cls  = [string]$v.cls
-                        $how  = [string]$v.how
-                    } else {
-                        $ai   = Get-LwgAgentClassInfo -Name $at -ProjectRoot $projRoot
-                        $cls  = [string]$ai.class
-                        $bare = [string]$ai.bare
-                        $how  = 'lw-class'
-
-                        # --- 2. the configured arrays, ONLY as a fallback ---
-                        # Reached when the role declares no lw-class: a role
-                        # file written before the key existed and never given
-                        # one, a name with no file at all, a role belonging to
-                        # another plugin. An operator may have written either
-                        # spelling into config.json, so both are tried against
-                        # both spellings of the observed value.
-                        if ($cls -eq '') {
-                            $how = 'config-name'
-                            if     ($workSet.Contains($at)   -or $workSet.Contains($bare))   { $cls = 'work' }
-                            elseif ($verifySet.Contains($at) -or $verifySet.Contains($bare)) { $cls = 'verify' }
-                        }
-                        $verdict[$at] = @{ cls = $cls; how = $how }
-                    }
-
-                    # --- 3. act on the class, and on nothing else -----------
-                    # 'neutral' is a REAL answer and deliberately does neither:
-                    # an explorer that read files and found nothing wrong has not
-                    # verified anything, and classing it as verification would let
-                    # a search satisfy a gate that exists to demand a check.
-                    # '' after both steps is NO INFORMATION and falls through the
-                    # same way an empty agent_type does.
-                    if ($cls -eq 'work') {
-                        if ($how -eq 'lw-class') { $byClass++ } else { $byName++ }
-                        $workCount++
-                        [void]$workTypes.Add($at)
-                        if ($ts -gt $workTs) { $workTs = $ts }
-                    } elseif ($cls -eq 'verify') {
-                        if ($how -eq 'lw-class') { $byClass++ } else { $byName++ }
-                        $verifyCount++
-                        if ($ts -gt $verifyTs) { $verifyTs = $ts }
-                    } elseif ($cls -eq 'neutral') {
-                        $byClass++
-                    } else {
-                        $unknown++
-                    }
-                }
-
-                if ($workCount -gt 0) {
-
-                    $unverified = ($verifyTs -eq '' -or ($verifyTs -lt $workTs))
-                    if ($unverified -and ([string]$state['verify_warned_ts']) -ne $workTs) {
-                        $state['verify_warned_ts'] = $workTs
-                        $stateDirty = $true
-
-                        $who = (@($workTypes) -join ', ')
-                        Write-LwgEvent -Event 'VerificationMissing' -Payload $payload -Extra @{
-                            module           = 'verification_gate'
-                            work_agents_seen = $who
-                            work_count       = $workCount
-                            verify_count     = $verifyCount
-                            last_work_ts     = $workTs
-                            last_verify_ts   = $verifyTs
-                            # HOW, not just what. by_lw_class counts records
-                            # decided from the role's own frontmatter,
-                            # by_config_name those that fell back to the arrays,
-                            # and unclassified those that reached neither - the
-                            # records this module deliberately drew NO conclusion
-                            # from, which is the number to look at first when it
-                            # says something surprising.
-                            by_lw_class      = $byClass
-                            by_config_name   = $byName
-                            unclassified     = $unknown
-                        } | Out-Null
-
-                        $tail = if ($verifyCount -gt 0) { 'the last verification predates it' } else { 'nothing has independently verified it' }
-                        # The role NAMED here is the one this plugin ships, not
-                        # the one on the author's laptop: an advisory that tells
-                        # every installing user to dispatch an agent that exists
-                        # only in someone else's ~/.claude/agents is advice that
-                        # cannot be followed.
-                        Add-Advisory "LW-WATCHTOWER verification: $workCount work subagent(s) finished this session ($who) and $tail. Read the changed files or dispatch a verify-class agent (lw-verifier) before reporting this as done."
-                    }
-                }
-            }
-        } catch {
-            try { Write-LwgEvent -Event 'AdvisoryError' -Payload $payload -Extra @{
-                module = 'verification_gate'; error = $_.Exception.Message } | Out-Null } catch { }
-        }
-    }
-
-    # =====================================================================
     # docs_coupling  (ADVISORY)
     # =====================================================================
     # DATA SOURCE: the per-session path list lib/post_edit.ps1 appends to on
@@ -920,14 +641,15 @@ try {
     #   files (JSON, YAML, lockfiles) are classified 'other' on purpose, because
     #   counting lockfile churn as source is how this turns into noise nobody
     #   reads.
-    # The edit list is read and classified ONCE here, because mission_drift
-    # needs the same three buckets. Reading and re-classifying it per module
-    # would pay the same ~35 ms twice for an identical answer.
+    # The edit list is read and classified ONCE, into three buckets. It used to
+    # be read for TWO modules - mission_drift wanted the same buckets - and the
+    # shape is kept because the cost argument for reading it once still holds:
+    # re-classifying 200 paths is ~35 ms at every turn end.
     $srcPaths   = @()
     $docPaths   = @()
     $otherCount = 0
     $haveEdits  = $false
-    if ($onDocs -or $onMission) {
+    if ($onDocs) {
         try {
             $editFile = Join-Path (Get-LwgStateDir) ("edits-$sessKey.txt")
             if (Test-Path -LiteralPath $editFile) {
@@ -949,25 +671,23 @@ try {
                 $haveEdits = $true
             }
         } catch {
-            # THE READ IS SHARED AND SO IS THE ATTRIBUTION, which it was not.
-            # The guard five lines up is `$onDocs -or $onMission`; this handler
-            # named docs_coupling unconditionally, so on a session running
-            # `docs_coupling: false, mission_drift: true` - a supported pair,
-            # and the one lib/post_edit.ps1's gate was widened to keep working -
-            # the evidence log recorded an error against a module that was not
-            # running and recorded nothing against the module that had just
-            # silently produced no assessment. `module` is the only routing a
-            # record carries; bin/lwg-sitrep.ps1 and bin/lwg-evidence.ps1 read
-            # it, so a wrong value there is a wrong report, not a cosmetic one.
+            # THE ATTRIBUTION IS THE MODULE THE READ WAS FOR, and it is now
+            # exactly one. It used to be a join over two - the read was shared
+            # with mission_drift, whose flag could be on while docs_coupling's
+            # was off, and naming docs_coupling unconditionally then recorded an
+            # error against a module that was not running and nothing against
+            # the module that had just silently produced no assessment. With
+            # mission_drift removed the guard above is `$onDocs` alone, so
+            # docs_coupling is the only module this read can be for and the
+            # literal is correct rather than merely usually correct. `module` is
+            # the only routing a record in lw-watchtower.jsonl carries, so a
+            # wrong value there is a wrong report, not a cosmetic one.
             #
-            # The value is now the modules the read was actually for, joined -
-            # 'docs_coupling', 'mission_drift' or 'docs_coupling+mission_drift'.
             # `phase = 'read-edits'` still distinguishes this handler from
-            # docs_coupling's own below, which is what made the misattribution
-            # survivable for anyone who knew the code.
-            $editOwners = @(@(if ($onDocs) { 'docs_coupling' }) + @(if ($onMission) { 'mission_drift' })) -join '+'
+            # docs_coupling's own below, which is the only thing that separates
+            # the two now that the module name no longer does.
             try { Write-LwgEvent -Event 'AdvisoryError' -Payload $payload -Extra @{
-                module = $editOwners; phase = 'read-edits'; error = $_.Exception.Message } | Out-Null } catch { }
+                module = 'docs_coupling'; phase = 'read-edits'; error = $_.Exception.Message } | Out-Null } catch { }
         }
     }
 
@@ -1010,576 +730,6 @@ try {
         } catch {
             try { Write-LwgEvent -Event 'AdvisoryError' -Payload $payload -Extra @{
                 module = 'docs_coupling'; error = $_.Exception.Message } | Out-Null } catch { }
-        }
-    }
-
-    # =====================================================================
-    # mission_drift  (ADVISORY - ON BY DEFAULT SINCE 30 JULY 2026)
-    # =====================================================================
-    # DATA SOURCE: the transcript, read INCREMENTALLY. Every hook receives
-    # transcript_path, and the operator's typed prompts are records in it. Each
-    # turn this reads only the bytes the file has grown by since the last turn -
-    # so the cost is one turn's growth, not the size of the session - and folds
-    # any new prompts into a set of anchors carried in the session's state file.
-    #
-    # WHAT IT KEEPS OF A PROMPT, AND WHY IT KEEPS IT AS TEXT. This module is the
-    # only one here that reads what the operator TYPED, so it is the only one
-    # that can copy a secret out of a prompt, and it keeps two things: anchors on
-    # disk in advisory-<sessionkey>.json, and up to four of them quoted in the
-    # advisory. Every prompt therefore goes through Get-LwgRedacted before it is
-    # tokenised - see the call below for why that is the only workable point.
-    #
-    # A HASH WOULD SERVE THE MATCHING AND WAS REJECTED ANYWAY. The comparison
-    # this module performs is exact, case-insensitive equality between an anchor
-    # and a segment of an edited path, so hashing both sides would answer the
-    # same question with nothing readable left on disk. Two things stop it. The
-    # advisory NAMES the anchors it compared against - "you named: ..." is the
-    # whole of what makes a drift warning arguable rather than mystifying, and
-    # by the time one fires the prompt that named the work is many turns back,
-    # so the persisted form is the only copy there is. And the matching itself
-    # lives in Test-LwgMissionAccounted and Get-LwgPathSegments in
-    # lib/common.ps1, which are shared: hashing here would mean either changing
-    # them for every caller or reimplementing them at this call site, and a
-    # second copy of the segmenting rules is how the two copies drift apart.
-    # Redaction at the point of ingest is what is done instead, and its limit -
-    # the pattern list, and nothing beyond it - is stated at the call.
-    #
-    # There is deliberately NO UserPromptSubmit hook. That is the obvious place
-    # to capture a mission and it costs a whole PowerShell process (285 ms
-    # measured) on every prompt, spawned whether the module is on or off,
-    # because a hook registration cannot be made conditional. Reading the
-    # transcript costs ~137 ms inside a process that already exists, and costs
-    # exactly nothing when the flag is off.
-    #
-    # THE TRIGGER, stated exactly, because a warning nobody can reason about is
-    # a warning nobody trusts. It fires only when ALL of these hold:
-    #
-    #   1. the operator has named at least one concrete path or filename in some
-    #      prompt this session. With nothing named there is no basis to judge
-    #      anything, so the module says nothing at all;
-    #   2. at least `min_files` source or documentation files were edited;
-    #   3. EVERY one of them is outside the workspace root (git root, else cwd) -
-    #      relaxable with require_outside_root:false, at a real cost in false
-    #      positives;
-    #   4. and NONE of them shares a directory segment, a filename stem or an
-    #      ordinary word with anything the operator has named, in ANY prompt this
-    #      session - not just the first.
-    #
-    # WHY A PIVOT CANNOT TRIP IT. Anchors ACCUMULATE across the whole session
-    # and are never reset. The moment the operator redirects the work, that new
-    # prompt's nouns and paths become anchors too, and the work that follows
-    # matches them. Drift is work that matches NOTHING that was ever asked for -
-    # a pivot is, by construction, something that was asked for.
-    #
-    # THAT HOLDS ONLY BELOW max_anchors, and it is a guarantee with an expiry
-    # rather than a guarantee. Accumulation STOPS at the cap instead of making
-    # room, and the total is carried in the state file and only grows, so the
-    # first turn to reach 400 anchors is the last turn that learns anything.
-    # The module latches silent when that happens - see the saturation check
-    # below the parse loop - which stops it warning about a pivot it could not
-    # see, and does NOT restore the property. Once the cap is reached the pivot
-    # argument no longer applies for the rest of the session.
-    #
-    # FALSE POSITIVES it can still produce: a redirection phrased with no
-    # concrete noun at all ("now fix the other repo") followed by edits in a
-    # tree nobody named. FALSE NEGATIVES, which are many and deliberate: any
-    # drift inside the workspace root, any drift that also touched something
-    # asked for, and anything done by a shell command rather than an edit tool.
-    #
-    # IT IS ON BY DEFAULT since 30 July 2026, by explicit owner decision. It
-    # shipped OFF because that trigger was never validated against real
-    # sessions, and it still has not been - so the false-positive class named
-    # two paragraphs up is live for every install. What IS tested, from 31 July
-    # 2026, is that the code does what this comment says: tests/stop_behaviour.ps1
-    # runs this block in a real child process across several turns, and the
-    # pivot path above is now RUN rather than read - anchors that stop
-    # accumulating turn that case red. A test of the trigger is not a validation
-    # of the trigger; do not read one as the other. See the registry note in
-    # lib/common.ps1 and "mission_drift" in docs/modules.md.
-    if ($onMission) {
-        try {
-            $mdMaxScan  = [int](Get-LwgModuleOption -Config $cfg -Module 'mission_drift' -Key 'max_scan_bytes'       -Default 2097152)
-            $mdMaxAnch  = [int](Get-LwgModuleOption -Config $cfg -Module 'mission_drift' -Key 'max_anchors'          -Default 400)
-            $mdMinFiles = [int](Get-LwgModuleOption -Config $cfg -Module 'mission_drift' -Key 'min_files'            -Default 3)
-            # The record bound was a bare literal in the parse loop while the
-            # three above were knobs, and it is the bound most likely to want
-            # raising: it bites on a RESUMED session, where one slice is the
-            # whole transcript, and latching costs that session the module for
-            # the rest of its life. Floored at 1 rather than trusted - a 0 or a
-            # negative would latch on the first record and silence the module
-            # unconditionally, which is a config typo turning a module off
-            # without saying so.
-            $mdMaxRec   = [int](Get-LwgModuleOption -Config $cfg -Module 'mission_drift' -Key 'max_parse_records'    -Default 400)
-            if ($mdMaxRec -lt 1) { $mdMaxRec = 400 }
-            # A BOOLEAN OPTION, so it goes through Get-LwgModuleFlag and not a
-            # bare [bool]: only a real boolean is a setting here, by the same
-            # rule as the `modules` block. The three numeric knobs above are
-            # numbers and the rule does not apply to them.
-            $mdOutside  = Get-LwgModuleFlag -Config $cfg -Module 'mission_drift' -Key 'require_outside_root' -Default $true
-
-            # WHAT SHAPE THE PERSISTED ANCHORS ARE IN, written into the state
-            # file as md_redact and compared against it on the way back. Not a
-            # tuning knob and not read from config: it is this code's own record
-            # of what it wrote, and an operator has no business setting it. 1 is
-            # "every anchor in this file came out of a prompt that had been
-            # through Get-LwgRedacted first". 0, which is what absent reads as,
-            # is a file written before that was true. See the rebuild below.
-            $mdRedactMark = 1
-
-            # The workspace root: the git root when there is one, else cwd. It is
-            # both the "inside" test in condition 3 and the source of the
-            # segments that carry no information (see Get-LwgMissionScope).
-            $mdRoot = ''
-            $mdInfo = $(if ($null -ne $gitInfo) { $gitInfo } else { Get-LwgRepoInfo -Path ([string]$payload.cwd) })
-            if ($null -ne $mdInfo -and $mdInfo.root) { $mdRoot = [string]$mdInfo.root }
-            if ([string]::IsNullOrWhiteSpace($mdRoot)) { $mdRoot = [string]$payload.cwd }
-            $mdScope = Get-LwgMissionScope -Root $mdRoot
-
-            # Rehydrate the anchors carried over from earlier turns. @() is
-            # load-bearing: a single-element array round-trips through JSON as a
-            # bare string, and foreach over a bare string yields the string,
-            # which is what we want - but .Count on it would be $null.
-            $mdAnchors = New-LwgMissionAnchors
-            foreach ($a in @($state['md_paths'])) { if (-not [string]::IsNullOrWhiteSpace([string]$a)) { if ($mdAnchors.paths.Add([string]$a)) { $mdAnchors.total++ } } }
-            foreach ($a in @($state['md_words'])) { if (-not [string]::IsNullOrWhiteSpace([string]$a)) { if ($mdAnchors.words.Add([string]$a)) { $mdAnchors.total++ } } }
-
-            $mdIncomplete = ($state['md_incomplete'] -eq $true)
-            $mdOffset = 0
-            if ($null -ne $state['md_offset']) { try { $mdOffset = [long]$state['md_offset'] } catch { $mdOffset = 0 } }
-
-            # --- state written before prompts were redacted -----------------
-            # UNTIL THE REDACTION BELOW LANDED, EVERY ANCHOR IN THIS FILE WAS
-            # RAW PROMPT TEXT. A session that was already running when the
-            # plugin was updated has such a file on disk, and rehydrating it
-            # would take those anchors straight back into the set this turn
-            # persists and quotes in its advisory - so the fix would hold for
-            # new sessions and leave the old ones leaking, which is a fix that
-            # overstates itself.
-            #
-            # THEY CANNOT BE CLEANED IN PLACE, and that is why this discards
-            # rather than launders. An anchor is one lowercased token with its
-            # sentence gone: 'zebrakestrel99' is unrecognisable as a credential
-            # once `api_key = ` is no longer beside it, and an AWS-shaped value
-            # no longer matches its own pattern once it has been lowercased.
-            # Get-LwgRedacted needs the surrounding text to decide, so the only
-            # honest place to run it is on the prompt, which is where it now
-            # runs. Anything already reduced to a token is past saving.
-            #
-            # SO THE ANCHORS GO AND THE OFFSET GOES BACK TO ZERO: the transcript
-            # is re-read from the start on this one turn and the anchors are
-            # rebuilt through the redaction path, which costs one full read once
-            # per upgraded session and nothing afterwards.
-            #
-            # A REBUILD IS THE ONE READ THAT CAN HIT EITHER BOUND, and BOTH of
-            # them now latch. Bigger than max_scan_bytes and the read is skipped;
-            # more than 400 records and the parse stops early. Either way
-            # md_incomplete is set and the module falls silent for the rest of
-            # the session rather than judging on an anchor set it knows is short -
-            # see the latch below the parse loop, which had to be added for this
-            # rebuild to be safe. Silence is the direction this module fails in.
-            #
-            # md_assessed and md_sig are deliberately NOT reset. They record what
-            # has already been said, and clearing them would re-fire a warning
-            # the operator has already read.
-            #
-            # The marker is a NUMBER, not a boolean, so a later change to what is
-            # persisted can raise it and get the same one-turn rebuild. It is
-            # written where the anchors are written, below, and never on its own -
-            # a marker claiming the file is redacted must not be able to land in a
-            # file whose anchors were not rewritten in the same pass.
-            #
-            # Read the way md_offset is read directly above, and for the same
-            # reason: a hand-edited or half-written state file must not throw out
-            # of this block. A value this cannot parse reads as 0, which is the
-            # same as absent, which rebuilds - the safe answer either way.
-            $mdMark = 0
-            if ($null -ne $state['md_redact']) { try { $mdMark = [int]$state['md_redact'] } catch { $mdMark = 0 } }
-
-            $mdMigrated = $false
-            if ($mdMark -ne $mdRedactMark -and
-                ($null -ne $state['md_paths'] -or $null -ne $state['md_words'] -or $null -ne $state['md_offset'])) {
-                $mdAnchors  = New-LwgMissionAnchors
-                $mdOffset   = 0
-                $mdMigrated = $true
-            }
-
-            $slice = Read-LwgAppendedLines -Path ([string]$payload.transcript_path) -Offset $mdOffset -MaxBytes $mdMaxScan
-
-            # A skipped region may have contained the very prompt that would have
-            # excused this turn's work, so the module stops speaking for the rest
-            # of the session rather than judging on a partial record. Silence on
-            # incomplete evidence, never a guess.
-            if ($slice.truncated) { $mdIncomplete = $true }
-
-            $mdPrompts = 0
-            $mdParsed  = 0
-            $mdBounded = $false
-            foreach ($line in @($slice.lines)) {
-                if ($mdParsed -ge $mdMaxRec) { $mdBounded = $true; break }   # bound the parse, not just the read
-                # THE FILTER BELOW IS STILL LOOSE AND THE BUDGET IS STILL SPENT
-                # ON IT. `-notlike '*user*'` is a case-insensitive substring
-                # test on the raw JSON line, and every transcript record carries
-                # a cwd - which on the only supported platform is routinely
-                # under the user profile directory, whose path carries the
-                # segment "Users". So assistant and
-                # system records pass it, $mdParsed counts them, and the budget
-                # is spent on the transcript rather than on prompts. Tightening
-                # it to '*"type":"user"*' is the obvious move and is NOT made
-                # here: if a real transcript shape does not carry that literal,
-                # this module reads zero prompts while reporting active, which
-                # is the founding defect of this plugin, and no real-transcript
-                # specimen was available to check against. The consequence of
-                # leaving it is that the latch below fires sooner than it needs
-                # to - silence, which is this module's documented failure
-                # direction - so the loose filter costs coverage, never a wrong
-                # warning.
-                if ($line.Length -gt 262144)          { continue }
-                if ($line -notlike '*user*')          { continue }
-                if ($line -like '*"toolUseResult"*')  { continue }
-                if ($line -like '*"isSidechain":true*') { continue }
-                $rec = $null
-                try { $rec = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
-                $mdParsed++
-                $txt = Get-LwgPromptText -Record $rec
-                if ($null -eq $txt) { continue }
-                $mdPrompts++
-
-                # --- REDACT BEFORE TOKENISING -----------------------------
-                # THIS IS THE OPERATOR'S TYPED PROMPT and everything downstream
-                # of this line keeps a piece of it: the tokens become anchors,
-                # the anchors are written to advisory-<sessionkey>.json in the
-                # state directory, and up to four of them are quoted back in the
-                # systemMessage this hook emits. None of that passed through
-                # Get-LwgRedacted, so a credential pasted into a prompt was
-                # copied to disk and into the session by a module that is ON BY
-                # DEFAULT.
-                #
-                # TOKENISING IS NOT REDACTION, which is the assumption that made
-                # this look safe. Add-LwgMissionAnchors splits on whitespace and
-                # punctuation, and SOME credential shapes survive that split
-                # whole: an AWS-shaped key id is one unbroken alphanumeric run,
-                # so it comes through the split intact, matches the ordinary-word
-                # pattern and is stored lowercased but otherwise complete. A key
-                # inside a pasted path survives the same way as one of that
-                # path's segments, and a path anchor is the kind the advisory
-                # QUOTES.
-                #
-                # THAT SENTENCE USED TO READ "no credential shape in
-                # $script:LwgSecretPatterns contains any of those characters",
-                # AND IT WAS FALSE ABOUT A FIVE-ELEMENT LIST IN THIS REPOSITORY.
-                # private_key is '-----BEGIN(?:[A-Z ]+)?PRIVATE KEY-----', which
-                # carries a literal SPACE - character 32, the first entry in
-                # $script:LwgMissionSeparators - and slack_token and github_pat
-                # carry '-' and '_'. The claim was load-bearing: it was the whole
-                # argument for why tokenising was not already redaction, and it
-                # was stated as a property of a list anyone can read. Splitting
-                # DOES break some shapes up; what matters is that it breaks them
-                # into pieces rather than removing them, and a piece of a
-                # credential in a quoted advisory is still a piece of a
-                # credential. That is the argument, and it does not need the
-                # false absolute to stand.
-                #
-                # IT HAS TO HAPPEN HERE, ON THE WHOLE PROMPT, and not on the way
-                # out. Get-LwgRedacted decides from context - `api_key = ` in
-                # front of a value, the case of the characters in it - and a
-                # token that has already been split off and lowercased has none
-                # of that left to read. There is exactly one point where the
-                # sentence is still intact, and this is it.
-                #
-                # CONTROL CHARACTERS ARE FLATTENED FIRST, and that is not
-                # cosmetic. Get-LwgRedacted turns a newline into a literal
-                # backslash-n because its other callers print into a fixed-column
-                # report, and a backslash arriving in this tokeniser is read as a
-                # PATH SEPARATOR - so an ordinary two-line prompt would start
-                # producing path anchors out of prose, and a path anchor is what
-                # gives this module standing to speak at all. Mapping them to
-                # spaces first keeps the split exactly where it already was: CR,
-                # LF and TAB are already separators here, so for every prompt
-                # that does not contain an exotic control character this changes
-                # nothing whatsoever.
-                #
-                # TRUNCATION IS TURNED OFF, deliberately, by asking for a cap
-                # nothing can exceed. The 200-character default exists because
-                # this function's usual output is one field of one log record;
-                # here the output is fed to a tokeniser, and cutting the prompt
-                # at 200 characters would silently throw away every file the
-                # operator named after the first sentence. Redaction runs before
-                # truncation inside that function, so the cap is not what makes
-                # this safe and switching it off costs nothing.
-                #
-                # WHAT THIS DOES NOT DO, restated on 3 August 2026 because the
-                # version that stood here was wrong twice in one sentence. It
-                # said this was "exactly as good as the pattern list in
-                # lib/common.ps1 and no better", scoping the gap to "a shape
-                # nobody enumerated", and it named ONE destination for whatever
-                # got through - "still written to the state file".
-                #
-                # BOTH HALVES WERE FALSE. An ENUMERATED shape got through: the
-                # private_key rule matched and replaced the BEGIN LINE ONLY,
-                # leaving the base64 body, and base64 contains '/', which
-                # Add-LwgMissionAnchors reads as a PATH SEPARATOR - so the body
-                # was promoted to the anchor kind this advisory QUOTES. Measured
-                # end to end by case B19 against the pre-fix tree, the message
-                # it emitted read:
-                #
-                #   (you named: 3dfghjklzxcvbnmqwertyuio+mnbvcxzlkjhg,
-                #    abcdefghijklmnop, miieowibaakcaqea0aqrstuvwxyz, module)
-                #
-                # THREE of the four quoted slots are private key material, and
-                # parser.ps1 - the file the operator actually named - has been
-                # pushed out of the list to make room. Three rather than four
-                # because anchors sort: `module` survived, `parser.ps1` did not.
-                # That is the SECOND destination, the one the opening paragraph
-                # of this block identifies and the old text did not admit. The
-                # BEGIN-line-only gap is closed in lib/common.ps1 as of the
-                # same date.
-                #
-                # WHAT IS ACTUALLY LEFT, both destinations named. A bare
-                # high-entropy string in a shape nobody enumerated - a
-                # 32-character hex API key, a passphrase typed as a word - still
-                # tokenises into an anchor, is still written to
-                # advisory-<sessionkey>.json, AND can still be QUOTED BACK in
-                # the systemMessage: measured, a 32-hex value sorts first and
-                # leads the "you named:" list. Anchors are sorted, so an unnamed
-                # credential is not merely present, it is preferentially shown.
-                #
-                # AND OVER-REDACTION COSTS THIS MODULE ITS STANDING, which is the
-                # other direction and is not a leak. Routing the prompt through
-                # Get-LwgRedacted means the word "token:" in front of a path
-                # makes the PATH the value: measured on this tree, "Rework the
-                # token: C:/work/ws/module/parser.ps1 handling please." redacts
-                # to "Rework the token: [REDACTED] handling please." and yields
-                # ZERO path anchors, where the same sentence without that one
-                # word yields FOUR (work, module, parser.ps1, parser). Zero path
-                # anchors means the module has no standing and stays silent.
-                # Silence is its documented failure direction, so this is the
-                # acceptable one - but B12 pins a single prompt shape, and a
-                # sibling shape defeats what B12 is for.
-                $mdSafe = Get-LwgRedacted -Text ([regex]::Replace($txt, '\p{Cc}', ' ')) -MaxLength ([int]::MaxValue)
-                [void](Add-LwgMissionAnchors -Text $mdSafe -Anchors $mdAnchors -Scope $mdScope -MaxAnchors $mdMaxAnch)
-            }
-
-            # --- THE RECORD BOUND LATCHES THE SAME WAY THE BYTE BOUND DOES ---
-            # THERE ARE TWO WAYS THIS MODULE CAN END A TURN WITH A HOLE IN ITS
-            # PICTURE, and until this line only one of them said so. max_scan_bytes
-            # bounds what is READ and latches md_incomplete above; the 400 on the
-            # loop bounds what is PARSED and, until now, broke out silently -
-            # leaving anchors from the first 400 records, an offset written at end
-            # of file, and md_incomplete FALSE. The module then judged the session
-            # believing it had seen all of it. That is the one thing the paragraph
-            # above forbids, reached by the other bound.
-            #
-            # IT MATTERS MORE NOW THAN IT DID, which is why it is being closed
-            # here rather than left. The bound is per-SLICE, and a slice was one
-            # turn's growth, so 400 typed prompts in a single turn was not a real
-            # session. Two paths bulk-parse: the first turn of a session whose
-            # transcript already exists (a resumed one), and - since the rebuild
-            # above - the first turn after an update. Both hand this loop the
-            # whole session at once, which is exactly where 400 is reachable.
-            #
-            # LATCHING COSTS SILENCE, WHICH IS THE DIRECTION THIS MODULE FAILS IN
-            # BY DESIGN. The alternative is a warning built on an anchor set that
-            # is missing everything the operator named after the 400th record -
-            # a false positive, on a module that is on by default, with nothing
-            # telling the reader the set was short. Silence on incomplete
-            # evidence, never a guess: the same rule, applied to the same kind of
-            # hole.
-            if ($mdBounded) { $mdIncomplete = $true }
-
-            # --- AND SO DOES A SATURATED ANCHOR SET ---------------------------
-            # THERE IS A THIRD WAY TO END A TURN WITH A HOLE IN THE PICTURE and
-            # it is the one that breaks the module's headline argument.
-            # Add-LwgMissionAnchors stops at MaxAnchors with a `break`, not a
-            # `continue`, and the total it tests is rehydrated from the state
-            # file every turn and only ever grows. So the first turn that
-            # reaches 400 is the last turn that learns anything: every prompt
-            # after it contributes nothing, for the rest of the session.
-            #
-            # WHAT THAT COSTS IS THE PIVOT PROPERTY, exactly. "A pivot cannot
-            # trip it" holds because the redirecting prompt's own nouns become
-            # anchors and the work that follows matches them. With the set
-            # saturated that prompt contributes no anchors, the work that
-            # follows matches nothing, and the module warns that the operator
-            # never asked for work they asked for one turn ago - while quoting
-            # four anchors from before the pivot as "you named:". That is the
-            # case docs/modules.md calls the one the module was built around.
-            #
-            # LATCHING IS THE SAME ANSWER THE OTHER TWO BOUNDS GET, and it is
-            # the only one available here. The better fix is eviction - word
-            # anchors can only ever EXCUSE a file, so dropping the oldest words
-            # to make room can add a warning and never remove the ability to
-            # excuse recent work - but that lives in Add-LwgMissionAnchors in
-            # lib/common.ps1, which this change does not own. So this fails
-            # honestly rather than preserving the property: silence on
-            # incomplete evidence, never a guess.
-            #
-            # IT CAN LATCH ONE TURN EARLY, and that is stated rather than left
-            # to be discovered. The test is `total -ge MaxAnchors`, which is
-            # true of a set that landed exactly on the cap with nothing further
-            # to add - a session that would have carried on correctly is
-            # silenced anyway. Distinguishing the two needs a saturation signal
-            # out of Add-LwgMissionAnchors, which is the same out-of-scope file;
-            # erring towards silence is the direction this module fails in.
-            #
-            # ONE EVENT, ONCE. The condition is written to lw-watchtower.jsonl the
-            # first time it bites and never again, because md_incomplete is
-            # persisted below and rehydrated at the top of the next turn, which
-            # short-circuits this test. Without the record an operator reading
-            # the log cannot tell "400 anchors and still accumulating" from
-            # "400 anchors and deaf since turn 5".
-            if (-not $mdIncomplete -and $mdAnchors.total -ge $mdMaxAnch) {
-                $mdIncomplete = $true
-                Write-LwgEvent -Event 'MissionAnchorsCapped' -Payload $payload -Extra @{
-                    module       = 'mission_drift'
-                    max_anchors  = $mdMaxAnch
-                    total        = $mdAnchors.total
-                    path_anchors = $mdAnchors.paths.Count
-                    word_anchors = $mdAnchors.words.Count
-                } | Out-Null
-            }
-
-            # $mdMigrated is in this condition so that a rebuild is always
-            # WRITTEN. Without it a session whose transcript had not grown would
-            # rebuild its anchors in memory, throw them away at exit and leave
-            # the pre-redaction file standing on disk to be rebuilt again next
-            # turn - the old anchors would never actually be overwritten.
-            #
-            # What is persisted here is not redacted at this line and does not
-            # need to be: every anchor in the set came from a prompt that went
-            # through Get-LwgRedacted above, or from a state file this code
-            # wrote after doing so. Re-running the redactor over lowercased
-            # context-free tokens would catch nothing it did not already catch
-            # and would read as a second line of defence that is not one.
-            if ($mdMigrated -or $slice.offset -ne $mdOffset -or $mdPrompts -gt 0 -or $mdIncomplete -ne ($state['md_incomplete'] -eq $true)) {
-                $state['md_offset']     = $slice.offset
-                $state['md_incomplete'] = $mdIncomplete
-                $state['md_paths']      = @($mdAnchors.paths)
-                $state['md_words']      = @($mdAnchors.words)
-                $state['md_redact']     = $mdRedactMark
-                $stateDirty = $true
-            }
-
-            # --- assess ------------------------------------------------------
-            # Skipped outright when the edit set has not grown since the last
-            # assessment. The verdict depends on exactly two things, and neither
-            # can have moved against us: the edit set is deduped and therefore
-            # monotonic, so an unchanged count is an unchanged set; and anchors
-            # only ever ACCUMULATE, so a new prompt can turn a warning into
-            # silence but never silence into a warning. Re-deciding an unchanged
-            # question at every turn end is the work this skips.
-            $considered = @(@($srcPaths) + @($docPaths))
-            $mdAssessed = -1
-            if ($null -ne $state['md_assessed']) { try { $mdAssessed = [int]$state['md_assessed'] } catch { } }
-
-            if (-not $mdIncomplete -and $mdAnchors.paths.Count -gt 0 -and
-                $considered.Count -ge $mdMinFiles -and $considered.Count -ne $mdAssessed) {
-
-                $state['md_assessed'] = $considered.Count
-                $stateDirty = $true
-
-                # One cheap pass to find out whether ANY file is accounted for,
-                # which is all the trigger needs - it fires only when none is.
-                # The under-the-workspace test comes first because it is plain
-                # string work, where the anchor test decomposes the path; and the
-                # loop stops at the first hit rather than scoring all of them.
-                # On a session doing what it was asked, that is one comparison
-                # instead of two per edited file.
-                $anyAccounted = $false
-                foreach ($p in $considered) {
-                    if ($mdOutside -and (Test-LwgPathUnder -Path $p -Root $mdRoot)) { $anyAccounted = $true; break }
-                    if (Test-LwgMissionAccounted -Path $p -Anchors $mdAnchors -Scope $mdScope) { $anyAccounted = $true; break }
-                }
-                $unaccounted = $(if ($anyAccounted) { @() } else { $considered })
-                $accounted   = $(if ($anyAccounted) { $considered.Count } else { 0 })
-
-                if ($unaccounted.Count -ge $mdMinFiles) {
-                    # Bounded for the same reason docs_coupling's sample is:
-                    # Split-Path -Leaf is not a length bound, and these leaves
-                    # reach both the MissionDrift record and the systemMessage.
-                    $leaves = @($unaccounted |
-                                ForEach-Object { Get-LwgRedacted -Text (Split-Path $_ -Leaf) -MaxLength 160 } |
-                                Sort-Object -Unique)
-
-                    # --- THE SIGNATURE IS THE VERDICT, NOT THE FILE LIST ------
-                    # IT USED TO BE `($leaves -join '|')`, WHICH IS THE COUNTED
-                    # THING ITSELF. The edit set is a deduped union of the whole
-                    # session's edits and therefore only grows, so one more
-                    # unaccounted file produced a different string and re-fired
-                    # the same warning with a slightly longer list. Four
-                    # warnings in five turns is the ordinary shape of a session
-                    # working on more than three files outside the workspace
-                    # root, and docs/modules.md offered "the realistic worst
-                    # case is one wrong warning per session" as the other side
-                    # of the decision to ship this module ON BY DEFAULT. The
-                    # narrow claim - "once per distinct set of unaccounted
-                    # files" - was true; the bound drawn from it was not.
-                    #
-                    # WHAT IS REPORTED IS ONE CONDITION: none of this session's
-                    # edits is accounted for. That condition does not change
-                    # when a fourth file joins it, so neither does the
-                    # signature. The list in the message is a SAMPLE of the
-                    # condition and has stopped being the trigger for it.
-                    #
-                    # AND ONE WARNING PER SESSION IS NOW A PROPERTY RATHER THAN
-                    # AN ESTIMATE, which is why the signature needs no re-arm.
-                    # $anyAccounted is monotone: $considered only grows, anchors
-                    # only accumulate, and Test-LwgPathUnder's answer for a
-                    # given path never changes - so a file accounted for on one
-                    # turn is accounted for on every later turn, and the block
-                    # below is unreachable for the rest of the session once any
-                    # file is. The bound holds for a FIXED configuration and
-                    # workspace root: editing require_outside_root mid-session,
-                    # or a cwd that moves the git root, are outside it, and
-                    # neither is claimed.
-                    #
-                    # git_hygiene above builds its signature the same way, from
-                    # condition ids with counts excluded. docs_coupling does
-                    # NOT - `$srcPaths.Count -gt $warnedAt` re-warns on each
-                    # additional source file - so docs/modules.md's "like every
-                    # other advisory here" is still wrong about that one, and
-                    # this change does not close it.
-                    $sig = 'none-accounted'
-                    if (([string]$state['md_sig']) -ne $sig) {
-                        $state['md_sig'] = $sig
-                        $stateDirty = $true
-
-                        $sample  = @($leaves | Select-Object -First 3)
-                        # The four anchors the advisory quotes back at the
-                        # operator. They are already redacted - they were
-                        # redacted on the way IN, which is the only place it can
-                        # be done properly - so this pass is a BOUND rather than
-                        # a second defence, and is described as one. A path
-                        # anchor is one segment of something the operator pasted
-                        # and nothing caps how long that is; four of them
-                        # unbounded can push a 600-character absolute path into
-                        # a turn-end message that has to stay readable.
-                        $named   = Get-LwgRedacted -Text ((@(@($mdAnchors.paths) | Sort-Object | Select-Object -First 4)) -join ', ') -MaxLength 160
-                        Write-LwgEvent -Event 'MissionDrift' -Payload $payload -Extra @{
-                            module        = 'mission_drift'
-                            unaccounted   = $unaccounted.Count
-                            accounted     = $accounted
-                            considered    = $considered.Count
-                            path_anchors  = $mdAnchors.paths.Count
-                            word_anchors  = $mdAnchors.words.Count
-                            prompts_seen  = $mdPrompts
-                            workspace     = $mdRoot
-                            sample        = $sample
-                        } | Out-Null
-
-                        $more = $(if ($unaccounted.Count -gt 3) { " (+$($unaccounted.Count - 3) more)" } else { '' })
-                        # The "outside the workspace" clause is only TRUE in the
-                        # default mode, where being outside is part of the
-                        # trigger. With require_outside_root:false the files may
-                        # be in the workspace, and claiming otherwise would be
-                        # the advisory stating something it did not check.
-                        $where = $(if ($mdOutside) { " are outside $mdRoot and" } else { '' })
-                        Add-Advisory ("LW-WATCHTOWER mission: all $($unaccounted.Count) file(s) changed this session - $($sample -join ', ')$more -$where match nothing named in any prompt this session (you named: $named). If the work was redirected, name the new area in a prompt and this goes quiet; otherwise check it is still serving the task.")
-                    }
-                }
-            }
-        } catch {
-            try { Write-LwgEvent -Event 'AdvisoryError' -Payload $payload -Extra @{
-                module = 'mission_drift'; error = $_.Exception.Message } | Out-Null } catch { }
         }
     }
 
@@ -1665,7 +815,7 @@ try {
                 # process rather than four.
                 #
                 # COLLECTED here, but STARTED at the top of this script, so it
-                # ran alongside the four in-process modules. Its timeout is
+                # ran alongside the two in-process modules. Its timeout is
                 # measured from the launch, so a git that hangs is still killed
                 # $gitMs after it started, not $gitMs after this line.
                 # A launch that failed leaves $gitStatus $null, and

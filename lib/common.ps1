@@ -57,17 +57,15 @@
 # to config.json's `modules` keys, EXCEPT for entries that declare a `switch` of
 # their own - drift anywhere else silently mis-reports coverage, and
 # bin/lwg-doctor.ps1's config-registry check enforces both halves.
-# THIRTEEN entries, all 'implemented'. Ten are kind 'observe'; delegate_gate,
+# ELEVEN entries, all 'implemented'. Eight are kind 'observe'; delegate_gate,
 # send_liveness_gate and completion_audit are kind 'gate' and are the only
 # things in this plugin that can block anything. All three gates - and
-# orphan_watch, the tenth observer - declare their own `switch` and SHIP OFF.
+# orphan_watch, the eighth observer - declare their own `switch` and SHIP OFF.
 $script:LwgModuleRegistry = [ordered]@{
     failure_capture      = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1'
                               note = 'Five hook events, gated on the flag; exits 2 to alert the orchestrator.' }
     context_pressure     = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/stop_advisories.ps1'
                               note = 'context_window is NOT in any hook payload. Occupancy is recomputed from the transcript''s last assistant usage block using the CLI''s own formula. The context window SIZE is not observable, so it is resolved from config/observation and the percentage is suppressed outright when the size is not trustworthy.' }
-    verification_gate    = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/stop_advisories.ps1'
-                              note = 'ADVISORY, not a gate - it warns on Stop and never blocks the turn. Sees subagent work only: work the main thread did itself is invisible to it.' }
     self_health          = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/session_start.ps1'
                               note = 'The SessionStart self-check. Switching it off skips every probe, and the session then reports mode "unverified" rather than any word that implies it was validated - an unrun check must never read as a passed one.' }
     log_rotation         = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/common.ps1 (Invoke-LwgRotate), called from lib/supervisor.ps1'
@@ -76,8 +74,6 @@ $script:LwgModuleRegistry = [ordered]@{
                               note = 'PostToolUse records edited paths; Stop compares them. Only files edited THROUGH Edit/Write/NotebookEdit are seen - a file changed by a shell command is invisible.' }
     git_hygiene          = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/stop_advisories.ps1'
                               note = 'ADVISORY on Stop - it warns and never blocks. The only module allowed to spawn a subprocess, and it only does so at turn end, inside a repo, with a hard timeout. A git command that fails or times out is reported as UNKNOWN, never as a clean tree. The open-PR check is the one network call, is skipped unless there is unpushed work on a non-default branch, and is skipped loudly when gh is missing or slow.' }
-    mission_drift        = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/stop_advisories.ps1'
-                              note = 'ON BY DEFAULT SINCE 30 JULY 2026, by explicit owner decision, and the tradeoff is recorded rather than glossed. It shipped default-OFF because its trigger could not be validated against real sessions, AND THAT IS STILL TRUE. What changed on 31 July 2026 is that the module is no longer untested: tests/stop_behaviour.ps1 runs it end to end in a real child process - the fire condition, min_files, require_outside_root, max_scan_bytes, the pivot path across several turns, and the non-boolean tuning values that used to disarm a suppressor. That establishes the code does what this note says; it CANNOT establish that being warned is right, because that judgement is not in the code. Do not read one as the other. One false-positive class remains - a redirection phrased with no concrete noun at all, followed by edits in a tree nobody named. Costs ~137 ms at turn end when on and nothing when off (one machine''s median; 122-169 ms). Anchors are read from the transcript incrementally, so it needs no new hook and no extra process. See "mission_drift" in docs/modules.md for the exact trigger and its false-positive profile.' }
     context_injection    = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/subagent_start.ps1'
                               note = 'SubagentStart, once per dispatch. Injects context/worker_facts.md as hookSpecificOutput.additionalContext, because CLAUDE.md is snapshotted into a subagent at PARENT-SESSION start and a mid-session edit never reaches a worker dispatched afterwards. The file is read live on every dispatch, so what a worker gets is current by construction. Deliberately does NOT dot-source this file on its fast path: that plus one ConvertFrom-Json measured 634 ms against a 273 ms interpreter floor, on a hook that every worker in every session pays for.' }
     send_liveness_gate   = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_send.ps1'
@@ -85,10 +81,10 @@ $script:LwgModuleRegistry = [ordered]@{
                               note = 'OFF BY DEFAULT. PreToolUse on SendMessage: when supervision.send_liveness is on it refuses a send whose recipient it can prove is DEAD MID-FLIGHT - a subagent transcript exists for this session, no SubagentStop record was ever written for it, and the transcript has not been written for stale_minutes (default 15). Built from a measured failure: an orchestrator SendMessage was queued to an agent dead for 28m45s, the "Message queued for delivery" ack was read as done, and the user was told work was complete that never happened. The gate DENIES on positive evidence of death and on an unresolvable recipient; it ABSTAINS (allows, logged) where the evidence layer cannot support a verdict - a `name@team` recipient, or a session health.jsonl has never recorded. Its switch is supervision.send_liveness, NOT a `modules` key, for the same reason as delegate_gate: Get-LwgConfig fails OPEN and a corrupt config must not arm a blocking gate. Requires failure_capture to have been writing SubagentStop records; without them a completed agent is indistinguishable from a dead one and the gate abstains rather than guesses.' }
     completion_audit     = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_stop.ps1'
                               switch = @{ block = 'supervision'; key = 'completion_audit'; default = $false }
-                              note = 'OFF BY DEFAULT. A turn-end gate, registered on BOTH Stop and SubagentStop and WITHOUT asyncRewake on either, so its exit 2 BLOCKS the turn end. It sat on Stop ALONE until 11 August 2026, and because subagents and teammates emit SubagentStop and never Stop it fired for no worker at all in that period. The two registrations are NOT interchangeable, which is why the file takes a -HookEvent argument: on SubagentStop the payload''s transcript_path is the PARENT''S transcript and the subagent''s own is agent_transcript_path, so a gate reading the former would block a worker for what the ORCHESTRATOR said - in a delegate pattern the common case, not an edge one, and reproduced as a real exit 2 against the pre-fix code. Subagent mode also LIFTS the sidechain skip, because every record of a real subagent transcript carries isSidechain:true and skipping them would leave the gate armed and auditing nothing, and it uses a local turn-boundary test rather than Get-LwgPromptText, whose sidechain rejection exists for mission_drift and is correctly KEPT in Stop mode. An absent agent_transcript_path degrades to a silent no-op and NEVER falls back to the parent. When supervision.completion_audit is on it refuses to let a turn end whose final assistant text asserts completed work while the turn''s LAST tool action was SendMessage - queued-for-delivery is not delivery and not completion, and nothing after the send could have established anything. It fires ONCE per turn end: on the continuation stop_hook_active is true and it stands down, per the same loop-guard contract every Stop hook here honours - so it forces one round of verification, it cannot force honesty. The claim detection is a REGEX over prose and is stated as such: past-tense completion verbs, suppressed by hedging vocabulary. It will miss claims phrased outside its list and it can misread quoted text; the enumeration is in the file header and in docs/modules.md.' }
+                              note = 'OFF BY DEFAULT. A turn-end gate, registered on BOTH Stop and SubagentStop and WITHOUT asyncRewake on either, so its exit 2 BLOCKS the turn end. It sat on Stop ALONE until 11 August 2026, and because subagents and teammates emit SubagentStop and never Stop it fired for no worker at all in that period. The two registrations are NOT interchangeable, which is why the file takes a -HookEvent argument: on SubagentStop the payload''s transcript_path is the PARENT''S transcript and the subagent''s own is agent_transcript_path, so a gate reading the former would block a worker for what the ORCHESTRATOR said - in a delegate pattern the common case, not an edge one, and reproduced as a real exit 2 against the pre-fix code. Subagent mode also LIFTS the sidechain skip, because every record of a real subagent transcript carries isSidechain:true and skipping them would leave the gate armed and auditing nothing, and it uses a local turn-boundary test rather than Get-LwgPromptText, whose sidechain rejection was built for mission_drift - a module since removed - and is correctly KEPT in Stop mode. An absent agent_transcript_path degrades to a silent no-op and NEVER falls back to the parent. When supervision.completion_audit is on it refuses to let a turn end whose final assistant text asserts completed work while the turn''s LAST tool action was SendMessage - queued-for-delivery is not delivery and not completion, and nothing after the send could have established anything. It fires ONCE per turn end: on the continuation stop_hook_active is true and it stands down, per the same loop-guard contract every Stop hook here honours - so it forces one round of verification, it cannot force honesty. The claim detection is a REGEX over prose and is stated as such: past-tense completion verbs, suppressed by hedging vocabulary. It will miss claims phrased outside its list and it can misread quoted text; the enumeration is in the file header and in docs/modules.md.' }
     orphan_watch         = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1'
                               switch = @{ block = 'supervision'; key = 'orphan_watch'; default = $false }
-                              note = 'OFF BY DEFAULT. At Stop, reconciles the session''s subagent TRANSCRIPTS against its SubagentStop records in health.jsonl: a transcript with no stop record that has not been written for stale_minutes (default 15) is an ORPHAN - an agent killed mid-flight, which produces NO record anywhere (Get-FailedTasks counts only failed/killed BACKGROUND TASKS in the Stop payload, and a killed subagent appears in that list not at all; a cross-check found FOUR orphans against a health log with zero PostToolUseFailure records in 1,175 entries). Alerts through the supervisor''s existing exit-2 asyncRewake path, deduped per agent through alerted.json. RUNS INSIDE lib/supervisor.ps1 BELOW THE failure_capture GATE, and that coupling is correct rather than convenient: SubagentStop records are what failure_capture writes, and reconciling against records nothing was writing would call every finished agent an orphan. failure_capture off = orphan_watch inert, and /lw-watchtower:status counts it from the same registry entry either way.' }
+                              note = 'OFF BY DEFAULT. At Stop, reconciles the session''s subagent TRANSCRIPTS against its SubagentStop records in health.jsonl: a transcript with no stop record that has not been written for stale_minutes (default 15) is an ORPHAN - an agent killed mid-flight, which produces NO record anywhere (Get-FailedTasks counts only failed/killed BACKGROUND TASKS in the Stop payload, and a killed subagent appears in that list not at all; a cross-check found FOUR orphans against a health log with zero PostToolUseFailure records in 1,175 entries). Alerts through the supervisor''s existing exit-2 asyncRewake path, deduped per agent through alerted.json. RUNS INSIDE lib/supervisor.ps1 BELOW THE failure_capture GATE, and that coupling is correct rather than convenient: SubagentStop records are what failure_capture writes, and reconciling against records nothing was writing would call every finished agent an orphan. failure_capture off = orphan_watch inert, and the doctor''s module roster counts it from the same registry entry either way - that roster is what is left of the status command, which is deleted.' }
     delegate_gate        = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_delegate.ps1'
                               switch = @{ block = 'interaction'; key = 'delegate'; default = $false }
                               note = 'THE ONLY GATE THIS PLUGIN SHIPS, AND IT IS OFF BY DEFAULT. PreToolUse on Edit|Write|NotebookEdit|Bash|PowerShell: when interaction.delegate is on it refuses those five tools for calls that are NOT from a subagent, so the chat session is reserved for talking to the operator and the work goes to workers. Its switch is interaction.delegate - the key /lw-watchtower:delegate writes - and NOT a `modules` key; see the `switch` field above for why one flag rather than two. It decides "subagent" by the PRESENCE of agent_id in the payload and deliberately never looks at agent_type: a settings.json `agent` key gives the MAIN THREAD a non-empty agent_type, so a gate matching on that would read the main thread as a subagent and fail open on exactly the calls it exists to refuse. It carries no exemption, no allowlist and no safety determination of any kind, and nothing it DECIDES consults tool_name, because the matcher in hooks/hooks.json is the single place the tool list lives. It does read payload.tool_name, once, AFTER the decision to refuse, purely to name the refused tool in the message - a payload carrying none is refused identically with the text falling back to "this tool". That is spelled out rather than glossed as "it does not even read tool_name", which is what this note said until 3 August 2026 and is not true of lib/gate_delegate.ps1. Over-blocking it accepts, stated rather than left to be found: with it on, /lw-watchtower:delegate off cannot turn it off from the main thread, because that command runs through Bash. The deny text names the two ways out. COST: the hook runs on all five tools whether the switch is on or off - the figures below were not re-measured when PowerShell joined the matcher on 1 August 2026, since adding a tool changes how many calls are charged rather than what a call costs. That is true NOW and was not true when it was written: both hook-identity functions in bin/lwg-setup.ps1 key on the matcher STRING, so widening it made every v0.3.0 registration unrecognisable and setup added a SECOND PreToolUse group beside it - two gate runs per call, on a machine whose operator never armed the switch. $script:LwgSupersededMatchers in that file now maps the old spelling to the current one, and tests/setup_merge.ps1 pins both that the gate ends up registered exactly once and that the stale matcher is reported rather than silently accepted. See docs/limitations.md. With the switch OFF it is ~436 ms against a ~294 ms interpreter floor - one machine''s medians, so ~142 ms of it is the gate''s own work, paid by an operator who never turns it on. That was ~652 ms until a raw-text fast path landed on 31 July 2026. With the switch ON it is ~868 ms, SLOWER than before, because the fast path runs, fails to prove the switch off, and the slow path then does everything it always did - that cost falls on the operator who armed the gate, on a call being blocked anyway. See docs/modules.md for the run.' }
@@ -118,7 +114,6 @@ foreach ($k in $script:LwgModuleRegistry.Keys) {
 # replaced with a literal because the registry stays the single source of the
 # answer - set kind = 'gate' on an entry and the count, the mode word and the
 # banner all follow on their own.
-# verification_gate is NOT a gate despite its name; it is kind 'observe'.
 $script:LwgGates = @()
 foreach ($k in $script:LwgModuleRegistry.Keys) {
     if ($script:LwgModuleRegistry[$k].kind -eq 'gate') { $script:LwgGates += $k }
@@ -1032,26 +1027,27 @@ function Get-LwgModuleFlag {
       Anything else is not a value at all, so the key is treated as absent,
       $Default applies, and the fact is logged through Write-LwgInvalidFlag.
 
-          Get-LwgModuleFlag -Config $c -Module 'mission_drift' -Key 'require_outside_root' -Default $true
+          Get-LwgModuleFlag -Config $c -Module 'git_hygiene' -Key 'use_gh' -Default $true
 
-      WHY THIS EXISTS RATHER THAN A CAST AT THE CALL SITE. The two call sites
-      in lib/stop_advisories.ps1 did
+      WHY THIS EXISTS RATHER THAN A CAST AT THE CALL SITE. The call sites in
+      lib/stop_advisories.ps1 did
 
           [bool](Get-LwgModuleOption ... -Default $true)
 
       and [bool] on a non-empty string is $true in PowerShell while [bool]''
-      and [bool]0 are $false. So `"require_outside_root": ""` and
-      `"require_outside_root": 0` silently switched a suppressor OFF - and the
-      module then warned about work it was built to excuse - on the strength of
-      a quoting accident, with nothing anywhere saying so. That is the founding
-      defect of this plugin arriving one layer below the block the rule already
-      covered.
+      and [bool]0 are $false. So a `""` or a `0` written for one of these keys
+      silently switched a suppressor OFF - and the module then warned about
+      work it was built to excuse - on the strength of a quoting accident, with
+      nothing anywhere saying so. That is the founding defect of this plugin
+      arriving one layer below the block the rule already covered. The pair the
+      defect was found on belonged to mission_drift, which is gone; the rule
+      outlived it because it was never about that module.
 
       THE FLOOR UNDERNEATH IS THE CALLER'S $Default, not a fixed polarity. A
       `module_config` option is TUNING, not an on/off switch for the module -
       the module's own flag is `modules.<name>` and Test-LwgModule owns that -
       so "ignored" here means "tuned as shipped", which is the only direction
-      that cannot be surprising. Both current callers ship $true.
+      that cannot be surprising. The current caller ships $true.
 
       Get-LwgModuleOption is left alone deliberately: most of what it returns is
       a number or a list, where this rule would be wrong. Only the boolean keys
@@ -2450,105 +2446,49 @@ function Get-LwgPathClass {
 }
 
 # --- agent role classification ---------------------------------------------
-# verification_gate has to answer one question about a finished subagent: did it
-# MUTATE the tree, or did it independently CHECK someone else's work? That fact
-# belongs to the role, so it is declared on the role - the `lw-class` key in the
-# agent's own frontmatter, one of `work`, `verify` or `neutral`. See
-# docs/roles.md, "The role contract".
+# A role either MUTATES the tree or independently CHECKS someone else's work,
+# and that fact belongs to the role, so it is declared on the role - the
+# `lw-class` key in the agent's own frontmatter, one of `work`, `verify` or
+# `neutral`. See docs/roles.md, "The role contract".
 #
-# THE HARD PART, STATED RATHER THAN HIDDEN. A role's class lives in a .md file;
-# the Stop hook is handed a bare STRING, `agent_type`. Nothing in the payload
-# says which file that string came from, so the name has to be resolved back to
-# a file before the key can be read, and that resolution CAN FAIL. Three ways it
-# fails, and all three land in the same place:
+# WHAT READS IT NOW, stated because it used to be something else. This section
+# was built for verification_gate, a Stop advisory that resolved an observed
+# `agent_type` string back to the .md file it named and read the key out of it.
+# That module was removed, and everything that existed only to serve it went
+# with it: Get-LwgAgentClassInfo, which turned a name back into a file, and the
+# pair Get-LwgAgentRoots / Get-LwgInstalledAgents, which enumerated the role
+# directories for bin/lwg-doctor.ps1's agent-roles check - a check deleted
+# alongside the module it was checking. WHAT IS LEFT IS THE READER BELOW AND
+# NOTHING ELSE. No hook, no gate, no advisory, no status line and no command
+# resolves a role class any more.
 #
-#   * the role lives in some OTHER plugin. Only this plugin's own agents\ can be
-#     located from here - a foreign plugin's install path is not derivable - so
-#     its roles are unresolvable by construction;
-#   * the file was deleted, renamed, or never existed (a stale log record, a
-#     built-in like `general-purpose`, a typo);
-#   * the file resolves but declares no `lw-class`, or declares a value that is
-#     not one of the three. Every role predating this key is in this case until
-#     someone edits it - the operator's own user-scope role files were in it
-#     until they were renamed and given the key on 31 July 2026.
+# ITS ONE LIVE CALLER IS tests/stop_behaviour.ps1, which pins the reader
+# directly, and that is the whole reason it is still here. The six role files
+# in agents/ REMAIN - they are personas the model dispatches - and they still
+# declare `lw-class`, so the key is still written; a written key with no reader
+# at all is a key nobody notices has gone wrong. If those cases are ever
+# dropped this function has no caller left and should be deleted with them.
 #
-# EVERY ONE OF THOSE RETURNS THE EMPTY STRING, WHICH MEANS "NO INFORMATION" AND
-# NEVER "NOT A VERIFIER". The caller must treat '' the way it treats an empty
-# agent_type: it neither arms the gate nor disarms it. Degrading to "not a
-# verifier" would let a missing file silence the one warning that exists to
-# notice unverified work, and degrading to "work" would nag on evidence of
-# nothing. There is deliberately no third option here.
-#
-# The NAME ARRAYS in config.json are kept as the fallback for exactly the third
-# case, and they are not redundant: they classify roles that carry no `lw-class`
-# (any role written before the key existed and never given one), and generic
-# names that have no file at all and so can never declare the key
-# (`implementer`, `qa-agent`, `code-review`). `lw-class` WINS where it is
-# present - a declaration in the role beats a list somewhere else that has to be
-# maintained by hand, which is the whole point of the key.
-#
-# COST, AND IT IS NOT FREE. Per DISTINCT agent_type: up to three
-# [IO.File]::Exists probes and one file read, memoised for the life of the
-# process. Measured on one machine, and read it as that rather than as a
-# property of the module: 67 ms added to the median turn end, whole-hook, over
-# 25 interleaved runs against the name-array version it replaced (1000 -> 1067
-# ms on a 400-record health.jsonl with five distinct agent types); 85 ms median
-# over 21 fresh processes for the resolution alone. Almost all of that is
-# one-time .NET and PowerShell first-use rather than file I/O - a SIXTH distinct
-# name costs well under a millisecond. docs/modules.md has the runs.
+# A CLASS THAT CANNOT BE READ IS THE EMPTY STRING, WHICH MEANS "NO INFORMATION"
+# AND NEVER "NOT A VERIFIER". Unreadable file, no frontmatter, no key, or a
+# value that is not one of the three: all four return ''. A caller must not
+# degrade that to a verdict in either direction - reading it as "not a
+# verifier" lets a missing file answer a question nobody asked it, and reading
+# it as "work" reports on the evidence of nothing.
 #
 # NO REGEX AND NO CMDLET ON THIS PATH, and that is measured rather than
 # stylistic. In a fresh PowerShell 5.1 process the FIRST use of the regex engine
 # costs ~20 ms and the first New-Object ~75 ms - the same first-use tax that
 # made Get-LwgPluginName parse plugin.json with IndexOf rather than with
 # ConvertFrom-Json. Written the obvious way, with `-split`, `-match`, Join-Path
-# and New-Object, this cost 119 ms at the median instead of 67. Do not
-# "tidy" any of it back.
-
-$script:LwgAgentClassCache = @{}
-$script:LwgAgentRootsCache = @{}
+# and New-Object, resolving a role's class cost 119 ms at the median instead of
+# 67. The Stop-path caller that made those milliseconds matter is gone; the code
+# is left as it is because a rewrite would be a change with no measurement
+# behind it. Do not "tidy" it back either way.
 
 # The three values `lw-class` may take. Anything else is a typo, and a typo must
 # read as "no information" rather than as whichever value it looks nearest to.
 $script:LwgAgentClasses = @('work', 'verify', 'neutral')
-
-function Get-LwgAgentRoots {
-    <#
-      Where an agent role file can live, MOST SPECIFIC FIRST, as
-      @{ scope; path } - matching the precedence in docs/roles.md:
-
-          project (.claude\agents)  >  user (~\.claude\agents)  >  plugin (agents\)
-
-      A same-named file at a more specific scope REPLACES the one below it, so
-      the first hit is the role that actually ran.
-
-      Only THIS plugin's agents\ is reachable. plugin.json carries no source id
-      and no other plugin's root is derivable from here, so a role shipped by a
-      different plugin resolves to no file and is classified '' - no information.
-
-      Emitted as a normal STREAM, so callers must wrap in @() - the same
-      contract as Get-LwgHealthRecords, and for the same reason. Do NOT
-      "protect" this with `return ,$out`: the caller's @() would then keep the
-      wrapper and see one element that is the whole list, which is precisely
-      what happened the first time this function was written.
-    #>
-    param([string]$ProjectRoot)
-
-    $ck = ([string]$ProjectRoot).ToLowerInvariant()
-    if ($script:LwgAgentRootsCache.ContainsKey($ck)) { return $script:LwgAgentRootsCache[$ck] }
-
-    $out = @()
-    if (-not [string]::IsNullOrWhiteSpace($ProjectRoot)) {
-        try { $out += @{ scope = 'project'; path = [IO.Path]::Combine($ProjectRoot, '.claude\agents') } } catch { }
-    }
-    if (-not [string]::IsNullOrWhiteSpace([string]$env:USERPROFILE)) {
-        try { $out += @{ scope = 'user'; path = [IO.Path]::Combine($env:USERPROFILE, '.claude\agents') } } catch { }
-    }
-    try { $out += @{ scope = 'plugin'; path = [IO.Path]::Combine((Get-LwgPluginRoot), 'agents') } } catch { }
-
-    $script:LwgAgentRootsCache[$ck] = $out
-    return $out
-}
 
 function Get-LwgFrontmatterClass {
     <#
@@ -2613,134 +2553,6 @@ function Get-LwgFrontmatterClass {
     return ''
 }
 
-function Get-LwgAgentClassInfo {
-    <#
-      Resolve one observed agent_type to its declared class. Returns a HASHTABLE
-      so it survives the function boundary un-enumerated:
-
-          @{ name; bare; namespace; class; file; scope }
-
-        class   'work' | 'verify' | 'neutral' | '' , where '' is NO INFORMATION
-        file    the role file the class was read from, '' when none resolved
-        scope   'project' | 'user' | 'plugin' | '' when no file resolved
-
-      A PLUGIN-SHIPPED ROLE ARRIVES NAMESPACED - `lw-watchtower:lw-explorer` - and the
-      same role copied up into ~\.claude\agents arrives bare. Verified from a
-      live SubagentStop record; see docs/roles.md. A plugin name cannot contain
-      ':', so the FIRST colon is the separator, and a TRAILING colon with
-      nothing after it is a typo rather than a prefix.
-
-      The prefix also reorders the search, because it is evidence about WHICH
-      file ran: a namespaced name was served by a plugin's own agents\, so that
-      is tried first; a bare name was served by the user or project scope, so
-      normal precedence applies. Without that, a user file happening to share a
-      stem with a shipped role would answer for the shipped one.
-
-      Memoised on name + project root for the life of the process. A hook
-      process is short-lived, so there is no staleness window worth a
-      invalidation scheme.
-    #>
-    param([string]$Name, [string]$ProjectRoot)
-
-    $n = [string]$Name
-    if ([string]::IsNullOrWhiteSpace($n)) {
-        return @{ name = ''; bare = ''; namespace = ''; class = ''; file = ''; scope = '' }
-    }
-    $n = $n.Trim()
-
-    $key = "$ProjectRoot|$n".ToLowerInvariant()
-    if ($script:LwgAgentClassCache.ContainsKey($key)) { return $script:LwgAgentClassCache[$key] }
-
-    $ns   = ''
-    $bare = $n
-    $ci   = $n.IndexOf(':')
-    if ($ci -ge 0 -and $ci -lt ($n.Length - 1)) {
-        $ns   = $n.Substring(0, $ci)
-        $bare = $n.Substring($ci + 1)
-    }
-
-    $info = @{ name = $n; bare = $bare; namespace = $ns; class = ''; file = ''; scope = '' }
-
-    # A stem has to be usable as one file name. Anything with a separator or a
-    # wildcard in it is not a role name, and probing with it would be a
-    # directory traversal off the back of a log record.
-    if ($bare.IndexOfAny([char[]]@('\', '/', ':', '*', '?', '"', '<', '>', '|')) -lt 0) {
-        $roots = @(Get-LwgAgentRoots -ProjectRoot $ProjectRoot)
-        if ($ns -ne '') {
-            # Plugin scope first for a namespaced name - see the note above.
-            # Two plain loops rather than two Where-Object pipelines: a pipeline
-            # with a script block is the single most expensive way to reorder
-            # three elements, and this is on the Stop path.
-            $pluginFirst = @(); $rest = @()
-            foreach ($r in $roots) {
-                if ($r.scope -eq 'plugin') { $pluginFirst += $r } else { $rest += $r }
-            }
-            $roots = @($pluginFirst + $rest)
-        }
-        foreach ($r in $roots) {
-            $p = $null
-            try { $p = [IO.Path]::Combine([string]$r.path, ($bare + '.md')) } catch { continue }
-            if (-not [IO.File]::Exists($p)) { continue }
-            $info.file  = $p
-            $info.scope = [string]$r.scope
-            $info.class = Get-LwgFrontmatterClass -Path $p
-            # The first file wins whether or not it declares a class: a
-            # shadowing file REPLACES the one below it, so falling through to a
-            # lower scope would read the class off a file that did not run.
-            break
-        }
-    }
-
-    $script:LwgAgentClassCache[$key] = $info
-    return $info
-}
-
-function Get-LwgInstalledAgents {
-    <#
-      Every agent role installed on this machine that this process can see, with
-      its declared class, precedence resolved by stem so a shadowing file wins:
-
-          @{ name; class; file; scope }
-
-      For the doctor, not for the Stop path - it enumerates directories rather
-      than probing for one name. Emitted as a normal STREAM; callers must wrap
-      in @(), exactly as with Get-LwgAgentRoots above.
-
-      The same reachability limit applies as in Get-LwgAgentRoots: roles shipped
-      by OTHER plugins are not enumerable from here and are simply absent, which
-      is why a count from this function is a lower bound and is reported as one.
-    #>
-    param([string]$ProjectRoot)
-
-    $byName = [ordered]@{}
-    foreach ($r in @(Get-LwgAgentRoots -ProjectRoot $ProjectRoot)) {
-        $files = @()
-        try {
-            if (Test-Path -LiteralPath $r.path -PathType Container) {
-                # The Extension test is not redundant with -Filter. The filter is
-                # handled by the Win32 file API, which also matches an 8.3 short
-                # name - so `*.md` can return `lw-healer.md.bak-20260728`, and a
-                # backup copy would then be enumerated as a live role.
-                $files = @(Get-ChildItem -LiteralPath $r.path -Filter '*.md' -File -ErrorAction Stop |
-                           Where-Object { $_.Extension -eq '.md' })
-            }
-        } catch { continue }
-        foreach ($f in $files) {
-            $stem = $f.BaseName
-            # More-specific scopes are visited first, so a stem already recorded
-            # was recorded by a file that shadows this one.
-            if ($byName.Contains($stem)) { continue }
-            $byName[$stem] = @{
-                name  = $stem
-                class = (Get-LwgFrontmatterClass -Path $f.FullName)
-                file  = $f.FullName
-                scope = [string]$r.scope
-            }
-        }
-    }
-    return @($byName.Values)
-}
-
 # --- health-log reader -----------------------------------------------------
 
 function Get-LwgHealthRecords {
@@ -2787,8 +2599,14 @@ function Get-LwgHealthRecords {
     return $out
 }
 
-# --- mission anchors (mission_drift) ---------------------------------------
-# mission_drift asks one question: is the work still serving anything the user
+# --- mission anchors --------------------------------------------------------
+# NOTHING CALLS ANY OF THIS. Every function from here to Test-LwgMissionAccounted
+# was built for mission_drift, and that module was removed; the helpers were
+# left standing rather than deleted in the same pass, so read the present tense
+# below as a description of code with no caller, not of live behaviour. The one
+# exception is Get-LwgPromptText, which lib/gate_stop.ps1 still calls.
+#
+# mission_drift asked one question: is the work still serving anything the user
 # actually asked for? Answering it needs a record of what was asked, and the
 # cheapest honest source is the transcript - every hook receives
 # transcript_path, and the user's typed prompts are in it as plain records.

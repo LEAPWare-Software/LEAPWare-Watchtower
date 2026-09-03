@@ -25,6 +25,17 @@
      write on top of that would replace the operator's real settings with the
      defaults' shape and destroy the evidence of what went wrong.
 
+  -Repo IS CANONICALISED ONCE, BEFORE ANY OF THAT. Both a module name and a repo
+  slug are matched case-SENSITIVELY by the JSON editor at the bottom of this file
+  and case-INSENSITIVELY by every reader of the result, and each half of that
+  mismatch shipped a false report: a wrong-case module name was diagnosed as
+  config.json having drifted from the registry (#92), and a wrong-case or
+  wrong-SHAPE -Repo produced "nothing to clear" over a live override and a
+  "verified" write under a key no hook can ever match (#91). One block near the
+  top settles the slug - reduced to the shape lib/common.ps1's Get-LwgRepoInfo
+  hands a hook, then spelt the way config.json already spells it - so that
+  everything after it looks up, writes, clears and verifies the same key.
+
   Nothing is written without -Apply, and the explanation of what a change means
   is printed BEFORE the write in both modes - so the preview run and the applied
   run say the same words in the same order, and the operator sees the reasoning
@@ -79,6 +90,62 @@ function Write-Refusal {
     $script:Exit = 1
 }
 
+function Get-LwgConfigRepoShape {
+    <#
+      -Repo, reduced to the shape a hook actually produces - or the reason it
+      cannot be. Returns @{ ok; slug; why }, a HASHTABLE so it survives the
+      function boundary un-enumerated like every other structure in this repo.
+
+      THIS IS HALF OF THE ANSWER TO #91, and the half that has to come first.
+      A per-repo override is keyed by the slug lib/common.ps1's Get-LwgRepoInfo
+      hands a hook: it takes the origin remote's URL, matches one of exactly two
+      forms, and emits "<owner>/<name>" with any .git suffix and trailing slash
+      already gone. That is the ONLY shape any reader ever asks `repos` for, so
+      a key of any other shape is not an override at all - it is a member no
+      hook can ever match, written and then "verified" against itself by the
+      exit-2 check, which resolves it through the same PowerShell property
+      lookup that just wrote it and so agrees with anything.
+
+      The two reductions below are the SAME expressions Get-LwgRepoInfo uses, so
+      a remote URL pasted at -Repo lands on the identical slug the hook would
+      have computed from that remote. Anything that is not two slash-separated
+      segments after reduction is refused rather than guessed at: this command
+      does not get to invent a key shape.
+
+      REDUCING rather than refusing a URL or a .git suffix is a decision, not an
+      accident. A hook can never produce a slug ending in .git - both regexes
+      strip it unconditionally - so `owner/name.git` is never the key that would
+      be read, and the operator who typed it meant the repository, not a key
+      nothing looks up.
+    #>
+    param([AllowNull()][AllowEmptyString()][string]$Value)
+
+    $r = @{ ok = $false; slug = ''; why = '' }
+    $v = "$Value".Trim()
+    if ([string]::IsNullOrWhiteSpace($v)) { $r.why = 'it is empty'; return $r }
+
+    if ($v -match '^[^@/]+@[^:/]+:(?<o>[^/]+)/(?<r>.+?)(\.git)?/?$') {
+        # SSH scp-style: git@github.com:owner/repo.git
+        $v = "$($Matches.o)/$($Matches.r)"
+    }
+    elseif ($v -match '^[A-Za-z][A-Za-z0-9+.\-]*://(?:[^/@]+@)?[^/]+/(?<o>[^/]+)/(?<r>.+?)(\.git)?/?$') {
+        # Any URL form: https://, ssh://, git://, with or without a user@.
+        $v = "$($Matches.o)/$($Matches.r)"
+    }
+    else {
+        $v = $v.TrimEnd('/')
+        if ($v -match '\.git$') { $v = $v.Substring(0, $v.Length - 4) }
+    }
+
+    if ($v -notmatch '^[^/\\:\s]+/[^/\\:\s]+$') {
+        $r.why = "it reduces to '$v', which is not <owner>/<name> - one slash, two non-empty segments, no whitespace, backslash or colon"
+        return $r
+    }
+    $r.ok = $true
+    $r.slug = $v
+    return $r
+}
+
 try {
     $pluginRoot = Split-Path -Parent $PSScriptRoot
     . (Join-Path $pluginRoot 'lib\common.ps1')
@@ -118,6 +185,70 @@ try {
         $Repo = $here.slug
         $repoNote = " (resolved from $((Get-Location).Path))"
     }
+
+    # --- -Repo, canonicalised ONCE - #91 -------------------------------------
+    # EVERYTHING BELOW LOOKS THE REPO UP, WRITES IT, CLEARS IT OR VERIFIES IT,
+    # and until this block existed each of those did it on the string as typed.
+    # Two facts about this file make that a defect rather than an untidiness:
+    #
+    #   * the WRITER matches JSON member names with -ceq, because JSON names are
+    #     case-sensitive (bin\lwg-cmdlib.ps1:128), while every READER - the
+    #     listing's OVERRIDE column, Test-LwgModule, the exit-2 verification -
+    #     resolves repos.<slug> by PowerShell property lookup, which is not. On
+    #     a config.json holding "Owner/Name", -Repo owner/name therefore reads
+    #     as a LIVE override and writes as a MISSING one: -Clear prints
+    #     "Nothing to clear" and exits 0 over an override this same command's
+    #     own table has just printed, and an -On/-Off adds a SECOND key that
+    #     only half of this plugin can see.
+    #   * the shape was never checked at all, so -Repo https://github.com/o/n.git
+    #     wrote exactly that as a `repos` key. No hook can produce that slug -
+    #     Get-LwgRepoInfo emits owner/name - so nothing would ever read it, and
+    #     the exit-2 verification could not tell: it re-resolves through the
+    #     same case-insensitive property lookup, using the same bad key, and
+    #     finds what was just written. A write nothing will honour, reported as
+    #     verified, is the silent no-op this whole command exists to refuse.
+    #
+    # So it is settled HERE, once, before the header is printed and before any
+    # of those four things happen. -ThisRepo has already resolved above, and its
+    # slug goes through the same reconciliation: a hook-shaped slug still has to
+    # be spelt the way the file spells it.
+    if (-not [string]::IsNullOrWhiteSpace($Repo)) {
+        $shape = Get-LwgConfigRepoShape -Value $Repo
+        if (-not $shape.ok) {
+            Write-Output 'LW-WATCHTOWER config'
+            Write-Refusal @(
+                "-Repo '$Repo' is not the shape a hook produces: $($shape.why).",
+                'A per-repo override is keyed by the "owner/name" of the origin remote - the slug lib/common.ps1''s',
+                'Get-LwgRepoInfo computes for every hook from the working directory. A `repos` key of any other shape',
+                'is not an override: it would be written, verified against itself, and read by nothing, which is the',
+                'silent no-op this command refuses everywhere else.',
+                'Pass -Repo owner/name (a remote URL is accepted and reduced), or -ThisRepo inside the repository.'
+            )
+            exit $script:Exit
+        }
+        if ($shape.slug -cne $Repo) { $repoNote += " (reduced from '$Repo')" }
+        $Repo = $shape.slug
+
+        # Reconciled against the keys ALREADY in the file, so the writer's -ceq
+        # finds the same member every reader resolves. The file's spelling wins:
+        # this command edits a file it does not own, and renaming an operator's
+        # key is not a change it was asked to make.
+        #
+        # There is deliberately no branch for two `repos` keys differing only in
+        # case. Windows PowerShell 5.1's ConvertFrom-Json REFUSES such a file
+        # outright ("contains the duplicated keys"), so Get-LwgConfig falls back
+        # to defaults and the BUILT-IN DEFAULTS refusal below catches it first.
+        $repoKeys = @()
+        try {
+            if ($null -ne $cfg.repos) { $repoKeys = @($cfg.repos.PSObject.Properties | ForEach-Object { $_.Name }) }
+        } catch { }
+        $twin = @($repoKeys | Where-Object { $_ -ieq $Repo -and $_ -cne $Repo })
+        if ($twin.Count -eq 1) {
+            $repoNote += " (matched the existing repos key `"$($twin[0])`")"
+            $Repo = $twin[0]
+        }
+    }
+
     $scope = if ([string]::IsNullOrWhiteSpace($Repo)) { 'global' } else { "repo $Repo" }
 
     Write-Output "LW-WATCHTOWER config v$($script:LwgVersion) - $ConfigPath"
@@ -193,7 +324,17 @@ try {
 
     # --- validate the request ------------------------------------------------
     $known = @($script:LwgModules)
-    if ($known -notcontains $Module) {
+    # -cnotcontains, NOT -notcontains - #92. PowerShell's -contains family is
+    # case-INSENSITIVE, so the refusal below - whose own hint says "Module names
+    # are case-sensitive" - was unreachable for the only input it describes.
+    # 'Git_Hygiene' passed this gate, passed the registry lookup (an ordered
+    # hashtable is case-insensitive too), printed a full plan under WHAT THIS
+    # DOES, and then died in the JSON editor, which matches with -ceq: config.json
+    # "has no modules.Git_Hygiene member ... its `modules` block has drifted from
+    # the registry", pointing the operator at a doctor that reports healthy. A
+    # typo reported as file drift. Without -Apply it was worse - PREVIEW ONLY and
+    # exit 0, a change promised that could never be made.
+    if ($known -cnotcontains $Module) {
         # Case-insensitive near-miss, because 'Git_Hygiene' is a typo and not a
         # request to invent a module.
         $near = @($known | Where-Object { $_ -ieq $Module })

@@ -7,11 +7,18 @@
 
   WHAT THIS IS
 
-  bin\lwg-toggle.ps1 backs /lw-watchtower:delegate, :plain and :verbosity, and it
-  WRITES config.json. Nothing in tests\ had ever driven that write. tests\gate_delegate.ps1
+  bin\lwg-toggle.ps1 backs /lw-watchtower:delegate, and it WRITES config.json.
+  Nothing in tests\ had ever driven that write. tests\gate_delegate.ps1
   exercises lib\gate_delegate.ps1 - the READER of interaction.delegate - end to end;
   the writer was covered by nothing at all, which is why three defects in it
   survived being read several times.
+
+  IT BACKED THREE COMMANDS UNTIL THE OUTPUT-STYLE FEATURE WAS REMOVED. The
+  toggle also wrote output_style.verbosity and output_style.plain, for two
+  commands whose keys nothing in this plugin ever read. Those flags, their
+  commands, the output-styles\ directory and config.json's `output_style` block
+  are all gone, and the cases that drove them went with them - see the note on
+  SECTION F, which lost three of its four.
 
   The three this suite pins:
 
@@ -25,15 +32,22 @@
           embeds the whole input - into operator output.
     #27   a config.json with no top-level `modules` block made the toggle WRITE
           the file and then exit 3, while bin\lwg-toggle.ps1's own header and
-          commands\delegate.md, plain.md and verbosity.md all define exit 3 as
-          "config.json was not changed".
+          commands\delegate.md both define exit 3 as "config.json was not
+          changed".
 
-  And a fourth, from review rather than from an issue, in SECTION F: a SECOND
-  route to exit 3 on a file that was written. The write is fine and the REPORT
-  after it throws - with USERPROFILE unset, the ACTIVATION block builds a
-  settings path out of that variable - and every throw in that file lands in one
-  handler that exits 3. It reaches only the two `style` flags. Measured at both
-  baselines: `-Flag plain on` -> exit 3, file CHANGED.
+  A FOURTH DEFECT USED TO BE PINNED HERE AND NO LONGER IS, and it is recorded
+  rather than quietly dropped. Found by review rather than by an issue, it was a
+  SECOND route to exit 3 on a file that was written: the write is fine and the
+  REPORT after it throws - with USERPROFILE unset, the output-style ACTIVATION
+  block built a settings path out of that variable - and every throw in that
+  file lands in one handler that exits 3. It reached ONLY the two `style` flags,
+  measured at both baselines as `-Flag plain on` -> exit 3, file CHANGED, and
+  those flags no longer exist. Three cases drove it and are deleted. The GUARD
+  in the toggle's catch is still there and is deliberately not deleted with
+  them - it guards the class rather than that one line - but NO CASE HERE
+  REACHES IT any more, and this file states that rather than leaving a reader to
+  infer coverage from a section heading. Section F is now its former control
+  alone. See the note on WHAT A GREEN RUN DOES NOT MEAN.
 
   ---------------------------------------------------------------------------
   HOW A CASE IS RUN, AND THE SANDBOX CONTRACT
@@ -62,7 +76,10 @@
       CLAUDE_CODE_PLUGIN_CACHE_DIR   cleared
 
   Section F is the one place that deliberately runs with USERPROFILE UNSET, and
-  it puts it back in the same finally as everything else.
+  it puts it back in the same finally as everything else. It ran that way to
+  reach a defect in the output-style report block; with that block gone the one
+  case left there asserts the other direction - that nothing on the surviving
+  path reads USERPROFILE at all.
 
   ONE ENVIRONMENT TRAP THAT IS NOT THIS SUITE'S DOING, recorded so the next
   person does not lose an hour to it: if the shell that launches this file
@@ -103,8 +120,9 @@
   Section E has NO fd8d023 baseline: -ConfigPath does not exist there, so the
   child dies on a parameter-binding error. Those two cases pin new surface.
 
-  Section F's baseline is BOTH commits, and its defect predates all three fixes:
-  the same input gives exit 3 with the file changed at fd8d023 and at 19bb85d.
+  Section F's remaining case has fd8d023 as its baseline and passes there, like
+  every other control. The defect that section was written for is unreachable
+  now that the flags carrying it are deleted; see the note above.
 
   ---------------------------------------------------------------------------
   WHICH CASE CARRIES WHICH DEFECT - because "it went red" is not the same as
@@ -145,6 +163,16 @@
       still disagree. An automatic rollback lived in that handler for one day
       and was removed: it could only fire in a state where firing it would
       overwrite another writer's file.
+    * the $script:LwgVerified guard in the toggle's catch - the exit-0-after-a
+      -verified-write path. Three cases in section F drove it through the
+      output-style ACTIVATION block, the only line that ever threw there
+      deterministically, and that block was deleted with the two style flags.
+      Nothing here reaches the guard now, and nothing CAN: every line printed
+      after that flag is set is a Write-Output over already-resolved values. The
+      guard stays in the toggle on the same terms as the read-back handler above
+      - it covers the class, and the next report line someone adds is what it is
+      for. This is a COVERAGE LOSS rather than a decision, and it is written
+      down as one so nobody reads section F's survivor as covering it.
 
   Read G for the property that is actually general.
 
@@ -157,18 +185,27 @@
   is not "was run", and no case here ran one. A case would need a scratch repo
   with a local bare origin, as tests\setup_merge.ps1 section 26 builds.
 
-  CONTROL CASES ARE LABELLED. EIGHT of the cases below pass before the fix as
+  CONTROL CASES ARE LABELLED. SEVEN of the cases below pass before the fix as
   well as after it, on purpose - they pin the other direction, so a "fix" that
   simply refuses everything, or that reformats the file, or that turns every run
   into a reported fault, fails them. They are marked CONTROL in their name and
   none is offered as evidence of a fix.
 
-  TEN of the twenty-six passed at fd8d023, and the same ten at 19bb85d - both
-  measured, not reasoned. Those eight CONTROLs, plus two that are NOT controls
-  and pass there for their own reasons: the BOM-bearing file still exits 0 at
-  both baselines (it just loses the BOM), and section E's second case passes
-  vacuously because the child never starts. That is stated here so a reader
-  counting greens in a red run does not read those two as coverage.
+  THE BASELINE COUNT IS NOW DERIVED, NOT MEASURED, and it is labelled as such.
+  TEN of twenty-six passed at fd8d023 and the same ten at 19bb85d, both measured
+  on those commits. Four cases have since been deleted with the output-style
+  flags they drove: section F's three, none of which passed at either baseline,
+  and one CONTROL - the level axis - which passed at both. Only that CONTROL
+  comes off the ten, so NINE of twenty-two is what subtraction from those
+  per-case baselines gives. Nobody has re-run the suite against
+  fd8d023 since the deletion, and the deleted cases cannot be re-run there in
+  this form anyway. Treat the nine as arithmetic over a measurement, not as one.
+
+  Those seven CONTROLs, plus two that are NOT controls and pass at the baselines
+  for their own reasons: the BOM-bearing file still exits 0 at both (it just
+  loses the BOM), and section E's second case passes vacuously because the child
+  never starts. That is stated here so a reader counting greens in a red run
+  does not read those two as coverage.
 
   ---------------------------------------------------------------------------
   EXIT CODES - a CI job reads these and nothing else
@@ -253,10 +290,6 @@ function New-ConfigText {
   "interaction": {
     "delegate": @DELEGATE@
   },
-  "output_style": {
-    "verbosity": "default",
-    "plain": false
-  },
   "repos": {},
   "thresholds": {}
 }
@@ -315,10 +348,14 @@ function Get-B64 {
 
 function New-Sandbox {
     <#
-      A throwaway plugin root: byte copies of bin\ and lib\ (and output-styles\,
-      which the style flags probe with Test-Path), plus the four scratch
-      directories the child is pointed at. The code under test is copied ONCE per
-      run - it does not change between cases - and only config.json is reseeded.
+      A throwaway plugin root: byte copies of bin\ and lib\, plus the four
+      scratch directories the child is pointed at. The code under test is copied
+      ONCE per run - it does not change between cases - and only config.json is
+      reseeded.
+
+      output-styles\ was copied too until that directory was deleted with the
+      output-style feature; the two flags that probed it with Test-Path are gone
+      with it.
     #>
     # NOT $root: PowerShell variable names are case-insensitive, so a local $root
     # would shadow this script's $Root parameter and the copy below would take
@@ -334,7 +371,7 @@ function New-Sandbox {
     foreach ($d in @($sand.root, $sand.plugin, $sand.data, $sand.profile, $sand.work)) {
         [void](New-Item -ItemType Directory -Path $d -Force)
     }
-    foreach ($sub in @('bin', 'lib', 'output-styles')) {
+    foreach ($sub in @('bin', 'lib')) {
         $src = Join-Path $Root $sub
         if (Test-Path -LiteralPath $src) {
             Copy-Item -LiteralPath $src -Destination (Join-Path $sand.plugin $sub) -Recurse -Force
@@ -352,9 +389,11 @@ function Push-ChildEnv {
     <#
       Returns the previous values so the caller can restore them in a finally.
 
-      -NoUserProfile leaves USERPROFILE UNSET for the child. Section F needs it:
-      the report block builds a settings path out of that variable, and an unset
-      one is the state that made a written file exit 3.
+      -NoUserProfile leaves USERPROFILE UNSET for the child. Section F uses it.
+      It was added because the deleted output-style report block built a
+      settings path out of that variable, and an unset one was the state that
+      made a written file exit 3; what is left asserts that no surviving path
+      reads it.
     #>
     param([hashtable]$Sand, [switch]$NoUserProfile)
     $prev = @{
@@ -727,8 +766,8 @@ try {
     # SECTION C - exit 3 means config.json was not changed  (#27)
     # BASELINE fd8d023, executed: with the modules-less fixture the write at line
     # 786 lands, the read-back throw at 803 fires, and line 1051 exits 3 - while
-    # bin\lwg-toggle.ps1:68-70 and commands\{delegate,plain,verbosity}.md all
-    # define 3 as "config.json was not changed".
+    # bin\lwg-toggle.ps1's exit-code table and commands\delegate.md both define
+    # 3 as "config.json was not changed".
     # =======================================================================
     Write-Output ''
     Write-Output 'C. exit 3 means the file was not changed (#27)'
@@ -778,12 +817,10 @@ try {
         ($h.code -eq 2 -and (-not $h.changed) -and ($h.out -like '*Usage:*')) `
         ("exit was {0} and the file {1}; 2 and 3 are separate on purpose (bin\lwg-toggle.ps1:72-74)" -f $h.code, $(if ($h.changed) { 'CHANGED' } else { 'was untouched' }))
 
-    Write-ConfigFile -Path $sand.cfg -Text $good
-    $i = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag verbosity brief' -Tag 'd4'
-    $iTextAfter = [Text.UTF8Encoding]::new($false).GetString($i.after)
-    Add-Result 'CONTROL: the level axis writes its name and reads it back - exit 0' `
-        ($i.code -eq 0 -and $iTextAfter.Contains('"verbosity": "brief"')) `
-        ("exit {0}; the other axis has to keep working - it goes through the same read, write and read-back path" -f $i.code)
+    # A FOURTH CONTROL WAS HERE - `-Flag verbosity brief`, pinning that the
+    # level axis wrote its name and read it back. There is no second axis any
+    # more: `verbosity` was deleted with the output-style feature, and a bool is
+    # the only shape this script writes.
 
     # =======================================================================
     # SECTION E - the -ConfigPath seam.  NEW SURFACE, NOT A REGRESSION CASE.
@@ -809,44 +846,37 @@ try {
         'a seam that still touched the real file would be a sandbox that is not one'
 
     # =======================================================================
-    # SECTION F - a report that throws AFTER a verified write
-    # BASELINE 19bb85d AND fd8d023 - this one PRE-DATES the three fixes and was
-    # found by review rather than by an issue. With USERPROFILE unset,
-    # `Join-Path $env:USERPROFILE '.claude\settings.json'` in the ACTIVATION
-    # block - reached only for a `style` flag - throws under
-    # $ErrorActionPreference='Stop', lands in the single catch at the bottom of
-    # bin\lwg-toggle.ps1 and exits 3 on a config.json that HAD been written.
-    # Measured at 19bb85d: `-Flag plain on` -> exit 3, file CHANGED.
+    # SECTION F - nothing on the write or report path reads USERPROFILE
+    #
+    # THREE CASES WERE DELETED FROM THIS SECTION and this comment is what
+    # replaces them. They pinned a report that throws AFTER a verified write: at
+    # fd8d023 AND 19bb85d, with USERPROFILE unset, `Join-Path $env:USERPROFILE
+    # '.claude\settings.json'` in the output-style ACTIVATION block threw under
+    # $ErrorActionPreference='Stop', landed in the single catch at the bottom of
+    # bin\lwg-toggle.ps1 and exited 3 on a config.json that HAD been written -
+    # measured as `-Flag plain on` -> exit 3, file CHANGED. That block was
+    # reached ONLY by the two `style` flags, and it went with them when the
+    # output-style feature was deleted, so there is no input left that drives
+    # it. The $script:LwgVerified guard those cases proved is still in the
+    # toggle and is still correct to keep - it guards the class, not that line -
+    # but NOTHING HERE EXERCISES IT NOW. That is recorded in the header under
+    # WHAT A GREEN RUN DOES NOT MEAN rather than papered over.
+    #
+    # What survives is the former CONTROL, which is now the whole point of the
+    # section: with the environment-fed line gone, an unset USERPROFILE must be
+    # of no consequence to any run at all. BASELINE fd8d023, where it also
+    # passes - `delegate` never reached the ACTIVATION block there either.
     # =======================================================================
     Write-Output ''
-    Write-Output 'F. a report that throws after a verified write (baseline 19bb85d, not an issue)'
+    Write-Output 'F. USERPROFILE unset is of no consequence (three cases deleted - see the comment)'
 
-    Write-ConfigFile -Path $sand.cfg -Text $good
-    $k = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag plain on' -Tag 'f1' -NoUserProfile
-    $kText = [Text.UTF8Encoding]::new($false).GetString($k.after)
-
-    Add-Result 'report failure after a verified write does NOT exit 3' `
-        ($k.code -eq 0 -and $k.changed -and $kText.Contains('"plain": true')) `
-        ("exit was {0} and config.json {1}. The write happened and the file reads back as asked; exit 3 would state, in the words of all three command documents, that it did not. At 19bb85d this is exit 3 with the file changed" -f `
-            $k.code, $(if ($k.changed) { 'CHANGED - correctly' } else { 'was NOT changed' }))
-
-    Add-Result 'report failure after a verified write SAYS the change was made' `
-        (($k.out -like '*WAS MADE*') -and ($k.out -like '*report*')) `
-        ('the operator must be told both facts: the file changed, and the report after it is incomplete. stdout tail: ' + (($k.out -split "`r?`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -Last 3) -join ' | '))
-
-    Add-Result 'report failure after a verified write still names its backup' `
-        ($k.out -match 'config\.json\.lwg-toggle-\d{8}-\d{6}\.bak') `
-        'the backup is the only recovery route, and this is the path on which the report that would normally print it did not get that far'
-
-    # CONTROL: the same environment on a flag that never reaches the ACTIVATION
-    # block. `delegate` is kind 'interaction', so nothing there reads
-    # USERPROFILE and the run must be an ordinary success - which is what makes
-    # F1 a statement about the guard rather than about USERPROFILE.
     Write-ConfigFile -Path $sand.cfg -Text $good
     $l = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate on' -Tag 'f4' -NoUserProfile
-    Add-Result 'CONTROL: with USERPROFILE unset a non-style flag is an ordinary exit 0' `
-        ($l.code -eq 0 -and $l.changed -and ($l.out -notlike '*WAS MADE*')) `
-        ("exit was {0}; the guard must not turn every run into a reported fault" -f $l.code)
+    $lText = [Text.UTF8Encoding]::new($false).GetString($l.after)
+    Add-Result 'CONTROL: with USERPROFILE unset the write is an ordinary exit 0' `
+        ($l.code -eq 0 -and $l.changed -and $lText.Contains('"delegate": true') -and ($l.out -notlike '*WAS MADE*')) `
+        ("exit was {0} and config.json {1}. No line on this path may read USERPROFILE: one that did threw here until the output-style report block was deleted, and the WAS MADE banner - the catch's exit-0-after-a-verified-write route - must not appear on an ordinary run" -f `
+            $l.code, $(if ($l.changed) { 'CHANGED - correctly' } else { 'was NOT changed' }))
 
     # =======================================================================
     # SECTION G - the invariant, over every run this suite made
@@ -866,7 +896,7 @@ try {
     # this suite exists to catch in someone else's code.
     Add-Result 'INVARIANT: every exit 3 in this run left config.json free of the toggle''s own edit' `
         ($threes.Count -ge 3 -and $liars.Count -eq 0) `
-        ("{0} run(s) of {1} exited 3 and {2} of them carried the toggle's edit: {3}. bin\lwg-toggle.ps1's exit-code table and all three command documents define 3 as 'nothing was written', so a single one here is a documented claim the code contradicts. (At least 3 exit-3 runs are required, so this cannot pass by there being none.)" -f `
+        ("{0} run(s) of {1} exited 3 and {2} of them carried the toggle's edit: {3}. bin\lwg-toggle.ps1's exit-code table and commands\delegate.md both define 3 as 'nothing was written', so a single one here is a documented claim the code contradicts. (At least 3 exit-3 runs are required, so this cannot pass by there being none.)" -f `
             $threes.Count, $script:Runs.Count, $liars.Count, $(if ($liars.Count) { ($liars | ForEach-Object { $_.tag }) -join ', ' } else { 'none' }))
 
 } catch {
@@ -911,6 +941,7 @@ Write-Output ''
 Write-Output 'Every case above passed. Read that as "the toggle takes a backup, re-checks'
 Write-Output 'the file, keeps a BOM, refuses a config it cannot read back, and never returns'
 Write-Output 'exit 3 after changing the file" - and NOT as "the write path is safe". See the'
-Write-Output 'header for the two guards no case here reaches.'
+Write-Output 'header for the three guards no case here reaches - one of which lost its only'
+Write-Output 'coverage when the output-style flags were deleted.'
 Write-Output 'EXIT: 0'
 exit 0

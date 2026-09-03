@@ -88,25 +88,30 @@
   where a marketplace install lives - with two symptoms.
 
   ---------------------------------------------------------------------------
-  SECTIONS 23 TO 26 DO NOT TEST THE INSTALLER AT ALL
+  SECTIONS 23 AND 26 DO NOT TEST THE INSTALLER AT ALL
   ---------------------------------------------------------------------------
   Section 23 tests statusline\statusline.ps1 - the payload it decodes, the three states
   every number it takes from outside can be in, the paths it probes, the config
   it opens, the fault count it derives from health.jsonl and the reset clock it
   formats. That is stated here rather than left to be inferred from a green run.
 
-  SECTIONS 24, 25 AND 26 ARE HERE FOR THE SAME REASON and are equally not about
-  the installer: 24 drives bin\lwg-sitrep.ps1, 25 drives lib\resolve.ps1, and 26
-  drives bin\lwg-update.ps1, which nothing in tests\ had ever run in any form.
+  SECTION 26 IS HERE FOR THE SAME REASON and is equally not about the installer:
+  it drives bin\lwg-update.ps1, which nothing in tests\ had ever run in any form.
+
+  THE NUMBERING SKIPS 24 AND 25 ON PURPOSE. Those two sections drove
+  the sitrep and resolve reporting commands, which have been removed from this
+  plugin; the sections went with them. Section 26 keeps its number so that a
+  case name or a baseline note written against it elsewhere still points at the
+  same cases.
 
   They live in this file because it already owns the only harness in the
   repository that runs any of these for real, and sections 20 and 20b set the
-  precedent. The alternative was a ninth file in tests\, which moves the
+  precedent. The alternative was another file in tests\, which moves the
   `tests-file-count` and `behavioural-suite-count` claims in every tracked page
   that states them - a cost paid for infrastructure rather than for coverage.
-  If this file is ever split, those four sections are the seam.
+  If this file is ever split, those two sections are the seam.
 
-  BASELINE FOR EVERY CASE IN SECTIONS 23 TO 26 IS cc44c99, not fd8d023, and each
+  BASELINE FOR EVERY CASE IN SECTIONS 23 AND 26 IS cc44c99, not fd8d023, and each
   case states what the baseline actually printed. The defects are all present at
   fd8d023 too; a marketplace root does not resolve there at all, so the
   status-line fixtures would go red for a reason that is not the defect beside
@@ -123,7 +128,7 @@
   is the marketplace checkout, and the string "plugins/repos" appears in that
   binary zero times.
 
-  CONTROL CASES ARE LABELLED. TEN of the cases below pass before the fix they
+  CONTROL CASES ARE LABELLED. NINE of the cases below pass before the fix they
   sit beside as well as after it, on purpose - they pin the OTHER direction, so
   a "fix" that simply answers yes to everything fails them. They are marked
   CONTROL in their comment and in their case name, and none of them is offered
@@ -133,14 +138,24 @@
   fifth arrived with the relocated-cache cases, the sixth and seventh with the
   read-only write and the permissions diff, the eighth and ninth with section 23
   - the fault gauge and the reset clock - and the tenth with the update check.
+  IT IS BACK TO NINE: the permissions-diff CONTROL was deleted with section 22
+  when the installer's permissions section went, so the sixth of that list no
+  longer exists. The list above is the ORDER THEY ARRIVED IN and is not
+  renumbered, because renumbering it would erase the record of which change
+  brought which case.
   It is a hand-count of the CALLS to Add-Result whose case name begins CONTROL,
   and tests\doc_claims.ps1 cannot read it - that guard recognises "N cases"
   against a suite FILENAME only, so it stayed green over the wrong number. If you
-  add a CONTROL, change this line.
+  add or remove a CONTROL, change this line.
 
   COUNT THE CALLS, NOT THE MATCHES: THIS PARAGRAPH IS ONE OF THE MATCHES. A bare
-  grep for the literal answers ELEVEN and the answer is TEN, because the sentence
-  above quotes the thing it is telling you to look for. That is small and it is
+  grep for the word CONTROL over this file answers with the case comments and
+  with this header's own prose as well as the case names, so it always over-counts
+  and the amount it over-counts by changes every time somebody edits a comment.
+  This paragraph used to name a specific over-count, and that number was wrong
+  when it was measured here - which is exactly the failure it was warning about.
+  The only countable spelling is the CALL: the case names all begin with a quote
+  and then CONTROL, so count Add-Result lines whose name starts that way. That is
   the same shape as the checklist rule this project already caught spelling, in
   its own title, the string it asserted was absent - a rule whose stated method
   defeats its stated answer. It is called out here instead of being dodged by
@@ -151,7 +166,7 @@
   cost of a hand-count and is recorded rather than tidied away: this line read
   SEVEN and then NINE while the real count was ten, because two changes landed in
   this file in the same window and each incremented from what it could see.
-  Count them, do not add to the number you find.
+  Count them, do not add to or subtract from the number you find.
 
   NOT EVERY CONTROL HAS THE SAME BASELINE, and collapsing them would be the
   overstatement this file is about. The four older ones pass at fd8d023, the
@@ -180,11 +195,14 @@
     no case here induces one. The docstring on Save-Settings states the gap and
     records why the atomic call was measured and rejected; a green run here says
     nothing about it either way.
-  * THE PERMISSIONS SECTION'S MERGE. Its DIFF is now driven, for the one thing
-    it still reports - the operator's own inert rules - but the section proposes
-    nothing on any run, so there is no permissions merge left to cover. Also not
-    covered: the questions and the doctor step. Detection's report is read by the
-    hooks cases, but only for the install-mode lines.
+  * ANYTHING TO DO WITH permissions.deny. There is no permissions section left
+    in bin\lwg-setup.ps1 to drive: it proposed nothing on any run and was
+    removed, and the two cases here that drove its diff went with it - see the
+    stub where section 22 was. The installer still REPORTS the operator's own
+    inert deny rules under -Step detect, through Get-InertRules, and no case
+    here drives that report. Also not covered: the questions and the doctor
+    step. Detection's report is read by the hooks cases, but only for the
+    install-mode lines.
   * A REAL MARKETPLACE INSTALL. Every case here plants the layout under a
     scratch profile. Nothing in this suite proves the CLI still writes that
     layout in the build you are running - only that setup and the status line
@@ -573,44 +591,6 @@ function New-BehindClone {
 
     [void](Invoke-Git -WorkDir $consumer -GitArgs @('fetch', '--quiet'))
     return @{ bare = $bare; seed = $seed; consumer = $consumer }
-}
-
-function Invoke-Reporter {
-    <#
-      Run one of the reporting commands against a scratch STATE DIRECTORY.
-
-      CLAUDE_PLUGIN_DATA is the whole sandbox here, and it is the honest one:
-      Get-LwgStateDir treats it as authoritative, which is exactly how a plugin
-      hook is given its directory. USERPROFILE is redirected as well so that
-      nothing these commands touch outside the state dir - the skills junction
-      probe, a gh config - can reach the operator's own tree.
-
-      -NoMark is the caller's business, not this helper's: bin\lwg-sitrep.ps1
-      writes a marker on each run and every case here passes it.
-
-      These commands read the REPO they live in for git and gh facts, with their
-      own timeouts, and a case here must not assert on any of that.
-    #>
-    param([string]$ProfileDir, [string]$StateDir, [string]$ScriptPath, [string[]]$Arguments = @())
-
-    $prev  = $env:USERPROFILE
-    $prevD = $env:CLAUDE_PLUGIN_DATA
-    $prevR = $env:CLAUDE_PLUGIN_ROOT
-    $out  = ''
-    $code = 255
-    try {
-        $env:USERPROFILE        = $ProfileDir
-        $env:CLAUDE_PLUGIN_DATA = $StateDir
-        $env:CLAUDE_PLUGIN_ROOT = ''
-        $lines = & powershell -NoProfile -ExecutionPolicy Bypass -File $ScriptPath @Arguments
-        $code  = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
-        $out   = ($lines | Out-String)
-    } finally {
-        $env:USERPROFILE        = $prev
-        $env:CLAUDE_PLUGIN_DATA = $prevD
-        $env:CLAUDE_PLUGIN_ROOT = $prevR
-    }
-    return @{ code = $code; out = $out }
 }
 
 function New-GitFixture {
@@ -1227,52 +1207,158 @@ try {
         "the run replaced a file under the operator's profile, failed, and reported only the settings backup - which is not the file it changed. Output:`n$($a.out)"
 
     # -------------------------------------------------------------------
-    # 22. THE PERMISSIONS SECTION'S DIFF, which until now this suite did not
-    #     drive at all. It proposes nothing - the rule table is empty - but it is
-    #     still shown to the operator, and the one thing it has left to say is
-    #     that rules ALREADY in their file cannot match anything.
+    # 27. -StatusLineMode junction, AND WHAT THE SKILLS ENTRY ACTUALLY IS.
     #
-    #     That warning was built below New-PermissionsPlan's `$rules.Count -eq 0`
-    #     early return, which is taken on every possible run, so it could never
-    #     appear on the diff. The same rules were reported by -Step detect, so
-    #     nothing was hidden from an operator who ran the steps in order - but a
-    #     diff that is only complete if you ran an earlier step is not a diff.
+    #     THE NUMBER IS 27 BECAUSE 16 IS TAKEN, by the one-element-array case
+    #     above. The numbers here are identifiers, not an order: 21 already sits
+    #     between 15 and 22, and 24 and 25 are deliberately never reused.
     #
-    #     THE SECOND CASE IS A CONTROL and passes at fd8d023 too, where no
-    #     warning was reachable at all. It stops the fix being "always warn":
-    #     Edit(...) and Read(...) rules are the effective forms and must not be
-    #     reported as inert.
+    #     The reason an operator picks junction over copy is one sentence this
+    #     section prints: "the indicator can never fall behind the original,
+    #     because there is only one file". That is true while
+    #     ~\.claude\skills\<plugin> is a reparse point. When it is an ORDINARY
+    #     DIRECTORY - a marketplace install, a hand-copied plugin folder, a
+    #     restore that turned a link into its contents - there are two files,
+    #     they drift exactly as copy mode's do, and the sentence is false about
+    #     the single property the mode was chosen for.
     #
-    #     BASELINE: fd8d023. Measured there: the permissions diff of the same
-    #     fixture prints no READ BEFORE SAYING YES block at all.
+    #     DETECTION ALREADY HAD THE ANSWER. Get-Detection reads the
+    #     reparse-point attribute into $D.skillIsLink and -Step detect prints
+    #     it in the 'skills entry' row. New-StatusLinePlan never asked.
+    #
+    #     THE FIRST TWO SHAPES BOTH PLANT A REAL statusline.ps1 AT THE WIRED-UP
+    #     PATH, so the "does not exist right now" warning fires in neither and
+    #     the wording is the only thing that can differ between them. That
+    #     identity is the defect: same words, opposite truth.
+    #
+    #     THREE SHAPES, NOT TWO, because $D.skillIsLink is $false for a real
+    #     directory AND for no skills entry at all. A two-way test would let a
+    #     fix tell an operator who has installed nothing that they have a copy,
+    #     so the third shape below pins that it does not.
+    #
+    #     THE JUNCTION TARGET IS A THROWAWAY DIRECTORY INSIDE THE CASE TREE and
+    #     never this checkout, and the reparse point is removed with
+    #     [IO.Directory]::Delete($link) - which unlinks only - in a finally, so
+    #     neither that call nor the suite's own recursive cleanup can walk
+    #     THROUGH the junction and delete the target's contents. mklink /J
+    #     makes a directory junction and needs no elevation; if it cannot be
+    #     created the case ABORTS rather than passing on an absent fixture.
+    #
+    #     BASELINE origin/main (a2d9447), measured, not read: all three shapes
+    #     print the identical block - "TRADE-OFF: the indicator can never fall
+    #     behind the original, because there is only one file." - while the SAME
+    #     run's -Step detect prints "[junction/link]" for the first and "[a real
+    #     directory, NOT a link]" for the second.
+    #
+    #     WHICH OF THESE IS A CONTROL, EXACTLY ONE: the first assertion below,
+    #     that a genuine junction is still promised no drift. It is GREEN at
+    #     that baseline and is here because the cheapest wrong fix is to delete
+    #     the sentence - over a real link there IS only one file and the
+    #     operator is owed it. Every other assertion in this block goes RED
+    #     there, the second one included: the baseline never says which shape it
+    #     checked, about any of the three.
     # -------------------------------------------------------------------
-    $inertText = @'
-{
-    "permissions": {
-        "deny": [ "Write(**/.env)", "Edit(**/.env)" ]
-    },
-    "alpha": "keep me"
-}
-'@
-    $t = New-CaseTree -Tag 'inert' -Bytes ($Utf8NoBom.GetBytes($inertText))
-    $d = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'diff', '-Section', 'permissions', '-SettingsPath', $t.settings)
-    Add-Result 'permissions diff: an inert Write(...) rule already in the file is reported on the DIFF' `
-        ($d.out -match 'READ BEFORE SAYING YES' -and $d.out -match '1 rule\(s\) already in this file use Write\(\.\.\.\) or NotebookEdit\(\.\.\.\)') `
-        "the permissions diff never mentioned the operator's own inert rule, so the surface that carries their yes is silent about the only thing this section still has to tell them. Output:`n$($d.out)"
+    $noDrift = 'can never fall behind the original, because there is'
 
-    $effectiveText = @'
-{
-    "permissions": {
-        "deny": [ "Edit(**/.env)", "Read(**/id_rsa)" ]
-    },
-    "alpha": "keep me"
-}
-'@
-    $t = New-CaseTree -Tag 'effective' -Bytes ($Utf8NoBom.GetBytes($effectiveText))
-    $d = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'diff', '-Section', 'permissions', '-SettingsPath', $t.settings)
-    Add-Result 'CONTROL permissions diff: Edit(...) and Read(...) rules are NOT called inert' `
-        ($d.out -notmatch 'use Write\(\.\.\.\) or NotebookEdit\(\.\.\.\)') `
-        "rules in the effective form were reported as protecting nothing, which would send an operator to rewrite rules that already work. Output:`n$($d.out)"
+    $t = New-CaseTree -Tag 'junction-link' -Bytes $FixtureBytes
+    $linkTarget = Join-Path $t.dir 'a-checkout-somewhere-else'
+    [void][IO.Directory]::CreateDirectory((Join-Path $linkTarget 'statusline'))
+    [IO.File]::Copy($RepoStatusLine, (Join-Path $linkTarget 'statusline\statusline.ps1'), $true)
+    $skillsDir = Join-Path (Join-Path $t.profile '.claude') 'skills'
+    [void][IO.Directory]::CreateDirectory($skillsDir)
+    $link = Join-Path $skillsDir $PluginName
+    $mk = ''
+    $prevEap = $ErrorActionPreference
+    try { $ErrorActionPreference = 'Continue'; $mk = (& cmd /c mklink /J "$link" "$linkTarget" 2>&1 | Out-String) } finally { $ErrorActionPreference = $prevEap }
+    $li = New-Object IO.DirectoryInfo($link)
+    if (-not [IO.Directory]::Exists($link) -or (($li.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0)) {
+        throw "could not create a directory junction at ${link}: $mk. This case cannot tell a link from a directory without one, and a skip would be a false pass."
+    }
+    try {
+        $dj = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'diff', '-Section', 'statusline', '-SettingsPath', $t.settings, '-StatusLineMode', 'junction')
+        $det = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'detect', '-SettingsPath', $t.settings)
+    } finally {
+        # UNLINK ONLY. Never Remove-Item -Recurse and never Directory.Delete
+        # with $true on a reparse point - both can walk through it and empty
+        # the TARGET rather than removing the link.
+        try { [IO.Directory]::Delete($link) } catch { }
+    }
+    Add-Result 'CONTROL junction mode over a REAL junction still promises the indicator cannot fall behind' `
+        ($dj.code -eq 0 -and $dj.out -match [regex]::Escape($noDrift)) `
+        "exited $($dj.code). Over a genuine reparse point there IS only one file, so this sentence is true and the operator is owed it - a fix that deleted it outright would be an overcorrection. Output:`n$($dj.out)"
+    # The TARGET is matched on its leaf and not on the full path: what the plan
+    # prints comes back from Get-Item .Target, and a temp root that resolves
+    # through an 8.3 segment or arrives with a \\?\ prefix would fail a
+    # whole-path comparison while the behaviour is exactly right. The leaf is a
+    # name this case invented and is no less discriminating.
+    Add-Result 'junction mode over a REAL junction says so, and names what it points at' `
+        ($dj.out -match 'IS a link' -and $dj.out -match 'a-checkout-somewhere-else') `
+        "the plan must state the shape it checked and name the target, so the operator can contradict it. detect said: $(($det.out -split "`r?`n" | Where-Object { $_ -match 'skills entry' }) -join ' '). Output:`n$($dj.out)"
+
+    # THE DEFECT ITSELF. Same mode, same wiring, a skills entry that is an
+    # ordinary directory holding its own copy of statusline.ps1.
+    $t = New-CaseTree -Tag 'junction-realdir' -Bytes $FixtureBytes
+    $realDir = Join-Path (Join-Path (Join-Path $t.profile '.claude') 'skills') $PluginName
+    [void][IO.Directory]::CreateDirectory((Join-Path $realDir 'statusline'))
+    [IO.File]::Copy($RepoStatusLine, (Join-Path $realDir 'statusline\statusline.ps1'), $true)
+    $rdi = New-Object IO.DirectoryInfo($realDir)
+    if (($rdi.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "the fixture at $realDir is a reparse point; this case needs an ordinary directory and would otherwise be testing the control twice."
+    }
+    $dr = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'diff', '-Section', 'statusline', '-SettingsPath', $t.settings, '-StatusLineMode', 'junction')
+    $detR = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'detect', '-SettingsPath', $t.settings)
+    Add-Result 'junction mode over a REAL DIRECTORY does NOT claim the indicator can never fall behind' `
+        ($dr.code -eq 0 -and $dr.out -notmatch [regex]::Escape($noDrift)) `
+        "the skills entry is an ordinary directory holding a COPY, so there are two files and they drift exactly as copy mode's do. The plan told the operator otherwise, and detect in the same fixture said: $(($detR.out -split "`r?`n" | Where-Object { $_ -match 'skills entry' }) -join ' '). Output:`n$($dr.out)"
+    Add-Result 'junction mode over a REAL DIRECTORY says it is not a link and that the copy can drift' `
+        ($dr.out -match 'is a REAL DIRECTORY, NOT a link' -and $dr.out -match "drift") `
+        "stating nothing is not the fix either: the operator picked this mode for a property their machine does not have and has to be told which one. Output:`n$($dr.out)"
+    Add-Result 'junction mode over a REAL DIRECTORY warns before the yes' `
+        ($dr.out -match '(?m)^--- READ BEFORE SAYING YES' -and $dr.out -match '(?ms)READ BEFORE SAYING YES.*REAL DIRECTORY on this machine and not a link') `
+        "a mode that cannot deliver what it was chosen for is a read-before-you-say-yes condition, not a line buried in the body. Output:`n$($dr.out)"
+
+    # THE THIRD SHAPE: NOTHING THERE AT ALL, which is the state a first run on a
+    # new machine is actually in. skillIsLink is $false here for a completely
+    # different reason, so the plan must neither promise one file nor accuse the
+    # operator of having a copy - it has to say the question is not settled yet.
+    $t = New-CaseTree -Tag 'junction-nothing' -Bytes $FixtureBytes
+    $absent = Join-Path (Join-Path (Join-Path $t.profile '.claude') 'skills') $PluginName
+    if ([IO.Directory]::Exists($absent)) {
+        throw "the fixture at $absent exists; this case needs the skills entry to be absent and would otherwise duplicate one of the two above."
+    }
+    $dn = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'diff', '-Section', 'statusline', '-SettingsPath', $t.settings, '-StatusLineMode', 'junction')
+    Add-Result 'junction mode with NO skills entry does not promise the indicator cannot fall behind' `
+        ($dn.code -eq 0 -and $dn.out -notmatch [regex]::Escape($noDrift)) `
+        "there is no link and no copy, so there is no 'only one file' to promise about - what goes there later decides it. Output:`n$($dn.out)"
+    Add-Result 'junction mode with NO skills entry says so, and does not call it a real directory' `
+        ($dn.out -match 'there is no skills entry at' -and $dn.out -notmatch 'REAL DIRECTORY') `
+        "skillIsLink is `$false for an absent entry as well as for a copied one; a two-way test on it tells an operator who has installed nothing that they are carrying a second file. Output:`n$($dn.out)"
+
+    # -------------------------------------------------------------------
+    # 22. THE PERMISSIONS SECTION'S DIFF: SECTION REMOVED, WITH ITS SECTION.
+    #
+    #     Two cases lived here - one that the permissions diff reported the
+    #     operator's OWN inert Write(...) rules, and a CONTROL that Edit(...)
+    #     and Read(...) rules were not reported as inert. Both drove
+    #     `-Step diff -Section permissions`.
+    #
+    #     That -Section value no longer exists. The section could only ever
+    #     report "nothing to add" - New-PermissionsPlan returned at its
+    #     `$rules.Count -eq 0` branch on every possible run - so the whole
+    #     section was deleted from bin\lwg-setup.ps1 rather than left as a
+    #     consent screen for nothing, and these two cases went with it. They
+    #     are not restorable in place: `-Section permissions` is now a
+    #     ValidateSet binding error, so both would abort rather than fail.
+    #
+    #     THE BEHAVIOUR THEY PINNED IS NOT UNTESTED, IT IS UNREACHABLE FROM
+    #     THIS SURFACE. Get-InertRules is still live and still called by
+    #     Write-DetectionReport, so the operator's inert rules are still
+    #     named - under -Step detect, which is the only surface left that
+    #     says anything about permissions.deny. NOTHING HERE DRIVES THAT
+    #     REPORT for inert rules, and that gap is stated rather than papered
+    #     over: a case for it would belong to the detect step, which this
+    #     suite reads only for its install-mode lines.
+    # -------------------------------------------------------------------
 
     # ===================================================================
     # 17. THE INSTALL-MODE DETECTION, AND THE HOOKS SECTION IT DECIDES.
@@ -1998,9 +2084,9 @@ try {
     #
     #      "80%" is the obvious thing to type in a file whose key is named
     #      _pct. It failed the cast, the built-in stood, and there was no
-    #      message on the status line, none in /lw-watchtower:doctor - whose
+    #      message on the status line and none in /lw-watchtower:doctor - whose
     #      config-registry check reads nothing under `thresholds` and still
-    #      does not - and none in /lw-watchtower:sitrep.
+    #      does not.
     #
     #      BASELINE cc44c99: the row said nothing about it.
     # -------------------------------------------------------------------
@@ -2213,142 +2299,6 @@ try {
         "the documented format is MM/dd h:mmtt and en-US must keep rendering exactly that. Output:`n$($r.out)"
 
     # ===================================================================
-    # 24. THE SITREP'S TWO GOVERNANCE COUNTS AND WHAT THEY POINT AT.
-    #
-    #     Same argument as section 23 for why they live here: bin\lwg-sitrep.ps1
-    #     had no harness anywhere, and CLAUDE_PLUGIN_DATA is a complete sandbox
-    #     for the state it reads. BASELINE: cc44c99, run as a byte copy of the
-    #     tree exported with `git archive`.
-    #
-    #     WHAT THESE CASES DO NOT COVER. The sitrep also reports git, gh, CI and
-    #     the evidence engine, and every one of those reads the real repository
-    #     this suite runs in. Nothing below asserts on any of it.
-    # ===================================================================
-    $SitrepPath  = Join-Path $Root 'bin\lwg-sitrep.ps1'
-    $ResolvePath = Join-Path $Root 'lib\resolve.ps1'
-    foreach ($p in @($SitrepPath, $ResolvePath)) {
-        if (-not [IO.File]::Exists($p)) { throw "missing: $p" }
-    }
-
-    # -------------------------------------------------------------------
-    # 24a. ONE RUN, THREE CLAIMS - the gauge, the session spread, and the
-    #      command the operator is sent to.
-    #
-    #      * Stop.failed_tasks is a GAUGE: the supervisor writes the current
-    #        count of failed background tasks at EVERY turn end, so summing it
-    #        counts one dead task once per turn. Forty turns later the operator
-    #        was told there were 38 faults and asked to assess "each" of them.
-    #      * $bySession got a key for every record in the window, before the
-    #        event was examined, and the key survived the .Clear() a GateCleared
-    #        performs - so a session whose denials were explicitly cleared still
-    #        counted towards "sit across N session id(s)".
-    #      * The decision line named lib\resolve.ps1, which commands/resolve.md
-    #        forbids in bold, rather than /lw-watchtower:resolve.
-    #
-    #      BASELINE cc44c99, one run:
-    #        [V] 3 outstanding health fault(s) ... Clear with lib\resolve.ps1
-    #        2 uncleared denial(s) sit across 2 session id(s)
-    # -------------------------------------------------------------------
-    $t = New-CaseTree -Tag 'sitrep-counts' -Bytes $null
-    $stateDir = Join-Path $t.dir 'state'
-    [void][IO.Directory]::CreateDirectory($stateDir)
-    $sid = 'lwg-sitrep-fixture-session'
-    [IO.File]::WriteAllText((Join-Path $stateDir 'health.jsonl'), (@(
-        '{"ts":"2026-08-01T10:00:00.0000000Z","event":"Stop","session":"' + $sid + '","failed_tasks":1}'
-        '{"ts":"2026-08-01T10:01:00.0000000Z","event":"Stop","session":"' + $sid + '","failed_tasks":1}'
-        '{"ts":"2026-08-01T10:02:00.0000000Z","event":"Stop","session":"' + $sid + '","failed_tasks":1}'
-    ) -join "`r`n") + "`r`n", $Utf8NoBom)
-    # Session A's denials are CLEARED; session B's are not. The spread is one.
-    [IO.File]::WriteAllText((Join-Path $stateDir 'lw-watchtower.jsonl'), (@(
-        '{"ts":"2026-08-01T09:00:00.0000000Z","event":"GateDeny","session":"lwg-fixture-A","rule":"lwg-fixture-rule"}'
-        '{"ts":"2026-08-01T09:00:30.0000000Z","event":"GateDeny","session":"lwg-fixture-A","rule":"lwg-fixture-rule"}'
-        '{"ts":"2026-08-01T09:01:00.0000000Z","event":"GateCleared","session":"lwg-fixture-A"}'
-        '{"ts":"2026-08-01T09:02:00.0000000Z","event":"GateDeny","session":"lwg-fixture-B","rule":"lwg-fixture-rule"}'
-        '{"ts":"2026-08-01T09:03:00.0000000Z","event":"GateDeny","session":"lwg-fixture-B","rule":"lwg-fixture-rule"}'
-    ) -join "`r`n") + "`r`n", $Utf8NoBom)
-
-    $r = Invoke-Reporter -ProfileDir $t.profile -StateDir $stateDir -ScriptPath $SitrepPath -Arguments @('-NoMark')
-    Add-Result 'sitrep: one failed task recorded at three turn ends is one outstanding fault' `
-        ($r.out -match '(?m)^\s+\[V\] health faults\s+:\s+1 outstanding') `
-        "the health-fault total is a multiple of the real one, and it is raised in NEEDS AN OPERATOR DECISION as a list to work through. Output:`n$($r.out)"
-    Add-Result 'sitrep: a session whose denials were cleared does not count towards the spread' `
-        ($r.out -match 'sit across 1 session id\(s\)') `
-        "the caveat that tells the operator how widely the denials are spread counted sessions holding none. Output:`n$($r.out)"
-    Add-Result 'sitrep: the health-fault decision names /lw-watchtower:resolve, not lib\resolve.ps1' `
-        ($r.out -match '/lw-watchtower:resolve' -and $r.out -notmatch 'Clear with lib.resolve\.ps1') `
-        "the operator-facing next action named the script commands/resolve.md forbids. Output:`n$($r.out)"
-
-    # -------------------------------------------------------------------
-    # 24b. A COUNT TAKEN FROM A WINDOW SAYS SO.
-    #
-    #      Both governance counts are computed from bounded reads - the last
-    #      512 KB of lw-watchtower.jsonl, and the last 512 KB AND THEN the last 600
-    #      records of health.jsonl - and both were printed as exact totals under
-    #      [V], whose definition on that page is "this process ran the probe".
-    #      The health one is additionally raised as a decision saying the faults
-    #      "do not expire", which is the one property truncation breaks.
-    #
-    #      BASELINE cc44c99: neither line mentioned a window.
-    # -------------------------------------------------------------------
-    $t = New-CaseTree -Tag 'sitrep-window' -Bytes $null
-    $stateDir = Join-Path $t.dir 'state'
-    [void][IO.Directory]::CreateDirectory($stateDir)
-    # Comfortably past the 512 KB byte window: 4,000 records of ~200 bytes is
-    # ~800 KB. Sized with margin on purpose - a fixture that only just exceeds
-    # the window is a case that flips on a one-character change to the padding.
-    $sb = New-Object Text.StringBuilder
-    for ($i = 0; $i -lt 4000; $i++) {
-        [void]$sb.Append('{"ts":"2026-08-01T09:00:00.0000000Z","event":"SessionStart","session":"lwg-fixture-pad-' +
-                         $i.ToString('0000') + '","note":"padding written by tests\setup_merge.ps1 so the event log exceeds the read window"}' + "`r`n")
-    }
-    [void]$sb.Append('{"ts":"2026-08-01T09:59:00.0000000Z","event":"GateDeny","session":"lwg-fixture-C","rule":"lwg-fixture-rule"}' + "`r`n")
-    [IO.File]::WriteAllText((Join-Path $stateDir 'lw-watchtower.jsonl'), $sb.ToString(), $Utf8NoBom)
-    # Past the 600-record cap.
-    $hb = New-Object Text.StringBuilder
-    for ($i = 0; $i -lt 700; $i++) {
-        [void]$hb.Append('{"ts":"2026-08-01T10:00:00.0000000Z","event":"SubagentStop","session":"lwg-sitrep-fixture-session"}' + "`r`n")
-    }
-    [IO.File]::WriteAllText((Join-Path $stateDir 'health.jsonl'), $hb.ToString(), $Utf8NoBom)
-
-    $r = Invoke-Reporter -ProfileDir $t.profile -StateDir $stateDir -ScriptPath $SitrepPath -Arguments @('-NoMark')
-    Add-Result 'sitrep: the gate-denial line names the read window when there was one' `
-        ($r.out -match 'earlier denials were NOT read') `
-        "the line says 'uncleared in the event log' about a slice of it, under a [V] that means the probe was run. Output:`n$($r.out)"
-    Add-Result 'sitrep: the health-fault line says AT LEAST when the read was capped' `
-        ($r.out -match 'AT LEAST') `
-        "the count was printed as an exact total from at most the last 600 records of at most the last 512 KB of a file allowed to reach 5 MB. Output:`n$($r.out)"
-
-    # ===================================================================
-    # 25. lib\resolve.ps1 MUST NOT REPORT A MARKER IT DID NOT WRITE.
-    #
-    #     Add-LwgLine returns $false when all five append attempts failed - that
-    #     return is the only signal, because it catches rather than throwing -
-    #     and this script piped it to Out-Null and then printed, unconditionally,
-    #     that the marker was written and HH returns to green, and exited 0.
-    #
-    #     THE FIXTURE MAKES THE APPEND FAIL WITHOUT TOUCHING PERMISSIONS: a
-    #     DIRECTORY named health.jsonl. AppendAllText on it throws every time, so
-    #     the retry ladder is exhausted exactly as it would be by a lock or an
-    #     unwritable state dir, and the sandbox is a scratch tree rather than an
-    #     ACL this suite would then have to put back.
-    #
-    #     -Session is passed explicitly so the inference branch, which reads the
-    #     log this fixture has replaced with a directory, is never reached.
-    #
-    #     BASELINE cc44c99: exit 0 and "Resolved marker written for session
-    #     lwg-fixture-session - status line HH returns to green."
-    # ===================================================================
-    $t = New-CaseTree -Tag 'resolve-failed-append' -Bytes $null
-    $stateDir = Join-Path $t.dir 'state'
-    [void][IO.Directory]::CreateDirectory($stateDir)
-    [void][IO.Directory]::CreateDirectory((Join-Path $stateDir 'health.jsonl'))
-    $r = Invoke-Reporter -ProfileDir $t.profile -StateDir $stateDir -ScriptPath $ResolvePath `
-                         -Arguments @('-Session', 'lwg-fixture-session', '-Note', 'lwg fixture - nothing was actually fixed')
-    Add-Result 'lib\resolve.ps1: an append that failed is not reported as a cleared fault' `
-        ($r.code -ne 0 -and $r.out -notmatch 'returns to green' -and $r.out -match 'FAILED') `
-        "exited $($r.code) after writing nothing. An agent that runs this has no way to detect the failure except by parsing the message, and the message said it succeeded. Output:`n$($r.out)"
-
-    # ===================================================================
     # 26. bin\lwg-update.ps1, WHICH NOTHING HAS EVER EXERCISED.
     #
     #     Not with -Apply, not without it. Every UAT row that touched it used
@@ -2507,6 +2457,160 @@ try {
         ($a.out -match '(?m)^\s+\[WARN\]\s+loaded-copy') `
         "the junction points at one directory and this run was pointed at another; the row must say it could not reconcile them. Output:`n$($a.out)"
 
+    # -------------------------------------------------------------------
+    # 26e. A PULL THAT FAILED DOES NOT GET TO DESCRIBE THE CHECKOUT.
+    #
+    #      bin\lwg-update.ps1's own header promises, at lines 21-22, that it
+    #      "will not call a failed or timed-out git command a clean result" and
+    #      that every subprocess failure "is reported as UNKNOWN". The pull's
+    #      failure row broke that promise: on state `nonzero` it appended two
+    #      sentences nothing had established - that nothing was merged, and that
+    #      the cause is branch divergence - and on missing/error it appended the
+    #      first of them.
+    #
+    #      NEITHER IS OBSERVED. `git pull` is a fetch and then a merge, and a
+    #      non-zero exit reported by git is not the same fact as a checkout that
+    #      did not move. --ff-only refuses for reasons other than divergence -
+    #      a broken index, a missing object, a refused fetch - and the row named
+    #      one of them regardless.
+    #
+    #      DIVERGENCE IS GIT'S CLAIM TO MAKE. git says so itself on stderr here
+    #      and Get-LwgToolReport already prints that line, so the script's own
+    #      guess added nothing where it was right and invented a cause where it
+    #      was not.
+    #
+    #      NOT -Offline: the fetch has to run for this to be the state git
+    #      really refuses in, and the "remote" is the bare repository next door.
+    #
+    #      BASELINE a2d9447: the pull row read '... - git refused and reported
+    #      it, so nothing was merged. A fast-forward that will not apply usually
+    #      means the branches have diverged; resolve that by hand. git status
+    #      now reports # branch.ab +1 -1 with 0 uncommitted change(s)', with the
+    #      word UNKNOWN nowhere in it and the state it failed in never named.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'update-pull-nonzero' -Bytes $null
+    $pair = New-BehindClone -Dir (Join-Path $t.dir 'repos')
+    [IO.File]::WriteAllText((Join-Path $pair.consumer 'local.md'), "lwg fixture local`r`n")
+    [void](Invoke-Git -WorkDir $pair.consumer -GitArgs @('add', '-A'))
+    [void](Invoke-Git -WorkDir $pair.consumer -GitArgs @('commit', '--quiet', '-m', 'lwg fixture: local commit, not pushed'))
+    $a = Invoke-Update -ProfileDir $t.profile -Arguments @('-Root', $pair.consumer, '-Apply', '-SkipDoctor')
+    $row = (@($a.out -split "`r?`n" | Where-Object { $_ -match '^\s+\[FAIL\]\s+pull\s' }) -join ' ')
+    Add-Result 'update: a pull git refused does not claim that nothing was merged' `
+        ([bool]($row -and $row -notmatch 'nothing was merged')) `
+        "the row said so about a command that fetches before it merges and was not watched while it did either. Row:`n$row`nOutput:`n$($a.out)"
+    Add-Result 'update: a pull git refused does not guess branch divergence as the cause' `
+        ([bool]($row -and $row -notmatch 'branches have diverged')) `
+        "--ff-only refuses for more than one reason and this run observed none of them; git's own stderr line is already printed. Row:`n$row`nOutput:`n$($a.out)"
+    Add-Result 'update: the refused pull row reports the checkout state as UNKNOWN' `
+        ([bool]($row -match 'UNKNOWN')) `
+        "the header promises every bounded subprocess failure is reported as UNKNOWN, and this row reported a state instead. Row:`n$row`nOutput:`n$($a.out)"
+    Add-Result 'update: the refused pull row names the state the pull failed in' `
+        ([bool]($row -match "state 'nonzero'")) `
+        "missing, timeout, nonzero and error are four different facts and the row has to say which one this was. Row:`n$row`nOutput:`n$($a.out)"
+
+    # CONTROL, and both pass at a2d9447 too: the fix is to stop ADDING claims,
+    # not to stop reporting. A row that dropped git's own words or stopped
+    # asking git what the tree is now would pass the four cases above and be
+    # worse than what it replaced.
+    Add-Result "CONTROL update: the refused pull row still carries git's own words" `
+        ([bool]($row -match 'git pull --ff-only exited')) `
+        "Get-LwgToolReport's line is the only account of the failure anybody gets. Row:`n$row`nOutput:`n$($a.out)"
+    Add-Result 'CONTROL update: the refused pull row still asks git what the tree is now' `
+        ([bool]($row -match 'git status now reports')) `
+        "UNKNOWN is the honest verdict, but the tree can be ASKED about, and the answer is the only evidence on the page. Row:`n$row`nOutput:`n$($a.out)"
+
+    # -------------------------------------------------------------------
+    # 26f. THE TIMED-OUT PULL, WHERE 'nothing was merged' WAS A LIE.
+    #
+    #      This is the state the old row was most wrong about, and the fixture
+    #      shows why rather than arguing it: a post-merge hook that sleeps
+    #      longer than the 20 s bound. git fast-forwards, moves HEAD, releases
+    #      .git\index.lock, THEN runs the hook and hangs. Invoke-LwgCmdProcess
+    #      kills the git process it started - not the hook's shell, which is a
+    #      child of it - and returns state `timeout`. HEAD HAS ALREADY MOVED.
+    #
+    #      This case therefore asserts the row AND the head, because the head is
+    #      what makes the row's old wording a false statement rather than a
+    #      merely unproven one.
+    #
+    #      DEPENDENCY, ON TOP OF THIS SECTION'S git ON PATH: git's own hook
+    #      shell, which Git for Windows bundles. The hook is written with LF
+    #      endings and no BOM because that shell reads the shebang literally.
+    #
+    #      COST: this case spends ~20 s waiting for the bound, by design. There
+    #      is no shorter way to observe a timeout that Invoke-LwgCmdProcess
+    #      itself floors at 20 s.
+    #
+    #      BASELINE a2d9447: the row already said UNKNOWN here - that branch was
+    #      right - so four of the five cases below are CONTROLs. What was
+    #      missing is the state name.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'update-pull-timeout' -Bytes $null
+    $pair = New-BehindClone -Dir (Join-Path $t.dir 'repos')
+    [IO.File]::WriteAllText((Join-Path $pair.consumer '.git\hooks\post-merge'),
+        "#!/bin/sh`nsleep 25`n", (New-Object Text.UTF8Encoding($false)))
+    $headBefore = (Invoke-Git -WorkDir $pair.consumer -GitArgs @('rev-parse', 'HEAD')).Trim()
+    $a = Invoke-Update -ProfileDir $t.profile -Arguments @('-Root', $pair.consumer, '-Apply', '-SkipDoctor')
+    $headAfter = (Invoke-Git -WorkDir $pair.consumer -GitArgs @('rev-parse', 'HEAD')).Trim()
+    $row = (@($a.out -split "`r?`n" | Where-Object { $_ -match '^\s+\[FAIL\]\s+pull\s' }) -join ' ')
+    Add-Result 'update: the timed-out pull row names the state the pull failed in' `
+        ([bool]($row -match "state 'timeout'")) `
+        "a killed pull and a refused pull are different facts and the row has to say which one this was. Row:`n$row`nOutput:`n$($a.out)"
+    Add-Result 'CONTROL update: the timed-out pull row reports the checkout state as UNKNOWN' `
+        ([bool]($row -match 'UNKNOWN')) `
+        "this branch was already right at a2d9447 and the fix must not lose it. Row:`n$row`nOutput:`n$($a.out)"
+    Add-Result 'CONTROL update: the timed-out pull row does not claim that nothing was merged' `
+        ([bool]($row -and $row -notmatch 'nothing was merged')) `
+        "the case below shows HEAD moved on this very run, so the claim would be false and not merely unproven. Row:`n$row`nOutput:`n$($a.out)"
+    Add-Result 'CONTROL update: the killed pull had ALREADY moved HEAD' `
+        ([bool]($headBefore -ne $headAfter)) `
+        "the fixture did not reproduce the state it exists to prove: HEAD is still $headBefore, so a killed pull that merged nothing was measured and this case establishes nothing about the row beside it. Output:`n$($a.out)"
+    Add-Result 'CONTROL update: a killed pull exits 2 - finished with caveats - and not 1' `
+        ([bool]($a.code -eq 2)) `
+        "exited $($a.code). Exit 1's documented meaning is 'REFUSED ... nothing was changed', which is exactly the claim nobody can make about a pull killed mid-operation. Output:`n$($a.out)"
+
+    # -------------------------------------------------------------------
+    # 26g. THE OTHER TWO STATES, AND WHERE THEY CAN AND CANNOT BE REACHED.
+    #
+    #      Get-LwgToolReport distinguishes four failure states. Two of them
+    #      cannot be produced at the pull row through this script AT ALL, and
+    #      that is asserted here rather than left as a claim in a comment:
+    #
+    #        missing  section 1 runs `git --version` first and EXITS 2 on it, so
+    #                 a run without git never reaches section 5. The case below
+    #                 drives it and pins that: the git row is printed, no pull
+    #                 row is, and nothing is called up to date.
+    #        error    comes from Invoke-LwgCmdProcess's outer catch, which fires
+    #                 on a fault in its own plumbing after Process.Start already
+    #                 returned. Nothing a fixture can set from outside reaches
+    #                 it. NO CASE HERE DRIVES `error`, and a green run says
+    #                 nothing about that branch beyond the wording it shares
+    #                 with the three above.
+    #
+    #      PATH is narrowed to the Windows directories for the child and
+    #      RESTORED in a finally, the same contract Invoke-Setup keeps for
+    #      USERPROFILE: this suite must not change the environment of whatever
+    #      runs after it. WindowsPowerShell\v1.0 stays on it because
+    #      Invoke-Update resolves `powershell` through PATH.
+    #
+    #      BOTH CASES PASS AT a2d9447. They are CONTROLs on the reachability
+    #      claim, not evidence that anything was fixed.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'update-no-git' -Bytes $null
+    $pair = New-BehindClone -Dir (Join-Path $t.dir 'repos')
+    $prevPath = $env:PATH
+    $a = @{ code = 255; out = '' }
+    try {
+        $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+        $a = Invoke-Update -ProfileDir $t.profile -Arguments @('-Root', $pair.consumer, '-Apply', '-SkipDoctor')
+    } finally { $env:PATH = $prevPath }
+    Add-Result 'CONTROL update: with git off PATH the run stops at the git row and prints no pull row at all' `
+        ([bool](($a.out -match '(?m)^\s+\[FAIL\]\s+git\s') -and ($a.out -notmatch '(?m)^\s+\[\w+\s*\]\s+pull\s'))) `
+        "the missing state is supposed to be unreachable at the pull row because section 1 exits on it. If a pull row appeared here, 26e and 26f are no longer the whole story and that branch needs a case of its own. Output:`n$($a.out)"
+    Add-Result 'CONTROL update: with git off PATH nothing is reported as up to date' `
+        ([bool]($a.out -match 'is not the same as being up to date')) `
+        "a check that could not be made is not a check that passed, and this is the row that says so. Output:`n$($a.out)"
+
 } catch {
     $script:Aborted = "$($_.Exception.Message)  [line $($_.InvocationInfo.ScriptLineNumber)]"
 } finally {
@@ -2558,7 +2662,8 @@ Write-Output 'fault gauge once and keeps its clock legible off en-US" - not as "
 Write-Output 'installer is safe" and not as "the status line is covered": row 1 has nine'
 Write-Output 'segments and section 23 asserts on four of them. The backup-collision suffix,'
 Write-Output 'the post-write auto-restore,'
-Write-Output 'the ATOMICITY of the write, the permissions MERGE and the enabled/disabled'
+Write-Output 'the ATOMICITY of the write, everything to do with permissions.deny and the'
+Write-Output 'enabled/disabled'
 Write-Output 'distinction are all named in the header as NOT covered, and no case here proves'
 Write-Output 'what layout the CLI you are running actually writes.'
 Write-Output 'EXIT: 0'

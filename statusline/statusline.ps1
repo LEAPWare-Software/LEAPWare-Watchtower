@@ -607,8 +607,10 @@ $gmPluginRoots = @(LwgPluginRoots)
 # whichever supervisor is bound writes to its own file - and reading only one of
 # them renders HH green while a real unresolved fault sits in the other. A false
 # green is the one failure mode this indicator must never have, so all of them
-# are read and merged in timestamp order. Merging also lets a Resolved marker
-# written to one log clear a fault recorded in the other.
+# are read and merged in timestamp order. Merging also used to let a Resolved
+# marker written to one log clear a fault recorded in the other; nothing writes
+# that marker any more - see the counting loop below - so the merge now exists
+# for the union and for the cross-writer dedup alone.
 
 # The last $keep usable lines of a log, read by seeking to the final $maxBytes
 # and decoding only that as UTF-8. Returns a HASHTABLE - @{ lines; oversize;
@@ -787,8 +789,9 @@ function HealthSeg($sessionId) {
 
     $faults = 0
     # The newest Stop record's failed_tasks, carried rather than accumulated -
-    # see the Stop arm below for why. Zero until a Stop record is seen, and
-    # reset by a Resolved marker along with everything else.
+    # see the Stop arm below for why. Zero until a Stop record is seen. Nothing
+    # resets it mid-session: it is a gauge, so the next Stop record overwrites
+    # it, and until one arrives the last sample stands.
     $gauge  = 0
     # Tracked separately from $faults because it is a PEAK rather than a
     # running total - see the orphans branch below.
@@ -817,8 +820,17 @@ function HealthSeg($sessionId) {
             if ($prev -and $prev.src -ne $r._src -and ($when - $prev.at).Duration().TotalSeconds -lt 2) { continue }
             $seenAt[$key] = @{ at = $when; src = $r._src }
         }
-        # a Resolved marker clears everything before it: red means OUTSTANDING faults
-        if ($r.event -eq 'Resolved') { $faults = 0; $gauge = 0; $orphanPeak = 0; continue }
+        # THERE IS NO Resolved ARM, and its absence is the whole reason this
+        # comment exists. One used to sit here and zero all three counters, so
+        # red meant OUTSTANDING faults rather than faults ever seen. The only
+        # writers of that record were bin/lwg-resolve.ps1 and lib/resolve.ps1,
+        # both deleted, so the branch became unreachable code that read as a
+        # live clearing mechanism. What it cost to remove is stated rather than
+        # glossed: a log written BEFORE the deletion may still hold Resolved
+        # records, and faults this reader once cleared on those sessions now
+        # count. Such a record falls through every arm below untouched - it
+        # carries no supervisor_error, no failed_tasks and no orphans - so it
+        # is inert, never an error, and never a fault of its own.
         if ($r.supervisor_error) { $faults++; continue }
         if ($r.event -eq 'PostToolUseFailure' -and -not $r.is_interrupt) { $faults++; continue }
         # Stop.failed_tasks IS A GAUGE, NOT AN EVENT, so it is carried and not
@@ -842,10 +854,11 @@ function HealthSeg($sessionId) {
         # re-sampled - this reader cannot tell "the same task again" from
         # "another task", because the record carries a count and no ids. That
         # distinction is unreachable from here and needs the writer
-        # (lib/supervisor.ps1) to name the tasks. bin/lwg-resolve.ps1:136 already
-        # reads this field as a gauge; this file and bin/lwg-sitrep.ps1 did not,
+        # (lib/supervisor.ps1) to name the tasks. bin/lwg-resolve.ps1:136 read
+        # this field as a gauge while this file and bin/lwg-sitrep.ps1 did not,
         # and three readers of one log disagreeing about one number is the
-        # divergence this plugin is named for.
+        # divergence this plugin is named for. Those two readers are deleted;
+        # this one is the last of the three and still reads it as a gauge.
         #
         # Records already on disk need no migration: the field always MEANT the
         # current count, and it is now read as one.
@@ -868,20 +881,20 @@ function HealthSeg($sessionId) {
         #
         # PEAK, NOT SUM, and that is load-bearing. An orphan stays orphaned, so
         # every later Stop and SubagentStop re-reports the SAME standing count;
-        # adding them would inflate HH without bound. Peak-since-Resolved counts
-        # each standing death once. The honest limit: if two orphans are resolved
-        # and one new one appears, the peak still reads 2 until a Resolved marker
-        # lands. It over-reports rather than under-reports, which is the correct
-        # direction for a fault indicator, and resolve.ps1 clears it in full.
+        # adding them would inflate HH without bound. A peak counts each standing
+        # death once. The honest limit, and it is larger now than it was: the
+        # peak only ever rises within a session, so two orphans followed by one
+        # new one still read 2, and NOTHING lowers it - the marker that used to
+        # is gone with its writers. It over-reports rather than under-reports,
+        # which is the correct direction for a fault indicator.
         #
-        # READ `orphans_new` WHERE IT EXISTS, NOT `orphans`, and the difference is
-        # what makes the indicator clearable at all. An orphan is STANDING - the
-        # dead transcript stays on disk - so `orphans` carries the same count at
-        # every later trigger. Taking a peak of THAT meant /lw-watchtower:resolve
-        # cleared HH and the next SubagentStop turned it red again seconds later.
-        # `orphans` is still read as a fallback for records written before
-        # `orphans_new` existed - without it, upgrading would silently green out a
-        # log that legitimately reads red.
+        # READ `orphans_new` WHERE IT EXISTS, NOT `orphans`. An orphan is
+        # STANDING - the dead transcript stays on disk - so `orphans` carries the
+        # same count at every later trigger. Taking a peak of THAT was what made
+        # a cleared HH turn red again on the next SubagentStop seconds later,
+        # back when clearing existed at all. `orphans` is still read as a
+        # fallback for records written before `orphans_new` existed - without it,
+        # upgrading would silently green out a log that legitimately reads red.
         $o = if ($null -ne $r.orphans_new) { [int]$r.orphans_new } else { [int]$r.orphans }
         if ($o -gt $orphanPeak) { $orphanPeak = $o }
     }

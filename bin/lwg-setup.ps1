@@ -12,11 +12,9 @@
 
   WHY THIS EXISTS AT ALL
 
-  A Claude Code plugin cannot do three things it needs done, and all three were
+  A Claude Code plugin cannot do two things it needs done, and both were
   confirmed rather than assumed:
 
-      permissions.deny   a settings.json key. No plugin manifest field supplies
-                         it, and it is the ONLY layer here that cannot fail open
       statusLine         a settings.json key. No manifest field, and no hook
                          event renders a line
       any postinstall    there is no install-time hook of any kind
@@ -24,12 +22,19 @@
   So the plugin ships everything it can, and this command performs the rest from
   inside a session that has tool access.
 
-  THE THREE SECTIONS ARE CONFIRMED SEPARATELY, ALWAYS
+  A THIRD SECTION IS GONE. There was a `permissions` section, which stopped
+  installing anything on 30 July 2026 when the deny table was emptied with the
+  two gates; it could only ever report "nothing to add", so it was removed
+  outright rather than left as a section an operator is asked to say yes to.
+  This installer writes no permissions.deny rules and has none to write. Rules
+  already in the operator's settings.json are still REPORTED by -Step detect,
+  and still never touched.
 
-  permissions.deny, statusLine and hooks are three different powers over the
-  operator's machine, and one "yes" must never buy all three. -Step diff shows
-  exactly one section; -Step apply writes exactly one section. There is no
-  -Section all, deliberately.
+  THE TWO SECTIONS ARE CONFIRMED SEPARATELY, ALWAYS
+
+  statusLine and hooks are two different powers over the operator's machine, and
+  one "yes" must never buy both. -Step diff shows exactly one section; -Step
+  apply writes exactly one section. There is no -Section all, deliberately.
 
   STEPS
 
@@ -90,7 +95,7 @@ param(
     [string]$Step = 'detect',
 
     # Exactly one section per diff/apply. There is no 'all'.
-    [ValidateSet('', 'permissions', 'statusline', 'hooks')]
+    [ValidateSet('', 'statusline', 'hooks')]
     [string]$Section = '',
 
     # Defaults to <USERPROFILE>\.claude\settings.json. Override to sandbox.
@@ -108,8 +113,12 @@ param(
     # --- the operator's answers, one per feature group ---------------------
     # Every one has a recommended default and every one is a real choice; none
     # of them is inferred from the machine.
-    [ValidateSet('yes', 'no')][string]$DestructiveGate = 'yes',
-    [ValidateSet('yes', 'no')][string]$SecretGate      = 'yes',
+    # -DestructiveGate and -SecretGate USED TO SIT HERE and are gone. Both gates
+    # were removed on 30 July 2026; the parameters outlived them by validating
+    # answers to questions about features that no longer exist. Because this
+    # script is [CmdletBinding()], passing either one is now a BINDING ERROR
+    # before a line of it runs rather than a silently discarded positional - a
+    # caller still spelling them is told, and nothing is written.
     [ValidateSet('yes', 'no')][string]$Advisories      = 'yes',
     [ValidateSet('yes', 'no')][string]$AgentRoles      = 'yes',
 
@@ -138,114 +147,38 @@ $script:Caveats    = New-Object System.Collections.ArrayList
 function Add-Caveat { param([string]$Text) [void]$script:Caveats.Add($Text) }
 
 # ===========================================================================
-# THE DENY RULE TABLE
+# THE DENY RULE TABLE IS GONE, AND SO IS THE SECTION THAT WROTE IT
 # ===========================================================================
-# Authored here rather than copied out of any live settings.json: an installer
-# that reads its own rules off the machine it is installing to cannot install
-# anything on a fresh one.
+# This installer once authored 181 permissions.deny rules in six groups and
+# merged them into the operator's settings.json behind their own yes. All six
+# groups were removed on 30 July 2026 at the owner's instruction - the four
+# destructive groups with the command gate, the two secret groups with the
+# secret gate - and Get-DenyGroups was left returning an empty table.
 #
-# THE MATCHER TRAP. Claude Code applies only Edit(<path>) rules to file paths.
-# Write(<path>) and NotebookEdit(<path>) rules parse, load, sit in the file
-# looking like protection, and match nothing - the CLI warns about them at every
-# launch. So every path rule below is spelled Edit(...) or Read(...), and
-# Assert-EffectiveMatchers refuses to emit the table at all if an inert form
-# ever creeps back into it.
+# WHAT WAS DELETED HERE, AND WHY IT COULD BE. With that table empty,
+# New-PermissionsPlan returned at its `$rules.Count -eq 0` branch on every
+# possible run: the union merge, the per-group listing and the matcher guard
+# (Assert-EffectiveMatchers) could not execute, and the section could only ever
+# print "nothing to add". A section an operator is asked to say yes to, which
+# cannot do anything whatever they answer, is a consent screen for nothing. So
+# the whole permissions section went - the plan builder, the four table
+# functions behind it, and the -Section value that reached them.
 #
-# THAT GUARD IS DORMANT, NOT ACTIVE, AND THIS COMMENT USED TO CLAIM OTHERWISE.
-# It ended "A guard, not a comment: comments do not fail" - which was true of the
-# 181-rule table it was written for and is not true of the empty one that
-# replaced it. Get-DenyGroups returns nothing, so Get-SelectedDenyRules returns
-# an empty array, so New-PermissionsPlan runs Assert-EffectiveMatchers over
-# nothing on every possible run and it cannot report an offender. It resumes
-# working the moment a group is added back here, which is the state it guards -
-# but until then it is a check that runs and can never fail, and a comment
-# saying otherwise is the exact overstatement this repository exists to refuse.
+# WHAT THAT DOES NOT MEAN. This plugin does not protect credential files or
+# destructive commands at any layer, and it did not before this deletion
+# either; both hooks were deleted in July 2026 and both rule sets with them.
+# Nothing changed about what the operator is protected from. What changed is
+# that setup no longer asks.
 #
-# WHAT ELSE THE EMPTY TABLE MADE UNREACHABLE, so a reader does not audit dead
-# code as live: New-PermissionsPlan returns at its `$rules.Count -eq 0` branch on
-# every run, and everything below that return - the union merge, $existing,
-# $final, $added and the per-group listing - does not execute. The operator's
-# own inert rules are still reported: Get-InertRules is called from the plan
-# ABOVE that return and from Write-DetectionReport's -Step detect report.
+# RULES ALREADY IN THE OPERATOR'S FILE ARE STILL REPORTED AND STILL NEVER
+# TOUCHED. Get-InertRules below is live: Write-DetectionReport calls it under
+# -Step detect to name deny rules that cannot match anything, which is the one
+# true thing this installer still has to say about permissions.deny. It never
+# removes, reorders or rewrites a rule, including the 181 it used to add.
 #
-# WHAT THESE RULES ARE AND ARE NOT. permissions.deny is literal-glob matching
-# over the command string. It can only catch spellings someone enumerated, so it
-# closes no bypass class in general - a line continuation, an unenumerated
-# wrapper, an abbreviated flag nobody listed all get through. Its one virtue is
-# the one the hooks do not have: the CLI evaluates it itself, so it cannot fail
-# open. Defence in depth, not a guarantee, and setup says so on every run.
-
-function Get-DenyGroups {
-    <#
-      Returns an ordered hashtable of group-name -> @{ why; rules }.
-
-      IT IS EMPTY. This installer writes no permissions.deny rules at all, and
-      that is the finished state rather than an oversight:
-
-        the four DESTRUCTIVE groups - git-destructive, filesystem-destructive,
-        github-destructive and git-internals, 133 rules - were removed on
-        30 July 2026 with the command gate;
-
-        the two SECRET groups - secret-paths and secret-reads, the remaining
-        48 rules - were removed the same day with the secret gate, at the
-        owner's explicit instruction.
-
-      So there is no config layer for credentials and none for destructive
-      commands, and since both hooks went too there is no hook layer either.
-      /lw-watchtower:setup no longer installs any protection against anything; what it
-      still does is the status line, the hooks that OBSERVE, and the agent roles.
-
-      The function is kept, returning an empty table, rather than deleted: every
-      caller below - the plan builder, the parity test, the group listing - is
-      written against this shape, and an empty table makes them all correctly
-      report nothing. Add a group here and the installer, the diff and the
-      parity fixture pick it up with no other change.
-    #>
-    return [ordered]@{}
-}
-
-function Get-SelectedDenyGroupNames {
-    <#
-      BOTH ANSWERS NOW SELECT NOTHING, because there are no groups left to
-      select - see Get-DenyGroups.
-
-      -Destructive stopped selecting anything on 30 July 2026 when the four
-      destructive groups went; it had already stopped governing the
-      lib/gate_bash.ps1 registration, that hook having been deleted in the same
-      change. -Secret stopped selecting anything later the same day when the two
-      secret groups went with lib/gate_write.ps1.
-
-      Both parameters are kept so an existing caller and the -Step detect
-      question list do not break, and every place that prints them says they do
-      nothing. A parameter that quietly did nothing would be read as a bug; one
-      that loudly does nothing is a record of a decision.
-    #>
-    param([string]$Destructive, [string]$Secret)
-    return , @()
-}
-
-function Get-SelectedDenyRules {
-    param([string]$Destructive, [string]$Secret)
-    $groups = Get-DenyGroups
-    $rules  = New-Object System.Collections.ArrayList
-    foreach ($g in (Get-SelectedDenyGroupNames -Destructive $Destructive -Secret $Secret)) {
-        foreach ($r in $groups[$g].rules) { if (-not $rules.Contains($r)) { [void]$rules.Add($r) } }
-    }
-    return , @($rules.ToArray())
-}
-
-function Assert-EffectiveMatchers {
-    <#
-      The guard for the matcher trap. A rule that names a file path must be
-      spelled Edit(...) or Read(...); Write(...) and NotebookEdit(...) are
-      accepted by the settings loader and then applied to nothing. If one ever
-      reaches the table above, setup refuses to write the table at all rather
-      than installing protection that silently does nothing.
-      Returns the offending rules; empty means the table is sound.
-    #>
-    param([string[]]$Rules)
-    return , @($Rules | Where-Object { $_ -like 'Write(*' -or $_ -like 'NotebookEdit(*' })
-}
+# RESTORING THE SECTION MEANS RESTORING ALL OF IT - the table, the group
+# selection, the matcher guard, the union merge and a -Section value - which is
+# the same statement docs/gates-removed.md makes about the gates themselves.
 
 function Get-InertRules {
     <# Rules in the operator's OWN file that cannot match. Reported, never touched. #>
@@ -1108,45 +1041,25 @@ function Write-Questions {
     Write-Output 'QUESTIONS TO PUT TO THE OPERATOR'
     Write-Output '==========================================================================='
     Write-Output 'Ask these one at a time, in this order, in these words. Where a question has a'
-    Write-Output 'recommended answer, the recommendation is safe to accept. Q1 and Q2 are marked'
-    Write-Output 'n/a because neither answer does anything at all - see the NOTE under each. A'
-    Write-Output 'recommendation on an inert choice would be advice to no effect, so there is none.'
+    Write-Output 'recommended answer, the recommendation is safe to accept.'
     Write-Output ''
-    Write-Output '  Q1  STOPPING COMMANDS THAT DESTROY WORK                 recommended: n/a'
-    Write-Output '      "Shall I stop Claude running commands that throw work away for good -'
-    Write-Output '       overwriting shared history, wiping changes you have not saved, deleting'
-    Write-Output '       a whole folder, deleting a repository on GitHub? You can still run any'
-    Write-Output '       of those yourself in a terminal. This only stops Claude doing it."'
-    Write-Output '      -> pass  -DestructiveGate yes   or   -DestructiveGate no'
-    Write-Output '      NOTE: THIS ANSWER NO LONGER DOES ANYTHING, and is kept only so an existing'
-    Write-Output '      caller does not break. Both halves of it were removed on 30 July 2026 at the'
-    Write-Output '      owner`s instruction: the hook that inspected commands (lib/gate_bash.ps1) and'
-    Write-Output '      the four destructive permissions.deny groups. Answering yes installs nothing'
-    Write-Output '      and answering no removes nothing. NOTHING in this plugin refuses a'
-    Write-Output '      destructive command any more. Say so plainly rather than asking the question'
-    Write-Output '      as though it still had an effect.'
+    Write-Output 'TWO QUESTIONS USED TO COME FIRST AND ARE GONE, not renumbered away silently:'
+    Write-Output 'one about stopping commands that destroy work, one about keeping passwords and'
+    Write-Output 'keys out of the chat. Both halves of each were removed on 30 July 2026 at the'
+    Write-Output 'owner`s instruction - the hooks that inspected commands and writes, and the six'
+    Write-Output 'permissions.deny groups - so both answers had stopped doing anything and the'
+    Write-Output 'parameters that carried them are gone too. NOTHING in this plugin refuses a'
+    Write-Output 'destructive command or keeps a credential out of a file or out of the chat. If'
+    Write-Output 'the operator asks about either, say that plainly; do not put it as a question.'
     Write-Output ''
-    Write-Output '  Q2  KEEPING PASSWORDS AND KEYS OUT OF THE CHAT           recommended: n/a'
-    Write-Output '      "Shall I stop Claude reading or changing the files that hold passwords'
-    Write-Output '       and keys - .env files, private keys, saved logins? Example files that are'
-    Write-Output '       meant to be shared, like .env.example, are not affected."'
-    Write-Output '      -> pass  -SecretGate yes   or   -SecretGate no'
-    Write-Output '      NOTE: THIS ANSWER NO LONGER DOES ANYTHING EITHER, for the same reason as Q1.'
-    Write-Output '      Both halves were removed on 30 July 2026 at the owner`s instruction: the hook'
-    Write-Output '      that inspected writes (lib/gate_write.ps1) and the two secret permissions.deny'
-    Write-Output '      groups, 48 rules. Answering yes installs nothing and answering no removes'
-    Write-Output '      nothing. NOTHING in this plugin keeps a credential out of a file or out of the'
-    Write-Output '      chat any more. Do not ask this question as though it still had an effect - say'
-    Write-Output '      plainly that this protection no longer exists.'
-    Write-Output ''
-    Write-Output '  Q3  END-OF-TURN WARNINGS                                 recommended: YES'
+    Write-Output '  Q1  END-OF-TURN WARNINGS                                 recommended: YES'
     Write-Output '      "Shall I switch on the warnings that appear when Claude finishes a reply -'
     Write-Output '       the conversation getting close to full, work that was never checked,'
     Write-Output '       documentation left behind by a code change, uncommitted changes sitting in'
     Write-Output '       a repository? They only ever warn. They never stop anything."'
     Write-Output '      -> pass  -Advisories yes   or   -Advisories no'
     Write-Output ''
-    Write-Output '  Q4  THE HEALTH INDICATOR AT THE BOTTOM OF THE WINDOW     recommended: copy'
+    Write-Output '  Q2  THE HEALTH INDICATOR AT THE BOTTOM OF THE WINDOW     recommended: copy'
     Write-Output '      "Shall I switch on the small health indicator at the bottom of the Claude'
     Write-Output '       Code window? It turns red when something went wrong in this session.'
     Write-Output '       There are two ways to set it up:'
@@ -1161,7 +1074,7 @@ function Write-Questions {
     Write-Output '         skip     - leave the bottom of the window alone."'
     Write-Output '      -> pass  -StatusLineMode copy | junction | skip'
     Write-Output ''
-    Write-Output ("  Q5  HOW THE GOVERNANCE RUNS                              recommended: {0}" -f $hookRec)
+    Write-Output ("  Q3  HOW THE GOVERNANCE RUNS                              recommended: {0}" -f $hookRec)
     if ($D.discovered) {
         Write-Output '      "Claude Code has already found this plugin, so it will run its own checks'
         Write-Output '       with no further setup. Answer plugin unless you have been told otherwise:'
@@ -1175,16 +1088,15 @@ function Write-Questions {
     }
     Write-Output '      -> pass  -HookMode plugin | standalone'
     Write-Output ''
-    Write-Output '  Q6  HELPER ROLES                                         recommended: YES'
+    Write-Output '  Q4  HELPER ROLES                                         recommended: YES'
     Write-Output '      "Shall I check that the helper roles the health indicator depends on are'
     Write-Output '       present? This only looks and reports - it writes nothing at all."'
     Write-Output '      -> pass  -AgentRoles yes   or   -AgentRoles no'
     Write-Output ''
     Write-Output 'THEN, ONE SECTION AT A TIME AND ONE YES EACH:'
-    Write-Output '  1. -Step diff -Section permissions   then apply, only if the operator agrees'
-    Write-Output '  2. -Step diff -Section statusline    then apply, only if the operator agrees'
-    Write-Output '  3. -Step diff -Section hooks         then apply, only if the operator agrees'
-    Write-Output '  4. -Step doctor'
+    Write-Output '  1. -Step diff -Section statusline    then apply, only if the operator agrees'
+    Write-Output '  2. -Step diff -Section hooks         then apply, only if the operator agrees'
+    Write-Output '  3. -Step doctor'
     Write-Output ''
     Write-Output 'A no to any one section leaves that section untouched and does not cancel the'
     Write-Output 'others. Every apply is preceded by its own diff and its own yes. Add -DryRun to'
@@ -1203,113 +1115,6 @@ function Write-Questions {
 #                 the same single yes for that section - never by another's.
 #
 # None of these writes output. They build a plan; the step functions print it.
-
-function New-PermissionsPlan {
-    param($Settings, $D)
-    $p = @{ ok = $true; title = 'permissions.deny'; lines = @(); changes = 0
-            merged = $null; warnings = @(); extraActions = @(); blurb = @() }
-
-    $p.blurb = @(
-        'THIS SECTION NOW INSTALLS NOTHING. The rule table is empty, so setup writes no',
-        'permissions.deny rules and this section can only ever report "nothing to add".',
-        '',
-        'It used to install 181 rules in six groups. All six were removed on 30 July 2026',
-        'at the owner`s instruction: the four destructive groups - git, filesystem, GitHub,',
-        '.git internals, 133 rules - with the command gate, and the two secret groups -',
-        'secret-paths and secret-reads, the remaining 48 rules - with the secret gate.',
-        '',
-        'WHAT THAT MEANS, PLAINLY: this plugin no longer protects credential files or',
-        'destructive commands at either layer. Both hooks are deleted and both sets of',
-        'rules are gone. permissions.deny was the layer that could not fail open, and there',
-        'is now nothing in it from us to fail open or otherwise.',
-        '',
-        'Rules already in your settings.json are NOT touched. This command has never',
-        'removed, reordered or rewritten a rule, and it still does not - including the 48',
-        'it used to add. If you want those gone, remove them yourself.'
-    )
-
-    $rules = Get-SelectedDenyRules -Destructive $DestructiveGate -Secret $SecretGate
-
-    $bad = Assert-EffectiveMatchers -Rules $rules
-    if ($bad.Count -gt 0) {
-        $p.ok = $false
-        $p.lines = @("REFUSING: the rule table holds $($bad.Count) rule(s) Claude Code does not apply to file paths.",
-                     'Installing them would be installing protection that silently does nothing.') +
-                   @($bad | ForEach-Object { "  $_" })
-        return $p
-    }
-
-    $obj = if ($Settings.parses) { Copy-JsonObject -Obj $Settings.obj } else { [pscustomobject]@{} }
-    if ($null -eq $obj) { $obj = [pscustomobject]@{} }
-    $p.merged = $obj
-
-    $perms = Get-PropValue -Obj $obj -Name 'permissions'
-    if ($null -eq $perms) { $perms = [pscustomobject]@{} }
-    $existing = Get-PropArray -Obj $perms -Name 'deny'
-
-    # THE OPERATOR'S OWN INERT RULES, WARNED ABOUT ABOVE THE EARLY RETURN. This
-    # block sat below it and could therefore never run: with Get-DenyGroups empty
-    # the `$rules.Count -eq 0` return below is taken on every possible run. The
-    # information was not lost - Write-DetectionReport reports the same rules
-    # under -Step detect - but it was missing from the permissions DIFF, which is
-    # the surface carrying READ BEFORE SAYING YES, for an operator who went
-    # straight to -Step diff. A diff that depends on the operator having run an
-    # earlier step to be complete is not a diff.
-    $inert = Get-InertRules -Rules $existing
-    if ($inert.Count -gt 0) {
-        $p.warnings += "$($inert.Count) rule(s) already in this file use Write(...) or NotebookEdit(...), which Claude Code does not apply to file paths. They are inert and protect nothing. Setup leaves them exactly as they are - it does not remove or rewrite rules it did not write - and it adds no rule of its own at all, because its table is empty."
-    }
-
-    if ($rules.Count -eq 0) {
-        $p.lines = @(
-            'Nothing to add: the rule table is empty and this installer ships no',
-            'permissions.deny rules at all. This is not the result of your answers -',
-            'neither -SecretGate nor -DestructiveGate selects anything any more.',
-            'Your existing deny rules, if any, are left exactly as they are.')
-        return $p
-    }
-
-    # EVERYTHING FROM HERE DOWN IS UNREACHABLE IN THE SHIPPED TREE and is kept
-    # for the reason Get-DenyGroups gives for keeping itself: add one group there
-    # and this merge, the diff and the parity fixture all pick it up with no
-    # other change. Nothing below runs while that table is empty.
-
-    # Set union, existing order preserved, nothing removed and nothing reordered.
-    # That is what makes a second run add nothing.
-    $final = New-Object System.Collections.ArrayList
-    foreach ($r in $existing) { [void]$final.Add([string]$r) }
-    $added = New-Object System.Collections.ArrayList
-    foreach ($r in $rules) {
-        if (-not $final.Contains($r)) { [void]$final.Add($r); [void]$added.Add($r) }
-    }
-
-    Set-PropValue -Obj $perms -Name 'deny' -Value ([object[]]$final.ToArray())
-    Set-PropValue -Obj $obj   -Name 'permissions' -Value $perms
-    $p.changes = $added.Count
-
-    $groups = Get-DenyGroups
-    $l = New-Object System.Collections.ArrayList
-    [void]$l.Add('rule groups the answers selected:')
-    foreach ($g in (Get-SelectedDenyGroupNames -Destructive $DestructiveGate -Secret $SecretGate)) {
-        [void]$l.Add("  $g ($($groups[$g].rules.Count) rules)")
-        [void]$l.Add("      $($groups[$g].why)")
-    }
-    [void]$l.Add('')
-    [void]$l.Add("deny rules already in the file : $($existing.Count)")
-    [void]$l.Add("deny rules this section wants  : $($rules.Count)")
-    [void]$l.Add("of those, already present      : $($rules.Count - $added.Count)")
-    [void]$l.Add("TO BE ADDED                    : $($added.Count)")
-    [void]$l.Add('TO BE REMOVED                  : 0   (this command never removes, reorders or rewrites a rule)')
-    [void]$l.Add('')
-    if ($added.Count -eq 0) {
-        [void]$l.Add('Nothing to do - every rule is already there. Applying now would write nothing.')
-    } else {
-        [void]$l.Add('EXACTLY these lines would be appended to permissions.deny:')
-        foreach ($r in $added) { [void]$l.Add('  + "' + $r + '"') }
-    }
-    $p.lines = @($l.ToArray())
-    return $p
-}
 
 function New-StatusLinePlan {
     param($Settings, $D)
@@ -1364,15 +1169,68 @@ function New-StatusLinePlan {
             $p.changes++
         }
     } else {
-        $target = [IO.Path]::Combine($env:USERPROFILE, ".claude\skills\$($D.pluginName)\statusline\statusline.ps1")
+        # THE TRADE-OFF THIS MODE OFFERS IS A PROPERTY OF THIS MACHINE, AND
+        # DETECTION ALREADY RESOLVED IT. Get-Detection reads the reparse-point
+        # attribute of ~\.claude\skills\<plugin> into $D.skillIsLink, and
+        # -Step detect prints the answer as 'junction/link' or 'a real
+        # directory, NOT a link'. This section asked for none of it and stated
+        # the LINK trade-off unconditionally - "the indicator can never fall
+        # behind the original, because there is only one file" - which is the
+        # single reason an operator picks this mode over copy.
+        #
+        # THAT SENTENCE IS FALSE WHEN THE SKILLS ENTRY IS AN ORDINARY
+        # DIRECTORY. A marketplace install, a hand-copied plugin folder, a
+        # restore from backup media that turned a link into its contents: any
+        # of them leaves a COPY of the plugin under skills, the wiring below
+        # points at the copy's statusline.ps1, and that file drifts from the
+        # tracked original exactly as copy mode's does. Same wiring, opposite
+        # promise - and the run making the promise had already printed the
+        # fact that contradicts it.
+        #
+        # NO NEW PROBE IS MADE HERE. The three branches are the three states
+        # $D.skillExists and $D.skillIsLink already distinguish, and the third
+        # one matters: skillIsLink is $false for a real directory AND for no
+        # skills entry at all, so a two-way test would tell an operator with
+        # nothing installed that they have a copy.
+        $target = [IO.Path]::Combine($D.skillLink, 'statusline\statusline.ps1')
         [void]$l.Add('MODE: junction')
-        [void]$l.Add('  Nothing is copied. The setting points straight at the file inside the project,')
-        [void]$l.Add('  through the skills-directory link.')
-        [void]$l.Add('  TRADE-OFF: the indicator can never fall behind the original, because there is')
-        [void]$l.Add('  only one file. But it breaks the moment that link is gone - a new machine where')
-        [void]$l.Add('  the link was never created, a folder that was moved or renamed, a checkout')
-        [void]$l.Add('  part-way through a rebase - and a status-line command that fails blanks the')
-        [void]$l.Add('  whole row rather than showing an error.')
+        if ($D.skillExists -and $D.skillIsLink) {
+            [void]$l.Add('  Nothing is copied. The setting points straight at the file inside the project,')
+            [void]$l.Add('  through the skills-directory link.')
+            [void]$l.Add("  ON THIS MACHINE $($D.skillLink) IS a link,")
+            if ($D.skillTarget) { [void]$l.Add("  pointing at $($D.skillTarget),") }
+            [void]$l.Add('  so the trade-off below is the one you are choosing.')
+            [void]$l.Add('  TRADE-OFF: the indicator can never fall behind the original, because there is')
+            [void]$l.Add('  only one file. But it breaks the moment that link is gone - a new machine where')
+            [void]$l.Add('  the link was never created, a folder that was moved or renamed, a checkout')
+            [void]$l.Add('  part-way through a rebase - and a status-line command that fails blanks the')
+            [void]$l.Add('  whole row rather than showing an error.')
+        } elseif ($D.skillExists) {
+            [void]$l.Add('  Nothing is copied by this section. The setting points at the statusline.ps1')
+            [void]$l.Add('  under the skills directory.')
+            [void]$l.Add("  ON THIS MACHINE $($D.skillLink)")
+            [void]$l.Add('  is a REAL DIRECTORY, NOT a link, so THIS MODE DOES NOT GIVE YOU THE THING IT')
+            [void]$l.Add('  IS CHOSEN FOR: a directory is a COPY of this plugin and not a second name for')
+            [void]$l.Add('  this checkout, so the file wired up below and the tracked original are two')
+            [void]$l.Add('  independent files that drift exactly as copy mode''s do - without copy mode''s')
+            [void]$l.Add('  check, because the drift line this installer prints compares')
+            [void]$l.Add("  $($D.installedStatusLine) against the original,")
+            [void]$l.Add('  and that is a different file again.')
+            [void]$l.Add('  TRADE-OFF: you get copy mode''s drift AND junction mode''s fragility - it still')
+            [void]$l.Add('  breaks if that directory is moved, renamed or removed, and a status-line')
+            [void]$l.Add('  command that fails blanks the whole row rather than showing an error.')
+            $p.warnings += "-StatusLineMode junction was asked for, but $($D.skillLink) is a REAL DIRECTORY on this machine and not a link. The file this would wire up is a SECOND copy that can silently fall behind the tracked original at $($D.repoStatusLine) - the one property this mode is chosen for does not hold here. Replace that directory with a junction, or choose -StatusLineMode copy and get the drift check that comes with it."
+        } else {
+            [void]$l.Add('  Nothing is copied. The setting points at a path under the skills directory.')
+            [void]$l.Add("  ON THIS MACHINE there is no skills entry at $($D.skillLink)")
+            [void]$l.Add('  at all, so whether the indicator can fall behind the original is not settled')
+            [void]$l.Add('  yet: a link put there later cannot drift, a copied directory can. Until')
+            [void]$l.Add('  something is there the row is blank.')
+            [void]$l.Add('  TRADE-OFF: it breaks whenever that path is gone - a new machine where the link')
+            [void]$l.Add('  was never created, a folder that was moved or renamed, a checkout part-way')
+            [void]$l.Add('  through a rebase - and a status-line command that fails blanks the whole row')
+            [void]$l.Add('  rather than showing an error.')
+        }
         [void]$l.Add('')
         [void]$l.Add('  ACTION 1  none - nothing is copied in this mode.')
         if (-not [IO.File]::Exists($target)) {
@@ -1808,14 +1666,14 @@ function New-HooksPlan {
             }
 
             $keep = $true
-            # NEITHER GATE ANSWER KEEPS OR DROPS A HOOK ANY MORE. Both hooks they
-            # used to govern were deleted on 30 July 2026: lib/gate_bash.ps1 with
-            # the destructive_gate module, and lib/gate_write.ps1 with
-            # secret_scan. -DestructiveGate and -SecretGate now select nothing at
-            # either layer - no hook here, and no permissions.deny group either,
-            # since Get-DenyGroups is empty. hooks.json DOES register a PreToolUse
-            # hook again - lib/gate_delegate.ps1, added 30 July 2026 - and this
-            # loop deliberately has NO answer that drops it. That is not an
+            # NO GATE ANSWER KEEPS OR DROPS A HOOK, because there is no gate
+            # answer. Both hooks that used to be governed by one were deleted on
+            # 30 July 2026 - lib/gate_bash.ps1 with the destructive_gate module,
+            # lib/gate_write.ps1 with secret_scan - and the two parameters that
+            # selected them were deleted from this file afterwards, once they
+            # governed nothing at either layer. hooks.json DOES register a
+            # PreToolUse hook again - lib/gate_delegate.ps1, added 30 July 2026 -
+            # and this loop deliberately has NO answer that drops it. That is not an
             # oversight: the gate is switched by interaction.delegate and ships
             # OFF, so registering it always installs no behaviour, whereas an
             # install-time question would leave an operator who later ran
@@ -1929,7 +1787,6 @@ function New-HooksPlan {
 function Get-SectionPlan {
     param([string]$Name, $Settings, $D)
     switch ($Name) {
-        'permissions' { return (New-PermissionsPlan -Settings $Settings -D $D) }
         'statusline'  { return (New-StatusLinePlan  -Settings $Settings -D $D) }
         'hooks'       { return (New-HooksPlan       -Settings $Settings -D $D) }
     }
@@ -1939,7 +1796,6 @@ function Get-SectionPlan {
 function Get-TouchedKey {
     param([string]$Name)
     switch ($Name) {
-        'permissions' { return 'permissions' }
         'statusline'  { return 'statusLine' }
         'hooks'       { return 'hooks' }
     }
@@ -1947,8 +1803,8 @@ function Get-TouchedKey {
 }
 
 function Get-AnswerArgs {
-    return ("-DestructiveGate {0} -SecretGate {1} -Advisories {2} -AgentRoles {3} -HookMode {4} -StatusLineMode {5}" -f `
-        $DestructiveGate, $SecretGate, $Advisories, $AgentRoles, $HookMode, $StatusLineMode)
+    return ("-Advisories {0} -AgentRoles {1} -HookMode {2} -StatusLineMode {3}" -f `
+        $Advisories, $AgentRoles, $HookMode, $StatusLineMode)
 }
 
 # ===========================================================================
@@ -1997,9 +1853,9 @@ function Write-ConcurrentRefusal {
 function Invoke-Diff {
     param($Settings, $D, [string]$Name)
 
-    $order = @{ permissions = 1; statusline = 2; hooks = 3 }
+    $order = @{ statusline = 1; hooks = 2 }
     Write-Output '==========================================================================='
-    Write-Output ("SECTION {0} of 3   {1}" -f $order[$Name], $Name)
+    Write-Output ("SECTION {0} of 2   {1}" -f $order[$Name], $Name)
     Write-Output '==========================================================================='
     Write-Output ("target file : {0}" -f $Settings.path)
     if (-not $Settings.exists) {
@@ -2018,7 +1874,7 @@ function Invoke-Diff {
         Write-Output 'REFUSED: this settings file does not parse, so nothing can be merged into it'
         Write-Output 'safely. Fix or restore that file first. Setup will not overwrite a settings file'
         Write-Output 'it cannot read - that is exactly how every other setting in it gets lost.'
-        Write-Output 'The other sections cannot be applied either, for the same reason.'
+        Write-Output 'The other section cannot be applied either, for the same reason.'
         $script:Exit = 5
         return
     }
@@ -2039,8 +1895,8 @@ function Invoke-Diff {
 
     if (-not $plan.ok) {
         Write-Output ''
-        Write-Output 'This section CANNOT be applied, for the reason above. The other two sections are'
-        Write-Output 'unaffected - carry on with them.'
+        Write-Output 'This section CANNOT be applied, for the reason above. The other section is'
+        Write-Output 'unaffected - carry on with it.'
         $script:Exit = 2
         return
     }
@@ -2061,7 +1917,7 @@ function Invoke-Diff {
     } else {
         Write-Output '  (nothing to preserve - the file is being created)'
     }
-    Write-Output '  No other section is touched. permissions.deny, statusLine and hooks are written'
+    Write-Output '  No other section is touched. statusLine and hooks are written'
     Write-Output '  one at a time, each behind its own yes.'
     Write-Output ''
     Write-Output 'FORMATTING NOTE, so it is not a surprise afterwards: applying re-serialises the'
@@ -2430,8 +2286,8 @@ try {
 
         default {
             if ([string]::IsNullOrWhiteSpace($Section)) {
-                Write-Output ("-Step {0} needs -Section permissions|statusline|hooks." -f $Step)
-                Write-Output 'There is no -Section all: the three are confirmed separately, always.'
+                Write-Output ("-Step {0} needs -Section statusline|hooks." -f $Step)
+                Write-Output 'There is no -Section all: the two are confirmed separately, always.'
                 $script:Exit = 5
             } else {
                 $D = Get-Detection

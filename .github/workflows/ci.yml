@@ -36,11 +36,7 @@ name: CI
 # tests\uninstall_footprint.ps1 drives bin\lwg-uninstall.ps1 against throwaway
 # data directories to check that the one thing in this plugin that DELETES
 # removes exactly what its footprint said it would, and refuses to report a
-# no-op deletion as a success; and tests\evidence_states.ps1 holds
-# bin\lwg-evidence.ps1 to the distinction the whole checklist rests on - a probe
-# that RAN and found nothing, versus a probe that never got to look - against a
-# plugin root with no .git, which is the marketplace install route and is where
-# that distinction shipped broken; tests\doctor_behaviour.ps1 drives
+# no-op deletion as a success; tests\doctor_behaviour.ps1 drives
 # bin\lwg-doctor.ps1 against seeded configs and seeded settings.json files, on
 # two of its nine checks and no others, because until it landed nothing had ever
 # RUN the component whose whole job is to notice a switch wired to nothing;
@@ -59,10 +55,10 @@ name: CI
 # A green run says the repo is syntactically sound, portable, that no workflow
 # reaches a runner GitHub does not host, that the gate still refuses what it
 # declares, that the statusline merge still behaves, that those stop-path cases
-# still behave, that the uninstaller's state-data footprint is true, that the
-# checklist does not report a state it never observed, that two of the doctor's
-# nine checks still ask the question they claim to, that the toggle's write
-# still backs up and still re-checks the file it replaces, that the SubagentStart
+# still behave, that the uninstaller's state-data footprint is true, that two
+# of the doctor's nine checks still ask the question they claim to, that the
+# toggle's write still backs up and still re-checks the file it replaces,
+# that the SubagentStart
 # fast path still answers the global flag, that no tracked file carries a
 # disclosure this guard knows the shape of, and that no page states a
 # recognised count the tree contradicts. It says nothing about the gate being
@@ -162,12 +158,16 @@ jobs:
   #     tests\stop_behaviour.ps1          70 s
   #     tests\doctor_behaviour.ps1        31 s
   #     tests\toggle_behaviour.ps1        27 s
-  #     tests\evidence_states.ps1         21 s
   #     tests\subagent_scan.ps1            9 s
   #     tests\payload_guard.ps1            7 s
   #     tests\portability_scan.ps1         4 s
   #     tests\workflow_guard.ps1           2 s   (+12 s for -SelfTest, same step)
   #     parallel wall clock, 11 jobs     236 s
+  #
+  # THE WALL-CLOCK ROW SAYS ELEVEN AND THE LIST ABOVE NOW HAS TEN, which is not
+  # an arithmetic slip. The run it records included the evidence-state suite,
+  # removed with the checklist commands; its own 21 s row went with it and the
+  # 236 s was NOT re-measured afterwards. Read the total as an upper bound.
   #
   # ONE MACHINE, NOT THE RUNNER. These are not GitHub's hosted Windows numbers
   # and nothing here has measured those; they are stated so the budget rests on
@@ -214,7 +214,8 @@ jobs:
   # required status check on main is matched by this NAME, so renaming it would
   # silently stop satisfying the requirement and leave every PR waiting on a
   # check that can no longer report. Rename it only together with the branch
-  # protection setting - see checklist.json, P6-branch-protection.
+  # protection setting on main, which names this string and is configured in
+  # the repository settings rather than anywhere in this tree.
   fast-checks:
     name: Fast checks (JSON + PowerShell parse)
     runs-on: windows-latest
@@ -254,36 +255,31 @@ jobs:
       # NOT COVER, and a rule failing every non-digest `uses:` was deliberately
       # NOT added, because a bare tag is a policy preference and that guard's
       # exit-1 contract is reserved for real violations.
-      # FETCH-DEPTH 0, AND IT IS A CORRECTNESS FIX RATHER THAN A CONVENIENCE.
-      # The default is 1, and on a `pull_request` event the ref checked out is
-      # GitHub's ephemeral MERGE COMMIT - so at depth 1 the entire history the
-      # job can see is one commit that GitHub itself authored:
+      # FETCH-DEPTH 0. The default is 1, and on a `pull_request` event the ref
+      # checked out is GitHub's ephemeral MERGE COMMIT - so at depth 1 the
+      # entire history the job can see is one commit that GitHub itself
+      # authored:
       #
       #     $ git log --all --format='%h %ae %ce'
       #     43bad86 49699333+dependabot[bot]@users... noreply@github.com
       #
-      # tests\evidence_states.ps1's case B1 drives checklist.json's P3-identity,
-      # whose probe is `git log --all --format=%ae%n%ce` matched against the
-      # owner's chosen address. That address is on no line of a one-commit
-      # history, so the probe exited 0, the match failed, and the rule returned
-      # 'fail' - which the checklist renders as `[ ] NOT STARTED`, the product's
-      # phrasing for "a probe RAN and found the thing absent". On a rule about
-      # identity that reads as "the personal address was left in history".
-      # NOTHING MEASURED THAT: the probe never saw the history it is about.
+      # IT WAS ADDED FOR A CHECK THAT NO LONGER EXISTS, and that is recorded
+      # rather than left for someone to infer from a setting with no reason
+      # beside it. The evidence-state suite drove a checklist identity rule
+      # whose probe was `git log --all --format=%ae%n%ce` matched against the
+      # owner's chosen address. At depth 1 that address is on no line of a
+      # one-commit history, so the probe exited 0, the match failed, and the
+      # rule reported the personal address as LEFT IN HISTORY - about a history
+      # nothing had read. It failed on EVERY pull request and is why #149 was
+      # never mergeable. That suite and the checklist it scored were both
+      # removed, so NO STEP IN THIS JOB READS HISTORY TODAY and 0 is no longer
+      # load-bearing for anything here.
       #
-      # It failed on EVERY pull request and is why #149 was never mergeable.
-      # A depth-1 clone of `main` passes - main's tip is the owner's own commit -
-      # which is exactly what kept this invisible: reproducing it needs a PR
-      # merge ref, not merely a shallow clone.
-      #
-      # WHAT 0 COSTS: the whole history, which is 3 revs here. WHAT IT DOES NOT
-      # FIX: #153's other direction, where a worktree sharing the predecessor's
-      # object store sees PRE-REWRITE identities and trips the same rule's
-      # stdout_not_match half. That one is not reachable from this file - it
-      # needs the probe to tell "I could not see the history" from "the history
-      # is bad" - and no depth setting here changes it. Measured on the
-      # published remote, every ref, at full depth: three identities, none of
-      # them the pre-rewrite address.
+      # IT IS KEPT ANYWAY, as a decision and not an oversight. WHAT 0 COSTS is
+      # the whole history, which is a handful of revs here, and dropping back to
+      # 1 would be a behaviour change made for no measured gain. Any step added
+      # later that reads history then gets a real clone rather than a one-commit
+      # stub, which is the shape that produced #149 in the first place.
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -384,9 +380,10 @@ jobs:
           #
           # IT RUNS TWICE, AND THE SECOND RUN IS THE ONE WITH EVIDENCE BEHIND
           # IT. Until 3 August 2026 nothing in this repository ever ran the
-          # guard against a workflow that violates any of its rules - the
-          # checklist probe, this step and every invocation in CONTRIBUTING.md
-          # pointed it at a clean tree, where the expected answer is 0. So the
+          # guard against a workflow that violates any of its rules - this step
+          # and every invocation in CONTRIBUTING.md, plus the checklist probe
+          # that has since been removed, all pointed it at a clean tree, where
+          # the expected answer is 0. So the
           # branch that FIRES had no evidence at all, on the rule this project
           # ranks highest-consequence and describes in four places as something
           # that fails the build. -SelfTest writes one deliberately violating
@@ -584,13 +581,14 @@ jobs:
           # nothing at all, and rollback restores byte for byte.
           #
           # THE STEP NAME IS NOW NARROWER THAN THE SUITE, and this comment said
-          # only the above until 3 August 2026, when four sections that are not
+          # only the above until 3 August 2026, when sections that are not
           # about the installer at all landed in the same file: the status line
-          # driven byte-exactly through a real child process, bin\lwg-sitrep.ps1
-          # and lib\resolve.ps1 against a scratch state directory, and
+          # driven byte-exactly through a real child process, and
           # bin\lwg-update.ps1 - which had no coverage of any kind before that
           # day - against a local bare repository. They are here because this
           # file already owned the only harness that runs any of them for real.
+          # Two more sections landed the same day and have since been removed
+          # with the reporting commands they drove.
           # The NAME is deliberately not changed: it is matched by a required
           # status check on main, so renaming it stops satisfying the
           # requirement - the same reason recorded against the job name above.
@@ -607,7 +605,7 @@ jobs:
           # under the temp directory, with -SettingsPath pointed into it and
           # $env:USERPROFILE swapped around each call and restored afterwards -
           # the two-knob sandbox contract documented in the installer's own
-          # header - and the four sections above add CLAUDE_PLUGIN_DATA and a
+          # header - and the sections above add CLAUDE_PLUGIN_DATA and a
           # bare repository built under the temp root, so no case reaches a
           # network and every "remote" is local. No case runs elevated or
           # constructs a destructive command.
@@ -786,66 +784,6 @@ jobs:
           }
           if ($env:GITHUB_STEP_SUMMARY) {
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Uninstaller footprint suite:** $label"
-          }
-          exit $code
-
-      - name: Evidence-state suite
-        shell: powershell
-        run: |
-          # The step that asks whether the checklist can tell a probe that RAN
-          # AND FOUND THE THING ABSENT from a probe that NEVER GOT TO LOOK.
-          # Those render as `[ ] NOT STARTED` and `[?] UNVERIFIED`, the product
-          # documents them as different states, and until 31 July 2026 the
-          # `command` evaluator in bin\lwg-evidence.ps1 could not tell them
-          # apart: on the MARKETPLACE install route the plugin directory has no
-          # .git, so every git-backed rule exited 128 having read nothing and
-          # was scored as a finding. Two rows then told a consumer that the
-          # owner's personal address WAS left in history and that the private
-          # sibling project's name IS in the tree - the opposite of the truth,
-          # about facts nothing had measured. It was found by adversarial UAT
-          # on the install route the maintainer does not use.
-          #
-          # Half the suite is the mirror: probes that genuinely ran and
-          # genuinely failed must STAY findings. Answering "unverified" to
-          # everything would be a worse defect than the one it replaced.
-          #
-          # Same capture pattern as the steps around it: a nonzero native exit
-          # code does NOT fail a PowerShell step on its own, so it is re-raised
-          # explicitly, and stderr is deliberately not merged with 2>&1 - in
-          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
-          # records and corrupts the result.
-          $ErrorActionPreference = 'Continue'
-          $suite = 'tests\evidence_states.ps1'
-
-          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
-            Write-Host "::error::$suite is missing - the evidence engine was never exercised, which is not the same as passing"
-            exit 1
-          }
-
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
-          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
-
-          # Exit-code contract of tests\evidence_states.ps1, the same three this
-          # repo's other suites use. An abort is never reported as a pass.
-          #   0  every case passed
-          #   1  at least one case failed
-          #   2  the suite aborted; the engine was NOT exercised. Zero cases
-          #      run is an abort, never an empty-set pass.
-          $label = switch ($code) {
-            0       { 'PASS - a probe that could not run still renders UNVERIFIED and a probe that ran and failed still renders NOT STARTED. That is a statement about the five could-not-run signals the suite lists, NOT that the engine can always tell the two apart.' }
-            1       { 'FAIL (exit 1) - the evidence engine mis-states what it observed. Read the per-case lines above. A case expecting UNVERIFIED that reported a finding means the checklist asserts something about a fact it never measured, which is the defect this whole plugin exists to catch.' }
-            2       { 'ABORT (exit 2) - the suite did not complete, so nothing about the evidence engine was established by this run.' }
-            255     { 'NOT RUN (exit 255) - tests\evidence_states.ps1 could not be invoked.' }
-            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
-          }
-
-          if ($code -eq 0) {
-            Write-Host "evidence-state suite: $label"
-          } else {
-            Write-Host "::error title=Evidence-state suite::$label"
-          }
-          if ($env:GITHUB_STEP_SUMMARY) {
-            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Evidence-state suite:** $label"
           }
           exit $code
 
@@ -1136,9 +1074,11 @@ jobs:
           # The step that asks what a STRANGER receives. `.claude-plugin
           # \marketplace.json` declares `"source": "./"`, there is no exclusion
           # mechanism on that form, so EVERY TRACKED FILE IN THIS REPOSITORY IS
-          # THE SHIPPED PAYLOAD - and `/lw-watchtower:checklist` renders one of
-          # those files on the consumer's machine, because commands\checklist.md
-          # instructs the model to print the output verbatim.
+          # THE SHIPPED PAYLOAD, read on the consumer's machine by whoever
+          # installs it. Until the checklist commands were removed there was a
+          # sharper version of that: one of them rendered a tracked file into
+          # the consumer's transcript verbatim. The payload is still the payload
+          # without it, so this step is unchanged.
           #
           # Four disclosures reached the payload that way and NOTHING CAUGHT ANY
           # OF THEM, because every other guard in tests\ answers a different
@@ -1153,9 +1093,6 @@ jobs:
           #   them. A containment claim resting on the repository not being
           #   published yet carries no number, so it is not a claim that file can
           #   read at all.
-          #
-          #   tests\evidence_states.ps1 reads rules, not prose, and is
-          #   indifferent to what a caveat says.
           #
           # So the disclosures were found by AUDIT, and an audit is a person
           # remembering to look - the three that found these had to be told
