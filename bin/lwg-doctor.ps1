@@ -898,16 +898,54 @@ try {
     # about the machine, not a broken install, and the exit ladder at the top of
     # this file already separates the two.
     #
-    # AN UNREAD BUILD IS ALSO A WARN, AND THAT IS THE COSTLY CHOICE. $env:
-    # CLAUDE_CODE_VERSION is set by the CLI on a hook path; a run from a
-    # terminal will usually not have it, so this row WARNs and the doctor exits
-    # 2 on an otherwise healthy tree. The alternative is a PASS row that says
-    # "not read", and lib\common.ps1's own contract for build_known refuses it:
-    # "three states, not two - an unread version must not render as 'read, and
-    # it matched'". A green verdict resting on a fact nobody read is the exact
-    # confident wrong answer this whole component exists to refuse, and both
-    # callers of the doctor - bin\lwg-setup.ps1 and bin\lwg-update.ps1 - already
-    # report exit 2 as "pass with caveats" and print the row.
+    # AN UNREAD BUILD IS A PASS WHOSE DETAIL SAYS IT WAS NOT READ (#218), AND
+    # THE THREE STATES ARE STILL THREE. lib\common.ps1's contract for
+    # build_known - "an unread version must not render as 'read, and it
+    # matched'" - is obeyed here in the DETAIL and not in the status: the row
+    # below says, in words, that the build was never read and that nothing was
+    # established by it. What it does not do is contribute a warning.
+    #
+    #   read, and at or above the verified build  ->  PASS
+    #   read, and disagrees with it               ->  WARN, exit 2
+    #   not readable at all                       ->  PASS, detail says so
+    #
+    # WHY THE THIRD ROW MOVED. This check first shipped (#132, PR #217) with the
+    # unread state as a WARN, on the reasoning that a green verdict must not
+    # rest on a fact nobody read. The reasoning was right and the state was
+    # wrong, because $env:CLAUDE_CODE_VERSION IS NEVER EXPORTED: measured in a
+    # live Claude Code session, eleven CLAUDE* variables are set and the version
+    # is not one of them, on the hook path or the slash-command path. So the
+    # WARN was not an edge case - it was every machine, every run, permanently,
+    # and /doctor could not return 0 on a healthy install.
+    #
+    # A CAVEAT THAT FIRES ON EVERY RUN IS A CAVEAT AN OPERATOR LEARNS TO SKIP,
+    # and the next one - the real one - is skipped with it. This repository
+    # already has that written down about false FAILs and it applies here
+    # unchanged. The distinction being kept is the one the `commands` check
+    # makes: that check FAILs on "scanned zero files" because a broken
+    # enumeration proves nothing, which is a different claim from "the input is
+    # absent". An absent CLAUDE_CODE_VERSION is the second of those - a limit on
+    # what can be observed from here, not a fault in this tree.
+    #
+    # CAN THE VERSION BE DERIVED FROM CLAUDE_CODE_EXECPATH INSTEAD? MEASURED,
+    # AND THE ANSWER IS NO - recorded here so the next reader does not re-open
+    # it. (a) There is no manifest beside the binary: the native install is a
+    # single ~210 MB claude.exe under %USERPROFILE%\.local\bin with no sibling
+    # metadata of any kind. The one version record on disk is
+    # %USERPROFILE%\.local\share\claude\versions\, which is not beside the
+    # binary and which held THREE directories on the machine this was measured
+    # on - so reading it names three answers, and a guess between three is not a
+    # read. (b) `claude --version` does answer, in 91/52/52 ms over three runs,
+    # locally and with no network call - but it is a PROCESS SPAWN, which is the
+    # cost lib\common.ps1 refuses by name for Get-LwgPlatformInfo because that
+    # function is also called from a SessionStart hook. Spawning it here only,
+    # in the doctor, would give this row a build that no other consumer of
+    # Get-LwgPlatformInfo has, and would make this report's answer depend on
+    # whether `claude` happens to be on the PATH of the machine running it.
+    # (c) CLAUDE_CODE_EXECPATH is not universally exported either: it was absent
+    # from the environment of the child processes measured for this change. A
+    # derivation that is unavailable in the same places the variable is
+    # unavailable buys nothing.
     Invoke-Check -Id 'claude-version' -Body {
         $pi     = Get-LwgPlatformInfo
         $atRisk = @('SubagentStart', 'PostToolUseFailure', 'StopFailure')
@@ -923,7 +961,7 @@ try {
         $depends = if ($hit.Count -gt 0) { "; the module(s) that would go inert are $($hit -join ', ') - and the banner would still count them active, because it counts the registry and not observed firing" } else { '' }
 
         if (-not $pi.build_known) {
-            Add-Row -Id 'claude-version' -Status 'WARN' -Detail "CLAUDE_CODE_VERSION is not set in this process, so the Claude Code build was NOT read. Nothing here establishes that $($atRisk -join ', ') exist on it - the events were read out of $($pi.verified_build) and older builds may not carry all of them$depends"
+            Add-Row -Id 'claude-version' -Status 'PASS' -Detail "The Claude Code build was NOT read: CLAUDE_CODE_VERSION is not set in this process and the CLI does not export it. NOTHING here establishes that $($atRisk -join ', ') exist on this machine - the events were read out of $($pi.verified_build) and older builds may not carry all of them$depends. This is a PASS because it is a limit on what can be observed from here and not a fault in this tree; it is NOT the row saying the build was read and matched"
             return
         }
 

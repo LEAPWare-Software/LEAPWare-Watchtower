@@ -58,7 +58,12 @@
                      goes on counting the modules that need them as active. All
                      three states are driven - unread, below, at or above -
                      because an unread build must not render as one that was
-                     read and matched.
+                     read and matched. Since #218 that distinction lives in the
+                     row's DETAIL and not in its status: unread is a PASS whose
+                     text says it was not read, and only a build that WAS read
+                     and disagrees warns. Cases 27 and 28 assert the exit code
+                     on both sides of that line, because it is the exit code
+                     that #218 was about.
 
   It does NOT drive the other four checks. Case 25 establishes that they RAN and
   nothing else, and a green run here says nothing about what any of them
@@ -339,14 +344,21 @@ function Invoke-Doctor {
       onto a tree it was not written for.
 
       CLAUDE_CODE_VERSION IS A FOURTH SANDBOX VARIABLE and it is SEEDED rather
-      than cleared. The claude-version check WARNs when the build was not read,
-      which is the honest answer and which makes the doctor exit 2 - so a
-      sandbox that left the variable unset would put every exit-0 case in this
-      file on a WARN that has nothing to do with what it seeded, and case 1
-      could no longer establish that a healthy tree reaches 0. The default seed
-      is the verified build READ OUT OF lib\common.ps1, never spelled here: a
-      second copy of that number in this file is a second thing to go stale, and
-      it would go stale silently in the direction of a passing case.
+      than cleared. It is seeded to make every case in this file INDEPENDENT OF
+      THE MACHINE IT RUNS ON: the variable is inherited, and a host that carried
+      an old value would put a claude-version WARN - and therefore exit 2 - on
+      every case here that has nothing to do with what it seeded. The default
+      seed is the verified build READ OUT OF lib\common.ps1, never spelled here:
+      a second copy of that number in this file is a second thing to go stale,
+      and it would go stale silently in the direction of a passing case.
+
+      IT USED TO BE SEEDED FOR A SECOND REASON THAT NO LONGER HOLDS, recorded
+      because the seed outlived it. An unread build was a WARN until #218, so a
+      sandbox that left the variable unset put every exit-0 case in this file on
+      a permanent warning and case 1 could not establish that a healthy tree
+      reaches 0. An unread build is now a PASS whose detail says it was not
+      read, so an unset variable no longer costs the run its exit code - case 27
+      is exactly that assertion. The seed stays for the first reason only.
 
       -Build overrides the seed, and passing '' clears the variable outright,
       which is how the "the build was not read" case is driven. An omitted
@@ -1654,43 +1666,69 @@ try {
          "This case cannot reach the FAIL branch - that needs a machine this suite is not running on. Full output:`n$($pf.out)")
 
     # -------------------------------------------------------------------
-    # 27. AN UNREAD BUILD IS "I DID NOT LOOK", AND IT IS A WARN.
+    # 27. AN UNREAD BUILD IS "I DID NOT LOOK", IT SAYS SO IN WORDS, AND IT DOES
+    #     NOT COST THE RUN ITS EXIT CODE (#218).
     #
-    #     CLAUDE_CODE_VERSION cleared outright. The row must WARN, must say the
-    #     build was not read, and must NOT claim the events are present. This is
-    #     the same distinction case 21 makes for the event log and the doctor's
-    #     header makes for its own exit codes: "I found a fault" and "I could
-    #     not look" are different statements, and so are "the build matched" and
-    #     "there was no build to read".
+    #     CLAUDE_CODE_VERSION cleared outright - which is what EVERY real run
+    #     looks like, because the CLI never exports that variable. The row must
+    #     be present, must say the build was NOT read, must NOT claim the events
+    #     are present, and the run must still exit 0.
+    #
+    #     THE EXIT CODE IS THE POINT OF THIS CASE and it is asserted rather than
+    #     inferred. The row first shipped as a WARN, on the correct principle
+    #     that an unread version must not render as "read, and it matched" - but
+    #     since the variable is never set, that WARN fired on every machine on
+    #     every run and /doctor could not return 0 on a healthy install, which
+    #     is the regression #218 records. The principle is kept in the DETAIL:
+    #     the negatives below are what stops the fix from being "call it a PASS
+    #     and stop mentioning it".
+    #
+    #     Case 28 is the CONTROL: a version that IS readable and disagrees still
+    #     WARNs and still exits 2, so this case cannot be satisfied by making
+    #     the check unable to warn at all.
+    #
+    #     BASELINE 4342980: RED. The row is a [WARN] there and the run exits 2.
     # -------------------------------------------------------------------
     $t  = New-HealthyCase -Tag 'build-unread' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
     $bv = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -Build ''
     $row = Get-DoctorRow -Text $bv.out -Id 'claude-version'
-    Add-Result 'a build that was never read is reported as unread, not as a build that matched' `
-        ($row.found -and $row.status -eq 'WARN' -and $row.detail -match 'was NOT read' -and
-         $row.detail -match 'SubagentStart' -and $row.detail -notmatch 'at or above') `
-        ("CLAUDE_CODE_VERSION was cleared for this child; expected a [WARN] saying the build was not read and naming the events at risk, " +
-         "got [$($row.status)] $($row.detail) at exit $($bv.code). Full output:`n$($bv.out)")
+    Add-Result 'a build that was never read is reported as unread, in words, and does not cost the run its exit 0' `
+        ($row.found -and $row.status -eq 'PASS' -and $row.detail -match 'was NOT read' -and
+         $row.detail -match 'SubagentStart' -and $row.detail -notmatch 'at or above' -and
+         $bv.code -eq 0) `
+        ("CLAUDE_CODE_VERSION was cleared for this child, which is what every real run looks like; expected a [PASS] " +
+         "saying the build was NOT read, naming the events at risk, and exit 0 - got [$($row.status)] $($row.detail) " +
+         "at exit $($bv.code). Full output:`n$($bv.out)")
 
     # -------------------------------------------------------------------
-    # 28. A BUILD BELOW THE VERIFIED ONE IS A WARN THAT NAMES THE THREE EVENTS.
+    # 28. CONTROL FOR 27. A BUILD BELOW THE VERIFIED ONE IS A WARN THAT NAMES
+    #     THE THREE EVENTS, AND IT STILL EXITS 2.
     #
     #     WARN and not FAIL: an older Claude Code is a real finding about the
     #     machine, not a broken install, and the exit ladder already separates
     #     the two. The seeded version is DERIVED from the verified build rather
     #     than written here, so it stays below it when that number moves.
+    #
+    #     THE EXIT CODE IS ASSERTED HERE FOR THE SAME REASON IT IS ASSERTED IN
+    #     27 (#218). The cheapest way to make 27 pass is to stop this row ever
+    #     warning; this case is what that would cost. A version that WAS read
+    #     and disagrees is a fact about the machine, and it must still reach the
+    #     caller as exit 2 - bin\lwg-setup.ps1 and bin\lwg-update.ps1 both read
+    #     that code as "pass with caveats" and print the row.
     # -------------------------------------------------------------------
     $vb  = [version]$script:VerifiedBuild
     $old = if ($vb.Major -ge 1) { "$($vb.Major - 1).0.0" } else { '0.0.1' }
     $t   = New-HealthyCase -Tag 'build-old' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
     $bv  = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -Build $old
     $row = Get-DoctorRow -Text $bv.out -Id 'claude-version'
-    Add-Result 'a Claude Code below the verified build WARNs and names the three events at risk' `
+    Add-Result 'CONTROL claude-version: a Claude Code below the verified build WARNs, names the three events at risk, and still exits 2' `
         ($row.found -and $row.status -eq 'WARN' -and $row.detail -match [regex]::Escape($old) -and
          $row.detail -match 'BELOW' -and $row.detail -match 'SubagentStart' -and
-         $row.detail -match 'PostToolUseFailure' -and $row.detail -match 'StopFailure') `
+         $row.detail -match 'PostToolUseFailure' -and $row.detail -match 'StopFailure' -and
+         $bv.code -eq 2) `
         ("the child was told it was Claude Code $old against a verified build of $($script:VerifiedBuild); " +
-         "expected a [WARN] saying BELOW and naming all three events, got [$($row.status)] $($row.detail). Full output:`n$($bv.out)")
+         "expected a [WARN] saying BELOW, naming all three events, and exit 2 - got [$($row.status)] $($row.detail) " +
+         "at exit $($bv.code). Full output:`n$($bv.out)")
 
     # -------------------------------------------------------------------
     # 29. CONTROL. THE VERIFIED BUILD ITSELF PASSES, AND THE ROW STAYS HONEST

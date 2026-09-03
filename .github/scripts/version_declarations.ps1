@@ -1,6 +1,6 @@
 #requires -version 5
 <#
-  LW-WATCHTOWER release-time version guard.
+  LW-WATCHTOWER version declaration guard.
 
       powershell -NoProfile -ExecutionPolicy Bypass -File .github\scripts\version_declarations.ps1
       powershell -NoProfile -ExecutionPolicy Bypass -File .github\scripts\version_declarations.ps1 -Live
@@ -15,6 +15,33 @@
   and names the five sites that declare it. Nothing enforced any of it at the
   moment a tag is pushed, which is the only moment the rule can still be acted
   on cheaply.
+
+  WHERE IT RUNS, AND WHY THE TWO CALLERS ASK DIFFERENT QUESTIONS (#219)
+
+  This file was invoked from `release.yml` and from nowhere else until 3
+  September 2026, and `release.yml` is tag-triggered - so a declaration that had
+  drifted apart was checked on release day and at no other moment. Quiet drift
+  turned into a release-day failure, in the one workflow where the cost of
+  stopping is highest. `ci.yml` now runs it too, and the two invocations are
+  deliberately not the same run:
+
+    ci.yml, every push and pull request   -Live, NO -Tag. Asserts that the five
+                                          declarations agree WITH EACH OTHER,
+                                          and that the version they state is not
+                                          one an existing tag already published.
+                                          The two tag-shaped rules print NOT
+                                          CHECKED, which is a decline.
+
+    release.yml, on a tag                 -Live -Tag vX.Y.Z. Asserts that every
+                                          site states exactly what the TAG says
+                                          and that CHANGELOG.md's heading for
+                                          that version is dated. Those are the
+                                          two rules the pull-request run cannot
+                                          ask, because there is no tag to ask
+                                          them about.
+
+  Both callers run the FIXTURES first and refuse to trust a -Live answer from a
+  guard whose own rules did not fire.
 
   WHAT IT CHECKS, AND WHAT EACH ONE COSTS WHEN IT IS WRONG
 
@@ -59,7 +86,7 @@
   about the product - it reads manifests and a changelog at release time - so
   counting it there would make both of those numbers less true. It sits beside
   identity_scan.ps1 and pr_issue_ref.ps1, which are in .github\scripts\ for
-  exactly that reason, and beside the one workflow that calls it.
+  exactly that reason, and beside the workflows that call it.
 
   FIXTURES FIRST, THE TREE SECOND
 
