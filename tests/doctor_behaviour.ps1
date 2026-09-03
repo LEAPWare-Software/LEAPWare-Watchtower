@@ -14,7 +14,7 @@
   it had never been driven at all, and both were wrong in the same direction:
   they answered a question that is cheaper than the one they claim to answer.
 
-  This file drives FOUR of the doctor's eight checks and no others:
+  This file drives SIX of the doctor's ten checks and no others:
 
     config-registry  #41. It tested a declared switch for PRESENCE and stopped,
                      so `"delegate": "true"` - quoted - passed while
@@ -46,6 +46,19 @@
                      it cannot - and the row names which one it used, because a
                      scan that read nothing must never be readable as a clean
                      one.
+    platform         #132. Nothing in this plugin read the operating system.
+                     hooks\hooks.json invokes `powershell` by that name in every
+                     registration and every path composed anywhere is
+                     NTFS-shaped, so a non-Windows machine is a SILENT
+                     non-install. Only the PASS branch is reachable from a
+                     Windows runner, and the case says so.
+    claude-version   #132. Three of the registered events were read out of one
+                     specific binary; on a build without them the registrations
+                     are inert, and an inert hook is silent while the banner
+                     goes on counting the modules that need them as active. All
+                     three states are driven - unread, below, at or above -
+                     because an unread build must not render as one that was
+                     read and matched.
 
   It does NOT drive the other four checks. Case 25 establishes that they RAN and
   nothing else, and a green run here says nothing about what any of them
@@ -110,24 +123,28 @@
   in place. The two #42 cases added afterwards were proved red against the tree
   they landed in, which carries that check unchanged from fd8d023.
 
-  TEN OF THE TWENTY-SIX CASES ARE LABELLED CONTROL, in the name and in the
+  ELEVEN OF THE THIRTY CASES ARE LABELLED CONTROL, in the name and in the
   comment. None is offered as evidence that anything was fixed. They exist
   because the cheapest way to pass the others is to answer "not ours" to
-  everything, "FAIL" to every config, "PASS" to every log and to read no file
-  at all, and the controls are what make that not work. EIGHT of the ten pass
-  at fd8d023 too. The two #204 controls do not: they assert the phrase naming
-  the enumeration, which no row carried there.
+  everything, "FAIL" to every config, "PASS" to every log, to read no file at
+  all and to WARN at every build, and the controls are what make that not work.
+  EIGHT of the eleven pass at fd8d023 too. The two #204 controls do not - they
+  assert the phrase naming the enumeration, which no row carried there - and
+  neither does the #132 one, over a check that did not exist there.
 
   THE #204 CASES BASELINE ON c3e4139, NOT ON fd8d023 - that is the tree the
   defect was reproduced on and the tree they were proved red against, and each
   says so in its own comment.
 
-  FIVE OF THE TWENTY-SIX HAVE NO fd8d023 BASELINE AT ALL - cases 16-18, on the
+  NINE OF THE THIRTY HAVE NO fd8d023 BASELINE AT ALL - cases 16-18, on the
   informational roster, which did not exist there and is not a defect being
-  fixed; case 24, on a code path that did not exist there either; and case 25,
-  which pins WHICH CHECKS RUN and would pass at fd8d023 for a doctor that had
-  the same eight ids. They pin a boundary rather than a repair, and their red
-  proof is a mutation stated in their own comment, not an old commit.
+  fixed; case 24, on a code path that did not exist there either; case 25, which
+  pins WHICH CHECKS RUN and would pass at fd8d023 only for a doctor carrying the
+  same ids; and cases 26-29, on the platform and build rows, which no earlier
+  tree carries at all - their red is the absence of the row, and Get-DoctorRow
+  returning found = $false is never a pass here. They pin a boundary rather than
+  a repair, and their red proof is a mutation or an absent row stated in their
+  own comment, not an old commit.
 
   ---------------------------------------------------------------------------
   WHAT IS DELIBERATELY NOT COVERED
@@ -240,6 +257,8 @@ $script:ExpectedCheckIds = @(
     'sessionstart'
     'statusline'
     'commands'
+    'platform'
+    'claude-version'
 )
 
 function Add-Result {
@@ -318,11 +337,28 @@ function Invoke-Doctor {
       answer". Passing the path is preferred to reassigning $script:DoctorPath:
       a case that forgot to put it back would silently move every case after it
       onto a tree it was not written for.
+
+      CLAUDE_CODE_VERSION IS A FOURTH SANDBOX VARIABLE and it is SEEDED rather
+      than cleared. The claude-version check WARNs when the build was not read,
+      which is the honest answer and which makes the doctor exit 2 - so a
+      sandbox that left the variable unset would put every exit-0 case in this
+      file on a WARN that has nothing to do with what it seeded, and case 1
+      could no longer establish that a healthy tree reaches 0. The default seed
+      is the verified build READ OUT OF lib\common.ps1, never spelled here: a
+      second copy of that number in this file is a second thing to go stale, and
+      it would go stale silently in the direction of a passing case.
+
+      -Build overrides the seed, and passing '' clears the variable outright,
+      which is how the "the build was not read" case is driven. An omitted
+      -Build is not the same as an empty one; $PSBoundParameters is what tells
+      them apart.
     #>
-    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun, [string]$DoctorPath)
+    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun, [string]$DoctorPath, [string]$Build)
 
     if ([string]::IsNullOrWhiteSpace($DoctorPath)) { $DoctorPath = $script:DoctorPath }
+    $seedBuild = if ($PSBoundParameters.ContainsKey('Build')) { $Build } else { $script:VerifiedBuild }
 
+    $prevV = $env:CLAUDE_CODE_VERSION
     $prev  = $env:USERPROFILE
     $prevD = $env:CLAUDE_PLUGIN_DATA
     $prevR = $env:CLAUDE_PLUGIN_ROOT
@@ -334,6 +370,7 @@ function Invoke-Doctor {
         $env:CLAUDE_PLUGIN_DATA           = $StateDir
         $env:CLAUDE_PLUGIN_ROOT           = ''
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = ''
+        $env:CLAUDE_CODE_VERSION          = $seedBuild
         # -Quiet is passed as a real switch on the child's command line rather
         # than spliced into a string: the only case that uses it asserts what
         # the shipped switch does, and a hand-built argument list is a second
@@ -350,6 +387,7 @@ function Invoke-Doctor {
         $env:CLAUDE_PLUGIN_DATA           = $prevD
         $env:CLAUDE_PLUGIN_ROOT           = $prevR
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $prevC
+        $env:CLAUDE_CODE_VERSION          = $prevV
     }
     return @{ code = $code; out = $out }
 }
@@ -458,6 +496,30 @@ function Get-EventLogLeafName {
     $m = [regex]::Match($txt, "Join-Path\s+\`$info\.path\s+'([^']+\.jsonl)'")
     if (-not $m.Success) {
         throw "could not read the event-log leaf name out of $DoctorSource, so no case here could seed a log the sessionstart check would read"
+    }
+    return $m.Groups[1].Value
+}
+
+function Get-VerifiedBuild {
+    <#
+      The Claude Code build the hook events were read out of, READ OUT OF
+      lib\common.ps1 rather than spelled here - the same rule, and for the same
+      reason, as Get-EventLogLeafName above it.
+
+      Every case in this file that expects exit 0 depends on the seeded build
+      being at or above this number, so a second copy of it here would go stale
+      silently in the direction of a case that passes. When the plugin's
+      verified build moves, the seed moves with it because it IS it.
+
+      A build that cannot be read ABORTS. Guessing one would seed a version
+      below the real number and turn every exit-0 case into a WARN nobody wrote.
+    #>
+    param([string]$CommonSource)
+
+    $txt = [IO.File]::ReadAllText($CommonSource, [Text.Encoding]::UTF8)
+    $m = [regex]::Match($txt, '\$script:LwgVerifiedBuild\s*=\s*''([^'']+)''')
+    if (-not $m.Success) {
+        throw "could not read `$script:LwgVerifiedBuild out of $CommonSource, so no case here could seed the build the claude-version check compares against"
     }
     return $m.Groups[1].Value
 }
@@ -717,7 +779,7 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 try {
     Write-Output 'LW-WATCHTOWER doctor behaviour regression suite'
     Write-Output "  repo    : $Root"
-    Write-Output '  under   : bin\lwg-doctor.ps1, checks config-registry, statusline, sessionstart and commands only'
+    Write-Output '  under   : bin\lwg-doctor.ps1, checks config-registry, statusline, sessionstart, commands, platform and claude-version only'
     Write-Output ''
 
     foreach ($p in @((Join-Path $Root 'bin\lwg-doctor.ps1'),
@@ -756,6 +818,10 @@ try {
     }
 
     $LogLeaf = Get-EventLogLeafName -DoctorSource $script:DoctorPath
+
+    # Read from the COPY, which is the lib\common.ps1 the doctor under test
+    # dot-sources - not from the checkout, which is one file removed from it.
+    $script:VerifiedBuild = Get-VerifiedBuild -CommonSource (Join-Path $Plug 'lib\common.ps1')
 
     # -------------------------------------------------------------------
     # 1. CONTROL, and it passes at fd8d023 too.
@@ -1542,7 +1608,110 @@ try {
          ". Full output:`n$($cs.out)")
 
     # -------------------------------------------------------------------
-    # 26. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
+    # 26-29. #132. THE MACHINE AND THE BUILD.
+    #
+    #        Nothing in this plugin checked the operating system or the Claude
+    #        Code build. Three of the events hooks\hooks.json registers on were
+    #        read out of one specific binary; on a build that does not carry
+    #        them those registrations are inert, and the failure mode of an
+    #        inert hook is SILENCE - indistinguishable from a session in which
+    #        nothing went wrong - while the banner goes on counting the modules
+    #        that depend on them as active.
+    #
+    #        WHAT THESE CASES DO NOT REACH, said plainly rather than left to be
+    #        discovered: the platform FAIL. It needs a non-Windows machine, and
+    #        Get-LwgPlatformInfo reads [Environment]::OSVersion.Platform - which
+    #        no environment variable overrides and which lib\common.ps1 is not
+    #        this file's to seam. Case 26 drives the only branch reachable here
+    #        and says so; the FAIL branch is asserted by nothing, anywhere.
+    #
+    #        THE BUILD CASES DRIVE ALL THREE OF ITS STATES, because the middle
+    #        one is the whole point: an unread build must not render as a build
+    #        that was read and matched.
+    #
+    #        BASELINE: neither check existed before this commit, so there is no
+    #        fd8d023 baseline and no earlier tree to run them against. Their red
+    #        is the absence of the row - Get-DoctorRow returns found = $false,
+    #        which no case here treats as a pass.
+    # -------------------------------------------------------------------
+
+    # -------------------------------------------------------------------
+    # 26. THE PLATFORM ROW EXISTS, PASSES ON WINDOWS, AND NAMES THE MACHINE.
+    #
+    #     A weak case, deliberately labelled as one: it drives the branch that a
+    #     Windows runner can reach and asserts the row is present, is a PASS,
+    #     and reports the os and the interpreter rather than a bare word. The
+    #     FAIL branch - the silent non-install this row exists to name - is not
+    #     reachable from here and nothing below pretends it is.
+    # -------------------------------------------------------------------
+    Set-CaseConfig -Mutate $null
+    $t  = New-HealthyCase -Tag 'platform-row' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $pf = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $row = Get-DoctorRow -Text $pf.out -Id 'platform'
+    Add-Result 'the platform row runs, passes on Windows, and names the os and the interpreter' `
+        ($row.found -and $row.status -eq 'PASS' -and $row.detail -match "os 'windows'" -and $row.detail -match 'PowerShell \d') `
+        ("expected a [PASS] naming the os and the PowerShell it ran under; got [$($row.status)] $($row.detail). " +
+         "This case cannot reach the FAIL branch - that needs a machine this suite is not running on. Full output:`n$($pf.out)")
+
+    # -------------------------------------------------------------------
+    # 27. AN UNREAD BUILD IS "I DID NOT LOOK", AND IT IS A WARN.
+    #
+    #     CLAUDE_CODE_VERSION cleared outright. The row must WARN, must say the
+    #     build was not read, and must NOT claim the events are present. This is
+    #     the same distinction case 21 makes for the event log and the doctor's
+    #     header makes for its own exit codes: "I found a fault" and "I could
+    #     not look" are different statements, and so are "the build matched" and
+    #     "there was no build to read".
+    # -------------------------------------------------------------------
+    $t  = New-HealthyCase -Tag 'build-unread' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $bv = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -Build ''
+    $row = Get-DoctorRow -Text $bv.out -Id 'claude-version'
+    Add-Result 'a build that was never read is reported as unread, not as a build that matched' `
+        ($row.found -and $row.status -eq 'WARN' -and $row.detail -match 'was NOT read' -and
+         $row.detail -match 'SubagentStart' -and $row.detail -notmatch 'at or above') `
+        ("CLAUDE_CODE_VERSION was cleared for this child; expected a [WARN] saying the build was not read and naming the events at risk, " +
+         "got [$($row.status)] $($row.detail) at exit $($bv.code). Full output:`n$($bv.out)")
+
+    # -------------------------------------------------------------------
+    # 28. A BUILD BELOW THE VERIFIED ONE IS A WARN THAT NAMES THE THREE EVENTS.
+    #
+    #     WARN and not FAIL: an older Claude Code is a real finding about the
+    #     machine, not a broken install, and the exit ladder already separates
+    #     the two. The seeded version is DERIVED from the verified build rather
+    #     than written here, so it stays below it when that number moves.
+    # -------------------------------------------------------------------
+    $vb  = [version]$script:VerifiedBuild
+    $old = if ($vb.Major -ge 1) { "$($vb.Major - 1).0.0" } else { '0.0.1' }
+    $t   = New-HealthyCase -Tag 'build-old' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $bv  = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -Build $old
+    $row = Get-DoctorRow -Text $bv.out -Id 'claude-version'
+    Add-Result 'a Claude Code below the verified build WARNs and names the three events at risk' `
+        ($row.found -and $row.status -eq 'WARN' -and $row.detail -match [regex]::Escape($old) -and
+         $row.detail -match 'BELOW' -and $row.detail -match 'SubagentStart' -and
+         $row.detail -match 'PostToolUseFailure' -and $row.detail -match 'StopFailure') `
+        ("the child was told it was Claude Code $old against a verified build of $($script:VerifiedBuild); " +
+         "expected a [WARN] saying BELOW and naming all three events, got [$($row.status)] $($row.detail). Full output:`n$($bv.out)")
+
+    # -------------------------------------------------------------------
+    # 29. CONTROL. THE VERIFIED BUILD ITSELF PASSES, AND THE ROW STAYS HONEST
+    #     ABOUT WHAT IT PROVED.
+    #
+    #     The cheapest way to pass 27 and 28 is to WARN at every build, and this
+    #     is what stops that. It also pins the boundary case - equal to the
+    #     verified build is at or above it, not below it - and requires the PASS
+    #     to keep saying that a matching build is not evidence any event fired.
+    # -------------------------------------------------------------------
+    $t   = New-HealthyCase -Tag 'build-verified' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $bv  = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $row = Get-DoctorRow -Text $bv.out -Id 'claude-version'
+    Add-Result 'CONTROL claude-version: the verified build PASSES, and the row still says it proved no event fired' `
+        ($row.found -and $row.status -eq 'PASS' -and $row.detail -match [regex]::Escape($script:VerifiedBuild) -and
+         $row.detail -match 'BUILD ONLY' -and $bv.code -eq 0) `
+        ("the child was told it was Claude Code $($script:VerifiedBuild), which is the verified build itself; " +
+         "expected a [PASS] that still disclaims observed firing, and exit 0; got [$($row.status)] $($row.detail) at exit $($bv.code). Full output:`n$($bv.out)")
+
+    # -------------------------------------------------------------------
+    # 30. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
     #     pointed into the scratch tree; this asserts what that was supposed to
     #     buy rather than assuming it. Nothing under the operator's own
     #     ~\.claude\plugins\data\<plugin>* may have grown a byte or gained a
@@ -1615,7 +1784,7 @@ Write-Output 'question of a value that Test-LwgFlag and Test-LwgModule ask, the'
 Write-Output 'statusline check establishes whose file it is looking at before it diagnoses'
 Write-Output 'drift, sessionstart tells a log it could not read to the end from a hook'
 Write-Output 'that is not firing, and commands measures the tracked tree and says so" - not as'
-Write-Output '"the doctor is correct". Four of its eight checks are driven by nothing here'
+Write-Output '"the doctor is correct". Four of its ten checks are driven by nothing here'
 Write-Output 'beyond the one case that establishes they RAN, no case executes the status line, and a file byte-identical'
 Write-Output 'to the repo copy is indistinguishable from an install by any content marker'
 Write-Output 'and is named in the header as not covered.'

@@ -847,6 +847,102 @@ try {
         Add-Row -Id 'commands' -Status 'PASS' -Detail "$($cmds.Count) command(s), each with its backing script: $(($names | ForEach-Object { "/${p}:$_" }) -join ', '); $($refs.Count) distinct command(s) referenced across $scanned file(s) scanned from $enum, all declared"
     }
 
+    # ---------------------------------------------------------------------
+    # 9. the machine this is installed on
+    # ---------------------------------------------------------------------
+    # NOTHING IN THIS PLUGIN CHECKED THE OPERATING SYSTEM until this row (#132).
+    # .claude-plugin\plugin.json opens with "WINDOWS ONLY", hooks\hooks.json
+    # invokes `powershell` by that name in every registration, and every path
+    # composed anywhere here is NTFS-shaped - so a non-Windows machine is a
+    # SILENT non-install, not a degraded one. A repository-wide search for
+    # IsWindows, OSVersion.Platform, `claude --version` and CLAUDE_CODE_VERSION
+    # returned nothing at all before lib\common.ps1 grew Get-LwgPlatformInfo.
+    #
+    # FAIL and not WARN. Every hook registration is inert on such a machine and
+    # nothing this plugin ships can run; that is a fault, and the row's job is
+    # to convert a silent non-install into a named one.
+    #
+    # THE INTERPRETER IS REPORTED ON THE PASS TOO, because it is the other half
+    # of the answer: hooks.json invokes `powershell`, which is Windows
+    # PowerShell 5.1, and knowing which interpreter answered is what makes a
+    # later "it works in pwsh" report readable.
+    Invoke-Check -Id 'platform' -Body {
+        $pi   = Get-LwgPlatformInfo
+        $seen = "os '$($pi.os)', PowerShell $($pi.ps_version) $($pi.ps_edition)"
+        if (-not $pi.supported) {
+            Add-Row -Id 'platform' -Status 'FAIL' -Detail "$seen - this plugin is WINDOWS ONLY: hooks\hooks.json invokes 'powershell' by that name in every registration and every path it composes is NTFS-shaped, so nothing it ships can fire here. Nothing is degraded; nothing is installed"
+            return
+        }
+        Add-Row -Id 'platform' -Status 'PASS' -Detail $seen
+    }
+
+    # ---------------------------------------------------------------------
+    # 10. the Claude Code build the hook events were read out of
+    # ---------------------------------------------------------------------
+    # THE FAILURE MODE OF AN INERT HOOK IS SILENCE (#132). Three of the events
+    # hooks\hooks.json registers on were read out of one specific binary, and on
+    # a build that does not carry them those registrations simply never fire -
+    # while the banner goes on counting the modules that depend on them among
+    # the active ones, because it counts the REGISTRY and not observed
+    # behaviour. There is no symptom: a module that records nothing looks
+    # exactly like a session in which nothing went wrong.
+    #
+    # THE THREE NAMES ARE TRANSCRIBED HERE AND THE MODULES ARE NOT. Which events
+    # are at risk is a fact about a binary read on one day - it is in
+    # docs\install.md and in lib\common.ps1's registry header, and no check can
+    # derive it. WHICH MODULES GO INERT WITH THEM is derivable, from the
+    # registry's own `events` field, so it is derived: add a module that depends
+    # on one of these and it appears in this row with no edit here.
+    #
+    # WARN, NEVER FAIL, ON AN OLD BUILD. An older Claude Code is a real finding
+    # about the machine, not a broken install, and the exit ladder at the top of
+    # this file already separates the two.
+    #
+    # AN UNREAD BUILD IS ALSO A WARN, AND THAT IS THE COSTLY CHOICE. $env:
+    # CLAUDE_CODE_VERSION is set by the CLI on a hook path; a run from a
+    # terminal will usually not have it, so this row WARNs and the doctor exits
+    # 2 on an otherwise healthy tree. The alternative is a PASS row that says
+    # "not read", and lib\common.ps1's own contract for build_known refuses it:
+    # "three states, not two - an unread version must not render as 'read, and
+    # it matched'". A green verdict resting on a fact nobody read is the exact
+    # confident wrong answer this whole component exists to refuse, and both
+    # callers of the doctor - bin\lwg-setup.ps1 and bin\lwg-update.ps1 - already
+    # report exit 2 as "pass with caveats" and print the row.
+    Invoke-Check -Id 'claude-version' -Body {
+        $pi     = Get-LwgPlatformInfo
+        $atRisk = @('SubagentStart', 'PostToolUseFailure', 'StopFailure')
+
+        # Which shipped modules stop working if those events are absent, read
+        # out of the registry rather than listed here.
+        $hit = @()
+        foreach ($m in @($script:LwgModules)) {
+            $ev = @($script:LwgModuleRegistry[$m].events)
+            $on = @($ev | Where-Object { $atRisk -contains $_ })
+            if ($on.Count -gt 0) { $hit += "$m (needs $($on -join ', '))" }
+        }
+        $depends = if ($hit.Count -gt 0) { "; the module(s) that would go inert are $($hit -join ', ') - and the banner would still count them active, because it counts the registry and not observed firing" } else { '' }
+
+        if (-not $pi.build_known) {
+            Add-Row -Id 'claude-version' -Status 'WARN' -Detail "CLAUDE_CODE_VERSION is not set in this process, so the Claude Code build was NOT read. Nothing here establishes that $($atRisk -join ', ') exist on it - the events were read out of $($pi.verified_build) and older builds may not carry all of them$depends"
+            return
+        }
+
+        $have = $null
+        $want = $null
+        $raw  = [string]$pi.claude_version
+        $lead = ([regex]::Match($raw, '^\d+(\.\d+)*')).Value
+        if (-not [version]::TryParse($lead, [ref]$have) -or
+            -not [version]::TryParse([string]$pi.verified_build, [ref]$want)) {
+            Add-Row -Id 'claude-version' -Status 'WARN' -Detail "CLAUDE_CODE_VERSION is '$raw', which could not be compared against the verified build $($pi.verified_build) as a version - so this row read a build and still established nothing about $($atRisk -join ', ')$depends"
+            return
+        }
+        if ($have -lt $want) {
+            Add-Row -Id 'claude-version' -Status 'WARN' -Detail "Claude Code $raw is BELOW $($pi.verified_build), the build $($atRisk -join ', ') were read out of. Those registrations may be inert here, and an inert hook is silent$depends"
+            return
+        }
+        Add-Row -Id 'claude-version' -Status 'PASS' -Detail "Claude Code $raw, at or above the $($pi.verified_build) the hook events were read out of. That is a statement about the BUILD ONLY: no event below SessionStart is proved to have fired on this machine by anything in this report"
+    }
+
 } catch {
     # Anything that escapes the per-check handlers - a failed dot-source, a
     # missing common.ps1 - means the checkup did not happen. That is code 3,
