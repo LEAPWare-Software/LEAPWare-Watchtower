@@ -306,9 +306,20 @@ $Rules = @(
         # draws it one LINE at a time rather than one file at a time - a file
         # is allowed to keep the sentence that records a removal without being
         # allowed to keep a live instruction three hundred lines later.
+        # THE COMMAND ALTERNATIVE IS SPLIT ACROSS A CONCATENATION, and it is
+        # not a stylistic tic. bin\lwg-doctor.ps1's `commands` check scans every
+        # tracked .ps1 and .md for `/<plugin>:<name>` and FAILS when the command
+        # page is not in commands\ - which is how the six deleted commands were
+        # found. Writing this rule's needle out in reading order made a guard
+        # naming a deleted command indistinguishable, to that check, from a page
+        # inviting an operator to run one, and it turned the doctor red the day
+        # this rule was added. The same lesson this file's header records about
+        # the pull ref: a guard may not spell its own target. The split breaks
+        # the doctor's literal without weakening this pattern, which is compiled
+        # from the joined string.
         pattern = '(?i)lwg-resolve' +
                   '|(?i)\blib[\\/]resolve\.ps1' +
-                  '|(?i)/lw-watchtower:resolve\b' +
+                  '|(?i)/lw-watchtower' + ':resolve\b' +
                   '|(?i)\bResolved\W{0,3}marker\b'
         # SCOPED TO THE SHIPPED EXECUTABLE PAYLOAD, MINUS commands/ AND agents/,
         # AND THE OMISSION IS TEMPORARY AND LOUD. #192's done-condition says
