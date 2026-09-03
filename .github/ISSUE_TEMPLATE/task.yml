@@ -1,0 +1,148 @@
+# Internal work item.
+#
+# The other five forms on this directory are addressed to a stranger:
+# bug_report.yml opens with preflight checkboxes about having read the
+# documentation and about not filing security reports there, and it asks for a
+# reproduction. None of that fits a work item raised by a maintainer or an agent
+# against a defect this project found in itself - so those arrived as free-form
+# bodies with no consistent fields, and the record of WHY a change was made
+# lived in a conversation that scrolled away.
+#
+# NO `labels:` KEY, DELIBERATELY. A form's declared labels are held to the
+# roster table in CONTRIBUTING.md by tests/doc_claims.ps1, and GitHub silently
+# applies NONE of a label it cannot resolve - so a form declaring an
+# undocumented label produces unlabelled issues outside every triage query.
+# A work item's severity is a judgement made when it is triaged, not a default a
+# form can guess: this repository's own severity bar has three tests and all
+# three have to be applied by a reader. So the form asks for the severity in
+# words and the labels are applied by hand.
+name: Work item
+description: Internal task, defect or chore raised under the issues protocol. Not for outside bug reports.
+title: "<what changes, in one line that names the thing rather than the feeling>"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This form is for maintainer and agent work items.** If you found a bug in the plugin as a
+        user, use **Bug report** instead — it asks the questions needed to reproduce. If it is
+        security-sensitive, do not file here at all: see [SECURITY.md](../blob/main/SECURITY.md).
+
+        **All work starts and ends through an issue** (decision recorded in #147, 2026-09-03).
+        One issue, one pull request, evidence attached when it closes. A pull request body carries
+        `Refs #N` — never `Closes #N`, because an auto-close closes this issue on merge with the
+        merge as its only evidence, and CI rejects that form.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What changes
+      description: The change itself, in the smallest honest scope. If it needs two pull requests, it is two issues.
+      placeholder: |
+        e.g. bin/lwg-doctor.ps1 loses the agent-roles check, taking the doctor from nine checks to eight.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why — the evidence, measured
+      description: >
+        What is wrong today and how you know. Quote the file and line, the command and its output, or
+        the measurement. "It looks wrong" is not evidence; neither is a claim inherited from another
+        page — this project has been wrong-by-one across ten pages at once by copying.
+      placeholder: |
+        e.g. lib/common.ps1:64-91 declares 11 modules and 3 gates. Both manifests say ten and one.
+        Measured 2026-09-03 with: git grep -n "ten modules"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: chair
+    attributes:
+      label: Which chair decides this
+      description: >
+        CPO decides whether a feature exists, the command surface, and the wording of anything a
+        consumer reads. CTO decides architecture, test adequacy, whether a fix is proven, CI, release
+        mechanics and security posture. Neither decides the other's half. If you cannot tell, say so
+        below and it will be routed.
+      options:
+        - CTO — technical
+        - CPO — product, features, consumer-facing wording
+        - Both — the two halves are entangled and must be decided together
+        - Unrouted — needs triage
+    validations:
+      required: true
+
+  - type: input
+    id: chaircall
+    attributes:
+      label: Where the chair call is written
+      description: >
+        A link to the `CTO CALL:` or `CPO CALL:` comment, or the row in #147. Work does not start
+        before the call exists — a decision that is not written down did not happen, and anyone is
+        entitled to reverse it on that basis.
+      placeholder: "e.g. #178#issuecomment-… , or 'pending'"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Proposed severity, applied as a label by hand after triage
+      description: >
+        The bar has three tests and **low needs all three**: it cannot produce a wrong answer, cannot
+        break an install or a session, and is not a public claim that overstates the software. A
+        feature that does not exist yet is **none of these** — an unbuilt capability breaks nothing
+        today, so it carries no severity at all.
+      options:
+        - "high — security, capability or data consequence; breaks install or session; or materially overstates"
+        - "medium — wrong answer or degraded documented behaviour, no security or install consequence"
+        - "low — all three of the low tests pass"
+        - "none — this is a feature request or a chore, not a defect"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: closure
+    attributes:
+      label: How this issue will be allowed to close
+      description: >
+        Chosen now, so the standard is agreed before the work rather than after. There are four
+        classes and no others.
+      options:
+        - "red-first case — a regression case proven RED at baseline, with the run recorded in the pull request body"
+        - "does not reproduce — re-verified against today's tree, with the verification shown"
+        - "documented limitation — the limit is real, is now written down honestly, and the page is verified"
+        - "deletion — the thing this issue describes is removed from the product, and the removal is recorded in #147"
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: Done-condition — checkable, and checked by someone who did not do the work
+      description: >
+        A list of conditions a second party can verify. **QA is never the agent that wrote the fix**,
+        and it is that agent which posts the evidence comment and closes this issue. Anything that
+        cannot be checked stays unchecked with its reason on the line, rather than being ticked
+        because it feels done.
+      value: |
+        - [ ]
+        - [ ] the case is green at the commit that lands, and its red run at baseline is in the PR body
+        - [ ] every page that states a number this change moves has been re-derived, not edited by hand
+        - [ ] `tests\doc_claims.ps1` exits 0
+    validations:
+      required: true
+
+  - type: textarea
+    id: notcovered
+    attributes:
+      label: What this will NOT cover
+      description: >
+        The residual, stated up front. Every overstatement this project has shipped was a fix whose
+        limits were never written down — so a blank answer here is itself a finding.
+      placeholder: |
+        e.g. this fixes the two tracked manifests. The repository description is a GitHub setting,
+        not a tracked file, so no suite can ever catch it drifting again.
+    validations:
+      required: false

@@ -204,14 +204,14 @@ tests/doc_claims.ps1         every tracked .md/.json/.yml, against counts DERIVE
                              suites, per-suite cases, CI check steps, doctor
                              checks, commands, modules. Asserts nothing about
                              behaviour either; it checks the pages, not the code
-.github/workflows/ci.yml     CI - one job, FIFTEEN check steps: JSON validity,
+.github/workflows/ci.yml     CI - one job, SIXTEEN check steps: JSON validity,
                              PowerShell parse, workflow guard, delegate gate
                              suite, installer merge suite, stop-hook behaviour
                              suite, uninstaller footprint suite, evidence-state
                              suite, doctor behaviour suite, toggle write-path
                              suite, SubagentStart fast-scan suite, payload
                              disclosure guard, portability scan, documentation
-                             claims. Nine
+                             claims, pull-request issue reference. Nine
                              of the fourteen test BEHAVIOUR; the other five ask
                              whether files are well formed or whether the docs
                              agree with the tree. The job's DISPLAY

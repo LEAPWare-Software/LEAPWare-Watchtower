@@ -6,7 +6,7 @@ name: CI
 # matrix, and every step runs under Windows PowerShell 5.1 rather than the `pwsh`
 # (PowerShell 7) that GitHub's Windows runners default to.
 #
-# THERE IS ONE JOB, AND TEN OF ITS FIFTEEN CHECK STEPS TEST BEHAVIOUR. The
+# THERE IS ONE JOB, AND TEN OF ITS SIXTEEN CHECK STEPS TEST BEHAVIOUR. The
 # `gate-regression` job and tests\gate_regression.ps1 went on 30 July 2026 with
 # the destructive command gate; the `permissions.deny parity` step and
 # tests\deny_parity.ps1 went the same day with the secret gate. Neither is coming
@@ -1494,5 +1494,61 @@ jobs:
           }
           if ($env:GITHUB_STEP_SUMMARY) {
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Documentation claims:** $label"
+          }
+          exit $code
+
+      # Every change starts from an issue (#147, 2026-09-03; #184). Two halves of
+      # that rule are machine-checkable and tests\pr_issue_ref.ps1 is those two:
+      # the body must reference an issue, and it must NOT use a closing keyword,
+      # because an auto-close closes an issue on merge with a merge commit as its
+      # only evidence - which is this project's closure rule being broken by
+      # automation rather than by a person.
+      #
+      # THIS STEP RUNS ON pull_request ONLY, and is skipped on a push. A push has
+      # no pull-request body, and the alternative - a step that exits 0 because it
+      # had nothing to read - is the shape #39 and #42 already record on this
+      # tree: a check reporting success for a question it never asked. A skipped
+      # step is visible in the run summary; a hollow pass is not.
+      #
+      # The body is untrusted text on a public repository, so it is handed over as
+      # an ENVIRONMENT VALUE and never interpolated into a command line. A
+      # ${{ }} expansion of a pull-request body into a shell step is command
+      # injection with this workflow's permissions, and no allowlist entry in
+      # tests\workflow_guard.ps1 would make that acceptable.
+      - name: Pull-request issue reference
+        if: github.event_name == 'pull_request'
+        shell: powershell
+        env:
+          LWG_PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\pr_issue_ref.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - no pull request was held to the issue protocol, which is not the same as every pull request complying"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite -Live
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\pr_issue_ref.ps1, the same 0/1/2 every
+          # suite here uses. Exit 2 means the body never reached the guard, and
+          # that fails the step rather than passing it.
+          $label = switch ($code) {
+            0       { 'PASS - the body references an issue and uses no closing keyword. That is a statement about the BODY only: nothing here establishes that the issue exists, is open, or is the one this diff belongs to.' }
+            1       { 'FAIL (exit 1) - read the case lines above. Either the body references no issue, or it uses a closing keyword; use "Refs #N" and let the QA agent close the issue with its evidence.' }
+            2       { 'ABORT (exit 2) - LWG_PR_BODY never reached the guard, so the protocol was NOT checked on this pull request. Not clean, and not a pass.' }
+            255     { 'NOT RUN (exit 255) - tests\pr_issue_ref.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "pull-request issue reference: $label"
+          } else {
+            Write-Host "::error title=Pull-request issue reference::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Pull-request issue reference:** $label"
           }
           exit $code
