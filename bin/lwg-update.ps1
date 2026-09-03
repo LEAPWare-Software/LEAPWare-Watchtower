@@ -99,6 +99,92 @@ try {
 
     if ([string]::IsNullOrWhiteSpace($Root)) { $Root = $pluginRoot }
 
+    # CLAUDE CODE'S CONFIGURATION DIRECTORY, RESOLVED ONCE FOR THIS RUN.
+    #
+    # The three paths this command composes - the skills junction it compares
+    # $Root against, the live status line it hashes, and the re-approval note
+    # that names it - were all built from $env:USERPROFILE and a literal
+    # `.claude`. On a machine that sets CLAUDE_CONFIG_DIR, all three named a
+    # directory the CLI does not use, so section 0 reported "no junction at ..."
+    # about an install that is there, and the status-line row reported an
+    # absence about a file that exists. lib\common.ps1's Get-LwgClaudeHomeInfo
+    # is the resolver and the precedence is argued there.
+    #
+    # $null is possible - a machine with neither variable - and is carried as
+    # $null rather than composed onto, so a row can say "could not be resolved"
+    # instead of throwing over a path it invented.
+    $homeInfo = $null
+    try { $homeInfo = Get-LwgClaudeHomeInfo } catch { }
+    if ($null -eq $homeInfo) { $homeInfo = @{ path = $null; source = 'unresolved'; exists = $false; raw = $null } }
+    $claudeHome = [string]$homeInfo.path
+
+    # ---------------------------------------------------------------------
+    # WHICH FILE IS THE LIVE STATUS LINE? (#77)
+    # ---------------------------------------------------------------------
+    # THE ROW BELOW USED TO ASSUME THE ANSWER AND REPORT AN ABSENCE ABOUT IT.
+    # Section 4's drift row and the re-approval note in Get-Needs both named
+    # <config root>\statusline.ps1 - the target bin\lwg-setup.ps1 writes in its
+    # DEFAULT copy mode - and nothing else. An operator whose status line is
+    # wired through the skills junction, which is the other mode the installer
+    # offers, therefore got:
+    #
+    #     [INFO] statusline   no ...\.claude\statusline.ps1 - the HH segment is
+    #                         not installed on this machine
+    #
+    # about a status line that IS installed, IS this plugin's, and HAD drifted
+    # from the repo copy. The one state the row exists to catch is the one state
+    # it could not see, and the re-approval note told the operator to re-copy a
+    # file that was not the live one.
+    #
+    # THE TARGET IS PULLED OUT OF settings.json, THE SAME WAY CHECK 7 OF
+    # bin\lwg-doctor.ps1 PULLS IT OUT: the first token in statusLine.command
+    # that ends in .ps1, quoted or bare. That check was already right about this
+    # and this file was already wrong, which is two readers of one settings key
+    # disagreeing about which file the operator is running - the divergence this
+    # plugin is named for. The regex is spelled the same way deliberately; if it
+    # changes there, it changes here.
+    #
+    # THE DEFAULT IS A FALLBACK, NOT THE ANSWER. It applies only when no
+    # statusLine.command is set at all, and the row then says which of the two it
+    # is talking about, because "the file you configured has drifted" and "the
+    # file you would have configured is not there" are different sentences and
+    # the operator acts on them differently.
+    #
+    # NOT A HEALTH CHECK. Whether the wired target is this plugin's file is
+    # check 7's question and it answers it properly, with provenance before
+    # drift. This row compares bytes and says what it compared.
+    $slWired    = ''
+    $slSource   = 'none'
+    $slSettings = '<no configuration directory>'
+    if (-not [string]::IsNullOrWhiteSpace($claudeHome)) {
+        $slSettings = Join-Path $claudeHome 'settings.json'
+        try {
+            if (Test-Path -LiteralPath $slSettings) {
+                # PS 5.1's Get-Content -Raw keeps a UTF-8 BOM, which
+                # ConvertFrom-Json rejects. Settings files written by other tools
+                # do carry one. Same TrimStart as check 7.
+                $slRaw = (Get-Content -LiteralPath $slSettings -Raw -ErrorAction Stop).TrimStart([char]0xFEFF)
+                $slCmd = [string](($slRaw | ConvertFrom-Json).statusLine.command)
+                if (-not [string]::IsNullOrWhiteSpace($slCmd)) {
+                    foreach ($tok in ([regex]::Matches($slCmd, '"([^"]+)"|(\S+)'))) {
+                        $tv = if ($tok.Groups[1].Success) { $tok.Groups[1].Value } else { $tok.Groups[2].Value }
+                        if ($tv -match '\.ps1$') { $slWired = $tv; $slSource = 'command'; break }
+                    }
+                    # A statusLine.command that names no .ps1 is a configured
+                    # status line this row cannot identify. It is NOT the default
+                    # case: falling back would compare a file the operator is
+                    # demonstrably not running. Reported as its own state.
+                    if ($slSource -ne 'command') { $slSource = 'unidentified'; $slWired = $slCmd }
+                }
+            }
+        } catch {
+            # A settings.json that will not parse is not evidence about the
+            # status line either way, and section 4 is not the place that
+            # reports it - check 7 is.
+            $slSource = 'unreadable'
+        }
+    }
+
     function Git {
         param([string[]]$A, [int]$Ms = $TimeoutMs)
         return (Invoke-LwgCmdProcess -File 'git' -ProcArgs $A -WorkDir $Root -TimeoutMs $Ms)
@@ -115,7 +201,7 @@ try {
     # first, because it changes what every row below means.
     $name = Get-LwgPluginName
     if ([string]::IsNullOrWhiteSpace($name)) { $name = 'lw-watchtower' }
-    $link = Join-Path $env:USERPROFILE ".claude\skills\$name"
+    $link = if ([string]::IsNullOrWhiteSpace($claudeHome)) { '' } else { Join-Path $claudeHome "skills\$name" }
     $linkTarget = ''
     try {
         $li = Get-Item -LiteralPath $link -Force -ErrorAction Stop
@@ -145,6 +231,8 @@ try {
     $viaLink = (-not [string]::IsNullOrWhiteSpace($link)) -and (Test-LwgPathUnder -Path $Root -Root $link)
     if ($viaLink) {
         Add-Row -Id 'loaded-copy' -Status 'OK' -Detail "this checkout was invoked through $link, which is the path Claude Code loads$(if ($linkTarget) { " (it points at $linkTarget)" } else { '' })"
+    } elseif ([string]::IsNullOrWhiteSpace($link)) {
+        Add-Row -Id 'loaded-copy' -Status 'INFO' -Detail 'no configuration directory could be resolved - neither CLAUDE_CONFIG_DIR nor USERPROFILE holds a value - so whether a skills junction exists was not established. This is not evidence that there is none.'
     } elseif ([string]::IsNullOrWhiteSpace($linkTarget)) {
         Add-Row -Id 'loaded-copy' -Status 'INFO' -Detail "no junction at $link - this checkout may or may not be what Claude Code loads; a marketplace install is a separate copy and is not updated by git"
     } elseif (Test-LwgPathUnder -Path $Root -Root $linkTarget) {
@@ -190,6 +278,30 @@ try {
         exit 1
     }
     $branch = ''; $upstream = ''; $ahead = 0; $behind = 0; $dirty = 0; $detached = $false
+    # THE PATHS, NOT JUST THE COUNT (#11).
+    #
+    # This loop counted non-`#` lines and threw the paths away, so the refusal
+    # below read "N uncommitted change(s)" and named nothing. Two measured
+    # consequences, both of which make an operator distrust the wrong thing:
+    #
+    #   * config.json IS TRACKED and /lw-watchtower:config and the toggle
+    #     commands write into it, so arming a gate dirties the checkout and the
+    #     next update refuses. The operator is told they have uncommitted work.
+    #     They do not; the plugin wrote it. #11 is the fix for the WRITE and it
+    #     needs a decision above this file (see its comment thread); naming the
+    #     file is the half that belongs here, and #11's own "what done looks
+    #     like" asks for it as the minimum.
+    #   * a test suite that left something in the tree does the same thing -
+    #     #214, measured today, where `? Microsoft/` from tests\setup_merge.ps1
+    #     refused an update with "1 uncommitted change(s)".
+    #
+    # PORCELAIN v2 PATH POSITIONS: `1 <xy> ... <path>` and `2 <xy> ... <path><TAB><orig>`
+    # for tracked entries, `u ...` for unmerged, `? <path>` for untracked. The
+    # path is the LAST field in all of them except a rename, whose original path
+    # follows a TAB - so the tab is split off first and the remainder taken from
+    # the last space. Quoting is left exactly as git wrote it: a path git chose
+    # to quote is a path with something in it worth seeing quoted.
+    $dirtyPaths = @()
     foreach ($l in @($st.out -split "`r?`n")) {
         if ($l -like '# branch.head*')  { $branch = ($l -split ' ')[2]; if ($branch -eq '(detached)') { $detached = $true } ; continue }
         if ($l -like '# branch.upstream*') { $upstream = ($l -split ' ')[2]; continue }
@@ -203,12 +315,34 @@ try {
             $behind = [Math]::Abs([int]($p[3] -replace '[^0-9]', ''))
             continue
         }
-        if ($l -and $l -notlike '#*') { $dirty++ }
+        if ($l -and $l -notlike '#*') {
+            $dirty++
+            $head = ($l -split "`t")[0]
+            $sp   = $head.LastIndexOf(' ')
+            $p    = if ($sp -ge 0) { $head.Substring($sp + 1) } else { $head }
+            if (-not [string]::IsNullOrWhiteSpace($p)) { $dirtyPaths += $p }
+        }
     }
     if ($detached) {
         Add-Row -Id 'worktree' -Status 'FAIL' -Detail 'HEAD is detached. A pull here would move nothing you could name later; check out a branch first.'
     } elseif ($dirty -gt 0) {
-        Add-Row -Id 'worktree' -Status 'FAIL' -Detail "$dirty uncommitted change(s) on $branch. This command does not stash, reset or check out anything - commit or set them aside first."
+        # NAMED, AND CAPPED. A tree with fifty changed files does not need fifty
+        # paths on one row to make the point; it needs enough to recognise
+        # whether the work is the operator's. The cap says how many it did not
+        # print rather than trailing off.
+        $shown = @($dirtyPaths | Select-Object -First 8)
+        $more  = $dirtyPaths.Count - $shown.Count
+        $list  = if ($shown.Count -gt 0) { ' ' + ($shown -join ', ') + $(if ($more -gt 0) { " (and $more more)" } else { '' }) } else { '' }
+        # config.json IS THE ONE THIS COMMAND CAUSES ITSELF, so it is called out
+        # by name rather than left in a list the operator reads as their own
+        # work. This says what happened; it does not say the write was wrong,
+        # because deciding where those writes should go is #11 and is not this
+        # file's to settle.
+        $own = ''
+        if ($dirtyPaths -contains 'config.json') {
+            $own = ' config.json is written by /lw-watchtower:config and by the toggle commands, so a flag you changed through this plugin dirties its own checkout and lands here - that change may not be yours to commit. See issue #11.'
+        }
+        Add-Row -Id 'worktree' -Status 'FAIL' -Detail "$dirty uncommitted change(s) on ${branch}:$list. This command does not stash, reset or check out anything - commit or set them aside first.$own"
     } else {
         Add-Row -Id 'worktree' -Status 'OK' -Detail "clean on $branch$(if ($upstream) { ", tracking $upstream" } else { ', with NO upstream' })"
     }
@@ -289,7 +423,19 @@ try {
             $n += '.claude-plugin/plugin.json changes: the plugin NAME is what the state directory is resolved from, so a rename moves every log to a new directory and leaves the old one behind. The manifest does NOT name a hooks file - hooks are registered in hooks/hooks.json, which is reported on its own line.'
         }
         if ($Files -contains 'statusline/statusline.ps1') {
-            $n += "statusline/statusline.ps1 changes: the live status line is a COPY at $(Join-Path $env:USERPROFILE '.claude\statusline.ps1'). git does not touch it. Re-copy it after the pull or it stays stale, silently."
+            # THE SAME RESOLVED TARGET SECTION 4 USES (#77). This note named the
+            # default copy target unconditionally, so on a machine whose status
+            # line is wired through the skills junction it told the operator to
+            # re-copy a file that is not the live one - and the row below then
+            # reported that same file as absent. Two sentences about two
+            # different files, neither of them the one being run.
+            if ($slSource -eq 'command') {
+                $n += "statusline/statusline.ps1 changes: the live status line on this machine is $slWired, which is what statusLine.command names in $slSettings. git does not touch it. Re-copy it after the pull or it stays stale, silently."
+            } elseif ([string]::IsNullOrWhiteSpace($claudeHome)) {
+                $n += 'statusline/statusline.ps1 changes: the live status line is a COPY that git does not touch, and no configuration directory could be resolved on this machine, so this note cannot name it. Find it in your settings.json statusLine.command and re-copy it after the pull.'
+            } else {
+                $n += "statusline/statusline.ps1 changes: no statusLine.command is set in $slSettings, so the live status line - if there is one - is the DEFAULT copy target $(Join-Path $claudeHome 'statusline.ps1'). git does not touch it. Re-copy it after the pull or it stays stale, silently."
+            }
         }
         if ($Files -contains 'config.json') {
             $n += 'config.json changes: module ON/OFF flags travel with the repo, so a pull can change what runs. The flag differences are listed below.'
@@ -335,18 +481,41 @@ try {
 
     # The status-line copy, checked on every run and not only when it changed -
     # it can be stale from an update made weeks ago.
-    $slLive = Join-Path $env:USERPROFILE '.claude\statusline.ps1'
     $slRepo = Join-Path $Root 'statusline\statusline.ps1'
-    if ((Test-Path -LiteralPath $slLive) -and (Test-Path -LiteralPath $slRepo)) {
+    # WHICH FILE, AND ON WHOSE SAY-SO. Resolved once at the top of the run - see
+    # the block above section 0 - so this row and the re-approval note in
+    # Get-Needs cannot name two different files.
+    $slWhose = switch ($slSource) {
+        'command' { "the file statusLine.command names in $slSettings" }
+        default   { "the DEFAULT copy target - no statusLine.command is set, so this is where the installer's copy mode would have put it" }
+    }
+    if ($slSource -eq 'command') { $slLive = $slWired }
+    elseif ([string]::IsNullOrWhiteSpace($claudeHome)) { $slLive = '' }
+    else { $slLive = Join-Path $claudeHome 'statusline.ps1' }
+
+    if ($slSource -eq 'unidentified') {
+        Add-Row -Id 'statusline' -Status 'WARN' -Detail "statusLine.command is set but names no .ps1 this check could identify, so no file was compared: $slWired. The default copy target was NOT compared instead - it is not what this machine is running."
+    } elseif ($slSource -eq 'unreadable') {
+        Add-Row -Id 'statusline' -Status 'INFO' -Detail "$slSettings could not be read or parsed, so which file is the live status line was not established. This is not evidence that there is none; /lw-watchtower:doctor check 7 is where an unreadable settings file is reported."
+    } elseif ([string]::IsNullOrWhiteSpace($slLive)) {
+        Add-Row -Id 'statusline' -Status 'INFO' -Detail 'no configuration directory could be resolved, so the live status line was not looked for. This is not evidence that it is missing.'
+    } elseif ((Test-Path -LiteralPath $slLive) -and (Test-Path -LiteralPath $slRepo)) {
         $a = (Get-FileHash -LiteralPath $slLive -Algorithm SHA256).Hash
         $b = (Get-FileHash -LiteralPath $slRepo -Algorithm SHA256).Hash
-        if ($a -eq $b) { Add-Row -Id 'statusline' -Status 'OK' -Detail "$slLive is byte-identical to the repo copy" }
+        if ($a -eq $b) { Add-Row -Id 'statusline' -Status 'OK' -Detail "$slLive is byte-identical to the repo copy ($slWhose)" }
         else {
-            Add-Row -Id 'statusline' -Status 'WARN' -Detail "$slLive DIFFERS from statusline/statusline.ps1 - one of them is stale and nothing on this machine reconciles them"
-            $needs += "the installed status line differs from the repo copy. Copy-Item `"$slRepo`" `"$slLive`" makes the repo version live - check which way round you want it first, because a fix made to the live file is lost."
+            Add-Row -Id 'statusline' -Status 'WARN' -Detail "$slLive DIFFERS from statusline/statusline.ps1 - one of them is stale and nothing on this machine reconciles them ($slWhose)"
+            $needs += "the installed status line differs from the repo copy. Copy-Item `"$slRepo`" `"$slLive`" makes the repo version live - check which way round you want it first, because a fix made to the live file is lost. That path is $slWhose."
         }
     } elseif (-not (Test-Path -LiteralPath $slLive)) {
-        Add-Row -Id 'statusline' -Status 'INFO' -Detail "no $slLive - the HH segment is not installed on this machine"
+        if ($slSource -eq 'command') {
+            # A CONFIGURED TARGET THAT IS NOT THERE IS NOT "NOT INSTALLED". The
+            # status line IS wired; the file it is wired to is gone, which
+            # renders as no segments at all rather than as an absent segment.
+            Add-Row -Id 'statusline' -Status 'WARN' -Detail "statusLine.command points at $slLive, which does not exist. The status line is CONFIGURED and BROKEN, which is not the same as not installed - it renders nothing at all."
+        } else {
+            Add-Row -Id 'statusline' -Status 'INFO' -Detail "no $slLive and no statusLine.command in $slSettings - the HH segment is not installed on this machine"
+        }
     }
 
     # ---------------------------------------------------------------------

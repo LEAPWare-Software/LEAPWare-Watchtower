@@ -492,8 +492,66 @@ function Save-Settings {
 # DETECTION
 # ===========================================================================
 
+# THE CONFIGURATION ROOT, RESOLVED ONCE FOR THIS PROCESS.
+#
+# Every path this installer writes used to be composed from $env:USERPROFILE and
+# a literal `.claude`. CLAUDE_CONFIG_DIR relocates that directory, so on a
+# machine that sets it this command wrote statusLine and hooks into a
+# settings.json the CLI does not read AND REPORTED SUCCESS - the worst of the
+# five failure modes #146 lists, because an install that fails loudly can be
+# fixed and one that is attested cannot.
+#
+# lib\common.ps1's Get-LwgClaudeHomeInfo is the single resolver; the precedence
+# (explicit parameter, then CLAUDE_PLUGIN_DATA for the data dir only, then
+# CLAUDE_CONFIG_DIR, then the profile) and the three awkward values are argued
+# there and only applied here. -SettingsPath still beats all of it, which is the
+# first rule of that precedence and the seam tests\setup_merge.ps1 drives.
+#
+# NOTHING FALLS BACK WHEN THE RESOLVED DIRECTORY IS MISSING. `exists` is
+# reported - see Write-DetectionReport - and a missing directory is created by
+# the write, exactly as it always was under the profile default.
+$script:ClaudeHomeInfo = $null
+function Get-ClaudeHomeInfoOnce {
+    if ($null -eq $script:ClaudeHomeInfo) {
+        $i = $null
+        try { $i = Get-LwgClaudeHomeInfo } catch { }
+        if ($null -eq $i) { $i = @{ path = $null; source = 'unresolved'; exists = $false; raw = $null } }
+        $script:ClaudeHomeInfo = $i
+    }
+    return $script:ClaudeHomeInfo
+}
+
+function Get-ClaudeHomePath {
+    <# The configuration root as a string. Throws NOTHING and returns $null on a
+       machine with neither CLAUDE_CONFIG_DIR nor USERPROFILE; every caller below
+       is written to survive that rather than to Join-Path onto nothing. #>
+    return (Get-ClaudeHomeInfoOnce).path
+}
+
+function Join-ClaudeHome {
+    <# <configuration root>\<tail>, or $null when there is no root. Used instead
+       of [IO.Path]::Combine at every site that used to spell the profile and
+       `.claude` itself. #>
+    param([string]$Tail)
+    $h = Get-ClaudeHomePath
+    if ([string]::IsNullOrWhiteSpace($h)) { return $null }
+    return [IO.Path]::Combine($h, $Tail)
+}
+
 function Get-DefaultSettingsPath {
-    return [IO.Path]::Combine($env:USERPROFILE, '.claude\settings.json')
+    $p = Join-ClaudeHome 'settings.json'
+    if ($null -eq $p) {
+        # NEITHER CLAUDE_CONFIG_DIR NOR USERPROFILE HOLDS ANYTHING. This threw
+        # before too - [IO.Path]::Combine($null, ...) raises
+        # ArgumentNullException - and MAIN's catch turned that into "setup could
+        # not complete: Value cannot be null", which names nothing an operator
+        # can act on. The exit code is the same 3; the sentence is now the
+        # actual condition. Composing onto an empty string instead would write
+        # settings.json into the current directory, which is a write nobody
+        # asked for and the one outcome worse than refusing.
+        throw 'no configuration directory could be resolved: neither CLAUDE_CONFIG_DIR nor USERPROFILE holds a value. Pass -SettingsPath to name the file outright.'
+    }
+    return $p
 }
 
 function Get-PluginNameSafe {
@@ -511,6 +569,17 @@ function Get-Detection {
     $d.pluginRoot  = $script:PluginRoot
     $d.pluginName  = Get-PluginNameSafe
     $d.userProfile = $env:USERPROFILE
+    # THE CONFIGURATION ROOT AND HOW IT WAS ARRIVED AT, both carried, because
+    # the report prints both. A root is not enough on its own: "C:\cfg" tells an
+    # operator nothing about whether this command agrees with their CLI, and
+    # "C:\cfg, from CLAUDE_CONFIG_DIR" tells them exactly where to look when it
+    # does not. $d.userProfile stays - it is the profile itself, which the report
+    # also names, and it is no longer where any path below comes from.
+    $chi                 = Get-ClaudeHomeInfoOnce
+    $d.claudeHome        = $chi.path
+    $d.claudeHomeSource  = $chi.source
+    $d.claudeHomeExists  = $chi.exists
+    $d.claudeHomeRaw     = $chi.raw
 
     # --- how is the plugin reaching Claude Code? ---------------------------
     # A junction under a skills dir is auto-discovered; a marketplace install is
@@ -532,7 +601,7 @@ function Get-Detection {
     #
     # statusline\statusline.ps1 carried the SAME wrong assumption in
     # LwgPluginRoots and was fixed in the same change. One defect, two files.
-    $d.skillLink   = [IO.Path]::Combine($env:USERPROFILE, ".claude\skills\$($d.pluginName)")
+    $d.skillLink   = Join-ClaudeHome "skills\$($d.pluginName)"
     $d.skillExists = [IO.Directory]::Exists($d.skillLink)
     $d.skillIsLink = $false
     $d.skillTarget = ''
@@ -597,7 +666,7 @@ function Get-Detection {
     #     CLAUDE_CODE_PLUGIN_CACHE_DIR relocates the whole plugins directory -
     #     the CLI reads that variable first and so does this.
     $d.pluginsDir = if ($env:CLAUDE_CODE_PLUGIN_CACHE_DIR) { [string]$env:CLAUDE_CODE_PLUGIN_CACHE_DIR }
-                    else { [IO.Path]::Combine($env:USERPROFILE, '.claude\plugins') }
+                    else { Join-ClaudeHome 'plugins' }
     try {
         $reg = [IO.Path]::Combine($d.pluginsDir, 'installed_plugins.json')
         if ([IO.File]::Exists($reg)) {
@@ -663,6 +732,19 @@ function Get-Detection {
     #     reason lib\common.ps1 gives about the data directory: the id in that
     #     name has changed once already.
     #
+    #     WHY THIS IS NOT ROUTED THROUGH lib\common.ps1's
+    #     Get-LwgMarketplaceInstall, which resolves the same fact (#8). That
+    #     function is the RESOLVER and this block is a SUPERSET of it: it reads
+    #     the same installed_plugins.json, and then also scans cache,
+    #     marketplaces, marketplaces\<mk>\plugins and legacy repos, honours
+    #     CLAUDE_CODE_PLUGIN_CACHE_DIR, and emits a sentence of evidence per hit.
+    #     Replacing this with a call to it would NARROW what the installer can
+    #     see - which is the inverse of the defect #8 is about, since a missed
+    #     install is what makes this command write a second full set of hook
+    #     registrations. The three spellings of the layout cross-reference each
+    #     other: this one, the resolver in lib\common.ps1, and LwgPluginRoots in
+    #     statusline\statusline.ps1. A layout change lands in all three.
+    #
     #     plugins\repos IS STILL SCANNED. It answers on no machine anyone has
     #     seen, but a build that lays things out differently must not blind this
     #     probe a second time, and a directory that does not exist costs one
@@ -678,19 +760,28 @@ function Get-Detection {
         return $found
     }
     $onDisk = @()
-    foreach ($mk in @(& $globDirs ([IO.Path]::Combine($d.pluginsDir, 'cache')) '*')) {
-        foreach ($pl in @(& $globDirs $mk ($d.pluginName + '*'))) {
-            $onDisk += @(& $globDirs $pl '*')
+    # GUARDED ON A RESOLVED BASE. $d.pluginsDir is now derived from the
+    # configuration root, which is $null on a machine holding neither
+    # CLAUDE_CONFIG_DIR nor USERPROFILE; [IO.Path]::Combine($null, 'cache')
+    # throws, and it would throw HERE, outside $globDirs' own try, taking the
+    # whole detect run down over a probe that had nothing to look at anyway.
+    # Skipping the scan leaves $d.discoveryEvidence empty, which is the honest
+    # answer - and the report says the root is unresolved on the line above it.
+    if (-not [string]::IsNullOrWhiteSpace($d.pluginsDir)) {
+        foreach ($mk in @(& $globDirs ([IO.Path]::Combine($d.pluginsDir, 'cache')) '*')) {
+            foreach ($pl in @(& $globDirs $mk ($d.pluginName + '*'))) {
+                $onDisk += @(& $globDirs $pl '*')
+            }
         }
-    }
-    foreach ($mk in @(& $globDirs ([IO.Path]::Combine($d.pluginsDir, 'marketplaces')) '*')) {
-        $onDisk += @(& $globDirs $mk ($d.pluginName + '*'))
-        $onDisk += @(& $globDirs ([IO.Path]::Combine($mk, 'plugins')) ($d.pluginName + '*'))
-    }
-    $legacy = [IO.Path]::Combine($d.pluginsDir, 'repos')
-    $onDisk += @(& $globDirs $legacy ($d.pluginName + '*'))
-    foreach ($mk in @(& $globDirs $legacy '*')) {
-        $onDisk += @(& $globDirs $mk ($d.pluginName + '*'))
+        foreach ($mk in @(& $globDirs ([IO.Path]::Combine($d.pluginsDir, 'marketplaces')) '*')) {
+            $onDisk += @(& $globDirs $mk ($d.pluginName + '*'))
+            $onDisk += @(& $globDirs ([IO.Path]::Combine($mk, 'plugins')) ($d.pluginName + '*'))
+        }
+        $legacy = [IO.Path]::Combine($d.pluginsDir, 'repos')
+        $onDisk += @(& $globDirs $legacy ($d.pluginName + '*'))
+        foreach ($mk in @(& $globDirs $legacy '*')) {
+            $onDisk += @(& $globDirs $mk ($d.pluginName + '*'))
+        }
     }
 
     $seen = @{}
@@ -708,11 +799,11 @@ function Get-Detection {
     # --- the state directory, and how ambiguous it is ----------------------
     $d.stateInfo       = $null
     $d.stateCandidates = @()
-    $d.bareStateDir    = [IO.Path]::Combine($env:USERPROFILE, ".claude\plugins\data\$($d.pluginName)")
+    $d.bareStateDir    = Join-ClaudeHome "plugins\data\$($d.pluginName)"
     try {
         $d.stateInfo = Get-LwgStateDirInfo -Refresh
-        $root = [IO.Path]::Combine($env:USERPROFILE, '.claude\plugins\data')
-        if ([IO.Directory]::Exists($root)) {
+        $root = Join-ClaudeHome 'plugins\data'
+        if ($root -and [IO.Directory]::Exists($root)) {
             foreach ($c in [IO.Directory]::GetDirectories($root, ($d.pluginName + '*'))) {
                 $t = [datetime]::MinValue
                 try { $t = [IO.Directory]::GetLastWriteTimeUtc($c) } catch { }
@@ -724,8 +815,8 @@ function Get-Detection {
     # --- the status line ---------------------------------------------------
     $d.repoStatusLine      = [IO.Path]::Combine($script:PluginRoot, 'statusline\statusline.ps1')
     $d.repoStatusLineOk    = [IO.File]::Exists($d.repoStatusLine)
-    $d.installedStatusLine = [IO.Path]::Combine($env:USERPROFILE, '.claude\statusline.ps1')
-    $d.installedOk         = [IO.File]::Exists($d.installedStatusLine)
+    $d.installedStatusLine = Join-ClaudeHome 'statusline.ps1'
+    $d.installedOk         = ($null -ne $d.installedStatusLine) -and [IO.File]::Exists($d.installedStatusLine)
     $d.statusLineDrift     = 'n/a'
     if ($d.repoStatusLineOk -and $d.installedOk) {
         try {
@@ -752,7 +843,7 @@ function Get-Detection {
     # here, so the two scopes reported are the user directory - which SHADOWS
     # the shipped file entirely, replacement rather than merge - and the
     # plugin's own agents\. Found in either is present.
-    $d.agentDir       = [IO.Path]::Combine($env:USERPROFILE, '.claude\agents')
+    $d.agentDir       = Join-ClaudeHome 'agents'
     $d.pluginAgentDir = [IO.Path]::Combine($script:PluginRoot, 'agents')
     $d.shippedAgents  = @()
     $d.agents         = @()
@@ -766,7 +857,10 @@ function Get-Detection {
         }
     } catch { }
     foreach ($a in $d.shippedAgents) {
-        $userPath   = [IO.Path]::Combine($d.agentDir, "$a.md")
+        # $d.agentDir is $null when no configuration root resolved; the user
+        # scope simply does not exist then, and the plugin's own copy is the
+        # only answer. Combining onto $null would throw here instead.
+        $userPath   = if ([string]::IsNullOrWhiteSpace($d.agentDir)) { '' } else { [IO.Path]::Combine($d.agentDir, "$a.md") }
         $pluginPath = [IO.Path]::Combine($d.pluginAgentDir, "$a.md")
         if ([IO.File]::Exists($userPath)) {
             $d.agents += [pscustomobject]@{ name = $a; present = $true; scope = 'user'; path = $userPath }
@@ -806,6 +900,34 @@ function Write-DetectionReport {
     Write-Output ("  operating system   : {0}" -f $D.os)
     Write-Output ("  PowerShell         : {0}" -f $D.psVersion)
     Write-Output ("  user profile       : {0}" -f $D.userProfile)
+    # THE CONFIGURATION ROOT, NAMED WITH ITS SOURCE, ON EVERY RUN.
+    #
+    # Not decoration and not symmetry with the line above it. Every path this
+    # command writes hangs off this one directory, and until 3 September 2026 it
+    # was composed from the profile and a literal `.claude` - so on a machine
+    # that sets CLAUDE_CONFIG_DIR the installer wrote its statusLine and its
+    # hooks into a settings.json the CLI does not read, and then REPORTED
+    # SUCCESS. A report that does not name the root cannot be argued with: the
+    # operator sees a green install and has nowhere to look. `from
+    # CLAUDE_CONFIG_DIR` versus `from the user profile` is the whole difference,
+    # and "does not exist yet" is said out loud rather than resolved away,
+    # because a resolver that fell back to the profile on a missing directory
+    # would reinstate the entire defect on exactly the machine that set the
+    # variable.
+    $chSrc = switch ([string]$D.claudeHomeSource) {
+        'env'     { "from CLAUDE_CONFIG_DIR = $($D.claudeHomeRaw)" }
+        'profile' { 'from the user profile - CLAUDE_CONFIG_DIR is not set' }
+        default   { 'UNRESOLVED - neither CLAUDE_CONFIG_DIR nor USERPROFILE holds a value' }
+    }
+    if ([string]::IsNullOrWhiteSpace($D.claudeHome)) {
+        Write-Output ("  config directory   : {0}" -f $chSrc)
+        Write-Output '                       Every path below is composed from this directory, so nothing'
+        Write-Output '                       below could be resolved. Pass -SettingsPath to name the file.'
+    } else {
+        $chEx = if ($D.claudeHomeExists) { '' } else { '  [DOES NOT EXIST YET]' }
+        Write-Output ("  config directory   : {0}{1}" -f $D.claudeHome, $chEx)
+        Write-Output ("                       {0}" -f $chSrc)
+    }
     Write-Output ''
     Write-Output 'THIS PLUGIN'
     Write-Output ("  plugin root        : {0}" -f $D.pluginRoot)
