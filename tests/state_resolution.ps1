@@ -1169,11 +1169,19 @@ function Test-F8-EverythingOnIsEnforcing {
     <#
       Every implemented module on and all three gates armed. This is the only
       configuration in which 'enforcing' is honest, and it is also the one case
-      where the banner prints NO parenthetical at all: nothing is planned and
-      nothing is off, so active and total are the same number and there is no
-      remainder to account for. That branch is asserted here by its absence -
-      an '(0 planned)' or '(0 off)' would be noise standing where a real caveat
-      belongs.
+      in which the banner has no parenthetical to add: on THIS fixture nothing
+      is planned and nothing is off, so the count and the total are the same
+      number and there is no remainder to account for. That branch is asserted
+      here by its absence - an '(0 planned)' or '(0 off)' would be noise
+      standing where a real caveat belongs.
+
+      SAID OF THIS FIXTURE AND OF NOTHING ELSE. On the config this repository
+      SHIPS, four modules are built and switched off, so the banner does carry
+      a parenthetical and F5 asserts it - tests\gate_delegate.ps1's N3 sweep
+      exists to fail any tracked line that says otherwise, and it is right to,
+      because a reader who took the sentence for a general one would conclude
+      that delegate_gate is either armed or not counted as implemented, and
+      both are wrong about the one component here that can refuse a call.
     #>
     $cfg = @'
 {
