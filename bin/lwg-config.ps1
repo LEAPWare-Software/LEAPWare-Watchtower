@@ -177,10 +177,7 @@ try {
         Write-Refusal @("cannot read $ConfigPath - $($baseFile.error)")
         exit $script:Exit
     }
-    $cfg     = Get-LwgConfig -Path $ConfigPath
-    # The defaults ALONE. The pre-write resolution has to merge the PROPOSED
-    # override onto these rather than onto a config already carrying the old one.
-    $cfgBase = Get-LwgConfig -Path $ConfigPath -NoOverride
+    $cfg = Get-LwgConfig -Path $ConfigPath
     $onDefaults = ($cfg._source -ne 'file')
 
     $ovPath = Get-LwgConfigOverridePath
@@ -194,16 +191,12 @@ try {
         )
         exit $script:Exit
     }
-    # SEEDED IF ABSENT, and only when a write was actually asked for. A writer
-    # that assumes its target exists exits 3 on every fresh install, which is
-    # the measurement that killed route 2a on #11. An empty JSON object is the
-    # honest seed - "no operator choice yet" - and Save-LwgTextFile refuses a
-    # file that is not there, so the seed has to land before the read that
-    # produces the SHA.
-    if ($Apply -and -not [IO.File]::Exists($ovPath)) {
-        [void](Get-LwgStateDir)
-        [IO.File]::WriteAllText($ovPath, "{}`r`n", [Text.UTF8Encoding]::new($false))
-    }
+    # ABSENT IS A STATE, NOT AN ERROR. A machine that has never been configured
+    # has no override, and a writer that assumes its target exists exits 3 on
+    # every fresh install - the measurement that killed route 2a on #11. So an
+    # absent file reads as the empty object it means, and the file itself is
+    # created at the write and nowhere earlier: see the seed beside
+    # Save-LwgTextFile below.
     $file = if ([IO.File]::Exists($ovPath)) { Read-LwgTextFile -Path $ovPath } `
             else { @{ ok = $true; text = '{}'; bom = $false; sha = ''; bytes = 0; error = '' } }
     if (-not $file.ok) {
@@ -757,6 +750,22 @@ try {
         exit $script:Exit
     }
 
+    # THE SEED, HERE AND NOWHERE EARLIER. Every refusal above must leave the
+    # disk exactly as it found it, and creating an empty override on a run that
+    # then prints "REFUSED - nothing was written" would make that sentence false
+    # about a file which did not exist a moment before. The bytes written are
+    # '{}' - the same text $new was built from - so the SHA read back belongs to
+    # them, and Save-LwgTextFile's changed-under-us check still means what it
+    # says.
+    if (-not [IO.File]::Exists($ovPath)) {
+        [void](Get-LwgStateDir)
+        [IO.File]::WriteAllText($ovPath, '{}', [Text.UTF8Encoding]::new($false))
+        $file = Read-LwgTextFile -Path $ovPath
+        if (-not $file.ok) {
+            Write-Refusal @("$ovPath could not be created or read back - $($file.error)")
+            exit $script:Exit
+        }
+    }
     $save = Save-LwgTextFile -Path $ovPath -Text $new -ExpectedSha $file.sha -Bom $file.bom -BackupTag 'lwg-config'
     if (-not $save.ok) {
         Write-Refusal @("the write did not happen: $($save.reason)")

@@ -724,16 +724,12 @@ try {
     # when a write was asked for; the report path below still works off
     # Get-LwgConfig's fallback and says that is what it is doing.
     #
-    # SEEDED IF ABSENT, and this is the whole of what killed route 2a on #11: a
-    # writer that assumes its target exists exits 3 on every fresh install. An
-    # empty JSON object is the honest seed - it says "no operator choice yet",
-    # which is exactly true, and Set-JsonLiteralAtPath creates the members under
-    # it. Save-LwgTextFile also refuses to write a file that is not there, so
-    # the seed has to land before the read that produces the SHA.
-    if ($null -ne $want -and -not [IO.File]::Exists($ovPath)) {
-        [void](Get-LwgStateDir)   # creates the directory; the read path never does
-        [IO.File]::WriteAllText($ovPath, "{}`r`n", [Text.UTF8Encoding]::new($false))
-    }
+    # ABSENT IS A STATE, NOT AN ERROR. A machine that has never been configured
+    # has no override, and a writer that assumes its target exists exits 3 on
+    # every fresh install - the whole of what killed route 2a on #11. So an
+    # absent file reads as the empty object it means, Set-JsonLiteralAtPath
+    # creates the members under it, and the file itself is created at the write
+    # and nowhere earlier: see the seed beside Save-LwgTextFile below.
     $file = if ([IO.File]::Exists($ovPath)) { Read-LwgTextFile -Path $ovPath } else { @{ ok = $true; text = '{}'; bom = $false; sha = ''; bytes = 0; error = '' } }
 
     # Outside a hook there is no payload, so repo identity comes from the cwd -
@@ -899,6 +895,20 @@ try {
         $backup = ''
         $wroteSha = ''
         if ($updated -ne $original) {
+            # THE SEED, HERE AND NOWHERE EARLIER. Every refusal above must leave
+            # the disk exactly as it found it, and this file's exit 3 is
+            # documented as "the bytes are as they were" in two places - so
+            # creating an empty override on a run that then refuses would make
+            # that documented claim false about a file which did not exist a
+            # moment before. The bytes written are '{}', which is the text
+            # $updated was built from, so the SHA read back belongs to them and
+            # the changed-under-us check still means what it says.
+            if (-not [IO.File]::Exists($ovPath)) {
+                [void](Get-LwgStateDir)   # creates the directory; the read path never does
+                [IO.File]::WriteAllText($ovPath, '{}', [Text.UTF8Encoding]::new($false))
+                $file = Read-LwgTextFile -Path $ovPath
+                if (-not $file.ok) { throw ("{0} could not be created or read back ({1}); nothing was written" -f $ovPath, (Get-LwgBriefParseError -Message $file.error)) }
+            }
             $save = Save-LwgTextFile -Path $ovPath -Text $updated -ExpectedSha $file.sha -Bom $file.bom -BackupTag 'lwg-toggle'
             if (-not $save.ok) {
                 # A refusal, not a failure. CHANGED UNDER US means somebody
