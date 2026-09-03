@@ -346,8 +346,20 @@ function Invoke-Setup {
       stdout is captured and stderr is deliberately NOT merged with 2>&1: in
       Windows PowerShell 5.1 that wraps a native command's stderr in
       NativeCommandError records and corrupts both the output and $?.
+
+      -ExpectsStderr DISCARDS the child's stderr with 2>$null instead. It is
+      for the three section 28 cases, whose whole subject is an argument that
+      fails PARAMETER BINDING - which prints on stderr by definition. Left
+      alone, that stderr becomes a NativeCommandError record in this process's
+      error stream, and tests\doc_claims.ps1 runs every sibling suite through
+      Start-Job and surfaces it out of Receive-Job, so a deliberate refusal read
+      as an unexplained error inside a different guard's output. 2>$null
+      suppresses the record; measured, it changes neither $LASTEXITCODE nor
+      stdout, which are the only two things those cases assert on. It is a
+      switch and not the default because everywhere else an unexpected stderr
+      is a thing a maintainer should see.
     #>
-    param([string]$ProfileDir, [string[]]$Arguments)
+    param([string]$ProfileDir, [string[]]$Arguments, [switch]$ExpectsStderr)
 
     $prev  = $env:USERPROFILE
     $prevR = $env:CLAUDE_PLUGIN_ROOT
@@ -360,7 +372,21 @@ function Invoke-Setup {
         $env:CLAUDE_PLUGIN_ROOT          = ''
         $env:CLAUDE_PLUGIN_DATA          = ''
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = ''
-        $lines = & powershell -NoProfile -ExecutionPolicy Bypass -File $SetupPath @Arguments
+        if ($ExpectsStderr) {
+            # MEASURED, because the obvious spelling aborts this suite. Under
+            # $ErrorActionPreference = 'Stop', `2>$null` on a native command
+            # turns its stderr into a TERMINATING NativeCommandError - the bare
+            # call without the redirection does not. So the preference is
+            # lowered for exactly this call and restored in a finally, which is
+            # the same contract every other swap in this function keeps.
+            $eap = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'SilentlyContinue'
+                $lines = & powershell -NoProfile -ExecutionPolicy Bypass -File $SetupPath @Arguments 2>$null
+            } finally { $ErrorActionPreference = $eap }
+        } else {
+            $lines = & powershell -NoProfile -ExecutionPolicy Bypass -File $SetupPath @Arguments
+        }
         $code  = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
         $out   = ($lines | Out-String)
     } finally {
@@ -2687,17 +2713,17 @@ try {
     # -------------------------------------------------------------------
     $t = New-CaseTree -Tag 'dead-permissions-section' -Bytes $FixtureBytes
 
-    $p1 = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'diff', '-Section', 'permissions', '-SettingsPath', $t.settings)
+    $p1 = Invoke-Setup -ProfileDir $t.profile -ExpectsStderr -Arguments @('-Step', 'diff', '-Section', 'permissions', '-SettingsPath', $t.settings)
     Add-Result 'diff: -Section permissions is not a value this installer accepts' `
         ([bool]($p1.code -eq 1 -and [string]::IsNullOrWhiteSpace($p1.out))) `
         "the permissions section could only ever report 'nothing to add' - a consent screen for work that cannot exist. It must be rejected at binding, not printed. exit $($p1.code), stdout:`n$($p1.out)"
 
-    $p2 = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'detect', '-DestructiveGate', 'yes', '-SettingsPath', $t.settings)
+    $p2 = Invoke-Setup -ProfileDir $t.profile -ExpectsStderr -Arguments @('-Step', 'detect', '-DestructiveGate', 'yes', '-SettingsPath', $t.settings)
     Add-Result 'detect: -DestructiveGate is not a parameter this installer accepts' `
         ([bool]($p2.code -eq 1 -and [string]::IsNullOrWhiteSpace($p2.out))) `
         "the destructive gate was removed on 30 July 2026. A parameter that validates an answer and then selects nothing tells the caller the feature is still there. exit $($p2.code), stdout:`n$($p2.out)"
 
-    $p3 = Invoke-Setup -ProfileDir $t.profile -Arguments @('-Step', 'detect', '-SecretGate', 'no', '-SettingsPath', $t.settings)
+    $p3 = Invoke-Setup -ProfileDir $t.profile -ExpectsStderr -Arguments @('-Step', 'detect', '-SecretGate', 'no', '-SettingsPath', $t.settings)
     Add-Result 'detect: -SecretGate is not a parameter this installer accepts' `
         ([bool]($p3.code -eq 1 -and [string]::IsNullOrWhiteSpace($p3.out))) `
         "same day, same removal, same reasoning as -DestructiveGate. exit $($p3.code), stdout:`n$($p3.out)"
