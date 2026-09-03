@@ -298,7 +298,7 @@ $Rules = @(
     }
     @{
         id      = 'deleted-script'
-        name    = 'a script this branch deleted, named by a shipped file'
+        name    = 'shipped file naming a script this branch deleted'
         why     = 'a shipped file naming a script that is not in the payload sends whoever reads it - a model following an instruction, or a maintainer following a comment - to something that is not there. The failure is silent: the invocation fails, or the reader concludes the mechanism exists and reasons from it. THE FOUR NAMES ARE #192''s DONE-CONDITION, not a general sweep for every removed file: the resolver, its library half, its command, and the marker the whole clearing mechanism turned on. All four went in wave 1 with the decision that state comes from the ledger rather than from a hand-cleared fault count.'
         # WHAT THIS RULE CANNOT DO, and it is the same limit every rule here
         # has: it reads text, so it cannot tell an instruction from a memoir.

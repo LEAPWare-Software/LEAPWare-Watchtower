@@ -180,13 +180,32 @@ $RegionMarker = '^\s*(?:#|<!--)\s*LWG-SCAN-REGION:\s*(begin|end)\b'
 #   why     what goes wrong on someone else's machine when this ships
 #   pattern the regex. Group 1, where present, is the part the allowlist
 #           inspects (currently only the profile-name segment).
+#   scope   OPTIONAL. Path globs the rule is applied to. Omit it and the rule
+#           runs on every tracked file, which is the default and the right
+#           answer for every rule that asks "does this name one machine?" -
+#           that question has the same answer in a test as in a shipped
+#           script. A rule is scoped only when the thing it forbids is a
+#           property of RUNNING CODE rather than of text, and the count of
+#           files each scoped rule actually ran on is printed in the summary,
+#           because a scope that matches nothing is a rule that has been
+#           switched off without anyone saying so.
 # ===========================================================================
 $Rules = @(
     @{
         id      = 'profile-path'
         name    = 'a user-profile path naming a specific profile'
         why     = 'the profile name differs on every machine, so the path resolves to nothing - or, worse, to someone else''s data. This also covers a %USERPROFILE% or $HOME that was expanded to a literal before being written down.'
-        pattern = '(?:[A-Za-z]:|(?<![\w./\\])/[A-Za-z])[\\/]Users[\\/](<[^>]+>|[^\\/\s"''`,;:|()\[\]{}]+)'
+        # THE `(?i)` IS LOAD-BEARING AND WAS MISSING UNTIL 3 SEPTEMBER 2026.
+        # The drive letter was already covered by [A-Za-z]; the literal `Users`
+        # was not, and this engine adds no IgnoreCase of its own - both Regex
+        # constructions below pass RegexOptions::Compiled and nothing else. So
+        # `c:\users\someone\...` matched NOTHING, and the scan's clean verdict
+        # on that spelling was guaranteed rather than earned. Lowercase drive
+        # paths are the everyday spelling in Git Bash output and in anything
+        # copied out of a POSIX-shaped tool on this platform, so the blind spot
+        # was in the ordinary case rather than an exotic one. Every sibling rule
+        # already carried (?i); this was the only content rule without it.
+        pattern = '(?i)(?:[A-Za-z]:|(?<![\w./\\])/[A-Za-z])[\\/]Users[\\/](<[^>]+>|[^\\/\s"''`,;:|()\[\]{}]+)'
     }
     @{
         id      = 'owner-username'
@@ -217,6 +236,48 @@ $Rules = @(
         name    = 'a drive-absolute plugin install path'
         why     = 'the plugin root must be DERIVED - from ${CLAUDE_PLUGIN_ROOT}, $PSScriptRoot, or $env:USERPROFILE. A literal one blinded the status line permanently on every machine laid out differently. Note the anchor: only a drive-letter-absolute spelling is refused, so the derived forms are untouched.'
         pattern = '(?i)[A-Za-z]:[\\/][^\s"''`]*\.claude[\\/](?:skills[\\/]lw-watchtower|plugins[\\/]repos)'
+    }
+    @{
+        id      = 'claude-home-composition'
+        name    = 'a configuration-directory path composed from $env:USERPROFILE'
+        why     = 'CLAUDE_CONFIG_DIR relocates Claude Code''s configuration directory, and a path composed from $env:USERPROFILE and a literal .claude ignores it. Every component then fails DIFFERENTLY and silently against the same misconfiguration: setup writes a settings.json the CLI does not read and reports success, the doctor health-checks that unread file and reports green, the uninstaller reports a footprint from the wrong tree, the status line reads a data root nothing wrote to. Resolve through Get-LwgClaudeHomeInfo (lib/common.ps1) or LwgClaudeHome (statusline/statusline.ps1) instead - both consult CLAUDE_CONFIG_DIR first and fall back to the profile in ONE place.'
+        # WHAT THIS RULE DELIBERATELY DOES NOT CATCH, said plainly rather than
+        # left to be discovered. It reads ONE LINE AT A TIME, like every rule
+        # here, so:
+        #
+        #   * A COMMENT IS NOT A COMPOSITION. Six tracked comments record the
+        #     old shape - `Join-Path $env:USERPROFILE '.claude'` and friends -
+        #     as history, and a comment resolves no path. The lookbehind
+        #     refuses a match with a `#` earlier on the same line rather than
+        #     asking six files to be edited, or six allowlist entries to be
+        #     written, for prose that is correct. A live composition written
+        #     after a `#` on the same line is invisible to this, and that is
+        #     the price.
+        #   * THE RESOLVERS THEMSELVES compose across TWO lines - `$p =
+        #     $env:USERPROFILE` on one, the Combine on the next - so they do
+        #     not match at all and are not what the allowlist entry below is
+        #     excusing today. It is there for a reflow, and says so.
+        #
+        # It is a REGRESSION guard for the shape #146 removed from four files,
+        # not a proof that no path escapes the resolver.
+        pattern = '(?i)(?<!#[^\n]{0,400})\$env:USERPROFILE[^\n]{0,80}?[\\/''"]\.claude\b'
+        # SCOPED TO THE SHIPPED EXECUTABLE PAYLOAD, and this is the one rule in
+        # the file that is scoped at all. What it forbids is a resolution done
+        # by RUNNING CODE, and the fourteen sites outside this scope are not
+        # that: eight are documentation and CONTRIBUTING.md telling a reader to
+        # type the default location, which is correct on a machine that has not
+        # relocated it (the pages needing a CLAUDE_CONFIG_DIR sentence is #146
+        # item 5, a document pass, and it is filed there rather than enforced
+        # here); five are suite HEADER PROSE inside <# #> blocks describing the
+        # sandbox, which the one-line `#` lookbehind cannot see; and one is a
+        # doc_claims -Expected string quoting an install page. A rule that went
+        # red on all fourteen would be answering a different question from the
+        # one it was written for - "does a page name the default path?" rather
+        # than "does a shipped script resolve without the variable?" - and the
+        # honest way to say so is a scope with a reason, not a rule that fires
+        # and an allowlist that catches it back.
+        scope   = @('bin/*', 'lib/*', 'hooks/*', 'statusline/*', 'context/*',
+                    'commands/*', 'agents/*', 'config.json', '.claude-plugin/*')
     }
     @{
         id      = 'region-marker'
@@ -300,9 +361,64 @@ $AllowList = @(
         id    = 'universal-windows-root'
         kind  = 'line-text'
         rules = @('interpreter-path')
-        files = @('*')
-        test  = '(?i)(?:^|[^A-Za-z])\[a-z\]:|(?:Bash|PowerShell|Read|Edit)\(|Get-LwgTargetClass|catastrophic'
-        why   = 'C:/Windows, C:/ProgramData, C:/Program Files and the bare C:/Users root were named as things to REFUSE, never as paths anything builds from - they are universal on every Windows install. ALL THREE SOURCES OF THESE LITERALS ARE NOW GONE: lib\gate_bash.ps1 was deleted on 30 July 2026 with the destructive command gate, the deny table in bin\lwg-setup.ps1 emptied the same day with secret_scan, and lib\trips.ps1 - whose Get-LwgTargetClass classified a trip target - went with the trip ledger hours later. So this excuses nothing on the current tree and is kept as a defensive entry: a future gate that reinstates any of them would otherwise fail this scan for being correct. Get-LwgTargetClass is still named in the test pattern for that reason, not because the function exists.'
+        # NARROWED ON 3 SEPTEMBER 2026, AND THE OLD SHAPE IS RECORDED HERE
+        # BECAUSE THE NARROWING IS THE POINT. This entry read
+        # `files = @('*')` with a test that matched any line carrying
+        # `Bash(`, `PowerShell(`, `Read(`, `Edit(` or the word `catastrophic`.
+        # Those are not rare strings in this tree - they are how every
+        # permissions rule, every hook matcher and every tool name is written -
+        # so a `line-text` entry keyed on them disarmed `interpreter-path`
+        # TREE-WIDE, on every file, forever. It excused nothing on the tree the
+        # day it was measured, which is exactly what makes it dangerous: the
+        # entry's own `why` asserted "this excuses nothing on the current
+        # tree", nothing checked that claim, and the first line to combine a
+        # `Program Files` path with the word `catastrophic` would have been
+        # waved through in silence. Read the COUNT to the left of this entry in
+        # the report, never this prose.
+        #
+        # WHAT THE NARROWING IS DERIVED FROM, rather than guessed at. The rule
+        # this entry is scoped to can only ever fire on an `X:\Program Files\`
+        # prefix or on a `/python.exe`-shaped interpreter name. So:
+        #
+        #   * `C:/Windows`, `C:/ProgramData` and the bare `C:/Users` root -
+        #     three of the four roots the old `why` named - MATCH NO RULE IN
+        #     THIS FILE. The canonical deny fixture carries three of them
+        #     (`Bash(rm -rf C:/Windows*)` and friends) and this scan has never
+        #     had anything to say about those lines. They never needed
+        #     excusing, and the entry never excused them.
+        #   * THE `[a-z]:` BRACKET SPELLING WAS UNREACHABLE and is dropped. In
+        #     `[a-z]:/Program Files/`, the character before the colon is `]`,
+        #     and `interpreter-path` requires a LETTER there - so that
+        #     alternative could not have excused anything under any tree. It is
+        #     removed rather than kept "just in case": an alternative that
+        #     cannot fire is the same defect one level down.
+        #
+        # What is left is the two shapes that can actually reach the rule: a
+        # tool-call rule naming a universal root or an interpreter, which is
+        # what a reinstated gate writes, and a call to the deleted trip-target
+        # classifier, which would sit on a line carrying such a path.
+        files = @('bin/lwg-setup.ps1', 'bin/lwg-uninstall.ps1', 'lib/gate_*.ps1',
+                  'tests/fixtures/deny_canonical.txt', 'tests/uninstall_footprint.ps1',
+                  'docs/gates-removed.md')
+        test  = '(?i)Get-LwgTargetClass' +
+                '|(?i)(?:Bash|PowerShell|Read|Edit)\([^)\r\n]*(?:[A-Za-z]:[\\/]Program Files|[\\/](?:python\d*|node|bash|gh|winget)\.exe)'
+        why   = 'a universal Windows root or an interpreter named INSIDE A DENY RULE - `Bash(rm -rf C:/Program Files/**)` - is a thing to REFUSE, never a path anything builds from, so it is portable in the only sense this scan measures. ALL THREE SOURCES OF THOSE LITERALS ARE GONE: lib\gate_bash.ps1 was deleted on 30 July 2026 with the destructive command gate, the deny table in bin\lwg-setup.ps1 emptied the same day with secret_scan, and lib\trips.ps1 - whose Get-LwgTargetClass classified a trip target - went with the trip ledger hours later. So this excuses nothing today and is kept as a defensive entry: a future gate that reinstates any of them would otherwise fail this scan for being correct. It is scoped to the six paths such a rule could live in, and its test requires the tool-call spelling rather than the bare presence of a tool name anywhere on a line.'
+    }
+    @{
+        id    = 'claude-home-resolver'
+        kind  = 'line-text'
+        rules = @('claude-home-composition')
+        files = @('lib/common.ps1', 'statusline/statusline.ps1')
+        test  = '\$info\.path\s*=\s*\[IO\.Path\]::Combine|return\s+\[IO\.Path\]::Combine\(\$p\.TrimEnd'
+        why   = 'the ONE place each resolver is allowed to compose the historical default, reached only after CLAUDE_CONFIG_DIR has been consulted and found empty. IT EXCUSES NOTHING TODAY AND THE COUNT TO THE LEFT SAYS SO: both resolvers read the variable on one line and Combine on the next, so a line-based rule does not see a composition at all. This entry exists for the reflow that would put them on one line - a resolver reported as the defect it prevents is how a correct fix gets reverted - and it is scoped to those two files and to the two Combine statements rather than to a file or a `*`, so it cannot excuse a second composition added elsewhere in either file.'
+    }
+    @{
+        id    = 'doctor-settings-path-pending'
+        kind  = 'line-text'
+        rules = @('claude-home-composition')
+        files = @('bin/lwg-doctor.ps1')
+        test  = '^\s*\$sp = Join-Path \$env:USERPROFILE'
+        why   = 'TEMPORARY, AND IT IS EXCUSING A REAL DEFECT RATHER THAN A LEGITIMATE LINE. bin/lwg-doctor.ps1 check 7 composes the settings.json it health-checks from the profile, so on a machine that sets CLAUDE_CONFIG_DIR the doctor attests a file nobody reads - #146''s original consequence surviving in the component whose job is to catch it. It is the last live composition in the tree and it is owned by the bin/lwg-doctor.ps1 lane (PR #224), not by the lane that added this rule; a fixer may not edit a file it does not own, and a rule held back until the last site is fixed is a rule that does not exist. DELETE THIS ENTRY when #224 lands. Until then the count to the left reads 1, which is the disclosure - and when it reads 0 the site is fixed and this entry is dead.'
     }
     @{
         id    = 'changelog-removed-literal'
@@ -373,6 +489,20 @@ function Test-Attributed {
     return $false
 }
 
+function Test-InScope {
+    <#
+      Whether a rule applies to this file. A rule with no `scope` key applies
+      everywhere, which is the default and what every rule but one uses. This
+      is deliberately NOT an exemption channel: it decides whether the QUESTION
+      is asked of a file, where the allowlist decides whether an ANSWER is
+      excused, and the two are reported separately for that reason.
+    #>
+    param([hashtable]$Rule, [string]$RelPath)
+    if (-not $Rule.ContainsKey('scope')) { return $true }
+    foreach ($g in $Rule.scope) { if ($g -eq '*' -or $RelPath -like $g) { return $true } }
+    return $false
+}
+
 function Test-Allowed {
     <# The first allowlist entry that excuses this match, or $null. #>
     param(
@@ -410,6 +540,13 @@ $violations  = New-Object System.Collections.ArrayList
 $allowedHits = New-Object System.Collections.ArrayList
 $allowCount  = @{}
 foreach ($a in $AllowList) { $allowCount[$a.id] = 0 }
+# How many tracked files each SCOPED rule was actually applied to. A scope that
+# matches nothing is a rule that has been switched off, and the difference
+# between "asked everywhere and found nothing" and "never asked" is the whole
+# subject of this file's exit-code table. Unscoped rules are absent from this
+# map on purpose: they run on everything, and a count equal to the file count
+# would be noise printed on every run.
+$scopedFiles = @{}
 $scanned = 0
 # $binary was a bare counter, so the summary could say "skipped 1 binary" and a
 # UTF-16 re-encode of a tracked page was indistinguishable from a committed
@@ -506,6 +643,12 @@ try {
         $lines = ([Text.Encoding]::UTF8.GetString($bytes).TrimStart([char]0xFEFF)) -split "`r`n|`n|`r"
         $scanned++
 
+        foreach ($r in $Rules) {
+            if (-not $r.ContainsKey('scope')) { continue }
+            if (-not $scopedFiles.ContainsKey($r.id)) { $scopedFiles[$r.id] = 0 }
+            if (Test-InScope -Rule $r -RelPath $rel) { $scopedFiles[$r.id]++ }
+        }
+
         $isOwner  = $ownerPaths -contains $rel
         $inRegion = $false
         $skippedHere = 0
@@ -529,6 +672,7 @@ try {
                 # working as designed, so the rule that reports it elsewhere does
                 # not fire on them.
                 if ($r.id -eq 'region-marker' -and $isOwner) { continue }
+                if (-not (Test-InScope -Rule $r -RelPath $rel)) { continue }
 
                 foreach ($m in $compiled[$r.id].Matches($line)) {
                     $captured = ''
@@ -574,16 +718,28 @@ if ($aborted) {
     exit 2
 }
 
-# ---- allowlisted, and why -------------------------------------------------
+# ---- the allowlist ledger, ALWAYS printed ---------------------------------
+# EVERY ENTRY, EVERY RUN, WHETHER OR NOT ANYTHING WAS ALLOWLISTED. This block
+# used to sit inside `if ($allowedHits.Count -gt 0)`, so on a tree where no
+# entry excused anything the whole list vanished and the report said nothing
+# about the allowlist at all - the one state in which "which entries are doing
+# work?" is hardest to answer and easiest to stop asking. The counts are the
+# only honest answer to that question: an entry's `why` is prose written once
+# and the number beside it is derived every run, and this repository has
+# already shipped an allowlist entry whose prose asserted "excuses nothing on
+# the current tree" beside a count of three.
+#
+# The zero rows matter more than the non-zero ones. An entry excusing nothing
+# is not automatically dead - several here are deliberately defensive - but it
+# is the first thing to re-read when this list is reviewed, and an entry that
+# has quietly gone from 0 to 1 is a defensive entry that has become
+# load-bearing without anyone deciding it should.
+"ALLOWLIST - every entry, and how many matches it excused on this tree ($($allowedHits.Count) total):"
+foreach ($a in $AllowList) {
+    $n = $allowCount[$a.id]
+    "  {0,4}  {1,-28}  {2}" -f $n, $a.id, $(if ($n -eq 0) { '(unused on this tree - defensive)' } else { $a.why })
+}
 if ($allowedHits.Count -gt 0) {
-    "ALLOWLISTED - matched a rule, and is legitimate ($($allowedHits.Count)):"
-    foreach ($a in $AllowList) {
-        $n = $allowCount[$a.id]
-        # An entry excusing nothing is called out rather than hidden. It is not
-        # automatically dead - several are deliberately defensive - but it is
-        # the first thing to re-read when this list is reviewed.
-        "  {0,4}  {1,-26}  {2}" -f $n, $a.id, $(if ($n -eq 0) { '(unused on this tree - defensive)' } else { $a.why })
-    }
     if ($ShowAllowed) {
         ''
         foreach ($h in $allowedHits) {
@@ -592,8 +748,8 @@ if ($allowedHits.Count -gt 0) {
     } else {
         '     (-ShowAllowed lists each one with the file and line it is on)'
     }
-    ''
 }
+''
 
 # ---- violations -----------------------------------------------------------
 if ($violations.Count -gt 0) {
@@ -642,6 +798,15 @@ if ($binaryAllowed.Count -gt 0) {
     $(if ($unbalanced.Count -gt 0)    { ", $($unbalanced.Count) with an unclosed exempt region" } else { '' })
 foreach ($k in ($exemptLines.Keys | Sort-Object)) {
     "  $($exemptLines[$k]) line(s) of $k were inside a declared exempt region and were not read"
+}
+# A scoped rule was NOT asked of every file, and a run that does not say so
+# reads as though it was. Zero is the number to look at: a scope that matches
+# nothing is a rule switched off with no announcement, which is the shape this
+# whole file exists to refuse.
+foreach ($k in ($scopedFiles.Keys | Sort-Object)) {
+    $n = $scopedFiles[$k]
+    "  rule $k is SCOPED and was applied to $n of $scanned file(s)" +
+        $(if ($n -eq 0) { ' - ZERO, so it asked nothing of anything and cannot have found anything' } else { '' })
 }
 "RESULT: $($violations.Count) violation(s), $($allowedHits.Count) allowlisted"
 
