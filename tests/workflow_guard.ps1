@@ -236,30 +236,64 @@ $Rules = @(
 )
 
 # ===========================================================================
-# ALLOWLIST - DELIBERATELY EMPTY.
+# ALLOWLIST - ONE ENTRY, ADDED THE DAY A STEP NEEDED IT.
 #
-# The schema is here so a future exemption has a place to go and a shape to
-# take; the list has no entries because nothing on this tree needs one, and an
-# entry written in advance of a need is an entry written without a reason.
+# It was empty from the day this file was written until 3 September 2026, and
+# the schema sat here alone so that a future exemption would have a place to go
+# and a shape to take rather than being invented under pressure.
 #
 #   id     name used in the report
 #   rules  which detection rules it may excuse. '*' means any.
-#   files  workflow file names it applies to. '*' means anywhere.
+#   files  workflow file names it applies to, matched against the path relative
+#          to the scanned directory with forward slashes. '*' means anywhere.
 #   kind   which predicate decides it:
 #            match-text  the matched text
 #            line-text   the whole line the match sits on
 #   test   the regex the predicate applies
 #   why    one line, stating why this is legitimate rather than tolerated
 #
-# THE POLICY, which matters more than the schema. `secrets.GITHUB_TOKEN` is the
-# obvious candidate and it is NOT pre-approved here: the automatic token is
-# still a credential, this workflow's `permissions:` block already grants what
-# its steps need without one being referenced, and an entry added before a
-# concrete step needs it is an entry nobody will re-read. Justify the specific
-# use, on the entry, at the moment it is needed - and if the justification is
-# "the scanner is annoying", fix the workflow.
+# THE TWO KINDS ARE THE SAME PREDICATE TODAY, and that is recorded rather than
+# left for whoever writes the second entry to discover. Add-LwgHit is handed the
+# MATCHED text and never the line it sits on, so `line-text` currently applies
+# its regex to exactly what `match-text` would. Making them differ means passing
+# the raw line down to every call site, which is a change to a scanner nobody
+# needed yet; until then, write `match-text`, which is the one that says what
+# actually happens.
+#
+# THE POLICY, which matters more than the schema, and which the entry below was
+# written to obey rather than to escape. `secrets.GITHUB_TOKEN` is the obvious
+# candidate and it is still NOT pre-approved: the automatic token is a
+# credential, and an entry added before a concrete step needs it is an entry
+# nobody will re-read. Justify the specific use, on the entry, at the moment it
+# is needed - and if the justification is "the scanner is annoying", fix the
+# workflow.
+#
+# WHAT CHANGED ON 3 SEPTEMBER 2026. The premise of the old refusal was that this
+# repository's workflow needs no credential: ci.yml's steps parse files and run
+# local scripts, and its `permissions:` block already grants what they need. That
+# is still exactly true of ci.yml, which reaches no secret and is covered by no
+# entry here. It is not true of release.yml, which publishes a GitHub Release -
+# a write to the repository through the API, with no spelling that needs no
+# token. The alternative was `${{ github.token }}`: the same credential under a
+# name this file does not sweep for, which would have left the exit-0 line saying
+# no workflow reaches a secret while one did. A scanner that reports a
+# protection it has stopped checking is the thing the header above says this
+# file exists to refuse, so the honest spelling is in the workflow and the
+# exemption is here, scoped to one rule, one file and one expression.
 # ===========================================================================
-$AllowList = @()
+$AllowList = @(
+    @{
+        id    = 'release-publish-token'
+        rules = @('secrets-expression')
+        files = @('release.yml')
+        kind  = 'match-text'
+        # Anchored, so it excuses the automatic per-run token and nothing else.
+        # A second secret in that file - or this one under a different name -
+        # is a violation and stays one.
+        test  = '^\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}$'
+        why   = 'release.yml publishes a GitHub Release through the API, which no token-free spelling can do. It is the automatic per-run token, it is bound to the env: of the single publishing step, that step is gated on every check above it and on the ref being a tag, and its grant is the job-level contents: write beside it. Nothing else in this repository is handed a credential.'
+    }
+)
 
 # ===========================================================================
 # KNOWN GITHUB-HOSTED RUNNER LABELS
@@ -1437,5 +1471,14 @@ if ($hits.Count -gt 0) {
     '         genuinely necessary, and if it is, state the reason on the entry.)'
     exit 1
 }
-'EXIT: 0 (no workflow names a non-hosted runner, uses pull_request_target, or reaches a secret)'
+# THE EXIT-0 LINE MUST NOT OVERSTATE WHAT HELD. It read "no workflow ... reaches
+# a secret" unconditionally, which was true for as long as the allowlist was
+# empty and became a false sentence printed by a security scanner the moment an
+# entry excused a real hit. An exempted use is still a use; the exemption is a
+# reason, not an absence.
+if ($allowedHits.Count -gt 0) {
+    "EXIT: 0 (no workflow names a non-hosted runner or uses pull_request_target; $($allowedHits.Count) rule hit(s) are excused by an allowlist entry and are listed above with the reason)"
+} else {
+    'EXIT: 0 (no workflow names a non-hosted runner, uses pull_request_target, or reaches a secret)'
+}
 exit 0
