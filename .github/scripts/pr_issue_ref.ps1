@@ -295,6 +295,40 @@ if (-not $Live) {
     }
 
     # ---------------------------------------------------------------------
+    # D2 - A CLOSING KEYWORD INSIDE A CODE FENCE IS STILL CAUGHT, DELIBERATELY.
+    #
+    # This guard's first real catch was its own pull request: the body quoted
+    # the forbidden form as example output, inside a fence, and rule 2 failed.
+    # The decision taken then, and pinned here so it is testable rather than
+    # remembered: the guard does NOT learn about fences.
+    #
+    # A false positive costs one word in a pull-request body. A false negative
+    # auto-closes an issue on merge with the merge commit as its only evidence,
+    # which is the closure rule broken by automation. And there is no verified
+    # evidence to hand that GitHub itself ignores a closing keyword inside a
+    # fence - a guard resting on an unverified assumption about somebody else's
+    # parser fails the one time it matters. Write `Closes #<n>` in prose.
+    # ---------------------------------------------------------------------
+    $fenced = @(
+        'Refs #184',
+        '',
+        '```',
+        'Closes #184   -> EXIT: 1',
+        '```'
+    ) -join "`n"
+    $fencedKw = @(Get-LwgClosingKeywordHits -Body $fenced)
+    Add-Case -Name 'D2 a closing keyword inside a code fence is still caught (deliberate)' `
+        -Ok ($fencedKw.Count -eq 1) `
+        -Detail 'a fence must not exempt a closing keyword: a false negative auto-closes an issue with no evidence'
+
+    # D3 - the escape hatch prose is expected to use. It must NOT trip the rule,
+    # or the guidance in the failure message would be unfollowable.
+    $placeholder = 'Refs #184. Never write the closing form - use Closes #<n> when documenting it.'
+    Add-Case -Name 'D3 the documented placeholder form does not trip the rule' `
+        -Ok (@(Get-LwgClosingKeywordHits -Body $placeholder).Count -eq 0 -and @(Get-LwgIssueRefs -Body $placeholder).Count -eq 1) `
+        -Detail 'Closes #<n> carries no issue number, so it cannot close anything and must be allowed'
+
+    # ---------------------------------------------------------------------
     # E - WHERE THE BODY COMES FROM. These exist because CI failed on exactly
     # this. The first version had ci.yml interpolate the body into the workflow
     # YAML with a ${{ }} expression, which truncated a multi-line body and
