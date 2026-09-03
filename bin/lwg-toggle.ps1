@@ -240,7 +240,9 @@ $script:LwgFlags = @{
             'is not a way round it either. There is deliberately no exemption'
             'for it - an exemption for "the command that turns me off" is a named bypass. The two'
             'ways back are to have a SUBAGENT run /lw-watchtower:delegate off, or to set'
-            'interaction.delegate to false in config.json by hand.'
+            'interaction.delegate to false by hand in the override file named under `stored in`'
+            'above - config.json in the plugin root is the shipped defaults and setting it there'
+            'would be overridden by the file that says true.'
             ''
             'What it still does NOT do: it does not check that a dispatch was any good, and it'
             'refuses nothing a subagent does. Delegation is enforced; delegating well is not.'
@@ -674,8 +676,46 @@ try {
         }
     }
 
+    # --- WHAT IS READ AND WHAT IS WRITTEN ARE NOW TWO FILES - #11 -----------
+    # config.json is the SHIPPED DEFAULTS and this command no longer writes it.
+    # It is tracked and inside the plugin's own git working tree, so rewriting
+    # it to arm the one gate this plugin ships left the checkout dirty and made
+    # /lw-watchtower:update refuse to pull for good - on the first thing the
+    # documentation tells a new operator to do.
+    #
+    # The operator's choice goes to config.override.json under the state
+    # directory, which Get-LwgConfig merges over the defaults. THE VERIFICATION
+    # BELOW IS THEREFORE STILL MEANINGFUL, and that is the property three
+    # earlier passes refused to give up: the read-back resolves through the same
+    # merged resolver a hook reads, so a write nothing honours cannot report
+    # itself as verified.
     $cfgPath = if ([string]::IsNullOrWhiteSpace($ConfigPath)) { Join-Path $pluginRoot 'config.json' } else { $ConfigPath }
     $cfg     = Get-LwgConfig -Path $cfgPath
+    # The defaults ALONE. What the override changed cannot be reported without
+    # knowing what was under it, and the pre-write resolution below has to merge
+    # the proposed override onto this rather than onto a config that already
+    # carries the old one.
+    $cfgBase = Get-LwgConfig -Path $cfgPath -NoOverride
+
+    $ovPath = Get-LwgConfigOverridePath
+    if ([string]::IsNullOrWhiteSpace($ovPath)) {
+        # Nothing to write to, and guessing a path would write where nothing
+        # reads. Get-LwgStateDirInfo reports this as 'unresolved', which happens
+        # only on a machine with neither CLAUDE_PLUGIN_DATA nor a configuration
+        # root, and it is a refusal rather than a fallback for the same reason
+        # every other refusal in this file is.
+        if ($null -ne $want) {
+            Write-LwgToggleRefusal @(
+                'the state directory could not be resolved, so there is nowhere to record this setting.',
+                'Operator settings live in config.override.json under $CLAUDE_PLUGIN_DATA (or',
+                '~/.claude/plugins/data/lw-watchtower*/); config.json in the plugin root is the shipped',
+                'defaults and this command does not write it - see /lw-watchtower:doctor, which reports',
+                'an unresolved state directory as its own check.'
+            )
+            exit 3
+        }
+    }
+
     # The TEXT, its SHA and whether it carries a BOM, captured together and
     # here - before anything else this script does can take time - so that the
     # SHA handed to Save-LwgTextFile is the state of the file at the moment its
@@ -683,7 +723,14 @@ try {
     # overwritten. A read is not a write, so a failure to read is only fatal
     # when a write was asked for; the report path below still works off
     # Get-LwgConfig's fallback and says that is what it is doing.
-    $file = Read-LwgTextFile -Path $cfgPath
+    #
+    # ABSENT IS A STATE, NOT AN ERROR. A machine that has never been configured
+    # has no override, and a writer that assumes its target exists exits 3 on
+    # every fresh install - the whole of what killed route 2a on #11. So an
+    # absent file reads as the empty object it means, Set-JsonLiteralAtPath
+    # creates the members under it, and the file itself is created at the write
+    # and nowhere earlier: see the seed beside Save-LwgTextFile below.
+    $file = if ([IO.File]::Exists($ovPath)) { Read-LwgTextFile -Path $ovPath } else { @{ ok = $true; text = '{}'; bom = $false; sha = ''; bytes = 0; error = '' } }
 
     # Outside a hook there is no payload, so repo identity comes from the cwd -
     # which is what Get-LwgRepo does with a payload anyway.
@@ -722,16 +769,21 @@ try {
     # `does not parse` and `parses but has no modules block` are different
     # states with the same fallback, so the message says which one it found.
     if ($null -ne $want -and $cfg._source -ne 'file') {
+        # THE DEFAULTS, read again for the diagnosis only. $file is the OVERRIDE
+        # now, so the text this block names has to be fetched separately - and a
+        # message that quoted the override's parse error while blaming
+        # config.json would send the operator to fix the wrong file.
+        $baseFile = Read-LwgTextFile -Path $cfgPath
         $why = 'could not be loaded'
-        if (-not $file.ok) {
-            $why = ("could not be read - {0}" -f (Get-LwgBriefParseError -Message $file.error))
+        if (-not $baseFile.ok) {
+            $why = ("could not be read - {0}" -f (Get-LwgBriefParseError -Message $baseFile.error))
         }
-        elseif ([string]::IsNullOrWhiteSpace($file.text)) {
+        elseif ([string]::IsNullOrWhiteSpace($baseFile.text)) {
             $why = 'is empty'
         }
         else {
             try {
-                $probe = $file.text | ConvertFrom-Json -ErrorAction Stop
+                $probe = $baseFile.text | ConvertFrom-Json -ErrorAction Stop
                 if ($null -eq $probe) {
                     $why = 'holds no JSON object'
                 } elseif ($null -eq $probe.modules) {
@@ -748,6 +800,27 @@ try {
             'Fix the JSON first - /lw-watchtower:doctor names this as the config-registry check.',
             '',
             ("Run /lw-watchtower:{0} with no argument to see what is in effect while it is broken." -f $Flag)
+        )
+        exit 3
+    }
+
+    # --- and the same refusal for the file this command actually writes ------
+    # An override that exists and does not parse is IGNORED by Get-LwgConfig -
+    # deliberately, so a half-written settings file cannot arm a gate or take
+    # the plugin down. That makes it exactly the state a write must not land on
+    # top of: the operator's real choices are in there somewhere, this command
+    # cannot read them back, and replacing the text would destroy the evidence
+    # of what broke. Same rule as the block above, applied to the other file.
+    if ($null -ne $want -and "$($cfg._override_error)" -ne '') {
+        Write-LwgToggleRefusal @(
+            ("{0} exists but {1}," -f $ovPath, $cfg._override_error),
+            'so every operator ON/OFF choice recorded in it is already being ignored - the plugin is running',
+            'on the shipped defaults in config.json alone.',
+            'Writing here would replace text this command cannot read back, and would destroy whatever else',
+            'that file was holding.',
+            '',
+            ("Fix or delete {0}, then run this again. Deleting it is safe: it holds only overrides, and" -f $ovPath),
+            'everything falls back to the shipped defaults without it.'
         )
         exit 3
     }
@@ -778,34 +851,38 @@ try {
         # The text that was read at the top, with the SHA and the BOM flag that
         # belong to it. Not a second ReadAllText: two reads are two states, and
         # the one that matters is the one the SHA describes.
-        if (-not $file.ok) { throw ("config.json could not be read ({0}); nothing was written" -f (Get-LwgBriefParseError -Message $file.error)) }
+        if (-not $file.ok) { throw ("{0} could not be read ({1}); nothing was written" -f $ovPath, (Get-LwgBriefParseError -Message $file.error)) }
         $original = $file.text
         $updated  = Set-JsonLiteralAtPath -Raw $original -Path $path -Leaf $leaf
 
         # The file is only replaced if the NEW text parses. A preference command
-        # that can corrupt config.json would take both live gates down with it,
-        # because Get-LwgConfig fails open and every module would switch on.
+        # that can corrupt its own settings file would leave every operator
+        # choice in it ignored, because Get-LwgConfig discards an override it
+        # cannot read and falls back to the shipped defaults.
         #
         # This message may now blame the edit, and could not before: the refusal
-        # above has already established that $original parsed and carried a
-        # `modules` block, so text that does not parse is this command's doing.
-        # The parser message is still bounded - see Get-LwgBriefParseError.
+        # above has already established that $original parsed, so text that does
+        # not parse is this command's doing. The parser message is still bounded
+        # - see Get-LwgBriefParseError.
         $parsed = $null
         try { $parsed = $updated | ConvertFrom-Json -ErrorAction Stop }
-        catch { throw ("the edit this command made would not parse ({0}); the file was left untouched, and config.json parsed before the edit, so this is a fault in this script rather than in the file" -f (Get-LwgBriefParseError -Message $_.Exception.Message)) }
+        catch { throw ("the edit this command made would not parse ({0}); the file was left untouched, and it parsed before the edit, so this is a fault in this script rather than in the file" -f (Get-LwgBriefParseError -Message $_.Exception.Message)) }
 
         # --- prove the edit reads back BEFORE it is written ------------------
         # The check that used to run after the write, run against the TEXT
-        # instead. Get-LwgConfig's own rule first - a file with no `modules` is
-        # not used at all - then this script's own accessors, which are what the
-        # report below and the gate itself read. A refusal here costs nothing;
-        # the same disagreement discovered after the write is what made a
-        # documented "nothing was written" exit 3 untrue.
-        if ($null -eq $parsed.modules) {
-            throw 'the edit would leave config.json without a top-level "modules" block, so every reader would fall back to the built-in defaults and this setting would be ignored; nothing was written'
-        }
-        $wouldGlobal = Get-LwgPrefGlobal -Config $parsed -Block $block -Key $key -Default $spec.default
-        $wouldRepo   = Get-LwgPrefRepo   -Config $parsed -Repo $repo -Block $block -Key $key
+        # instead. A refusal here costs nothing; the same disagreement
+        # discovered after the write is what made a documented "nothing was
+        # written" exit 3 untrue.
+        #
+        # RESOLVED THROUGH THE MERGE, NOT OVER THE OVERRIDE ALONE - #11. The
+        # override on its own carries no `modules` block and, for a repo-scoped
+        # write, none of the global values the effective answer depends on, so
+        # reading it by itself would answer a different question from the one a
+        # hook asks. Merge-LwgConfigOverride over the SHIPPED DEFAULTS is what
+        # Get-LwgConfig does, so this resolves the same document the gate will.
+        $wouldCfg    = Merge-LwgConfigOverride -Base $cfgBase -Override $parsed
+        $wouldGlobal = Get-LwgPrefGlobal -Config $wouldCfg -Block $block -Key $key -Default $spec.default
+        $wouldRepo   = Get-LwgPrefRepo   -Config $wouldCfg -Repo $repo -Block $block -Key $key
         $wouldHere   = if ($Scope -eq 'repo') { $wouldRepo } else { $wouldGlobal }
         if ((Test-LwgFlagOn -Spec $spec -Value $wouldHere) -ne $want) {
             throw ("the edited text does not read back as {0} - so nothing was written" -f $(if ($want) { 'on' } else { 'off' }))
@@ -818,14 +895,28 @@ try {
         $backup = ''
         $wroteSha = ''
         if ($updated -ne $original) {
-            $save = Save-LwgTextFile -Path $cfgPath -Text $updated -ExpectedSha $file.sha -Bom $file.bom -BackupTag 'lwg-toggle'
+            # THE SEED, HERE AND NOWHERE EARLIER. Every refusal above must leave
+            # the disk exactly as it found it, and this file's exit 3 is
+            # documented as "the bytes are as they were" in two places - so
+            # creating an empty override on a run that then refuses would make
+            # that documented claim false about a file which did not exist a
+            # moment before. The bytes written are '{}', which is the text
+            # $updated was built from, so the SHA read back belongs to them and
+            # the changed-under-us check still means what it says.
+            if (-not [IO.File]::Exists($ovPath)) {
+                [void](Get-LwgStateDir)   # creates the directory; the read path never does
+                [IO.File]::WriteAllText($ovPath, '{}', [Text.UTF8Encoding]::new($false))
+                $file = Read-LwgTextFile -Path $ovPath
+                if (-not $file.ok) { throw ("{0} could not be created or read back ({1}); nothing was written" -f $ovPath, (Get-LwgBriefParseError -Message $file.error)) }
+            }
+            $save = Save-LwgTextFile -Path $ovPath -Text $updated -ExpectedSha $file.sha -Bom $file.bom -BackupTag 'lwg-toggle'
             if (-not $save.ok) {
                 # A refusal, not a failure. CHANGED UNDER US means somebody
                 # else's write landed between this command's read and this line,
                 # and replacing the file would discard it silently.
                 Write-LwgToggleRefusal @(
                     ("the write did not happen: {0}" -f $save.reason),
-                    'Nothing was discarded and config.json is as whoever wrote it last left it.',
+                    ('Nothing was discarded and {0} is as whoever wrote it last left it.' -f $ovPath),
                     ("Run /lw-watchtower:{0} with no argument to see the state now, then decide again." -f $Flag)
                 )
                 exit 3
@@ -861,7 +952,7 @@ try {
             # wrote, and where the copy taken before the write is.
             $stillOurs = $false
             if ($backup) {
-                try { $stillOurs = ((Get-FileHash -LiteralPath $cfgPath -Algorithm SHA256).Hash -eq $wroteSha) } catch { $stillOurs = $false }
+                try { $stillOurs = ((Get-FileHash -LiteralPath $ovPath -Algorithm SHA256).Hash -eq $wroteSha) } catch { $stillOurs = $false }
             }
             $tail = if (-not $backup) {
                 'nothing was written'
@@ -904,10 +995,15 @@ try {
         # types, and a verb that removes a key is one more thing to get wrong.
         # Say where the entry is instead.
         Write-Output '                   to drop the override and follow the global default again,'
-        Write-Output ("                   delete repos[`"{0}`"] from config.json by hand" -f $repo)
+        Write-Output ("                   delete repos[`"{0}`"] from {1} by hand" -f $repo, $ovPath)
     }
     Write-Output ("  effective here : {0}" -f $(if ($afterEffOn) { 'ON' } else { 'OFF' }))
-    Write-Output ("  stored in      : {0} -> {1}.{2}" -f $cfgPath, $block, $key)
+    # WHICH FILE, SAID EVERY TIME - #11. The setting is recorded in the override
+    # under the state directory and RESOLVED against the shipped defaults in
+    # config.json, and an operator who is told only one of those two paths goes
+    # and edits the wrong file. The plugin root is never written by this command.
+    Write-Output ("  stored in      : {0} -> {1}.{2}" -f $ovPath, $block, $key)
+    Write-Output ("  merged over    : {0}   [the shipped defaults; this command never writes it]" -f $cfgPath)
     if ($backup) {
         # Printed for the same reason /lw-watchtower:config prints it
         # (bin\lwg-config.ps1:443): a backup nobody is told about is not a
@@ -915,6 +1011,13 @@ try {
         Write-Output ("  backup         : {0}   [the file as it was before this run]" -f $backup)
     }
     Write-Output ("  config source  : {0}" -f $(if ($cfg._source -eq 'file') { 'config.json' } else { 'BUILT-IN DEFAULTS - config.json is unreadable, so what you see is the fallback' }))
+    if ("$($cfg._override_error)" -ne '') {
+        Write-Output ("  override       : IGNORED - {0} exists but {1}, so nothing recorded in it is in effect" -f $ovPath, $cfg._override_error)
+    } elseif ("$($cfg._override)" -ne '') {
+        Write-Output ("  override       : {0}   [merged over the defaults; this is what a hook reads]" -f $cfg._override)
+    } else {
+        Write-Output '  override       : none yet - every value above is the shipped default'
+    }
 
     # A value this script cannot read is NAMED, and that is not politeness. The
     # state printed above is the one the reader reaches - Test-LwgFlag in
@@ -970,7 +1073,7 @@ try {
     Write-Output '  on purpose: one gate must have one switch, and Get-LwgConfig fails OPEN, which'
     Write-Output '  would arm a blocking hook off an unreadable config. The SessionStart banner'
     Write-Output '  reports gates shipped and gates live as separate numbers; start a new session,'
-    Write-Output '  or read interaction.delegate in config.json, to see this land.'
+    Write-Output ("  or read interaction.delegate in {0}, to see this land." -f $ovPath)
 
     exit 0
 

@@ -90,12 +90,17 @@
   looking for the flag with a substring search.
 
   ---------------------------------------------------------------------------
-  94 CASES, WHY NONE OF THEM MAY BE SKIPPED, AND WHAT SECTION I CANNOT SEE
+  99 CASES, WHY NONE OF THEM MAY BE SKIPPED, AND WHAT SECTION I CANNOT SEE
   ---------------------------------------------------------------------------
-  Sections A-H are 58 cases about the gate's rule. Section I is 7 more about
+  Sections A-H are 58 cases about the gate's rule. Section I is 12 more about
   the FAST PATH in lib/gate_delegate.ps1 - the scan that proves the switch off
   from the raw text of config.json and exits 0 before the JSON engine is ever
-  loaded. Section J is 11 more about the member NAMES that scan matches on, and
+  loaded. Five of those twelve - I7 to I11, added 3 September 2026 - are about
+  the OPERATOR OVERRIDE (#11): config.json became the shipped defaults, the
+  configuring commands write config.override.json under the state directory,
+  and a scan that read config.json alone would have proved the switch off over
+  an override that arms it - a gate reporting ARMED everywhere and refusing
+  nothing. Section J is 11 more about the member NAMES that scan matches on, and
   about what a non-boolean value in the switch means. Ten of the eleven pipe a
   payload into the gate and read what comes back; the eleventh, J7b, is the
   only case in this file that calls the fast scan DIRECTLY, because an
@@ -355,7 +360,7 @@ $script:Aborted = ''
 # that reaches a verdict with the wrong number of cases behind it. A case
 # added on purpose has to move this number, the header, and the documents
 # quoting it in the same edit, which is the coupling that keeps them true.
-$script:ExpectedCases = 94
+$script:ExpectedCases = 99
 
 # The matcher string, as hooks.json actually spells it. Filled in by section A
 # from the one entry that names the gate, and read by section M.
@@ -1553,6 +1558,134 @@ try {
     }
 
     # -------------------------------------------------------------------
+    # I7-I9. THE OPERATOR OVERRIDE - #11, AND THE FAIL-OPEN IT WOULD HAVE BEEN.
+    #
+    #    config.json is the SHIPPED DEFAULTS. Since 3 September 2026 the
+    #    configuring commands write config.override.json under the state
+    #    directory and Get-LwgConfig merges it over them, so the switch this
+    #    gate reads can be ON in a file config.json knows nothing about.
+    #
+    #    THIS SCANNER READS config.json ALONE, and every rule in it is a rule
+    #    for proving the switch OFF. Left as it was, it would have proved the
+    #    switch off from a default the operator had overridden, exited 0, and
+    #    left a gate that /lw-watchtower:doctor, the SessionStart banner and
+    #    the status line all report as ARMED refusing nothing at all. That is
+    #    strictly worse than the dirty working tree #11 is about, and it is the
+    #    reason three earlier passes were right to refuse to move the write
+    #    without moving every read.
+    #
+    #    It was MEASURED before it was fixed, at 4342980, in a throwaway plugin
+    #    root whose lib/common.ps1 was patched to make Get-LwgConfig answer
+    #    ARMED unconditionally: a main-thread Write exited 0 while the resolver
+    #    said the gate was on. The evidence is on #11. I7 is that scenario
+    #    without the patched resolver - the override file does the arming - and
+    #    it goes RED at 4342980, where nothing in this file has ever opened the
+    #    state directory.
+    #
+    #    I8 IS THE CASE THAT KEEPS I7 FROM BEING SATISFIED BY GIVING UP. An
+    #    abstain-on-any-override rule would pass I7 and cost the fast exit to
+    #    every operator who has ever set anything; an override that does not
+    #    touch the switch must still take it. I9 is the mirror of I7 in the
+    #    other direction: an override that turns the gate OFF over a config.json
+    #    that arms it must ALLOW, which no rule reading only config.json can do.
+    # -------------------------------------------------------------------
+    $ovBase = '{"version":"0.2.0","modules":{"failure_capture":true},"interaction":{"delegate":false},"repos":{"$comment":"nothing here"}}'
+    $ovOn   = '{"version":"0.2.0","modules":{"failure_capture":true},"interaction":{"delegate":true},"repos":{"$comment":"nothing here"}}'
+
+    $overrideCases = @(
+        @{
+            tag  = 'ov-arms'
+            name = 'I7  the OVERRIDE arms the gate while config.json says false -> DENY (#11)'
+            deny = $true
+            base = $ovBase
+            ov   = '{"interaction":{"delegate":true}}'
+            why  = 'the shape a fresh clone is in the moment an operator runs /lw-watchtower:delegate on. A scanner that reads config.json alone proves the switch off, exits 0, and the gate refuses nothing while everything that reports on it says ARMED'
+        }
+        @{
+            tag  = 'ov-unrelated'
+            name = 'I8  an override that does not touch the switch still takes the fast exit -> ALLOW'
+            deny = $false
+            base = $ovBase
+            ov   = '{"modules":{"git_hygiene":false}}'
+            why  = 'the guard against passing I7 by giving up: abstaining on ANY override would answer I7 correctly and charge every configured machine the slow path on every gated call'
+        }
+        @{
+            tag  = 'ov-disarms'
+            name = 'I9  the OVERRIDE turns the gate off over a config.json that arms it -> ALLOW'
+            deny = $false
+            base = $ovOn
+            ov   = '{"interaction":{"delegate":false}}'
+            why  = 'the mirror of I7. config.json is the defaults and the override wins; a scanner reading only the defaults would deny a call the operator has switched the gate off for'
+        }
+    )
+
+    foreach ($oc in $overrideCases) {
+        $rootOv = New-LwgRawRoot -Base $work -Name $oc.tag -Json $oc.base
+        # Invoke-Gate points CLAUDE_PLUGIN_DATA at <FakeRoot>\data, which
+        # New-LwgRawRoot has already created, so this is the very path
+        # Get-LwgConfigOverridePath resolves for the child.
+        [IO.File]::WriteAllText((Join-Path $rootOv 'data\config.override.json'), $oc.ov, [Text.UTF8Encoding]::new($false))
+        $r = Invoke-Gate -FakeRoot $rootOv -WorkDir $work -Tag $oc.tag `
+                         -Payload (New-Payload -Tool 'Edit' -AgentId $null -AgentType '' -Extra $editPay)
+        $v = if ($oc.deny) { Test-IsDeny $r } else { Test-IsAllow $r }
+        Add-Result $oc.name $v.ok ("$($v.why)  --  $($oc.why)")
+    }
+
+    # I10. AND THE CONTROL FOR THE WHOLE GROUP: the same three roots WITHOUT
+    #      the override file must answer the way config.json alone says, so a
+    #      reader of I7-I9 can tell the override did the work rather than the
+    #      fixture. Without it, "I7 denies" is satisfied by any change that
+    #      makes this gate deny more often.
+    $rootCtl = New-LwgRawRoot -Base $work -Name 'ov-control-off' -Json $ovBase
+    $rCtl = Invoke-Gate -FakeRoot $rootCtl -WorkDir $work -Tag 'ov-control-off' `
+                        -Payload (New-Payload -Tool 'Edit' -AgentId $null -AgentType '' -Extra $editPay)
+    $vCtl = Test-IsAllow $rCtl
+    Add-Result 'I10 CONTROL: the same config.json with NO override file still ALLOWs' `
+        $vCtl.ok `
+        ("$($vCtl.why)  --  I7's config.json is byte-identical to this one. If this denied too, I7 would be measuring the fixture rather than the override.")
+
+    # I11. THE OVERRIDE'S FILE NAME IS SPELT TWICE, AND THIS IS THE ONLY THING
+    #      HOLDING THE TWO SPELLINGS TOGETHER.
+    #
+    #      lib/common.ps1 declares it once as $script:LwgConfigOverrideName and
+    #      resolves it through Get-LwgConfigOverridePath, which every writer and
+    #      every slow-path reader uses. The fast path in lib/gate_delegate.ps1
+    #      cannot: it deliberately does not dot-source common.ps1, because
+    #      loading it is most of the cost the fast path exists to avoid. So it
+    #      carries the name as a literal.
+    #
+    #      A second copy of a rule that drifts from the first is a bug this
+    #      repository has already shipped, and this one drifts SILENTLY IN THE
+    #      WORST DIRECTION: rename the file in common.ps1 alone and the writers
+    #      write one name while the gate looks for another, so the gate proves
+    #      the switch off over an override that arms it - I7's defect, restored
+    #      by a rename. I7 itself cannot catch that, because it writes the
+    #      fixture at a path of its own and never asks the two files to agree.
+    #
+    #      Both sides are read out of the TREE rather than restated here, so
+    #      this case has no third spelling to go stale.
+    $i11Why  = ''
+    $i11Ok   = $false
+    try {
+        $i11Common = [IO.File]::ReadAllText((Join-Path $Root 'lib\common.ps1'))
+        $i11Gate   = [IO.File]::ReadAllText($GatePath)
+        $i11M = [regex]::Match($i11Common, "(?m)^\s*\`$script:LwgConfigOverrideName\s*=\s*'([^']+)'")
+        if (-not $i11M.Success) {
+            $i11Why = 'lib\common.ps1 declares no $script:LwgConfigOverrideName literal, so the name the writers use could not be read at all and this case established nothing'
+        } else {
+            $i11Name = $i11M.Groups[1].Value
+            $i11Ok = $i11Gate.Contains("'" + $i11Name + "'")
+            if (-not $i11Ok) {
+                $i11Why = ("lib\common.ps1 resolves the override as '{0}' and lib\gate_delegate.ps1 does not carry that literal anywhere, so the writers and the gate are looking at two different files" -f $i11Name)
+            }
+        }
+    } catch { $i11Why = "the two files could not be read: $($_.Exception.Message)" }
+
+    Add-Result 'I11 the fast path and Get-LwgConfigOverridePath spell the override file the same way' `
+        $i11Ok `
+        ("$i11Why  --  the fast path cannot call Get-LwgConfigOverridePath without loading common.ps1, which is the cost it exists to avoid, so it holds the name as a literal. Nothing but this case makes the two agree, and a rename that moved only one of them would put I7's defect back with no test failing.")
+
+    # -------------------------------------------------------------------
     # J. THE MEMBER NAMES, AND WHAT A NON-BOOLEAN VALUE MEANS.
     #
     #    Section I asks whether the fast path reads the right VALUE. This
@@ -1818,11 +1951,18 @@ try {
             }
             $j7bText += $j7bVars[0].Extent.Text + [Environment]::NewLine
 
-            foreach ($fnName in @('Get-LwgFastJsonMembers', 'Test-LwgFastDelegateOff')) {
+            # Test-LwgFastDelegateOffText was split out of Test-LwgFastDelegateOff
+            # on 3 September 2026 so the same rules could be applied to the
+            # operator override (#11). It is lifted WHEN PRESENT rather than
+            # required, so this case still runs - and still says something -
+            # against a tree from before that split. The two names either side
+            # of it are required, because without them there is nothing to call.
+            foreach ($fnName in @('Get-LwgFastJsonMembers', 'Test-LwgFastDelegateOffText', 'Test-LwgFastDelegateOff')) {
                 $j7bDefs = @($j7bAst.FindAll({
                     param($n)
                     $n -is [System.Management.Automation.Language.FunctionDefinitionAst]
                 }, $true) | Where-Object { $_.Name -eq $fnName })
+                if ($j7bDefs.Count -eq 0 -and $fnName -eq 'Test-LwgFastDelegateOffText') { continue }
                 if ($j7bDefs.Count -ne 1) {
                     throw ("lib\gate_delegate.ps1 holds {0} definition(s) of {1}, expected exactly 1 - the scanner this case is about could not be located" -f $j7bDefs.Count, $fnName)
                 }

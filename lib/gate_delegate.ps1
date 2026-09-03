@@ -129,7 +129,11 @@
   with one named bypass is a gate with an argument about which others deserve
   one. The two ways out are in the deny text itself: have a subagent run the
   command (its calls carry agent_id and are allowed), or edit
-  interaction.delegate in config.json by hand outside the session.
+  interaction.delegate in config.override.json under the state directory by hand
+  outside the session. THAT IS THE OVERRIDE, NOT config.json - since 3 September
+  2026 the configuring commands write the override and Get-LwgConfig merges it
+  over the shipped defaults (#11), so an operator who edits config.json alone
+  changes nothing while the override says true.
 
   AND ONE MORE, WHICH TURNS ON A MATCHER RULE NOBODY HERE CAN OBSERVE. If the
   CLI matches the matcher UNANCHORED - a substring test rather than a whole-name
@@ -527,10 +531,16 @@ function Get-LwgFastJsonMembers {
 
 function Test-LwgFastDelegateOff {
     <#
-      $true ONLY when config.json proves interaction.delegate is off and proves
-      no per-repo block could turn it on. $false means "I did not establish
-      that", which is not "it is on" - it is the instruction to run the slow
-      path, and it is the answer to every doubt.
+      $true ONLY when BOTH DOCUMENTS prove interaction.delegate is off and prove
+      no per-repo block could turn it on - the shipped defaults in config.json,
+      and the operator override under the state directory that Get-LwgConfig
+      merges over them (#11). $false means "I did not establish that", which is
+      not "it is on" - it is the instruction to run the slow path, and it is the
+      answer to every doubt.
+
+      The rules below are stated once, for config.json, and applied to both by
+      Test-LwgFastDelegateOffText. Where they read differently over an override
+      is written out at the second call, near the bottom of this function.
 
       THE REPOS RULE IS DELIBERATELY OVER-CONSERVATIVE, and it is what keeps
       this honest. The slow path resolves the switch through Test-LwgModule,
@@ -587,8 +597,70 @@ function Test-LwgFastDelegateOff {
     if (-not [System.IO.File]::Exists($cfgPath)) { return $false }
 
     $text = [System.IO.File]::ReadAllText($cfgPath)
-    if ([string]::IsNullOrWhiteSpace($text)) { return $false }
+    if (-not (Test-LwgFastDelegateOffText -Text $text)) { return $false }
 
+    # --- AND THE OPERATOR OVERRIDE - #11 -----------------------------------
+    # config.json is the SHIPPED DEFAULTS. Since 3 September 2026 the
+    # configuring commands write to config.override.json under the state
+    # directory instead, and Get-LwgConfig - which the slow path below uses -
+    # merges it over them. THIS SCANNER READS config.json ALONE, so without
+    # this block it would prove the switch off from a default the operator has
+    # overridden, exit 0, and leave a gate that /lw-watchtower:doctor, the
+    # SessionStart banner and the status line all report as ARMED blocking
+    # nothing at all. That is worse than the dirty working tree #11 is about,
+    # and it was measured before this block existed: with the resolver forced
+    # to answer ARMED and config.json left at `false`, a main-thread Write
+    # exited 0.
+    #
+    # WHAT IT COSTS. One environment read and one File.Exists on a fresh
+    # install, where the file does not exist - so the fast exit this function
+    # is for is untouched by anything an operator has not done. On a machine
+    # that has been configured it is one more small ReadAllText and a second
+    # run of the SAME scanner over a document that is a few hundred bytes.
+    # Nothing here dot-sources common.ps1, and no cmdlet is called.
+    #
+    # THE SAME SCANNER, DELIBERATELY, and it answers the right question on the
+    # override without a single rule of its own. An override with no
+    # `interaction` member does not touch the switch, so the base's answer
+    # stands - which the scanner already reports as $true for exactly the same
+    # reason it reports it for a config.json without one. An override that arms
+    # the switch, or that carries a `repos` block this scanner will not read,
+    # falls through to the slow path, where Get-LwgConfig resolves the merge
+    # properly.
+    #
+    # CLAUDE_PLUGIN_DATA UNSET IS DOUBT, NOT ABSENCE. Get-LwgStateDirInfo can
+    # still discover the directory from the configuration root, and doing that
+    # here would mean a second spelling of a resolution this repo has already
+    # had to fix once. Under a live hook the variable is always set - it is the
+    # branch every hook takes in Get-LwgStateDirInfo - so abstaining here costs
+    # the fast exit only where no hook is running.
+    if ([string]::IsNullOrWhiteSpace($env:CLAUDE_PLUGIN_DATA)) { return $false }
+    $ovPath = [System.IO.Path]::Combine($env:CLAUDE_PLUGIN_DATA, 'config.override.json')
+    if (-not [System.IO.File]::Exists($ovPath)) { return $true }
+
+    $ovText = [System.IO.File]::ReadAllText($ovPath)
+    return (Test-LwgFastDelegateOffText -Text $ovText)
+}
+
+function Test-LwgFastDelegateOffText {
+    <#
+      The scan itself, over ONE JSON document's text: $true only when this
+      document proves interaction.delegate is off and proves no per-repo block
+      in it could turn it on. $false is "I did not establish that", which is not
+      "it is on".
+
+      Split out of Test-LwgFastDelegateOff on 3 September 2026 so the same rules
+      can be applied to the operator override as to config.json (#11), rather
+      than a second scanner being written for the second document. Every comment
+      on the caller about WHY these rules are what they are still applies here
+      and is not repeated.
+    #>
+    param([string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
+
+    # $text and $Text are one variable - PowerShell names are case-insensitive -
+    # so the body below reads exactly as it did before the split.
     $open = $text.IndexOf('{')
     if ($open -lt 0) { return $false }
     if ($text.Substring(0, $open).Trim().Length -ne 0) { return $false }
@@ -711,15 +783,18 @@ try {
 
     $reason = @(
         "LW-WATCHTOWER delegate_gate: $toolName was called from the main conversation, and"
-        'delegate-only mode is ON (interaction.delegate in config.json). The chat session is'
+        'delegate-only mode is ON (interaction.delegate). The chat session is'
         'reserved for talking to the operator; the work goes to subagents.'
         ''
         'Dispatch a subagent with the Agent tool and have IT make this call. A worker cannot'
         'see this conversation, so restate the context, the absolute paths, the definition of'
         'done and the prohibitions in the dispatch.'
         ''
-        'To turn this off: have a subagent run /lw-watchtower:delegate off, or edit'
-        'interaction.delegate to false in config.json by hand. It cannot be turned off from'
+        'To turn this off: have a subagent run /lw-watchtower:delegate off, or set'
+        'interaction.delegate to false by hand in config.override.json under the state'
+        'directory ($CLAUDE_PLUGIN_DATA, or ~/.claude/plugins/data/lw-watchtower*/) - NOT in'
+        'config.json, which is the shipped defaults the override is merged over. It cannot be'
+        'turned off from'
         'the main thread, because that command runs through Bash and Bash is refused here.'
         'There is deliberately no exemption for it.'
     ) -join ' '

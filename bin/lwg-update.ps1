@@ -438,7 +438,7 @@ try {
             }
         }
         if ($Files -contains 'config.json') {
-            $n += 'config.json changes: module ON/OFF flags travel with the repo, so a pull can change what runs. The flag differences are listed below.'
+            $n += 'config.json changes: config.json is the SHIPPED DEFAULTS, so a pull can change what runs where you have not set the flag yourself. Your own settings are in config.override.json under the state directory, git does not touch that file, and it is merged over whatever arrives. The flag differences below are computed with your override applied to BOTH sides, so they are what will actually change.'
         }
         foreach ($c in $Files) {
             if ($c -like 'commands/*')      { $n += "new or changed slash command ($c) - it appears in the next session, not this one"; break }
@@ -446,7 +446,26 @@ try {
         foreach ($c in $Files) {
             if ($c -like 'output-styles/*') { $n += "output style changed ($c) - a style is only re-read when a session starts"; break }
         }
-        return , @($n)
+        # PLAIN, NOT `return , @($n)` - #222. The unary comma wraps
+        # UNCONDITIONALLY, so what left this function was a ONE-ELEMENT array
+        # holding the whole list, and the caller's own `@(...)` could not undo
+        # it. Measured, both branches were wrong: empty needs rendered
+        # "NEEDS RE-APPROVAL OR RE-INSTALL (1):" over a BLANK bullet, and three
+        # needs rendered "(1):" over one bullet with all three space-joined by
+        # $OFS in "    - $n". A block whose entire job is to ENUMERATE what an
+        # operator must re-approve could not say "three things need your
+        # attention", and nothing caught it: the block still rendered, the exit
+        # code was unchanged, and the two assertions section 26 makes about it
+        # are negative substring tests that the joining left true.
+        #
+        # `,` is the right idiom when a caller takes the value bare, because
+        # PowerShell unrolls a returned collection - the trap this repo has
+        # shipped three times as `return ,$on`, `return ,$tokens` and
+        # `return $hashset` (lib/common.ps1:961-964). It is the WRONG idiom
+        # here, because both call sites already wrap in `@(...)`, which is what
+        # re-forms the array from the unrolled elements and yields an EMPTY
+        # array for no needs.
+        return @($n)
     }
     $needs = @(Get-Needs -Files $changed)
 
@@ -455,8 +474,32 @@ try {
         $show = Git @('show', "${upstream}:config.json")
         if ($show.ok) {
             try {
+                # BOTH SIDES CARRY THE OPERATOR'S OVERRIDE - #11. $mine comes
+                # from Get-LwgConfig, which merges config.override.json over the
+                # shipped defaults; $theirs is the raw incoming file. Comparing
+                # one against the other would report every setting the operator
+                # has made as a flag the PULL is about to move, which it is not:
+                # the override is not in the repository and arrives with nothing.
+                # Applying it to the incoming side too makes this row answer the
+                # question it claims to - what will be different afterwards.
                 $theirs = $show.out | ConvertFrom-Json
                 $mine   = Get-LwgConfig -Path (Join-Path $Root 'config.json')
+                try {
+                    $ovp = Get-LwgConfigOverridePath
+                    if (-not [string]::IsNullOrWhiteSpace($ovp) -and [IO.File]::Exists($ovp)) {
+                        $ovt = [IO.File]::ReadAllText($ovp)
+                        if (-not [string]::IsNullOrWhiteSpace($ovt)) {
+                            $ovo = $ovt | ConvertFrom-Json
+                            if ($ovo -is [System.Management.Automation.PSCustomObject]) {
+                                $theirs = Merge-LwgConfigOverride -Base $theirs -Override $ovo
+                            }
+                        }
+                    }
+                } catch {
+                    # An override that cannot be read is one Get-LwgConfig has
+                    # already discarded from $mine, so both sides are then the
+                    # bare documents and the comparison stays honest.
+                }
                 $diffs = @()
                 # RESOLVED THE WAY A HOOK WILL RESOLVE IT, not by a bare [bool]
                 # on the raw member. Two things were wrong with the cast: a
