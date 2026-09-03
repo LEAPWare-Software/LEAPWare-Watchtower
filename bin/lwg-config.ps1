@@ -83,8 +83,12 @@ param(
     # Write. Without it nothing on disk is touched.
     [switch]$Apply,
 
-    # Point at a copy instead of the live config - used by the tests, and the
-    # only way to exercise the write path without changing this machine.
+    # Point at a copy of the SHIPPED DEFAULTS instead of the live config.json -
+    # used by the tests. It no longer redirects the WRITE and cannot: since #11
+    # this command writes config.override.json under the state directory, which
+    # is resolved from CLAUDE_PLUGIN_DATA and not from here. Redirect that
+    # variable to move the write; redirect this to change what the write is
+    # merged over.
     [string]$ConfigPath
 )
 
@@ -324,8 +328,18 @@ try {
     $scope = if ([string]::IsNullOrWhiteSpace($Repo)) { 'global' } else { "repo $Repo" }
 
     Write-Output "LW-WATCHTOWER config v$($script:LwgVersion) - $ConfigPath"
-    Write-Output ("  source: {0}   scope: {1}{2}" -f `
-        $(if ($onDefaults) { 'BUILT-IN DEFAULTS (config.json is unreadable or invalid)' } else { 'config.json' }), $scope, $repoNote)
+    # WHICH FILES THE VALUES CAME FROM, BOTH OF THEM - #11. The table below is
+    # resolved through Get-LwgConfig, which merges the override over these
+    # defaults, so naming only config.json would credit every operator setting
+    # to a file that does not hold it. An override that exists and cannot be
+    # read is named too, because its values are being DISCARDED and a listing
+    # that quietly showed the defaults instead would be the silent no-op this
+    # command exists to refuse.
+    $ovNote = if ("$($cfg._override_error)" -ne '') { "   override: IGNORED - $ovPath $($cfg._override_error)" }
+              elseif ("$($cfg._override)" -ne '')   { "   override: $($cfg._override)" }
+              else                                   { '   override: none - these are the shipped defaults' }
+    Write-Output ("  source: {0}{3}   scope: {1}{2}" -f `
+        $(if ($onDefaults) { 'BUILT-IN DEFAULTS (config.json is unreadable or invalid)' } else { 'config.json' }), $scope, $repoNote, $ovNote)
 
     $implemented = @(Get-LwgImplementedModules)
     $planned     = @(Get-LwgPlannedModules)
