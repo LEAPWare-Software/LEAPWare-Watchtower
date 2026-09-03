@@ -278,6 +278,30 @@ try {
         exit 1
     }
     $branch = ''; $upstream = ''; $ahead = 0; $behind = 0; $dirty = 0; $detached = $false
+    # THE PATHS, NOT JUST THE COUNT (#11).
+    #
+    # This loop counted non-`#` lines and threw the paths away, so the refusal
+    # below read "N uncommitted change(s)" and named nothing. Two measured
+    # consequences, both of which make an operator distrust the wrong thing:
+    #
+    #   * config.json IS TRACKED and /lw-watchtower:config and the toggle
+    #     commands write into it, so arming a gate dirties the checkout and the
+    #     next update refuses. The operator is told they have uncommitted work.
+    #     They do not; the plugin wrote it. #11 is the fix for the WRITE and it
+    #     needs a decision above this file (see its comment thread); naming the
+    #     file is the half that belongs here, and #11's own "what done looks
+    #     like" asks for it as the minimum.
+    #   * a test suite that left something in the tree does the same thing -
+    #     #214, measured today, where `? Microsoft/` from tests\setup_merge.ps1
+    #     refused an update with "1 uncommitted change(s)".
+    #
+    # PORCELAIN v2 PATH POSITIONS: `1 <xy> ... <path>` and `2 <xy> ... <path><TAB><orig>`
+    # for tracked entries, `u ...` for unmerged, `? <path>` for untracked. The
+    # path is the LAST field in all of them except a rename, whose original path
+    # follows a TAB - so the tab is split off first and the remainder taken from
+    # the last space. Quoting is left exactly as git wrote it: a path git chose
+    # to quote is a path with something in it worth seeing quoted.
+    $dirtyPaths = @()
     foreach ($l in @($st.out -split "`r?`n")) {
         if ($l -like '# branch.head*')  { $branch = ($l -split ' ')[2]; if ($branch -eq '(detached)') { $detached = $true } ; continue }
         if ($l -like '# branch.upstream*') { $upstream = ($l -split ' ')[2]; continue }
@@ -291,12 +315,34 @@ try {
             $behind = [Math]::Abs([int]($p[3] -replace '[^0-9]', ''))
             continue
         }
-        if ($l -and $l -notlike '#*') { $dirty++ }
+        if ($l -and $l -notlike '#*') {
+            $dirty++
+            $head = ($l -split "`t")[0]
+            $sp   = $head.LastIndexOf(' ')
+            $p    = if ($sp -ge 0) { $head.Substring($sp + 1) } else { $head }
+            if (-not [string]::IsNullOrWhiteSpace($p)) { $dirtyPaths += $p }
+        }
     }
     if ($detached) {
         Add-Row -Id 'worktree' -Status 'FAIL' -Detail 'HEAD is detached. A pull here would move nothing you could name later; check out a branch first.'
     } elseif ($dirty -gt 0) {
-        Add-Row -Id 'worktree' -Status 'FAIL' -Detail "$dirty uncommitted change(s) on $branch. This command does not stash, reset or check out anything - commit or set them aside first."
+        # NAMED, AND CAPPED. A tree with fifty changed files does not need fifty
+        # paths on one row to make the point; it needs enough to recognise
+        # whether the work is the operator's. The cap says how many it did not
+        # print rather than trailing off.
+        $shown = @($dirtyPaths | Select-Object -First 8)
+        $more  = $dirtyPaths.Count - $shown.Count
+        $list  = if ($shown.Count -gt 0) { ' ' + ($shown -join ', ') + $(if ($more -gt 0) { " (and $more more)" } else { '' }) } else { '' }
+        # config.json IS THE ONE THIS COMMAND CAUSES ITSELF, so it is called out
+        # by name rather than left in a list the operator reads as their own
+        # work. This says what happened; it does not say the write was wrong,
+        # because deciding where those writes should go is #11 and is not this
+        # file's to settle.
+        $own = ''
+        if ($dirtyPaths -contains 'config.json') {
+            $own = ' config.json is written by /lw-watchtower:config and by the toggle commands, so a flag you changed through this plugin dirties its own checkout and lands here - that change may not be yours to commit. See issue #11.'
+        }
+        Add-Row -Id 'worktree' -Status 'FAIL' -Detail "$dirty uncommitted change(s) on ${branch}:$list. This command does not stash, reset or check out anything - commit or set them aside first.$own"
     } else {
         Add-Row -Id 'worktree' -Status 'OK' -Detail "clean on $branch$(if ($upstream) { ", tracking $upstream" } else { ', with NO upstream' })"
     }

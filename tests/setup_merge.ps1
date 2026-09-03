@@ -2908,6 +2908,69 @@ try {
         "a machine that has never wired the status line up must still be told its default copy has drifted. Row:`n$slRow2`nOutput:`n$($b.out)"
 
     # -------------------------------------------------------------------
+    # 26i. THE REFUSAL NAMES WHAT IS DIRTY, AND SAYS WHICH OF IT THE PLUGIN
+    #      WROTE ITSELF (#11).
+    #
+    #      config.json is TRACKED, and /lw-watchtower:config and the toggle
+    #      commands write into it. So arming a gate dirties the plugin's own
+    #      checkout, and the next /lw-watchtower:update refuses:
+    #
+    #        [FAIL] worktree     1 uncommitted change(s) on main. This command
+    #                            does not stash, reset or check out anything -
+    #                            commit or set them aside first.
+    #
+    #      That sentence names no file. It reads to an operator as their own
+    #      work in progress, and it is not - the plugin wrote it, by doing the
+    #      thing the plugin is for. Batch A1 reproduced the whole chain end to
+    #      end and refused to half-fix it, correctly: moving the WRITE without
+    #      moving the READ produces a silent no-op that the command's own exit-2
+    #      verification would report as verified. That decision is above a
+    #      builder and is still open on #11.
+    #
+    #      WHAT IS LANDABLE HERE IS THE SENTENCE, which #11's own "what done
+    #      looks like" asks for as the minimum. The same row is what makes #214
+    #      hurt, so it is worth more than one issue.
+    #
+    #      TWO DIRTY PATHS, ONE OF EACH KIND: config.json, which the plugin
+    #      writes, and a file that is nobody's but the operator's. A case with
+    #      only config.json in it would pass against a row that names every
+    #      dirty path and says nothing about which one this plugin caused.
+    #
+    #      BASELINE ec80e88: "2 uncommitted change(s) on main. This command does
+    #      not stash..." - no path, no mention of config.json.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'update-dirty-named' -Bytes $null
+    $pair = New-BehindClone -Dir (Join-Path $t.dir 'repos') -BaseFiles @{
+        'config.json'      = $Utf8NoBom.GetBytes('{"modules":{}}')
+        'operator-work.md' = $Utf8NoBom.GetBytes("original`r`n")
+    }
+    [IO.File]::WriteAllText((Join-Path $pair.consumer 'config.json'), '{"modules":{"git_hygiene":false}}')
+    [IO.File]::WriteAllText((Join-Path $pair.consumer 'operator-work.md'), "edited by the operator`r`n")
+    $a = Invoke-Update -ProfileDir $t.profile -Arguments @('-Root', $pair.consumer, '-Offline', '-SkipDoctor')
+    $wtRow = (@($a.out -split "`r?`n" | Where-Object { $_ -match '^\s+\[\w+\s*\]\s+worktree\s' }) -join ' ')
+
+    Add-Result 'update: the worktree refusal names the files that are dirty' `
+        ([bool]($wtRow -match 'config\.json' -and $wtRow -match 'operator-work\.md')) `
+        "the row counted the changes and threw the paths away, so it reads as the operator's own work in progress whatever caused it. Row:`n$wtRow"
+    Add-Result 'update: and says config.json is one this plugin writes itself (#11)' `
+        ([bool]($wtRow -match 'toggle commands' -and $wtRow -match '#11')) `
+        "config.json is tracked and /lw-watchtower:config writes into it, so arming a gate refuses the next update over a change the operator did not make. Naming the file is not the fix - moving the write needs the reader moved with it, which is #11 - but the operator must at least be told which of these is theirs. Row:`n$wtRow"
+    Add-Result 'update: the refusal still refuses - nothing about naming it makes it a warning' `
+        ([bool]($wtRow -match '\[FAIL\]' -and $a.out -match 'does not stash, reset or check out anything')) `
+        "a dirty tree is still a refusal; this section only changes what the refusal says. Row:`n$wtRow"
+
+    # CONTROL, and it passes at ec80e88 too: a CLEAN tree must not grow a list.
+    # Without it, "always print the paths" is satisfied by a row that prints an
+    # empty one on every run.
+    $t2 = New-CaseTree -Tag 'update-clean-named' -Bytes $null
+    $pair2 = New-BehindClone -Dir (Join-Path $t2.dir 'repos')
+    $b = Invoke-Update -ProfileDir $t2.profile -Arguments @('-Root', $pair2.consumer, '-Offline', '-SkipDoctor')
+    $wtRow2 = (@($b.out -split "`r?`n" | Where-Object { $_ -match '^\s+\[\w+\s*\]\s+worktree\s' }) -join ' ')
+    Add-Result 'CONTROL update: a clean worktree is still reported clean, with no file list' `
+        ([bool]($wtRow2 -match '\[OK' -and $wtRow2 -match 'clean on' -and $wtRow2 -notmatch 'uncommitted')) `
+        "Row:`n$wtRow2`nOutput:`n$($b.out)"
+
+    # -------------------------------------------------------------------
     # 27. THE STATUS LINE IS NOT THE ONLY THING THE OPERATOR SEES (#175).
     #
     #     New-StatusLinePlan's blurb is the paragraph an operator reads while
