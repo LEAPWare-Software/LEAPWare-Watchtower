@@ -616,9 +616,10 @@ $script:repo = Get-LwgRepo $payload
 # 5 MB carrying 500 records forward", and README.md, docs/modules.md and
 # docs/limitations.md all described this module as keeping the state dir
 # bounded. lw-watchtower.jsonl is written by every module on every hook event of every
-# session and nothing rolled it. That is not only housekeeping: /lw-watchtower:sitrep
-# reports governance history from a bounded tail of that file, so as it grew the
-# report got quieter and nothing said so.
+# session and nothing rolled it. That is not only housekeeping: the `sitrep` command
+# - removed in 0.4.0 - reported governance history from a bounded tail of that
+# file, so while it shipped the report got quieter as the file grew and nothing
+# said so.
 #
 # The cost argument above covers both calls and is the reason a second one is
 # acceptable here rather than assumed to be: each is one Test-Path plus one
@@ -701,7 +702,7 @@ if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $scri
             # It used to be read below, which meant the record could only ever
             # carry the STANDING orphan count - and the status line takes a PEAK
             # of that since the last Resolved marker, so an acknowledged orphan
-            # re-raised HH at the very next turn end and /lw-watchtower:resolve could
+            # re-raised HH at the very next turn end and the `resolve` command could
             # never stick. See the SubagentStop branch for the full account.
             $seenPath = Join-Path (Get-LwgStateDir) 'alerted.json'
             $seen = @()
@@ -809,7 +810,7 @@ if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $scri
             # life of the session, so every later trigger re-detects it. The
             # record used to be written before this line, carrying the standing
             # count, and the status line takes a PEAK of that count since the
-            # last Resolved marker. So /lw-watchtower:resolve would clear HH, the very
+            # last Resolved marker. So the `resolve` command would clear HH, the very
             # next SubagentStop would re-record the same standing orphan, and HH
             # went red again seconds later - permanently, with the operator's
             # only remedy being to switch the module off. A red light that cannot

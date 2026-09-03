@@ -115,7 +115,7 @@ Four pieces. Each is separately testable and separately shippable.
 > **CORRECTED 2026-09-01, AND THE CORRECTION IS THE FILE NAME.** This section named
 > `bin/lwg-status.ps1` as the receiver of the status-line input. **It is not one.** That script takes
 > a single `[switch]$Brief`, reads no stdin, and the string `rate_limits` occurs in it zero times; it
-> is the backing script for `/lw-watchtower:status` and renders the module table. The process the CLI
+> was the backing script for the `status` command and rendered the module table. The process the CLI
 > actually hands the status-line payload to is
 > [`statusline/statusline.ps1`](../statusline/statusline.ps1) — which reads
 > `$d.rate_limits.five_hour`, `$d.rate_limits.seven_day` and

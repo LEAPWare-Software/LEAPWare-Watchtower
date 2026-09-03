@@ -34,7 +34,7 @@ both axes off.
 
 ## verbosity is one key with three levels
 
-`/lw-watchtower:verbosity` sets **one** `config.json` key, `output_style.verbosity`, which holds exactly
+The `verbosity` command — removed on 2 September 2026 — set **one** `config.json` key, `output_style.verbosity`, which held exactly
 one of `brief`, `default` or `verbose`. Setting a level unsets the others by construction, and
 `default` is the level at which this axis does nothing.
 
@@ -99,10 +99,9 @@ Run `/config` and choose **Output style**. Your choice is written to the `output
 `.claude/settings.local.json`. The standalone `/output-style` command was deprecated in Claude Code
 2.1.73 and removed in 2.1.91; `/config` or the settings key are the two remaining routes.
 
-[`/lw-watchtower:verbosity`](../commands/verbosity.md) and [`/lw-watchtower:plain`](../commands/plain.md) do
-**not** replace that step and do not write the settings key — see
-[the three preference commands](commands.md#the-three-preference-commands-and-what-each-one-actually-does).
-What they do is record where you want each axis, work out which of the five style files that pair
+The `verbosity` and `plain` commands did **not** replace that step and did not write the settings
+key. They went on 2 September 2026 for exactly that reason, and with them went the five style files
+this page describes — so this page documents a feature the tree no longer carries. What they did was record where you want each axis, work out which of the five style files that pair
 implies (the grid above, since `outputStyle` is a single string), check the file is present, read back
 what the settings key currently says, and print the manual step. Recording a preference and
 activating a style are two different things, and the command says which one it did.

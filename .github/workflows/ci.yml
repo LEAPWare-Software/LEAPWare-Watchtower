@@ -1012,7 +1012,7 @@ jobs:
           # `"modules":` in document order at ANY nesting level, and config.json's
           # `repos` block is documented to hold per-repo `modules` objects. So a
           # config with `repos` written above `modules` injected into the worker
-          # while /lw-watchtower:status, the SessionStart banner and
+          # while /lw-watchtower:doctor, the SessionStart banner and
           # Test-LwgModule all agreed the module was off - a raw-text scanner
           # whose correctness depended on which of two sibling keys appears first
           # in a file operators are invited to hand-edit.

@@ -14,7 +14,7 @@
 
   1. It will not enable a module that is declared but not implemented. Setting
      such a name to true produces a config that reads as more coverage than
-     exists, and every reader downstream - the banner, /lw-watchtower:status, the
+     exists, and every reader downstream - the banner, /lw-watchtower:doctor, the
      operator - then has to know which names are real. That is the exact defect
      this plugin exists to catch, so the switch that would create it is closed.
      Every name in the registry is implemented as of 30 July 2026, so this

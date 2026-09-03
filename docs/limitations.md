@@ -39,12 +39,8 @@ from running it, it says so.
 - [The advisory modules advise; they do not enforce](#the-advisory-modules-advise-they-do-not-enforce)
 - [`mission_drift` is on, tested, and still unvalidated](#mission_drift-is-on-tested-and-still-unvalidated)
 - [The gate costs ~330 ms on every edit and command, on or off](#the-gate-costs-330-ms-on-every-edit-and-command-on-or-off)
-- [The checklist measures its own staleness on exactly one laptop](#the-checklist-measures-its-own-staleness-on-exactly-one-laptop)
-- [Most checklist ticks rest on a file existing](#most-checklist-ticks-rest-on-a-file-existing)
-- [The checklist read differently on the two install routes](#the-checklist-read-differently-on-the-two-install-routes)
 - [What no test covers](#what-no-test-covers)
 - [Platform, install and state](#platform-install-and-state)
-- [The preference commands are not controls](#the-preference-commands-are-not-controls)
 - [The documentation is not checked against the tree](#the-documentation-is-not-checked-against-the-tree)
 - [Things that were specified and cannot be built](#things-that-were-specified-and-cannot-be-built)
 - [What a fully green run actually establishes](#what-a-fully-green-run-actually-establishes)
@@ -142,7 +138,7 @@ that can refuse a tool call. Its limits:
   short until 1 August 2026: the matcher named `Bash` and not `PowerShell` on a plugin that supports
   **Windows and nothing else**, where the CLI offers both shell tools — so with the gate armed the
   main thread could do every bit of the work the gate claims to refuse by asking for the other
-  shell, while `/lw-watchtower:status` printed *"1 gate(s) LIVE — it can refuse a tool call right now"*.
+  shell, while `/lw-watchtower:doctor` printed *"1 gate(s) LIVE — it can refuse a tool call right now"*.
   Nothing in the gate script was wrong; the CLI never invoked it. That specific hole is closed and
   [`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) section M is the regression case — it is
   the only section of that suite that models the CLI's matcher selection instead of assuming it.
@@ -171,7 +167,8 @@ that can refuse a tool call. Its limits:
   [`config.json`](../config.json).
 - **A denial is not tracked as an open item.** It is written to `lw-watchtower.jsonl` as a `GateDeny`
   event; nothing records, reads, closes or acknowledges it, and the status line has no governance
-  segment. `/lw-watchtower:sitrep` counts those records as history, and nothing can clear one.
+  segment. The `sitrep` command counted those records as history and went on 2 September 2026, so
+  nothing counts them now and nothing can clear one.
 
 Full detail: [`delegate_gate`](modules.md#delegate_gate).
 
@@ -293,130 +290,6 @@ Turn end costs are separate and are measured at
 median for the advisory handler against a 283 ms interpreter floor, and the remaining ~930 ms is
 overwhelmingly **PowerShell 5.1 engine warm-up, not data work**. It is not reducible much further
 from this side.
-
-## The checklist measures its own staleness on exactly one laptop
-
-`checklist.json` is transcribed **by hand** from a plan file that lives at
-`%USERPROFILE%\.claude\plans\…`, is not tracked in this repo, and does not ship with the plugin.
-
-- **Drift between the plan and the checklist is measurable on exactly one machine** — the one that
-  happens to hold the plan file. Everywhere else `/lw-watchtower:checklist` prints `STALENESS NOT MEASURED`
-  with the reason, which is the honest report of a gap and **not the gap being closed**.
-- **A plan item added and never transcribed is undetectable from any second machine.** The checklist
-  there will look complete while being short an item. A clean-looking run on a laptop without the
-  plan file is silence about plan agreement, not evidence of it.
-- **A loosely written evidence rule is not detectable by any automated means at all**, on any
-  machine. That is why every DONE row prints the evidence it rests on — so a reader can judge the
-  rule instead of trusting the tick.
-
-## Most checklist ticks rest on a file existing
-
-`checklist.json` carries 40 items. Their evidence rules, counted from the file:
-
-| Evidence kind | Items |
-| --- | --- |
-| `file` — a path exists, optionally matching a regex | 22 |
-| `manual` — **deliberately can never pass** | 8 |
-| `command` — a program's exit code and output | 6 |
-| `commit` — a commit subject reachable from a ref | 2 |
-| `hook` — a script registered on a named hook event, with a matcher | 1 |
-| `ci` — the newest CI run's conclusion | 1 |
-
-Of the 22 `file` rules, **13 test nothing but existence**; 9 also require a content match.
-
-**Every figure in this section was stale by one, in the same direction, until 3 August 2026, and the
-two sentences explaining the last recount were false.** The table said `file` 21 and `commit` 4; the
-errors cancelled, so the total of 40 was right while the composition was not, which is what let it
-survive a green `doc_claims` run. The recount note claimed `PD-proposal` `manual`→`file` was *"the
-only kind change in that pass"* — `PE-sitrep` moved `commit`→`file` in the same pass, by its own
-caveat's date — and it claimed the existence-only count *fell*, when the arrival of an
-existence-only `file` rule made it **rise**. A section whose whole subject is *what the ticks do not
-prove* was itself a stale claim about the ticks. It is fixed by a recount rather than by an
-adjustment, and `tests/doc_claims.ps1` now derives this table and the existence-only count from
-`checklist.json` on every run, so a manifest edit that moves *either of those two figures* fails the
-build instead of ageing them quietly. It does **not** cover the rest of this section: the
-DONE-by-kind breakdown two paragraphs below depends on which rows *pass*, which means resolving every
-rule in the manifest over the network, so nothing holds it to the tree and it is dated in the prose
-instead.
-
-**Two kind changes landed on 3 August 2026**, and both are recorded here because the last recount's
-mistake was failing to record one. `PE-checklist` moved `commit`→`file`: its old rule proved an
-evidence-backed checklist command from *a commit subject matching `(?i)checklist`*, which a commit
-**deleting** the command satisfies. `PD-delegate` moved `file`→`hook`, a kind that did not exist
-before: its old rule was one `(?s)` regex over the raw text of `hooks/hooks.json` whose three
-fragments were bound to no single entry, so the gate registered on `PostToolUse` — where it can
-refuse nothing — satisfied it. A third rule changed without changing kind: `P1-lineendings` stayed
-`file` and gained a content match, which is why the existence-only count did **not** rise by two.
-
-On a run taken from this tree on 3 August 2026 — 30 DONE, 0 in progress, 1 blocked, 9 UNVERIFIED,
-0 not started — the 30 ticks broke down as **13 on a file merely existing**, 9 on a file plus a
-regex, 4 on a command's exit code, 2 on a commit subject, 1 on a hook registration and 1 on a CI
-conclusion. So **more than a third of everything marked done is backed by a file being on disk and
-nothing else**, and another third by a regex over that file's text. A file can exist, match a
-pattern, and do nothing.
-
-One row still moves under its own tag: `P8-tag` flips once `v0.3.0` is pushed, and is counted above
-as it stood when this paragraph was written. `PE-sitrep` was named here as the second such row long
-after it had stopped being one — it has probed for two files rather than for a commit subject since
-31 July 2026 — which is the same missed kind change the corrected paragraph above records. Re-run
-`/lw-watchtower:checklist` for the current picture rather than adjusting these numbers by hand.
-
-**Exactly one item is proved by running one of this repository's own checks** — `P6-workflow-guard`,
-which executes `tests/workflow_guard.ps1` and requires exit 0. The other five `command` rules shell
-out to `git` or `gh` to *query a fact* — an author list, a grep, a tag, a branch-protection object, a
-visibility flag — which is not the same as exercising a control. Until 30 July 2026 even this one was
-a string match: the rule read *"`ci.yml` contains `self-hosted`"*, which **a comment satisfied**. Two
-more rules were tightened the same day for the same reason — `PD-classification` and
-`PD-doctor-assert` both required the literal `lw-class` to appear in a script, and in both scripts
-every occurrence of it is inside a comment or a display string, so the code could have been deleted
-with the tick intact. None of the three changed state; all three now name something that has to work.
-
-Two further caveats the command prints itself:
-
-- **`UNVERIFIED` is a third state, not a quieter "not started".** Nine items could not be checked at
-  all. The highest-severity item on the whole plan — whether any self-hosted runner group is visible
-  to this repository at org level — is one of them, and nothing on this machine can check it: reading
-  it needs org admin scope, and a 403 is indistinguishable from "no groups exist".
-- **Twenty-two of the 30 DONE items are marked `[x*]`** — the probe passed *and* a caveat beneath it
-  limits what passing proves. That is more than two thirds, and the proportion rose rather than fell
-  as the rules were tightened: a caveat is added when something is learned about what a tick does
-  *not* cover. The 22 is measured against a run taken as the `v0.3.0` release commit was written, so
-  the rise spans every wave since rather than one day; **three** of the caveats were added on 3 August
-  2026 — `PE-checklist`, `P1-lineendings` and `P5-setup` — and `P5-setup` is the one worth naming:
-  its title lists **five** behavioural properties of the guided installer — per-section confirmation,
-  diff before write, backup, rollback, never clobber — and its evidence is that two paths are files.
-  It carried no caveat at all until that date, which made it the largest unqualified claim in the
-  manifest.
-
-## The checklist read differently on the two install routes
-
-Recorded rather than quietly fixed, because it is the worst defect this project has shipped in its
-own reporting and the page it belongs on is this one.
-
-Until 31 July 2026, on the **marketplace install** — the route [Install](install.md) calls
-recommended for consumers — the plugin directory carried no `.git`, every `kind: command` rule that
-shells out to git exited `128` having read nothing, and the engine scored that as *the condition was
-not met*. Two rows rendered `[ ] NOT STARTED`, which the command's own legend defines as *a probe
-**ran** and found the thing absent*. What they therefore told a consumer was that **the owner's
-personal address was left in history** and that **the private sibling project's name is in the
-tree** — the opposite of the truth, about facts nothing had measured. The same commit on a junction
-install showed both rows correct, so the defect was invisible from the machine the plugin is written
-on and was found by an adversarial UAT on the other route.
-
-The engine now separates *the probe could not run* from *the probe ran and failed* for five signals,
-listed in [The evidence-state suite](testing.md#the-evidence-state-suite), and `tests/evidence_states.ps1`
-holds it there in CI. **Three things that fix does not close, stated so they are not read as closed:**
-
-- **A plugin directory that happens to sit inside an unrelated checkout is worse off than one that
-  sits inside none.** git then answers every rule about *that* repository, exit 0 and all, and the
-  checklist reports a tick or a finding about the wrong tree with nothing to signal it. The
-  no-repository case is now honest; the wrong-repository case is not detected at all.
-- **Only the listed signals are covered.** Any other way a probe can answer a question it never
-  reached — a `gh` call that succeeds with an unexpected body, a script that exits 0 having done
-  nothing — is still scored as a finding.
-- **`P8-tag` can no longer report a missing release.** A tag that was never cut and a tag that was
-  never fetched both produce exit 0 with empty output, so both now read `UNVERIFIED`. That is the
-  conservative direction on purpose, and it is still a thing the row cannot say.
 
 ## What no test covers
 
@@ -603,33 +476,6 @@ for still renders that row `DONE`. See [Branch protection](testing.md#branch-pro
   removed. See [The trip ledger](architecture.md#the-trip-ledger--removed-and-recorded-here-as-a-design).
 - **`HH` dim (`HH-`) is not an all-clear.** It means nothing about this session was found to read.
   Green and dim are different facts and the trailing `-` is what separates them.
-
-## The preference commands are not controls
-
-Three preference commands ship. **One is enforced and two are not**, and the two that are not do less
-than their names suggest.
-
-- **`/lw-watchtower:verbosity` and `/lw-watchtower:plain` record a preference. They do not activate anything.**
-  The style Claude Code applies is the `outputStyle` key in a settings file, and **nothing in this
-  plugin writes it**. Both commands resolve which style file the two axes imply, report what the
-  settings key currently says, and tell you to run `/config` → Output style. That last step is manual.
-- **An output style cannot be switched mid-session.** It is read into the system prompt once at
-  session start, so any change needs `/clear` or a new session — and `/clear` discards the
-  conversation.
-- **Nothing can block assistant text.** There is no hook between the model and the transcript; `Stop`
-  sees `last_assistant_message` *after* it has been rendered. A style is a request the model is very
-  likely to honour and **nothing stronger**. Anyone describing it as *enforcing* an output style is
-  repeating this plugin's founding defect.
-- **Output styles reach the main conversation only.** A subagent runs its own system prompt. In a
-  delegating setup, where most text originates in a worker's report, this removes most of the surface
-  these styles appear to cover.
-- **There is no style compliance check.** The design note for one records that the half that matters
-  — the never-suppress block — is **not measurable from the answer text at all**, because an omission
-  leaves no trace in the text that omits it. See
-  [`style-compliance-check.md`](style-compliance-check.md).
-
-Detail: [What these cannot do](output-styles.md#what-these-cannot-do) and
-[the three preference commands](commands.md#the-three-preference-commands-and-what-each-one-actually-does).
 
 ## The documentation is not checked against the tree
 

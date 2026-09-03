@@ -75,7 +75,7 @@ section exists to prevent:
 
 Reporting only the first would claim protection that is switched off. Reporting only the second would
 hide a capability the operator has and was never told about, and nobody turns on a thing they do not
-know they have. `/lw-watchtower:status` prints both, plus a `GATES` block naming each gate's switch.
+know they have. `/lw-watchtower:doctor` prints both, plus a `GATES` block naming each gate's switch.
 
 `observe-only` therefore holds as shipped, and `enforcing` and `partial` are **reachable** by running
 `/lw-watchtower:delegate on` — nothing else has to change. The ladder in `Get-LwgSessionMode`
@@ -148,7 +148,7 @@ record:
 
 | Kept | What it does now |
 | --- | --- |
-| `lw-watchtower.jsonl` | the append-only event log. It still holds every historical `GateDeny`, and `/lw-watchtower:sitrep` counts them under `GOVERNANCE` as history. It is an audit trail, **not** a ledger — nothing can clear an entry in it |
+| `lw-watchtower.jsonl` | the append-only event log. It still holds every historical `GateDeny`. The `sitrep` command counted them under `GOVERNANCE` as history and went on 2 September 2026, so nothing counts them now. It is an audit trail, **not** a ledger — nothing can clear an entry in it |
 | the secret regex patterns in `lib/common.ps1` | **log redaction only** (`Get-LwgRedacted`). Nothing scans a write with them |
 
 **The trip ledger did not survive the day.** It was kept for a few hours as a historical reader and
@@ -231,7 +231,7 @@ must be selected, `Agent` and `Read` must not.
 
 **`PowerShell` was missing from that enumeration until 1 August 2026**, on a plugin that supports
 Windows and nothing else, where the CLI offers both shell tools. An armed gate could be walked round
-by asking for the other shell while `/lw-watchtower:status` reported it live. What an enumeration still
+by asking for the other shell while `/lw-watchtower:doctor` reported it live. What an enumeration still
 cannot cover — `mcp__*` tools whose names are not knowable from this repository, and any tool the CLI
 adds later — is in [Limitations](limitations.md#the-three-gates-block-little-and-all-ship-off) rather
 than papered over here.

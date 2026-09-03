@@ -99,7 +99,7 @@ identical. The product was renamed from `lw-gmhh` to `lw-watchtower` that day. T
 name comes from the plugin id, so it moved: discovery now looks for `lw-watchtower*` and the old
 `lw-gmhh*` directory is not a candidate and never will be. **Nothing migrates it, and no data was
 deleted** — the old directory and its `lw-gmhh.jsonl` are exactly where they were. What you lose is
-continuity, not records: the status line, `/lw-watchtower:sitrep` and the health count all start
+continuity, not records: the status line and the health count both start
 from empty. `/lw-watchtower:uninstall` still finds and reports the old directory, marked `LEGACY`,
 so removing this plugin does not strand it. The whole of what the rename does and does not move is
 written out under `## [0.4.0]` in [CHANGELOG.md](../CHANGELOG.md).
@@ -221,7 +221,7 @@ only ever return `none` and the segment could only ever render the dim `GM-`. An
 report exactly one value reports nothing, so it was deleted rather than left as decoration.
 
 Nothing was lost with it. `HH` still reports health faults, and historical gate denials are still in
-`lw-watchtower.jsonl` where `/lw-watchtower:sitrep` counts them under `GOVERNANCE`. There is no longer any
+`lw-watchtower.jsonl`, which nothing reads back as an open item. There is no longer any
 command that opens them one at a time — that was `lw-watchtower:tripped`, removed in the same change.
 
 ---

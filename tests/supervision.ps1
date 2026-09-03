@@ -960,7 +960,7 @@ try {
     # E12 - HH MUST BE CLEARABLE. A standing orphan is re-detected at every
     # later trigger, and the status line takes a PEAK of the recorded count
     # since the last Resolved marker. While the record carried only the standing
-    # count, /lw-watchtower:resolve cleared HH and the next SubagentStop turned it red
+    # count, the `resolve` command cleared HH and the next SubagentStop turned it red
     # again within seconds, permanently - the operator's only remedy being to
     # switch the module off, which is how a health indicator teaches people to
     # ignore it. The first run must report the orphan as NEW; the second must

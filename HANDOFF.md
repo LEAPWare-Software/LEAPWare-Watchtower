@@ -39,7 +39,7 @@ other tracked file. It is the reason this is a fix rather than a tidy-up.
 day this file was written. It declares `0.4.0` now. That sentence is a record of 31 July 2026 and
 correcting it would falsify the record; `CHANGELOG.md` is the authority on the current version.
 
-Run `/lw-watchtower:checklist` for plan state and `/lw-watchtower:doctor` for install state, rather
+Run `/lw-watchtower:doctor` for install state, rather
 than trusting any number written on this page.
 
 

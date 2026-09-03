@@ -13,7 +13,7 @@
   here because hooks.json is JSON and cannot hold a comment. On Windows - the
   only platform this plugin supports - the CLI offers BOTH shell tools, and the
   matcher named one of them. With interaction.delegate ON, the main thread could
-  run any command it liked by asking for the other shell, while /lw-watchtower:status
+  run any command it liked by asking for the other shell, while /lw-watchtower:doctor
   printed "1 gate(s) LIVE: delegate_gate - it can refuse a tool call right now".
   Nothing in this script was wrong: it does not read tool_name to decide, so it
   would have refused that call correctly had it ever been handed it. The CLI
@@ -280,7 +280,7 @@
       "\u0069nteraction": { "delegate": true }   (global AND per-repo)
 
   Every one of them was a silent ALLOW on a call the gate exists to refuse,
-  while /lw-watchtower:status went on printing "1 gate(s) LIVE: delegate_gate - it
+  while /lw-watchtower:doctor went on printing "1 gate(s) LIVE: delegate_gate - it
   can refuse a tool call right now", byte-identical to a gate that really was
   armed. That is a fail-open in the one file whose whole job is not to have
   one, and it happened for a single reason: a failure to FIND a member was
@@ -692,7 +692,7 @@ try {
 
     # --- the switch --------------------------------------------------------
     # interaction.delegate, global then per-repo, default OFF. Resolved through
-    # Test-LwgModule so that this gate and /lw-watchtower:status cannot disagree about
+    # Test-LwgModule so that this gate and /lw-watchtower:doctor cannot disagree about
     # whether it is live: the registry entry names the key, and both go through
     # the same function to read it.
     if (-not (Test-LwgModule -Name 'delegate_gate' -Config $cfg -Repo $repo)) { exit 0 }

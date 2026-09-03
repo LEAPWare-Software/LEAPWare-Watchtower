@@ -492,79 +492,6 @@ design. Nor is a deletion that *partially* fails: the script now verifies the di
 gone before counting a change, but reaching that branch needs a file held open by another process,
 and a case that faked it would assert on the fake.
 
-## The evidence-state suite
-
-`tests/evidence_states.ps1` covers `bin/lwg-evidence.ps1`, the engine both `/lw-watchtower:checklist` and
-`/lw-watchtower:sitrep` read. It asks one question in 47 cases: **can the engine tell a probe that ran and
-found the thing absent from a probe that never got to look?** Those two render as `[ ] NOT STARTED`
-and `[?] UNVERIFIED`, and the difference between them is the entire argument this plugin makes.
-
-### What shipped, and how it was found
-
-Until 31 July 2026 a `kind: command` rule scored **any** unexpected exit code as a finding. On the
-**marketplace install route** — the one [Install](install.md) calls recommended for consumers — the
-plugin directory carries no `.git`, so every git-backed rule exited `128` having read nothing, and
-the engine rendered that as *the condition was not met*. Two rows flipped, and read as the product
-defines that mark they said: **the owner's personal address WAS left in history**, and **the private
-sibling project's name IS in the tree**. Both are false, and neither had been measured. On a junction
-install of the same commit both rows were correct, which is exactly why nothing caught it — the
-defect was invisible from the machine the plugin is written on, and it took an adversarial UAT
-against the `v0.3.0` tag on the other install route to surface it.
-
-### What the engine now treats as "could not run"
-
-The **ladder in `Resolve-LwgChecklist` did not change**, and its rung order is untouched. What
-changed is which results reach rung 3 (*evidence could not be checked → `UNVERIFIED`*) rather than
-falling to rung 8 (*otherwise → `NOT STARTED`*):
-
-| Signal | Why it is not a finding |
-| --- | --- |
-| the program will not start | it answered nothing — this one always did degrade correctly |
-| git exits `128` with a `fatal:` naming no repository, no work tree, or a refused ownership check | git declined before reaching the question. **Both halves are required**: `128` is also git's code for a bad revision, where the probe genuinely ran |
-| an interpreter refuses the script it was pointed at (`-File` target absent) | `powershell` starts fine and *then* refuses, so this is not the missing-program case. `P6-workflow-guard` runs its suite this way, and *the suite is not installed* must not borrow the meaning of *the suite found a violation* |
-| an exit code the rule declares ambiguous, via `nonzero_means: unverified` | the older knob, unchanged, and now checked *after* the two above so a rule that never declared it still gets the honest answer |
-| the expected exit code with **empty stdout**, under a rule that proves its item from `stdout_match` | a pattern cannot be settled either way against output that does not exist. `git tag -l` exits 0 and prints nothing on a clone whose tags were never fetched — a gap `P8-tag`'s caveat had carried in writing since that rule was written |
-
-Empty stdout under `stdout_not_match` **alone** is still a pass, deliberately: a probe that lists
-offenders and lists none is answering. A rule that wants both readings carries both keys, and
-`stdout_match` is tested first.
-
-### The half that matters more
-
-Answering `UNVERIFIED` to everything would make the blocker's cases green and would be a **worse**
-defect than the one it replaced — a checklist that can never say a thing is undone reports nothing at
-all. So **fifteen of the 47 cases require an answer to stay an answer** — a `pass`, a `fail`, or a
-rendered `NOT STARTED`. Among them: an unexpected exit with no could-not-run signal, output that is present and
-does not match, output that still matches a `stdout_not_match`, a rule whose pass *is* a nonzero
-exit, the same shipped git rules evaluated in a real checkout where they must reach a verdict, a
-commit miss in a scan that reached the root of history, a hook registration that is genuinely wrong,
-and a line-ending pin genuinely absent from one of two files. Those fifteen are the sentinels: each
-one goes red if a fix in this engine is ever made by widening what counts as "could not look".
-
-### The fixture
-
-Sections A–F call the engine in process — it is a dot-sourced library, and `bin/lwg-checklist.ps1`
-reaches it exactly that way. Section G runs `bin/lwg-checklist.ps1` in a **real child process**
-against a throwaway plugin root and reads the rendered mark out of its stdout, because the rendered
-mark is what a consumer sees.
-
-That throwaway root is built by **copying** four files to a temp directory. Nothing is deleted to
-produce it: a fixture built by removing a `.git` is one bad path away from removing a real one. Two
-fixture assertions abort the run rather than let a case pass for the wrong reason — that the scratch
-root resolves **no** git root (a temp directory inside a checkout would give the fixture a repository
-and section A would exercise nothing), and that the repo root resolves **one** (without it only the
-negative half would run, which is the shape that made the defect invisible). Section A takes its two
-rules **out of the tracked `checklist.json` by id** rather than restating them, and aborts if either
-stops being a git `command` rule.
-
-Exit codes: `0` every case passed, `1` at least one failed, `2` the suite aborted — and zero cases
-run is an abort, never a pass.
-
-**What a green run does not mean.** It does not mean the engine can tell the two apart in general. It
-means it can for the five signals in the table above. Every other way a probe can answer a question
-it never reached is still scored as a finding — a `gh` call that returns success with an unexpected
-body, a script that exits 0 having done nothing — and this suite says nothing about those.
-
 ## The doctor behaviour suite
 
 `tests/doctor_behaviour.ps1` runs `bin/lwg-doctor.ps1` — the one component whose whole job is to
@@ -691,7 +618,7 @@ objects. So this fixture
 }
 ```
 
-injected into the worker while `/lw-watchtower:status`, the `SessionStart` banner and
+injected into the worker while `/lw-watchtower:doctor`, the `SessionStart` banner and
 `Test-LwgModule` all agreed the module was **off**. The same bytes with the two top-level keys in the
 shipped order printed nothing. That is the whole defect: **a raw-text scanner whose correctness
 depended on which of two sibling keys appears first in a file operators are invited to hand-edit**,
@@ -731,9 +658,10 @@ nothing about:
 
 `tests/payload_guard.ps1` asks what a **stranger receives**. `.claude-plugin/marketplace.json`
 declares `"source": "./"`, there is no exclusion mechanism on that form, so **every tracked file in
-this repository is the shipped payload** — and `/lw-watchtower:checklist` renders one of those files
-on the consumer's machine, because `commands/checklist.md` instructs the model to print the output
-verbatim.
+this repository is the shipped payload** — and the `checklist` command rendered one of those files
+on the consumer's machine, because `commands/checklist.md` instructed the model to print the output
+verbatim. That command went on 2 September 2026; the files it rendered still ship, so the guard
+stays.
 
 Four disclosures reached the payload that way and **nothing caught any of them**, because every
 other guard in `tests/` answers a different question. That is the argument for a separate file rather

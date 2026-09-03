@@ -56,7 +56,8 @@ themselves** were removed. Gone:
 | The ledger **files** in the state directory | 12 `trips-*.json`, holding 64 uncleared trips between them. Backed up to `trips-backup-20260730/` in the same directory before removal, not destroyed. |
 
 What survives and still helps: the event log is untouched, so the historical `GateDeny` records are
-still on disk and `/lw-watchtower:sitrep` still counts them under `GOVERNANCE` as history. That is an
+still on disk. The `sitrep` command counted them under `GOVERNANCE` as history until it went on
+2 September 2026; nothing counts them now. That is an
 audit trail, **not** a ledger — nothing can clear an entry in it, which is exactly why the
 per-session ledger was built in the first place.
 
@@ -185,7 +186,7 @@ What it does, and what it does not:
 
 `enforcing` and `partial` are reachable words again — but only for an operator who sets the switch,
 and nothing sets it for them. A gate that is shipped and off is a capability, not a protection, and
-`/lw-watchtower:status` reports `SHIPPED` and `LIVE` as separate numbers so the two cannot be read as one.
+`/lw-watchtower:doctor` reports `SHIPPED` and `LIVE` as separate numbers so the two cannot be read as one.
 
 **No trip ledger came back with it.** A denial is a `GateDeny` line in `lw-watchtower.jsonl` and nothing
 tracks it as an open item. There is still no ledger, no reader for one, no `tripped` command and no
