@@ -313,6 +313,58 @@ $ExpectedOrder = @('zeta', 'permissions', 'statusLine', 'alpha')
 # HELPERS
 # ---------------------------------------------------------------------------
 
+function Get-ScratchAppData {
+    <#
+      The AppData pair that goes with a swapped USERPROFILE, created on demand.
+
+      APPDATA AND LOCALAPPDATA GO WITH IT, and that is not tidiness - it is the
+      reason this suite left an untracked directory in the checkout. With
+      USERPROFILE moved and those two left alone, the child powershell.exe
+      failed to resolve its LocalApplicationData folder and wrote
+      Microsoft\Windows\PowerShell\ModuleAnalysisCache RELATIVE TO ITS CURRENT
+      DIRECTORY - which, for a suite run from the repository root, is the
+      repository. Measured at ec80e88: two of two runs from the repo root left
+      `?? Microsoft/` in `git status --porcelain`, and bin\lwg-update.ps1 counts
+      any non-`#` porcelain-v2 line as dirty, so the plugin's own update command
+      then refused with "1 uncommitted change(s) on batch/b2-bin". Running this
+      suite disabled the update command.
+
+      tests\stop_behaviour.ps1:2058-2064 diagnosed exactly this and fixed it in
+      its own renderer on 3 August 2026. The fix was never carried across to
+      this file, whose four child launchers all swapped USERPROFILE alone. It is
+      carried across here in ONE helper rather than four spellings, and section
+      29 asserts the OUTCOME - a clean working directory - rather than the
+      mechanism, so a fifth launcher added later is covered by the same case.
+
+      Derived from the case's own profile directory, so each child gets the
+      AppData of the home it was told it has, and everything lands under
+      $script:Work, which the finally at the bottom of this file deletes.
+
+      THE DIRECTORIES MUST EXIST, AND THAT - NOT THE VARIABLE - IS THE FIX.
+      Measured on this branch by running the whole suite three times with
+      section 29 in place and one half of this helper removed each time:
+
+        neither variable set, neither directory created   RED, ?? Microsoft/
+        both variables set, directories NOT created       RED, ?? Microsoft/
+        directories created, variables NOT set            green
+
+      So a LOCALAPPDATA naming a directory that is not there is worth exactly
+      nothing: the folder resolution verifies existence and gives up when it
+      fails, and it gives up under the RELOCATED profile, which is why moving
+      USERPROFILE alone was enough to break it. Both halves are kept anyway -
+      the CreateDirectory because it is what actually works, the two assignments
+      because a child that reads $env:LOCALAPPDATA itself must not be silently
+      pointed at the runner's real one, and because tests\stop_behaviour.ps1
+      spells it the same way and two harnesses solving one problem differently
+      is how the second one goes stale.
+    #>
+    param([string]$ProfileDir)
+    $r = [IO.Path]::Combine($ProfileDir, 'AppData\Roaming')
+    $l = [IO.Path]::Combine($ProfileDir, 'AppData\Local')
+    foreach ($d in @($r, $l)) { try { [void][IO.Directory]::CreateDirectory($d) } catch { } }
+    return @{ roaming = $r; local = $l }
+}
+
 function New-CaseTree {
     <#
       A throwaway tree for one case: <work>\<tag>\ holding settings.json and a
@@ -365,6 +417,9 @@ function Invoke-Setup {
     $prevR = $env:CLAUDE_PLUGIN_ROOT
     $prevD = $env:CLAUDE_PLUGIN_DATA
     $prevC = $env:CLAUDE_CODE_PLUGIN_CACHE_DIR
+    $prevA = $env:APPDATA
+    $prevL = $env:LOCALAPPDATA
+    $ad    = Get-ScratchAppData -ProfileDir $ProfileDir
     $out  = ''
     $code = 255
     try {
@@ -372,6 +427,8 @@ function Invoke-Setup {
         $env:CLAUDE_PLUGIN_ROOT          = ''
         $env:CLAUDE_PLUGIN_DATA          = ''
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = ''
+        $env:APPDATA                     = $ad.roaming
+        $env:LOCALAPPDATA                = $ad.local
         if ($ExpectsStderr) {
             # MEASURED, because the obvious spelling aborts this suite. Under
             # $ErrorActionPreference = 'Stop', `2>$null` on a native command
@@ -394,6 +451,8 @@ function Invoke-Setup {
         $env:CLAUDE_PLUGIN_ROOT          = $prevR
         $env:CLAUDE_PLUGIN_DATA          = $prevD
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $prevC
+        $env:APPDATA                     = $prevA
+        $env:LOCALAPPDATA                = $prevL
     }
     return @{ code = $code; out = $out }
 }
@@ -427,6 +486,9 @@ function Invoke-StatusLine {
     $prevR = $env:CLAUDE_PLUGIN_ROOT
     $prevD = $env:CLAUDE_PLUGIN_DATA
     $prevC = $env:CLAUDE_CODE_PLUGIN_CACHE_DIR
+    $prevA = $env:APPDATA
+    $prevL = $env:LOCALAPPDATA
+    $ad    = Get-ScratchAppData -ProfileDir $ProfileDir
     $out   = ''
     $code  = 255
     try {
@@ -434,6 +496,8 @@ function Invoke-StatusLine {
         $env:CLAUDE_PLUGIN_ROOT          = ''
         $env:CLAUDE_PLUGIN_DATA          = ''
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $CacheDir
+        $env:APPDATA                     = $ad.roaming
+        $env:LOCALAPPDATA                = $ad.local
         $lines = $PayloadJson | & powershell -NoProfile -ExecutionPolicy Bypass -File $ScriptPath
         $code  = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
         $out   = ($lines | Out-String)
@@ -442,6 +506,8 @@ function Invoke-StatusLine {
         $env:CLAUDE_PLUGIN_ROOT          = $prevR
         $env:CLAUDE_PLUGIN_DATA          = $prevD
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $prevC
+        $env:APPDATA                     = $prevA
+        $env:LOCALAPPDATA                = $prevL
     }
     return @{ code = $code; out = $out }
 }
@@ -494,6 +560,9 @@ function Invoke-StatusLineRaw {
     $psi.RedirectStandardOutput = $true
     $psi.StandardOutputEncoding = New-Object Text.UTF8Encoding($false)
     $psi.EnvironmentVariables['USERPROFILE'] = $ProfileDir
+    $adRaw = Get-ScratchAppData -ProfileDir $ProfileDir
+    $psi.EnvironmentVariables['APPDATA']      = $adRaw.roaming
+    $psi.EnvironmentVariables['LOCALAPPDATA'] = $adRaw.local
     foreach ($v in @('CLAUDE_PLUGIN_ROOT', 'CLAUDE_PLUGIN_DATA')) {
         if ($psi.EnvironmentVariables.ContainsKey($v)) { [void]$psi.EnvironmentVariables.Remove($v) }
     }
@@ -564,12 +633,17 @@ function Invoke-Update {
     $prev  = $env:USERPROFILE
     $prevR = $env:CLAUDE_PLUGIN_ROOT
     $prevD = $env:CLAUDE_PLUGIN_DATA
+    $prevA = $env:APPDATA
+    $prevL = $env:LOCALAPPDATA
+    $ad    = Get-ScratchAppData -ProfileDir $ProfileDir
     $out  = ''
     $code = 255
     try {
         $env:USERPROFILE        = $ProfileDir
         $env:CLAUDE_PLUGIN_ROOT = ''
         $env:CLAUDE_PLUGIN_DATA = ''
+        $env:APPDATA            = $ad.roaming
+        $env:LOCALAPPDATA       = $ad.local
         $lines = & powershell -NoProfile -ExecutionPolicy Bypass -File $UpdatePath @Arguments
         $code  = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
         $out   = ($lines | Out-String)
@@ -577,6 +651,8 @@ function Invoke-Update {
         $env:USERPROFILE        = $prev
         $env:CLAUDE_PLUGIN_ROOT = $prevR
         $env:CLAUDE_PLUGIN_DATA = $prevD
+        $env:APPDATA            = $prevA
+        $env:LOCALAPPDATA       = $prevL
     }
     return @{ code = $code; out = $out }
 }
@@ -800,6 +876,36 @@ try {
 
     $script:Work = Join-Path ([IO.Path]::GetTempPath()) ('lwg-merge-' + [Guid]::NewGuid().ToString('N').Substring(0, 12))
     [void][IO.Directory]::CreateDirectory($script:Work)
+
+    # SECTION 29'S BEFORE-STATE, taken here because it must be taken before the
+    # first child process starts and nothing after this line is earlier.
+    #
+    # Three directories are watched, deduplicated: the PROCESS working directory
+    # (which is what a child inherits and therefore what a stray relative write
+    # lands in), PowerShell's own location (the two can differ), and the repo
+    # root. In CI all three are the same path; on a maintainer's machine they
+    # need not be, and watching only one is how this defect would come back
+    # under a different `cd`.
+    #
+    # `existed` is recorded rather than assumed absent: a maintainer whose
+    # working directory legitimately holds a Microsoft\ folder must not be told
+    # this suite created it. The case asserts APPEARANCE, not presence.
+    $script:CacheWatch = @()
+    $seenWatch = @{}
+    foreach ($c in @([Environment]::CurrentDirectory, (Get-Location).ProviderPath, $Root)) {
+        if ([string]::IsNullOrWhiteSpace($c)) { continue }
+        $full = $c
+        try { $full = [IO.Path]::GetFullPath($c) } catch { }
+        $k = $full.TrimEnd('\', '/').ToLowerInvariant()
+        if ($seenWatch.ContainsKey($k)) { continue }
+        $seenWatch[$k] = $true
+        $probe = [IO.Path]::Combine($full, 'Microsoft')
+        $script:CacheWatch += [pscustomobject]@{
+            dir     = $full
+            probe   = $probe
+            existed = [IO.Directory]::Exists($probe)
+        }
+    }
 
     # -------------------------------------------------------------------
     # 1. A SETTINGS FILE THAT DOES NOT EXIST YET. The commonest first run.
@@ -2732,6 +2838,61 @@ try {
     Add-Result 'CONTROL: the same run with the dead argument removed DOES print' `
         ([bool](-not [string]::IsNullOrWhiteSpace($p4.out))) `
         "without this, the three cases above are satisfied by a harness that captures no stdout at all, whatever the script does. exit $($p4.code), stdout length $($p4.out.Length)"
+
+    # -------------------------------------------------------------------
+    # 29. THIS SUITE MUST NOT LEAVE ANYTHING IN THE WORKING DIRECTORY (#214).
+    #
+    #     LAST, deliberately: it is a claim about everything above it, so it can
+    #     only be made once everything above it has run. Every child process this
+    #     file starts has already started by now.
+    #
+    #     THE DEFECT. Every launcher here swapped USERPROFILE and left APPDATA
+    #     and LOCALAPPDATA pointing at the runner's real ones. The child
+    #     powershell.exe then could not resolve its LocalApplicationData folder
+    #     and wrote Microsoft\Windows\PowerShell\ModuleAnalysisCache RELATIVE TO
+    #     ITS CURRENT DIRECTORY, which it inherits from this process - the
+    #     repository, for the way CI and every maintainer runs this file.
+    #
+    #     WHY IT IS NOT UNTIDINESS. bin\lwg-update.ps1 counts any non-`#`
+    #     porcelain-v2 line as an uncommitted change, and `? Microsoft/` is one.
+    #     Measured at ec80e88 immediately after a full run of this suite:
+    #
+    #       git status --porcelain          ->  ?? Microsoft/
+    #       bin\lwg-update.ps1 -Offline -SkipDoctor
+    #         [FAIL] worktree  1 uncommitted change(s) on batch/b2-bin. This
+    #                          command does not stash, reset or check out
+    #                          anything - commit or set them aside first.
+    #
+    #     Running the plugin's test suite disabled the plugin's update command,
+    #     and told the maintainer it was their own uncommitted work.
+    #
+    #     WHY THE OUTCOME AND NOT THE MECHANISM. Asserting "the launchers set
+    #     LOCALAPPDATA" would pass for a fifth launcher that forgot to. Asserting
+    #     the working directory is as clean as it was found covers any launcher,
+    #     present or future, and any other stray relative write besides this one.
+    #
+    #     The second case is the anti-vacuum guard: the cache has to have landed
+    #     SOMEWHERE, and if it landed in the scratch tree then the redirect is
+    #     what moved it, rather than the children having quietly stopped running.
+    # -------------------------------------------------------------------
+    $appeared = @()
+    foreach ($w in $script:CacheWatch) {
+        if ($w.existed) { continue }
+        if ([IO.Directory]::Exists($w.probe)) { $appeared += $w.probe }
+    }
+    Add-Result 'this suite leaves no Microsoft\ ModuleAnalysisCache in the working directory (#214)' `
+        ($appeared.Count -eq 0) `
+        ("a child powershell.exe wrote its module cache relative to the current directory, which means APPDATA/LOCALAPPDATA were not moved with USERPROFILE. Appeared at: $($appeared -join ', '). Watched: " +
+         (($script:CacheWatch | ForEach-Object { "$($_.dir) (pre-existing Microsoft\: $($_.existed))" }) -join '; '))
+
+    $cacheInScratch = @()
+    try {
+        $cacheInScratch = @([IO.Directory]::GetDirectories($script:Work, 'PowerShell', [IO.SearchOption]::AllDirectories) |
+                            Where-Object { $_ -like '*\AppData\Local\Microsoft\Windows\PowerShell' })
+    } catch { }
+    Add-Result 'ANTI-VACUUM: the module cache did land, and it landed in the scratch tree' `
+        ($cacheInScratch.Count -gt 0) `
+        ("nothing under $($script:Work) holds AppData\Local\Microsoft\Windows\PowerShell, so the case above may be green because no child wrote a cache at all rather than because the redirect worked. If powershell.exe stops writing this cache on a future build, DELETE THIS CASE and say so - do not weaken the one above it.")
 
 } catch {
     $script:Aborted = "$($_.Exception.Message)  [line $($_.InvocationInfo.ScriptLineNumber)]"
