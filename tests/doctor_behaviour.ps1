@@ -37,8 +37,11 @@
                      composition of that shape in the tree - so on a machine
                      that sets CLAUDE_CONFIG_DIR the row health-checked a
                      settings.json the CLI does not read and reported green
-                     about it. One case drives the relocated directory and the
-                     six above it hold the profile branch it must not lose.
+                     about it. One case drives the relocated directory and every
+                     statusline case above it holds the profile branch that must
+                     not be lost to it. The number of those is not written here:
+                     it is a count, it would go stale, and "every one of them" is
+                     what the claim actually needs.
     sessionstart     #42. It read at most the last 256 KB of the event log and,
                      finding no SessionStart record in that window, reported
                      "the hook is not firing" and failed the run - a definite
@@ -1796,11 +1799,13 @@ try {
     #
     #     THE CONTROL FOR THE OTHER BRANCH IS ALREADY HERE. Every statusline
     #     case above runs with CLAUDE_CONFIG_DIR CLEARED - Invoke-Doctor clears
-    #     it for exactly this reason - and drives this row through PASS, WARN
-    #     and FAIL off USERPROFILE alone. So a check that satisfied this case by
-    #     reading CLAUDE_CONFIG_DIR and nothing else would take all six of them
-    #     down with it, and the precedence is pinned from both sides rather than
-    #     from the side that changed.
+    #     it for exactly this reason - and between them they drive this row
+    #     through PASS, WARN and FAIL off USERPROFILE alone. So a check that
+    #     satisfied this case by reading CLAUDE_CONFIG_DIR and nothing else
+    #     would take every one of them down with it, and the precedence is
+    #     pinned from both sides rather than from the side that changed. How
+    #     many of them there are is deliberately not written here - it is a
+    #     count, and "every one" is the claim that stays true when one is added.
     #
     #     BASELINE 4342980: RED. bin\lwg-doctor.ps1:507 reads
     #     `Join-Path $env:USERPROFILE '.claude\settings.json'` there - the last
