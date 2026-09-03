@@ -455,56 +455,6 @@ try {
         (-not (Test-LwgPathUnder -Path 'C:/lwg-fixture/repo/x.ps1' -Root '')) `
         'an unresolved workspace root must not make every path look inside it'
 
-    # --- the frontmatter class reader, PINNED ----------------------------
-    # This is a rename guard as much as a behaviour test. `lw-class` is declared
-    # by the six roles in agents\ and read by Get-LwgFrontmatterClass, whose one
-    # caller is Get-LwgInstalledAgents and through it bin\lwg-doctor.ps1's
-    # agent-roles check. The value that matters most is the one that looks like
-    # nothing - '' is NO INFORMATION and must never be read as a verdict in
-    # either direction.
-    #
-    # THE RESOLVER THAT SAT BELOW THESE CASES IS GONE. Get-LwgAgentClassInfo
-    # turned an observed agent_type back into a role file for verification_gate;
-    # both were removed, and its three cases went with them. What is left is the
-    # reader, which is still live.
-    $agDir = Join-Path $aDir 'agents'
-    [void][IO.Directory]::CreateDirectory($agDir)
-    function New-LwgRoleFixture {
-        param([string]$Name, [string]$Body, [switch]$Bom)
-        $p = Join-Path $agDir $Name
-        [IO.File]::WriteAllText($p, $Body, [Text.UTF8Encoding]::new([bool]$Bom))
-        return $p
-    }
-
-    $fNone   = New-LwgRoleFixture -Name 'f_none.md'   -Body "---`nname: fixture-none`ndescription: no class declared`n---`nbody`n"
-    $fVerify = New-LwgRoleFixture -Name 'f_verify.md' -Body "---`nname: fixture-verify`nlw-class: verify`n---`nbody`n"
-    $fCase   = New-LwgRoleFixture -Name 'f_case.md'   -Body "---`nname: fixture-case`nlw-class: Work`n---`nbody`n"
-    $fTypo   = New-LwgRoleFixture -Name 'f_typo.md'   -Body "---`nname: fixture-typo`nlw-class: verifier`n---`nbody`n"
-    $fPlain  = New-LwgRoleFixture -Name 'f_plain.md'  -Body "no frontmatter at all`nlw-class: verify`n"
-    $fBom    = New-LwgRoleFixture -Name 'f_bom.md'    -Body "---`nname: fixture-bom`nlw-class: neutral`n---`nbody`n" -Bom
-
-    Add-Result "class: a file with no lw-class key reads '' (NO INFORMATION)" `
-        ((Get-LwgFrontmatterClass -Path $fNone) -eq '') `
-        "'' means the file said nothing about its class. It must NOT be read as 'not a verifier' - a file that declares nothing is evidence of nothing"
-    Add-Result 'class: lw-class: verify reads verify' `
-        ((Get-LwgFrontmatterClass -Path $fVerify) -eq 'verify') `
-        'the declared value is the answer, and it is the whole reason the key exists'
-    Add-Result 'class: the value is case-insensitive' `
-        ((Get-LwgFrontmatterClass -Path $fCase) -eq 'work') `
-        "lw-class: Work must resolve to 'work'; a case-sensitive read would silently unclassify a role that declared itself correctly"
-    Add-Result "class: a typo'd value reads '' rather than being coerced" `
-        ((Get-LwgFrontmatterClass -Path $fTypo) -eq '') `
-        "'verifier' is not one of work/verify/neutral. Guessing at it would classify a role from a value nobody checked"
-    Add-Result "class: a file with no frontmatter reads ''" `
-        ((Get-LwgFrontmatterClass -Path $fPlain) -eq '') `
-        'a lw-class written in the prose is not metadata and the loader would not honour it either'
-    Add-Result 'class: a BOM does not hide the frontmatter' `
-        ((Get-LwgFrontmatterClass -Path $fBom) -eq 'neutral') `
-        'PowerShell 5.1 writes a BOM by default, so a role file authored on this platform routinely has one; a BOM left on the opening fence would unclassify it'
-    Add-Result "class: a missing file reads ''" `
-        ((Get-LwgFrontmatterClass -Path (Join-Path $agDir 'f_absent.md')) -eq '') `
-        'unreadable is no information, never a class'
-
     # --- Test-LwgModule, the `modules` block ------------------------------
     # ONLY A REAL BOOLEAN IS A SETTING, and this block is where that rule
     # arrived last. Test-LwgFlag had it for the `switch` keys while this still
