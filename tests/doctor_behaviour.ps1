@@ -14,7 +14,7 @@
   it had never been driven at all, and both were wrong in the same direction:
   they answered a question that is cheaper than the one they claim to answer.
 
-  This file drives TWO of the nine checks and no others:
+  This file drives THREE of the doctor's eight checks and no others:
 
     config-registry  #41. It tested a declared switch for PRESENCE and stopped,
                      so `"delegate": "true"` - quoted - passed while
@@ -31,10 +31,15 @@
                      stale copy of this plugin's, with the printed remedy being
                      to overwrite it. The inverse was quieter and also wrong: an
                      identical file attested an install that never happened.
+    sessionstart     #42. It read at most the last 256 KB of the event log and,
+                     finding no SessionStart record in that window, reported
+                     "the hook is not firing" and failed the run - a definite
+                     fault claim, with the remedy of reinstalling the plugin,
+                     produced by a read that never established absence. A log
+                     that grew past 256 KB since the session started is enough.
 
-  It does NOT drive the other seven checks, and a green run here says nothing
-  about them. In particular it says nothing about sessionstart, which is owned
-  by a separate issue and deliberately untouched here.
+  It does NOT drive the other five checks, and a green run here says nothing
+  about them.
 
   IT ALSO DRIVES ONE THING THAT IS NOT A CHECK AT ALL: the informational roster
   at the foot of the report - the per-gate paragraphs and the module table that
@@ -81,18 +86,20 @@
   ---------------------------------------------------------------------------
   BASELINES - each case states its own, and they are not all the same
   ---------------------------------------------------------------------------
-  fd8d023 is the baseline for every case here. Both defects predate the current
-  wave and the two checks are byte-identical between fd8d023 and 19bb85d apart
-  from the lw-gmhh -> lw-watchtower rename, so the red proof was taken by
-  restoring bin\, lib\ and statusline\ to fd8d023 with this file left in place.
+  fd8d023 is the baseline for every case here. All three defects predate the
+  current wave and the three checks are byte-identical between fd8d023 and
+  19bb85d apart from the lw-gmhh -> lw-watchtower rename, so the red proof was
+  taken by restoring bin\, lib\ and statusline\ to fd8d023 with this file left
+  in place. The two #42 cases added afterwards were proved red against the tree
+  they landed in, which carries that check unchanged from fd8d023.
 
-  SEVEN OF THE NINETEEN CASES PASS AT fd8d023 TOO, and every one of them is
+  EIGHT OF THE TWENTY-TWO CASES PASS AT fd8d023 TOO, and every one of them is
   labelled CONTROL in its name and in its comment. None is offered as evidence
   that anything was fixed. They exist because the cheapest way to pass the other
-  nine is to answer "not ours" to everything and "FAIL" to every config, and the
-  controls are what make that not work.
+  eleven is to answer "not ours" to everything, "FAIL" to every config and
+  "PASS" to every log, and the controls are what make that not work.
 
-  THREE OF THE NINETEEN HAVE NO fd8d023 BASELINE AT ALL - cases 16-18, on the
+  THREE OF THE TWENTY-TWO HAVE NO fd8d023 BASELINE AT ALL - cases 16-18, on the
   informational roster, which did not exist there and is not a defect being
   fixed. They pin a boundary rather than a repair, and their red proof is a
   mutation stated in their own comment, not an old commit.
@@ -122,7 +129,7 @@
     prose says the HH segment will not be rendered for a foreign status line;
     nothing here executes anything to confirm that, and
     tests\setup_merge.ps1 section 23 is where the renderer is driven.
-  * THE OTHER SEVEN CHECKS, and the doctor's exit code on anything but the two
+  * THE OTHER FIVE CHECKS, and the doctor's exit code on anything but the three
     rows below. Case 3 asserts exit 1 for a seeded non-boolean switch because
     that is the fault's contract with a caller. Cases 17 and 18 read the code
     without asserting a VALUE for it - 17 requires it to equal what the printed
@@ -417,6 +424,41 @@ function New-HealthyCase {
     return $t
 }
 
+function Add-LogFiller {
+    <#
+      Append well-formed event records that are NOT SessionStart until the log
+      is at least $MinBytes long, and return the length it reached.
+
+      THE RECORDS ARE VALID JSON ON PURPOSE. Check 6 skips a line it cannot
+      parse, so filler that does not decode would prove only that the check
+      ignores garbage. What is under test is a window, so the filler has to be
+      the thing a window pushes out: real records the check reads and discards
+      because their event is not the one it wants.
+
+      Written in ONE append rather than per record. A 9 MB log built line by
+      line through the filesystem costs minutes; built in memory and written
+      once it costs milliseconds, and the file on disk is identical.
+    #>
+    param([string]$Path, [int]$MinBytes)
+
+    $have = if ([IO.File]::Exists($Path)) { (Get-Item -LiteralPath $Path).Length } else { 0 }
+    $enc  = New-Object Text.UTF8Encoding($false)
+    $sb   = New-Object Text.StringBuilder
+    $n    = 0
+    while (($have + $sb.Length) -lt $MinBytes) {
+        $rec = [ordered]@{
+            event = 'PostToolUse'
+            ts    = (Get-Date).ToUniversalTime().ToString('o')
+            n     = $n
+            pad   = ('x' * 160)
+        }
+        [void]$sb.AppendLine((ConvertTo-Json -InputObject ([pscustomobject]$rec) -Depth 5 -Compress))
+        $n++
+    }
+    [IO.File]::AppendAllText($Path, $sb.ToString(), $enc)
+    return (Get-Item -LiteralPath $Path).Length
+}
+
 function Get-RowMap {
     <# Every row in a doctor report as id -> status. Used only to compare two
        runs of the SAME sandbox against each other. #>
@@ -493,7 +535,7 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 try {
     Write-Output 'LW-WATCHTOWER doctor behaviour regression suite'
     Write-Output "  repo    : $Root"
-    Write-Output '  under   : bin\lwg-doctor.ps1, checks config-registry and statusline only'
+    Write-Output '  under   : bin\lwg-doctor.ps1, checks config-registry, statusline and sessionstart only'
     Write-Output ''
 
     foreach ($p in @((Join-Path $Root 'bin\lwg-doctor.ps1'),
@@ -1044,7 +1086,100 @@ try {
          "exit was $($rq.code) against $($rr.code) for the same sandbox without -Quiet. Full output:`n$($rq.out)")
 
     # -------------------------------------------------------------------
-    # 19. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
+    # 19-21. #42. THE READ WINDOW IS A BOUND ON THE READ, NOT EVIDENCE OF
+    #        ABSENCE.
+    #
+    #        Check 6 read at most the last 256 KB of the event log and, finding
+    #        no SessionStart in it, reported "the hook is not firing" and failed
+    #        the run. "I could not look far enough back" and "the hook is not
+    #        firing" are different statements, and bin\lwg-doctor.ps1's own
+    #        header argues that distinction for the exit codes - "'I found a
+    #        fault' and 'I could not look' are different statements, and
+    #        collapsing them would let a crashed doctor be read as a diagnosis".
+    #        The three cases below are the three answers that distinction
+    #        requires, and only the middle one is a fault.
+    #
+    #        THE OTHER SHAPE IN THE ISSUE IS NOT COVERED AND CANNOT OCCUR.
+    #        #42 also describes a SessionStart inside the window that is not the
+    #        newest on disk. Everything inside a tail window is newer than
+    #        everything outside it, so the record the loop keeps is always the
+    #        last one in the file - there is no case to write.
+    # -------------------------------------------------------------------
+
+    # -------------------------------------------------------------------
+    # 19. A SessionStart PUSHED OUT OF THE 256 KB TAIL IS STILL THERE.
+    #
+    #     The sandbox is a HEALTHY one - the hook fired, the self-check ran and
+    #     passed, the record is minutes old - and then 300 KB of ordinary
+    #     records are appended after it, which is one long session or one
+    #     regression run. Nothing about the install changed.
+    #
+    #     BASELINE fd8d023 (and every commit up to this one):
+    #       [FAIL] sessionstart  event log exists but holds no SessionStart
+    #                            record - the hook is not firing
+    #     and VERDICT: NOT healthy, exit 1, on a machine where the hook is
+    #     firing correctly. That is the defect.
+    # -------------------------------------------------------------------
+    $t = New-HealthyCase -Tag 'ss-past-window' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $ssLog = Join-Path $t.state $LogLeaf
+    $ssLen = Add-LogFiller -Path $ssLog -MinBytes 300000
+    $ss    = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $row   = Get-DoctorRow -Text $ss.out -Id 'sessionstart'
+    Add-Result 'a SessionStart older than the 256 KB tail is not reported as a hook that is not firing' `
+        ($row.found -and $row.status -eq 'PASS' -and $ss.code -eq 0) `
+        ("the log is $ssLen bytes and its ONE SessionStart record is the first line, so it sits outside a 256 KB tail; " +
+         "expected [PASS] and exit 0, got [$($row.status)] $($row.detail) at exit $($ss.code). Full output:`n$($ss.out)")
+
+    # -------------------------------------------------------------------
+    # 20. CONTROL, and it passes at fd8d023 too. A LOG THIS CHECK READ IN FULL
+    #     AND FOUND NOTHING IN IS STILL A FAULT.
+    #
+    #     The cheapest way to pass case 19 is to stop failing, and this is what
+    #     stops that: a log SHORTER than the window, read end to end, holding no
+    #     SessionStart. Absence was established here, so the fault claim is
+    #     earned and the wording an operator acts on must survive.
+    # -------------------------------------------------------------------
+    $t = New-HealthyCase -Tag 'ss-whole-file-miss' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $ssLog = Join-Path $t.state $LogLeaf
+    [IO.File]::WriteAllText($ssLog, '', (New-Object Text.UTF8Encoding($false)))
+    $ssLen = Add-LogFiller -Path $ssLog -MinBytes 40000
+    $ss    = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $row   = Get-DoctorRow -Text $ss.out -Id 'sessionstart'
+    Add-Result 'CONTROL sessionstart: a log read in full with no SessionStart in it is still a FAIL' `
+        ($row.found -and $row.status -eq 'FAIL' -and $row.detail -match 'not firing' -and $ss.code -eq 1) `
+        ("the log is $ssLen bytes, well inside the window, so the whole file was read and the absence IS established; " +
+         "expected a [FAIL] naming the hook and exit 1, got [$($row.status)] $($row.detail) at exit $($ss.code). Full output:`n$($ss.out)")
+
+    # -------------------------------------------------------------------
+    # 21. A LOG TOO LARGE TO READ IN FULL, WITH NO SessionStart FOUND, IS "I
+    #     COULD NOT LOOK" AND NOT "IT IS NOT FIRING".
+    #
+    #     9 MB is past the widest read check 6 will make, so the check reaches
+    #     the end of what it is willing to read without an answer. That is the
+    #     third state, and the row has to say which of the two it is: WARN, with
+    #     a detail that says the check could not look far enough back, and NOT a
+    #     FAIL that sends an operator to reinstall a working plugin.
+    #
+    #     THE SIZE IS DELIBERATELY ABOVE THE ROTATION THRESHOLD. Invoke-LwgLogRotate
+    #     caps the live log at 5 MB, so a file this big means rotation is not
+    #     running either - which is a real thing to find out, and still not a
+    #     statement about the SessionStart hook.
+    #
+    #     BASELINE fd8d023: [FAIL] ... the hook is not firing, exit 1.
+    # -------------------------------------------------------------------
+    $t = New-HealthyCase -Tag 'ss-past-widest' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $ssLog = Join-Path $t.state $LogLeaf
+    [IO.File]::WriteAllText($ssLog, '', (New-Object Text.UTF8Encoding($false)))
+    $ssLen = Add-LogFiller -Path $ssLog -MinBytes 9437184
+    $ss    = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $row   = Get-DoctorRow -Text $ss.out -Id 'sessionstart'
+    Add-Result 'a log too large to read in full is reported as unread, not as a hook that is not firing' `
+        ($row.found -and $row.status -eq 'WARN' -and $row.detail -match 'far enough back' -and $row.detail -notmatch 'the hook is not firing') `
+        ("the log is $ssLen bytes with no SessionStart anywhere in it, which is past what this check reads, so nothing here established absence; " +
+         "expected a [WARN] saying it could not look far enough back, got [$($row.status)] $($row.detail) at exit $($ss.code). Full output:`n$($ss.out)")
+
+    # -------------------------------------------------------------------
+    # 22. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
     #     pointed into the scratch tree; this asserts what that was supposed to
     #     buy rather than assuming it. Nothing under the operator's own
     #     ~\.claude\plugins\data\<plugin>* may have grown a byte or gained a
@@ -1113,10 +1248,11 @@ if ($fail.Count -gt 0) {
 
 Write-Output ''
 Write-Output 'Every case above passed. Read that as "config-registry now asks the same'
-Write-Output 'question of a value that Test-LwgFlag and Test-LwgModule ask, and the'
+Write-Output 'question of a value that Test-LwgFlag and Test-LwgModule ask, the'
 Write-Output 'statusline check establishes whose file it is looking at before it diagnoses'
-Write-Output 'drift" - not as "the doctor is correct". Seven of its nine checks are driven'
-Write-Output 'by nothing here, no case executes the status line, and a file byte-identical'
+Write-Output 'drift, and sessionstart tells a log it could not read to the end from a hook'
+Write-Output 'that is not firing" - not as "the doctor is correct". Five of its eight checks'
+Write-Output 'are driven by nothing here, no case executes the status line, and a file byte-identical'
 Write-Output 'to the repo copy is indistinguishable from an install by any content marker'
 Write-Output 'and is named in the header as not covered.'
 Write-Output 'EXIT: 0'
