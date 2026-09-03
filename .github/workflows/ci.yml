@@ -1488,8 +1488,38 @@ jobs:
       # which test behaviour" would make both of those documented numbers LESS
       # true, and tests\doc_claims.ps1 derives them from tests\*.ps1 - so it
       # sits beside the workflow that is its only caller instead.
+      #
+      # IT RUNS EVEN WHEN AN EARLIER STEP HAS ALREADY GONE RED, and until #202
+      # it did not. GitHub halts a job at the first failing step by default, and
+      # this guard and the identity guard below it are the last things in the
+      # job - so a red `Documentation claims` took both of them out with it.
+      # Measured on the run of PR #199 into `wave1/cuts`, id 33790326016: every
+      # earlier step green, `Documentation claims` FAILURE, and the two guards
+      # after it SKIPPED. The only half of the issues protocol enforced here
+      # rather than reviewed by a person stopped running exactly when the tree
+      # was already unhappy, which is when a tree is likeliest to be carrying
+      # something else wrong as well. Nothing was missed that time; that it was
+      # not missed was luck, and luck is not a control.
+      #
+      # `!cancelled()` AND NOT `always()`, and the reason is this file's own
+      # `concurrency:` block a few lines above `jobs:`. `always()` also carries a
+      # step through a CANCELLATION, so a superseded run - precisely what
+      # `cancel-in-progress: true` exists to stop - would go on executing the two
+      # slowest guards in the job on a runner nobody is waiting for.
+      # `!cancelled()` buys independence from a sibling's failure and buys
+      # nothing else. So a grep of this file for `always()` still finds none, by
+      # decision rather than by omission.
+      #
+      # BOTH HALVES OF THE CONDITION ARE LOAD-BEARING. The `pull_request` half is
+      # the deliberate skip described above and is unchanged - a push still skips
+      # this step, and still shows it as skipped rather than as a hollow pass.
+      # The new half removes only the halt.
+      #
+      # THE COST, STATED HERE RATHER THAN DISCOVERED IN A LOG: a run that used to
+      # show one red step and two grey ones can now show three red steps. That is
+      # the point of the change, not a regression in it.
       - name: Pull-request issue reference
-        if: github.event_name == 'pull_request'
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         shell: powershell
         run: |
           $ErrorActionPreference = 'Continue'
@@ -1551,7 +1581,15 @@ jobs:
       # It lives under .github\scripts\ for the same reason the pull-request
       # guard does: it asserts nothing about the plugin, so counting it among the
       # files in tests\ would make two documented numbers less true.
+      #
+      # IT CARRIED NO CONDITION AT ALL UNTIL #202, which meant it did not run
+      # whenever anything before it failed - see the paragraphs above the
+      # previous step for the measured run and for why the condition is
+      # `!cancelled()` and not `always()`. This step's condition has no second
+      # half: the identity of a commit is the same question on a push as on a
+      # pull request, and this guard has always been asked it on both.
       - name: Commit identity
+        if: ${{ !cancelled() }}
         shell: powershell
         run: |
           $ErrorActionPreference = 'Continue'
