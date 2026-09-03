@@ -127,6 +127,130 @@ function Get-LwgPluginRoot {
     return (Split-Path -Parent $PSScriptRoot)
 }
 
+# --- the Claude Code configuration directory -------------------------------
+# CLAUDE_CONFIG_DIR relocates Claude Code's configuration directory away from
+# ~/.claude. UNTIL THIS FUNCTION EXISTED, NOTHING IN THIS REPOSITORY READ IT.
+# Every path in the plugin was composed from $env:USERPROFILE and a literal
+# `.claude`, so on a machine where that variable is set the plugin installed
+# to, read from, reported on and uninstalled from a directory the CLI does not
+# use - and each component failed differently and silently while doing it: the
+# installer wrote hooks into a settings.json nothing loads and reported success,
+# the doctor health-checked that same unread file and reported green, the
+# uninstaller reported a footprint from the wrong tree, and the status line
+# rendered off a data root nothing had ever written to.
+#
+# THE PRECEDENCE, and why it is this way round:
+#
+#   1. An EXPLICIT PARAMETER - -ClaudeHome, -SettingsPath, -DataRoot on the
+#      bin/ scripts - beats everything. It is the test seam, it is how the
+#      removal paths are exercised without touching a real machine, and a
+#      caller that names a path outright has said something no environment
+#      variable should be able to overrule.
+#   2. $env:CLAUDE_PLUGIN_DATA, for the DATA directory only. It names the exact
+#      directory Claude Code handed this plugin's hook. CLAUDE_CONFIG_DIR names
+#      a tree one would be DERIVED from, so the more specific signal wins; under
+#      a hook the two agree by construction, and the only callers where they can
+#      disagree are the three that are never given CLAUDE_PLUGIN_DATA at all
+#      (statusline.ps1, an agent-run resolver, an out-of-harness test).
+#   3. $env:CLAUDE_CONFIG_DIR - this function.
+#   4. $env:USERPROFILE + `.claude`, the historical default.
+#
+# THE THREE AWKWARD VALUES ARE SETTLED HERE and not left for each caller to get
+# differently wrong:
+#
+#   trailing separator   trimmed. `C:\cfg\` and `C:\cfg` must not resolve to two
+#                        directories, and [IO.Path]::Combine on the first
+#                        produces a doubled separator that string comparisons
+#                        elsewhere then fail to match. A bare drive keeps its
+#                        root separator - `C:` alone is a drive-RELATIVE path in
+#                        Windows and means something else entirely.
+#   relative value       made absolute with [IO.Path]::GetFullPath, which
+#                        resolves against [Environment]::CurrentDirectory - the
+#                        PROCESS working directory, not PowerShell's $PWD. A
+#                        relative config dir is a misconfiguration either way;
+#                        resolving it means the path this plugin reports is the
+#                        path it used.
+#   names nothing        RETURNED AS GIVEN, with exists = $false. Falling back
+#                        to the profile because the named directory is missing
+#                        would silently reinstate the whole defect on exactly
+#                        the machine that set the variable - and it would do it
+#                        at the moment the operator most needs to be told the
+#                        directory is not there. `exists` is what a caller
+#                        reports; it is not a reason to resolve somewhere else.
+#
+# An unset, empty or whitespace-only value is not a value: resolution continues
+# to the profile, which is the same rule Test-LwgFlag applies to config.json.
+
+$script:LwgClaudeHomeInfo = $null
+
+function Get-LwgClaudeHomeInfo {
+    <#
+      Claude Code's configuration directory and HOW it was arrived at. Returns
+      a HASHTABLE - the same shape and for the same reason as
+      Get-LwgStateDirInfo, which see:
+
+        @{ path; source; exists; raw }
+
+        path    the directory to use. $null only when neither CLAUDE_CONFIG_DIR
+                nor USERPROFILE holds anything, which is a machine with no home
+                at all and is reported rather than guessed at.
+        source  'env' | 'profile' | 'unresolved'
+        exists  whether that directory is actually there. A caller that reports
+                a root must be able to say "and it is not there".
+        raw     the unnormalised CLAUDE_CONFIG_DIR value when source is 'env',
+                so a report can show what the operator actually set.
+
+      Memoised for the life of the process; -Refresh re-runs it. Never throws.
+      No cmdlets: this file is dot-sourced by the blocking PreToolUse gate.
+    #>
+    param([switch]$Refresh)
+
+    if (-not $Refresh -and $null -ne $script:LwgClaudeHomeInfo) { return $script:LwgClaudeHomeInfo }
+
+    $info = @{ path = $null; source = 'unresolved'; exists = $false; raw = $null }
+    try {
+        $v = $env:CLAUDE_CONFIG_DIR
+        if (-not [string]::IsNullOrWhiteSpace($v)) {
+            $info.raw    = $v
+            $info.source = 'env'
+            $t = $v.Trim().TrimEnd([char[]]@('\', '/'))
+            # `C:` is drive-relative, not the root of C:. Put the separator back.
+            if ($t.Length -eq 2 -and $t[1] -eq ':') { $t = $t + '\' }
+            if ($t.Length -gt 0) {
+                try { $t = [IO.Path]::GetFullPath($t) } catch { }
+                # GetFullPath leaves a trailing separator on a root only, which
+                # is correct there and would be wrong anywhere else.
+                if ($t.Length -gt 3) { $t = $t.TrimEnd([char[]]@('\', '/')) }
+            }
+            $info.path = $t
+        }
+        else {
+            $p = $env:USERPROFILE
+            if (-not [string]::IsNullOrWhiteSpace($p)) {
+                $info.path   = [IO.Path]::Combine($p.TrimEnd([char[]]@('\', '/')), '.claude')
+                $info.source = 'profile'
+            }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($info.path)) {
+            try { $info.exists = [IO.Directory]::Exists($info.path) } catch { }
+        }
+    } catch { }
+
+    $script:LwgClaudeHomeInfo = $info
+    return $info
+}
+
+function Get-LwgClaudeHome {
+    <#
+      The configuration directory as a plain path string - the form every path
+      composition wants. Use Get-LwgClaudeHomeInfo when you need to REPORT which
+      root was resolved and why, which /lw-watchtower:doctor and the uninstaller
+      both must: a green health check on a directory nothing reads is worse than
+      no check, because it converts a broken install into an attested one.
+    #>
+    return (Get-LwgClaudeHomeInfo).path
+}
+
 # --- state directory -------------------------------------------------------
 # Mutable state lives in the data dir, never in the plugin root - the plugin
 # root is a git working tree and writing to it would dirty the repo.
@@ -149,9 +273,18 @@ function Get-LwgPluginRoot {
 # THE SELECTION RULE
 #
 #   1. $env:CLAUDE_PLUGIN_DATA wins outright when set. source 'env'.
-#   2. Otherwise, look under ~\.claude\plugins\data for directories named
+#   2. Otherwise, look under <claude home>\plugins\data for directories named
 #      <name> or <name>-*, where <name> is read from .claude-plugin/plugin.json
-#      (see Get-LwgPluginName) rather than spelled out here.
+#      (see Get-LwgPluginName) rather than spelled out here, and <claude home>
+#      comes from Get-LwgClaudeHome rather than from $env:USERPROFILE and a
+#      literal `.claude`. That composition was hardcoded here until 3 September
+#      2026 and it is why CLAUDE_CONFIG_DIR was honoured by nothing: step 1 is
+#      the branch every live HOOK takes, so a relocated config directory only
+#      ever broke the callers Claude Code does not hand CLAUDE_PLUGIN_DATA to -
+#      the status line, an agent-run resolver, and every test - which is exactly
+#      the population that then reported success against a directory nothing
+#      writes. The precedence and the three awkward values are settled at
+#      Get-LwgClaudeHomeInfo; see the block above it.
 #   3. A SUFFIXED candidate (<name>-*) wins over the bare <name>. Claude Code
 #      names a plugin's data dir <plugin-name>-<source-id>, and a plugin always
 #      has a source, so the live dir is always suffixed. The bare name is not a
@@ -263,6 +396,17 @@ function Get-LwgStateDirInfo {
         resolved    $true only for 'env' and 'discovered'; $false means the path
                     is a GUESS and may well be a directory nothing else writes to
         candidates  how many <name>* directories were seen
+        home        the configuration root the search was made under, and
+        home_source how that root was arrived at - 'env' (CLAUDE_CONFIG_DIR),
+                    'profile', 'unresolved', or 'not-consulted' when
+                    CLAUDE_PLUGIN_DATA answered outright and no config root was
+                    needed. Both are ADDED KEYS: every existing reader takes
+                    .path, .source, .resolved and .candidates by name, so this
+                    widens the hashtable without moving anything in it. They are
+                    here because a component that reports a resolved state
+                    directory and cannot say which configuration root it came
+                    from cannot tell a correct install from one pointed at a
+                    tree nothing reads.
 
       The resolved flag exists because three separate failures this repo has
       already shipped were things reporting success while writing nowhere. A
@@ -280,9 +424,13 @@ function Get-LwgStateDirInfo {
 
     if (-not $Refresh -and $null -ne $script:LwgStateDirInfo) { return $script:LwgStateDirInfo }
 
-    $info = @{ path = $null; source = 'unresolved'; resolved = $false; candidates = 0 }
+    $info = @{ path = $null; source = 'unresolved'; resolved = $false; candidates = 0
+               home = $null; home_source = 'not-consulted' }
 
     # 1. an explicit CLAUDE_PLUGIN_DATA is authoritative and ends the matter.
+    #    The configuration root is deliberately NOT resolved on this branch: it
+    #    is the branch every live hook takes, it would add a stat call to it,
+    #    and 'not-consulted' is the true answer rather than a missing one.
     $env_ = $env:CLAUDE_PLUGIN_DATA
     if (-not [string]::IsNullOrWhiteSpace($env_)) {
         $info.path = $env_; $info.source = 'env'; $info.resolved = $true
@@ -300,7 +448,18 @@ function Get-LwgStateDirInfo {
         # [IO.Path]::Combine rather than Join-Path throughout: Join-Path is a
         # cmdlet, and three of them cost ~15-25 ms of the cold path measured
         # here, for string work a static does for free.
-        $root = [IO.Path]::Combine($env:USERPROFILE, '.claude\plugins\data')
+        # -Refresh carries THROUGH to the configuration root. A caller that
+        # re-runs this scan after changing the environment - which is what
+        # every -Refresh call site in tests/ is doing - would otherwise get a
+        # fresh data-dir scan made under a stale config root.
+        $homeInfo         = Get-LwgClaudeHomeInfo -Refresh:$Refresh
+        $info.home        = $homeInfo.path
+        $info.home_source = $homeInfo.source
+        # Combine throws on a $null first argument rather than composing a
+        # half-path, and the catch below is what turns that into 'unresolved'
+        # with $info.path still $null - which is the honest answer on a machine
+        # with neither CLAUDE_CONFIG_DIR nor USERPROFILE.
+        $root = [IO.Path]::Combine($homeInfo.path, 'plugins\data')
         $bare = [IO.Path]::Combine($root, $name)
         $info.path = $bare   # the guess, until something better is found
 
