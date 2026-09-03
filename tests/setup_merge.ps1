@@ -48,17 +48,27 @@
   in a finally. Those two knobs are the whole sandbox contract, documented in the
   installer's own header: -SettingsPath redirects every settings read and write,
   and everything else - the status-line target, the state directory, the agent
-  directory - hangs off $env:USERPROFILE. Nothing here can reach the operator's
-  own .claude directory, and no case runs elevated or constructs a destructive
-  command.
+  directory - hangs off the CONFIGURATION DIRECTORY, which is CLAUDE_CONFIG_DIR
+  when set and $env:USERPROFILE\.claude otherwise. Nothing here can reach the
+  operator's own .claude directory, and no case runs elevated or constructs a
+  destructive command.
 
-  THREE ENVIRONMENT VARIABLES ARE ALSO CLEARED around every child, and restored
-  in the same finally: CLAUDE_PLUGIN_ROOT, CLAUDE_PLUGIN_DATA and
-  CLAUDE_CODE_PLUGIN_CACHE_DIR. Each one, if the runner's own process happened to
-  carry it, would redirect the code under test somewhere outside the scratch tree
-  and make a case pass or fail for a reason that is not in this file. They were
-  not cleared before because nothing here read them; the install-mode detection
-  reads all three, so they are part of the sandbox now.
+  FOUR ENVIRONMENT VARIABLES ARE ALSO CLEARED around every child, and restored in
+  the same finally: CLAUDE_PLUGIN_ROOT, CLAUDE_PLUGIN_DATA,
+  CLAUDE_CODE_PLUGIN_CACHE_DIR and CLAUDE_CONFIG_DIR. Each one, if the runner's
+  own process happened to carry it, would redirect the code under test somewhere
+  outside the scratch tree and make a case pass or fail for a reason that is not
+  in this file. They were not cleared before because nothing here read them; the
+  install-mode detection reads the first three.
+
+  CLAUDE_CONFIG_DIR JOINED THAT LIST ON 3 SEPTEMBER 2026 AND IT IS THE MOST
+  IMPORTANT OF THE FOUR. Until then nothing in this repository read it, so
+  swapping USERPROFILE alone WAS the whole sandbox. Now that every path resolves
+  through it, a runner that happens to set the variable would point every child
+  in this file at that machine's REAL configuration directory - with USERPROFILE
+  pointing harmlessly at the scratch tree the whole time, so the sandbox would
+  look intact while nothing was in it. It is cleared by default and set only by a
+  case that is about it, through the -ConfigDir parameter each launcher takes.
 
   Every scratch path is BUILT AT RUNTIME from [IO.Path]::GetTempPath(). No path
   in this file names a machine, an account or an install location, which is what
@@ -411,12 +421,13 @@ function Invoke-Setup {
       switch and not the default because everywhere else an unexpected stderr
       is a thing a maintainer should see.
     #>
-    param([string]$ProfileDir, [string[]]$Arguments, [switch]$ExpectsStderr)
+    param([string]$ProfileDir, [string[]]$Arguments, [switch]$ExpectsStderr, [string]$ConfigDir = '')
 
     $prev  = $env:USERPROFILE
     $prevR = $env:CLAUDE_PLUGIN_ROOT
     $prevD = $env:CLAUDE_PLUGIN_DATA
     $prevC = $env:CLAUDE_CODE_PLUGIN_CACHE_DIR
+    $prevG = $env:CLAUDE_CONFIG_DIR
     $prevA = $env:APPDATA
     $prevL = $env:LOCALAPPDATA
     $ad    = Get-ScratchAppData -ProfileDir $ProfileDir
@@ -427,6 +438,7 @@ function Invoke-Setup {
         $env:CLAUDE_PLUGIN_ROOT          = ''
         $env:CLAUDE_PLUGIN_DATA          = ''
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = ''
+        $env:CLAUDE_CONFIG_DIR           = $ConfigDir
         $env:APPDATA                     = $ad.roaming
         $env:LOCALAPPDATA                = $ad.local
         if ($ExpectsStderr) {
@@ -451,6 +463,7 @@ function Invoke-Setup {
         $env:CLAUDE_PLUGIN_ROOT          = $prevR
         $env:CLAUDE_PLUGIN_DATA          = $prevD
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $prevC
+        $env:CLAUDE_CONFIG_DIR           = $prevG
         $env:APPDATA                     = $prevA
         $env:LOCALAPPDATA                = $prevL
     }
@@ -480,12 +493,14 @@ function Invoke-StatusLine {
       honours it and statusline\statusline.ps1 did not, so the two files that one
       fix repaired disagreed about where the plugin lived on the same machine.
     #>
-    param([string]$ProfileDir, [string]$ScriptPath, [string]$PayloadJson, [string]$CacheDir = '')
+    param([string]$ProfileDir, [string]$ScriptPath, [string]$PayloadJson, [string]$CacheDir = '',
+          [string]$ConfigDir = '')
 
     $prev  = $env:USERPROFILE
     $prevR = $env:CLAUDE_PLUGIN_ROOT
     $prevD = $env:CLAUDE_PLUGIN_DATA
     $prevC = $env:CLAUDE_CODE_PLUGIN_CACHE_DIR
+    $prevG = $env:CLAUDE_CONFIG_DIR
     $prevA = $env:APPDATA
     $prevL = $env:LOCALAPPDATA
     $ad    = Get-ScratchAppData -ProfileDir $ProfileDir
@@ -496,6 +511,7 @@ function Invoke-StatusLine {
         $env:CLAUDE_PLUGIN_ROOT          = ''
         $env:CLAUDE_PLUGIN_DATA          = ''
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $CacheDir
+        $env:CLAUDE_CONFIG_DIR           = $ConfigDir
         $env:APPDATA                     = $ad.roaming
         $env:LOCALAPPDATA                = $ad.local
         $lines = $PayloadJson | & powershell -NoProfile -ExecutionPolicy Bypass -File $ScriptPath
@@ -506,6 +522,7 @@ function Invoke-StatusLine {
         $env:CLAUDE_PLUGIN_ROOT          = $prevR
         $env:CLAUDE_PLUGIN_DATA          = $prevD
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $prevC
+        $env:CLAUDE_CONFIG_DIR           = $prevG
         $env:APPDATA                     = $prevA
         $env:LOCALAPPDATA                = $prevL
     }
@@ -563,7 +580,7 @@ function Invoke-StatusLineRaw {
     $adRaw = Get-ScratchAppData -ProfileDir $ProfileDir
     $psi.EnvironmentVariables['APPDATA']      = $adRaw.roaming
     $psi.EnvironmentVariables['LOCALAPPDATA'] = $adRaw.local
-    foreach ($v in @('CLAUDE_PLUGIN_ROOT', 'CLAUDE_PLUGIN_DATA')) {
+    foreach ($v in @('CLAUDE_PLUGIN_ROOT', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_CONFIG_DIR')) {
         if ($psi.EnvironmentVariables.ContainsKey($v)) { [void]$psi.EnvironmentVariables.Remove($v) }
     }
     if ([string]::IsNullOrWhiteSpace($CacheDir)) {
@@ -628,11 +645,12 @@ function Invoke-Update {
       tree so the junction probe and the status-line comparison cannot see the
       operator's own .claude directory. Same env contract as Invoke-Setup.
     #>
-    param([string]$ProfileDir, [string[]]$Arguments)
+    param([string]$ProfileDir, [string[]]$Arguments, [string]$ConfigDir = '')
 
     $prev  = $env:USERPROFILE
     $prevR = $env:CLAUDE_PLUGIN_ROOT
     $prevD = $env:CLAUDE_PLUGIN_DATA
+    $prevG = $env:CLAUDE_CONFIG_DIR
     $prevA = $env:APPDATA
     $prevL = $env:LOCALAPPDATA
     $ad    = Get-ScratchAppData -ProfileDir $ProfileDir
@@ -642,6 +660,7 @@ function Invoke-Update {
         $env:USERPROFILE        = $ProfileDir
         $env:CLAUDE_PLUGIN_ROOT = ''
         $env:CLAUDE_PLUGIN_DATA = ''
+        $env:CLAUDE_CONFIG_DIR  = $ConfigDir
         $env:APPDATA            = $ad.roaming
         $env:LOCALAPPDATA       = $ad.local
         $lines = & powershell -NoProfile -ExecutionPolicy Bypass -File $UpdatePath @Arguments
@@ -651,6 +670,7 @@ function Invoke-Update {
         $env:USERPROFILE        = $prev
         $env:CLAUDE_PLUGIN_ROOT = $prevR
         $env:CLAUDE_PLUGIN_DATA = $prevD
+        $env:CLAUDE_CONFIG_DIR  = $prevG
         $env:APPDATA            = $prevA
         $env:LOCALAPPDATA       = $prevL
     }
@@ -2838,6 +2858,151 @@ try {
     Add-Result 'CONTROL: the same run with the dead argument removed DOES print' `
         ([bool](-not [string]::IsNullOrWhiteSpace($p4.out))) `
         "without this, the three cases above are satisfied by a harness that captures no stdout at all, whatever the script does. exit $($p4.code), stdout length $($p4.out.Length)"
+
+    # ===================================================================
+    # 30. CLAUDE_CONFIG_DIR (#146).
+    #
+    #     Claude Code honours CLAUDE_CONFIG_DIR to relocate its configuration
+    #     directory away from ~\.claude. Until 3 September 2026 NOTHING in this
+    #     repository read it: every path was composed from $env:USERPROFILE and
+    #     a literal `.claude`. The installer therefore wrote statusLine and hooks
+    #     into a settings.json the CLI does not load, AND REPORTED SUCCESS -
+    #     which is worse than failing, because an install that fails can be
+    #     fixed and one that is attested cannot.
+    #
+    #     THE FIXTURE PUTS THE TWO TREES IN DIFFERENT PLACES ON PURPOSE. A
+    #     config dir nested inside the profile would be satisfied by code that
+    #     still resolves through the profile. <case>\cfg and <case>\profile are
+    #     siblings, so "landed in the right one" and "landed in the wrong one"
+    #     are different directories and no assertion can be true of both.
+    #
+    #     RED AT ec80e88, measured, all three writing cases: the settings file
+    #     appeared at <case>\profile\.claude\settings.json and <case>\cfg stayed
+    #     empty.
+    # ===================================================================
+
+    # -------------------------------------------------------------------
+    # 30a. THE WRITE LANDS IN CLAUDE_CONFIG_DIR, AND NOT IN THE PROFILE.
+    #
+    #      No -SettingsPath, so the default path is what is under test - which is
+    #      the path a real /lw-watchtower:setup run uses, and the one #146 is
+    #      about. -Section statusline also copies the status line to
+    #      <configuration root>\statusline.ps1, so the case asserts on both the
+    #      file the installer WRITES and the file it COPIES.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'cfgdir-honoured' -Bytes $null
+    $cfgA = Join-Path $t.dir 'cfg'
+    [void][IO.Directory]::CreateDirectory($cfgA)
+    $profClaude = Join-Path $t.profile '.claude'
+
+    $r = Invoke-Setup -ProfileDir $t.profile -ConfigDir $cfgA -Arguments @('-Step', 'apply', '-Section', 'statusline', '-BaseHash', 'none')
+    $landedCfg  = [IO.File]::Exists((Join-Path $cfgA 'settings.json'))
+    $landedProf = [IO.File]::Exists((Join-Path $profClaude 'settings.json'))
+    Add-Result 'CLAUDE_CONFIG_DIR: apply writes settings.json into the configuration directory' `
+        ([bool]($r.code -eq 0 -and $landedCfg)) `
+        "exit $($r.code); <cfg>\settings.json exists=$landedCfg. The installer wrote its statusLine into a settings.json the CLI does not read and reported success. Output:`n$($r.out)"
+    Add-Result 'CLAUDE_CONFIG_DIR: and NOT into the user profile' `
+        ([bool](-not $landedProf)) `
+        "a settings.json appeared at $profClaude - the directory the CLI is NOT reading on a machine that sets CLAUDE_CONFIG_DIR. Both files existing is the same defect as only the wrong one existing: the operator now has two."
+    Add-Result 'CLAUDE_CONFIG_DIR: the status-line copy goes there too' `
+        ([bool]([IO.File]::Exists((Join-Path $cfgA 'statusline.ps1')) -and -not [IO.File]::Exists((Join-Path $profClaude 'statusline.ps1')))) `
+        "cfg copy=$([IO.File]::Exists((Join-Path $cfgA 'statusline.ps1'))), profile copy=$([IO.File]::Exists((Join-Path $profClaude 'statusline.ps1'))). A settings.json in one tree pointing at a statusline.ps1 in another is an install that renders nothing."
+
+    # -------------------------------------------------------------------
+    # 30b. THE ROOT IS NAMED, WITH ITS SOURCE, ON EVERY detect RUN.
+    #
+    #      #146 item 3, applied to the installer for the same reason it asks for
+    #      it of the doctor: a command that attests an install without naming
+    #      the directory it attested cannot be argued with by the one person who
+    #      can tell it is wrong.
+    # -------------------------------------------------------------------
+    $rd = Invoke-Setup -ProfileDir $t.profile -ConfigDir $cfgA -Arguments @('-Step', 'detect')
+    Add-Result 'CLAUDE_CONFIG_DIR: detect names the resolved root and says it came from the variable' `
+        ([bool]($rd.out -match [regex]::Escape($cfgA) -and $rd.out -match 'from CLAUDE_CONFIG_DIR')) `
+        "the detect report must print the configuration directory it resolved AND how. Looked for '$cfgA' and 'from CLAUDE_CONFIG_DIR'. Output:`n$($rd.out)"
+
+    # -------------------------------------------------------------------
+    # 30c. AN EXPLICIT PARAMETER BEATS THE VARIABLE.
+    #
+    #      First rule of the precedence in lib\common.ps1, and the reason it is
+    #      first: -SettingsPath is the test seam every case in this file drives,
+    #      and a caller that names a path outright has said something no
+    #      environment variable may overrule. If this case ever goes red, every
+    #      other case in this file is running somewhere it was not told to.
+    # -------------------------------------------------------------------
+    $t2 = New-CaseTree -Tag 'cfgdir-param-wins' -Bytes $FixtureBytes
+    $cfgB = Join-Path $t2.dir 'cfg'
+    [void][IO.Directory]::CreateDirectory($cfgB)
+    $d2 = Invoke-Setup -ProfileDir $t2.profile -ConfigDir $cfgB -Arguments @('-Step', 'diff', '-Section', 'statusline', '-SettingsPath', $t2.settings)
+    $bh = Get-BaseHashFrom $d2.out
+    $a2 = Invoke-Setup -ProfileDir $t2.profile -ConfigDir $cfgB -Arguments @('-Step', 'apply', '-Section', 'statusline', '-SettingsPath', $t2.settings, '-BaseHash', $bh)
+    $o2 = Read-Json $t2.settings
+    Add-Result 'CLAUDE_CONFIG_DIR: -SettingsPath beats it, and the write goes where the parameter said' `
+        ([bool]($a2.code -eq 0 -and $null -ne $o2 -and $null -ne $o2.PSObject.Properties['statusLine'])) `
+        "apply exited $($a2.code) against $($t2.settings). Output:`n$($a2.out)"
+    Add-Result 'CLAUDE_CONFIG_DIR: nothing was written into the configuration directory it overruled' `
+        ([bool](-not [IO.File]::Exists((Join-Path $cfgB 'settings.json')))) `
+        "a settings.json appeared at $cfgB even though -SettingsPath named a different file. An explicit parameter that can be overruled by the environment is not a seam, and every case in this file depends on it being one."
+
+    # -------------------------------------------------------------------
+    # 30d. THE CONTROL: WITH THE VARIABLE UNSET, THE PROFILE DEFAULT STANDS.
+    #
+    #      #146 asks for this in as many words, and it is the case that would
+    #      catch the fix over-reaching. It passes at ec80e88 too - that is the
+    #      point of it: it is the invariant the change had to preserve, not
+    #      evidence of the change.
+    # -------------------------------------------------------------------
+    $t3 = New-CaseTree -Tag 'cfgdir-unset-control' -Bytes $null
+    $r3 = Invoke-Setup -ProfileDir $t3.profile -Arguments @('-Step', 'apply', '-Section', 'statusline', '-BaseHash', 'none')
+    Add-Result 'CONTROL: with CLAUDE_CONFIG_DIR unset the default is still <profile>\.claude\settings.json' `
+        ([bool]($r3.code -eq 0 -and [IO.File]::Exists((Join-Path (Join-Path $t3.profile '.claude') 'settings.json')))) `
+        "exit $($r3.code). The historical default must not regress: a fix that honours the variable and loses the default breaks every machine that does not set it. Output:`n$($r3.out)"
+    $rd3 = Invoke-Setup -ProfileDir $t3.profile -Arguments @('-Step', 'detect')
+    Add-Result 'CONTROL: and detect says so, rather than saying nothing' `
+        ([bool]($rd3.out -match 'CLAUDE_CONFIG_DIR is not set')) `
+        "the report must distinguish 'resolved from the profile' from 'resolved from the variable' on the machine where the variable is unset too. Output:`n$($rd3.out)"
+
+    # -------------------------------------------------------------------
+    # 30e. THE STATUS LINE READS ITS STATE UNDER CLAUDE_CONFIG_DIR.
+    #
+    #      statusline\statusline.ps1 dot-sources nothing by design - it is a
+    #      settings.json command that runs on every assistant message - so it
+    #      carries its own copy of the resolver, cross-referenced in comment to
+    #      lib\common.ps1's. A copy is a thing that can drift, which is what this
+    #      case is for: the two must agree about where the data root is.
+    #
+    #      Asserted through the HH glyph rather than through a path, because the
+    #      glyph is what an operator sees. A health log holding one fault for
+    #      this session renders red HH1; read from the wrong root it renders
+    #      green HH off an empty directory, which is the false green the whole
+    #      indicator exists to prevent.
+    # -------------------------------------------------------------------
+    $t4 = New-CaseTree -Tag 'cfgdir-statusline' -Bytes $null
+    $cfgC = Join-Path $t4.dir 'cfg'
+    $sl4  = Join-Path (Join-Path $t4.profile '.claude') 'statusline.ps1'
+    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $sl4))
+    [IO.File]::WriteAllBytes($sl4, $repoStatusLineBytes)
+    # The plugin marker the presence probes need, under the RELOCATED root.
+    $inst4 = Join-Path $cfgC ("skills\" + $PluginName)
+    [void][IO.Directory]::CreateDirectory((Join-Path $inst4 'lib'))
+    [void][IO.Directory]::CreateDirectory((Join-Path $inst4 'agents'))
+    [IO.File]::WriteAllText((Join-Path $inst4 'lib\supervisor.ps1'), '# fixture')
+    [IO.File]::WriteAllText((Join-Path $inst4 'agents\lw-healer.md'), '# fixture')
+    $sid4 = 'lwg-cfgdir-session'
+    $dd4  = Join-Path $cfgC ("plugins\data\" + $PluginName + '-skills-dir')
+    [void][IO.Directory]::CreateDirectory($dd4)
+    # The record shape HealthSeg actually counts: the session key is `session`
+    # (the PAYLOAD's is session_id, and they are not the same field), and one
+    # fault is a StopFailure. A record that parses but matches no arm renders
+    # HH-, which is 'nothing was attributed to this session' - a different
+    # answer from both HH and HH1, and one this case must not be satisfied by.
+    [IO.File]::WriteAllText((Join-Path $dd4 'health.jsonl'),
+        ('{"session":"' + $sid4 + '","ts":"2026-09-03T10:00:00.0000000Z","event":"StopFailure","error":"lwg-fixture"}' + "`n"))
+    $pay4 = '{"session_id":"' + $sid4 + '","cwd":"' + (($t4.dir -replace '\\', '/')) + '","model":{"display_name":"lwg-fixture-model"}}'
+    $s4 = Invoke-StatusLine -ProfileDir $t4.profile -ScriptPath $sl4 -PayloadJson $pay4 -ConfigDir $cfgC
+    Add-Result 'CLAUDE_CONFIG_DIR: the status line finds the install and the log under the relocated root' `
+        ([bool]($s4.out -match 'HH1')) `
+        "expected the HH segment to read the fault log under $dd4 and render HH1. Rendering HH? means the install under the relocated root was never found; rendering plain HH means the log was. Output:`n$($s4.out)"
 
     # -------------------------------------------------------------------
     # 29. THIS SUITE MUST NOT LEAVE ANYTHING IN THE WORKING DIRECTORY (#214).

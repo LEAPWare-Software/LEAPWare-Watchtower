@@ -479,7 +479,28 @@ try {
     . (Join-Path $PSScriptRoot 'lwg-cmdlib.ps1')
 
     if ($All) { $RemoveStatusLine = $true; $RemovePermissions = $true }
-    if ([string]::IsNullOrWhiteSpace($ClaudeHome))   { $ClaudeHome   = Join-Path $env:USERPROFILE '.claude' }
+    # THE DEFAULT IS NOW RESOLVED, NOT COMPOSED. -ClaudeHome still beats it -
+    # that is the first rule of the precedence argued in lib\common.ps1, and it
+    # is the seam every case in tests\uninstall_footprint.ps1 drives - but when
+    # it is not given the root comes from Get-LwgClaudeHomeInfo, which reads
+    # CLAUDE_CONFIG_DIR. Until 3 September 2026 this line was
+    # `Join-Path $env:USERPROFILE '.claude'`, so on a machine that relocated the
+    # configuration directory this script reported a footprint from a tree the
+    # CLI does not use and, with -Apply, removed nothing while saying it had.
+    # This file's header promises that what it cannot know is printed on every
+    # run, because a footprint report that omits its own blind spots reads as a
+    # complete one. A footprint report of the WRONG TREE reads as a clean
+    # machine, which is worse.
+    $script:LwgHomeInfo  = $null
+    try { $script:LwgHomeInfo = Get-LwgClaudeHomeInfo } catch { }
+    if ($null -eq $script:LwgHomeInfo) { $script:LwgHomeInfo = @{ path = $null; source = 'unresolved'; exists = $false; raw = $null } }
+    $script:LwgHomeGiven = (-not [string]::IsNullOrWhiteSpace($ClaudeHome))
+    if (-not $script:LwgHomeGiven) {
+        if ([string]::IsNullOrWhiteSpace($script:LwgHomeInfo.path)) {
+            throw 'no configuration directory could be resolved: -ClaudeHome was not given and neither CLAUDE_CONFIG_DIR nor USERPROFILE holds a value. Nothing was read and nothing was removed.'
+        }
+        $ClaudeHome = $script:LwgHomeInfo.path
+    }
     if ([string]::IsNullOrWhiteSpace($SettingsPath)) { $SettingsPath = Join-Path $ClaudeHome 'settings.json' }
 
     $name = Get-LwgPluginName
@@ -875,7 +896,13 @@ try {
         Add-DataTarget -Path ([string]$stateInfo.path) -Why "resolved, source '$($stateInfo.source)': $srcWhy" -Source ([string]$stateInfo.source)
     }
 
-    $dataRoot  = if ([string]::IsNullOrWhiteSpace($DataRoot)) { Join-Path $env:USERPROFILE '.claude\plugins\data' } else { $DataRoot }
+    # -DataRoot beats it; otherwise it hangs off $ClaudeHome, which is either
+    # what -ClaudeHome named or what Get-LwgClaudeHomeInfo resolved. It was
+    # `Join-Path $env:USERPROFILE '.claude\plugins\data'`, which meant the sweep
+    # for sibling and legacy state directories ran in the profile even when the
+    # rest of this run had been pointed somewhere else - the two halves of one
+    # footprint describing two different machines.
+    $dataRoot  = if ([string]::IsNullOrWhiteSpace($DataRoot)) { Join-Path $ClaudeHome 'plugins\data' } else { $DataRoot }
     $sweepNote = ''
     if (-not (Test-Path -LiteralPath $dataRoot -PathType Container)) {
         $sweepNote = "the data root $dataRoot does not exist, so there were no siblings to sweep"
@@ -1586,13 +1613,36 @@ try {
     Write-Output '    Other machines, other clones, and any settings.json outside the path printed at the top.'
     Write-Output '    ~/.claude/health/ is the operator own health supervisor, not part of this plugin, and is'
     Write-Output '    never touched here - even though the status line merges its log with this one.'
-    Write-Output '    A REDIRECTED CLAUDE CONFIG DIRECTORY. Every row above that is not the state data hangs off'
-    Write-Output '    the profile path printed at the top - the junction, the copied status line, settings.json'
-    Write-Output '    and its backups. If the CLI has been pointed at a different config directory, those rows'
-    Write-Output '    describe a directory nobody is using. Nothing in this plugin reads CLAUDE_CONFIG_DIR, so'
-    Write-Output '    this script does not either rather than honour it in one place and not the rest; pass'
-    Write-Output '    -ClaudeHome and -SettingsPath to point it at the real one. The state data is NOT affected'
-    Write-Output '    by this - it is resolved through CLAUDE_PLUGIN_DATA and the shared resolver.'
+    # THIS BLIND SPOT WAS RETIRED ON 3 SEPTEMBER 2026 AND ITS ENTRY IS KEPT.
+    #
+    # It used to read "Nothing in this plugin reads CLAUDE_CONFIG_DIR, so this
+    # script does not either rather than honour it in one place and not the
+    # rest" - a deliberately-taken position, correct on the day it was written
+    # and FALSE the moment lib\common.ps1 grew Get-LwgClaudeHomeInfo and this
+    # file started calling it. The entry stays because the operator still needs
+    # to know WHICH root the rows above describe and how it was chosen: a
+    # footprint is a claim about a directory, and a claim about a directory that
+    # does not name it is not checkable. What was a blind spot is now a
+    # DISCLOSURE, which is why it is still printed on every run.
+    $chSrc = switch ([string]$script:LwgHomeInfo.source) {
+        'env'     { "CLAUDE_CONFIG_DIR = $($script:LwgHomeInfo.raw)" }
+        'profile' { 'the user profile - CLAUDE_CONFIG_DIR is not set' }
+        default   { 'nothing - neither CLAUDE_CONFIG_DIR nor USERPROFILE held a value' }
+    }
+    if ($script:LwgHomeGiven) {
+        Write-Output ("    THE CONFIG DIRECTORY THESE ROWS DESCRIBE is $ClaudeHome, because -ClaudeHome named it.")
+        Write-Output ("    An explicit path beats everything, so CLAUDE_CONFIG_DIR was NOT consulted for it; had it")
+        Write-Output ("    been, it would have resolved $chSrc.")
+    } else {
+        Write-Output ("    THE CONFIG DIRECTORY THESE ROWS DESCRIBE is $ClaudeHome, resolved from $chSrc.")
+        Write-Output ('    Every row above that is not state data hangs off it - the junction, the copied status')
+        Write-Output ('    line, settings.json and its backups. This script now READS CLAUDE_CONFIG_DIR through the')
+        Write-Output ('    same resolver the rest of the plugin uses; before 3 September 2026 nothing did, and a')
+        Write-Output ('    machine that set it got a footprint of a directory nobody was using. If the root above')
+        Write-Output ('    is still not the one your CLI loads, pass -ClaudeHome and -SettingsPath.')
+    }
+    Write-Output '    The state data is NOT affected by any of this - it is resolved through CLAUDE_PLUGIN_DATA'
+    Write-Output '    and the shared resolver, in that order.'
     Write-Output '    WHAT IS INSIDE A STATE-DATA DIRECTORY. -RemoveData deletes the directory whole. If one of'
     Write-Output '    them holds another tool''s files as well as this plugin''s, those go too - the ownership test'
     Write-Output '    runs per DIRECTORY, never per file, and there is no per-file removal here.'

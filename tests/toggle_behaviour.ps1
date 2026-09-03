@@ -401,11 +401,21 @@ function Push-ChildEnv {
         dat = $env:CLAUDE_PLUGIN_DATA
         rt  = $env:CLAUDE_PLUGIN_ROOT
         cd_ = $env:CLAUDE_CODE_PLUGIN_CACHE_DIR
+        cfg = $env:CLAUDE_CONFIG_DIR
     }
     $env:USERPROFILE                  = $(if ($NoUserProfile) { $null } else { $Sand.profile })
     $env:CLAUDE_PLUGIN_DATA           = $Sand.data
     $env:CLAUDE_PLUGIN_ROOT           = $null
     $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $null
+    # CLAUDE_CONFIG_DIR JOINED THE SANDBOX ON 3 SEPTEMBER 2026. No path in
+    # bin\lwg-toggle.ps1 itself composes a configuration root any more - the
+    # output-style block that did was deleted, which is what -NoUserProfile is
+    # left asserting - but the child dot-sources lib\common.ps1, whose state-dir
+    # resolver falls back to <configuration root>\plugins\data when
+    # CLAUDE_PLUGIN_DATA is not set. A runner carrying the variable would point
+    # that fallback at the real machine while USERPROFILE pointed harmlessly at
+    # the sandbox. Cleared, so the sandbox is the whole sandbox.
+    $env:CLAUDE_CONFIG_DIR            = $null
     return $prev
 }
 
@@ -416,6 +426,7 @@ function Pop-ChildEnv {
     $env:CLAUDE_PLUGIN_DATA           = $Prev.dat
     $env:CLAUDE_PLUGIN_ROOT           = $Prev.rt
     $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $Prev.cd_
+    $env:CLAUDE_CONFIG_DIR            = $Prev.cfg
 }
 
 function Invoke-Toggle {

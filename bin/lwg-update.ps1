@@ -99,6 +99,25 @@ try {
 
     if ([string]::IsNullOrWhiteSpace($Root)) { $Root = $pluginRoot }
 
+    # CLAUDE CODE'S CONFIGURATION DIRECTORY, RESOLVED ONCE FOR THIS RUN.
+    #
+    # The three paths this command composes - the skills junction it compares
+    # $Root against, the live status line it hashes, and the re-approval note
+    # that names it - were all built from $env:USERPROFILE and a literal
+    # `.claude`. On a machine that sets CLAUDE_CONFIG_DIR, all three named a
+    # directory the CLI does not use, so section 0 reported "no junction at ..."
+    # about an install that is there, and the status-line row reported an
+    # absence about a file that exists. lib\common.ps1's Get-LwgClaudeHomeInfo
+    # is the resolver and the precedence is argued there.
+    #
+    # $null is possible - a machine with neither variable - and is carried as
+    # $null rather than composed onto, so a row can say "could not be resolved"
+    # instead of throwing over a path it invented.
+    $homeInfo = $null
+    try { $homeInfo = Get-LwgClaudeHomeInfo } catch { }
+    if ($null -eq $homeInfo) { $homeInfo = @{ path = $null; source = 'unresolved'; exists = $false; raw = $null } }
+    $claudeHome = [string]$homeInfo.path
+
     function Git {
         param([string[]]$A, [int]$Ms = $TimeoutMs)
         return (Invoke-LwgCmdProcess -File 'git' -ProcArgs $A -WorkDir $Root -TimeoutMs $Ms)
@@ -115,7 +134,7 @@ try {
     # first, because it changes what every row below means.
     $name = Get-LwgPluginName
     if ([string]::IsNullOrWhiteSpace($name)) { $name = 'lw-watchtower' }
-    $link = Join-Path $env:USERPROFILE ".claude\skills\$name"
+    $link = if ([string]::IsNullOrWhiteSpace($claudeHome)) { '' } else { Join-Path $claudeHome "skills\$name" }
     $linkTarget = ''
     try {
         $li = Get-Item -LiteralPath $link -Force -ErrorAction Stop
@@ -145,6 +164,8 @@ try {
     $viaLink = (-not [string]::IsNullOrWhiteSpace($link)) -and (Test-LwgPathUnder -Path $Root -Root $link)
     if ($viaLink) {
         Add-Row -Id 'loaded-copy' -Status 'OK' -Detail "this checkout was invoked through $link, which is the path Claude Code loads$(if ($linkTarget) { " (it points at $linkTarget)" } else { '' })"
+    } elseif ([string]::IsNullOrWhiteSpace($link)) {
+        Add-Row -Id 'loaded-copy' -Status 'INFO' -Detail 'no configuration directory could be resolved - neither CLAUDE_CONFIG_DIR nor USERPROFILE holds a value - so whether a skills junction exists was not established. This is not evidence that there is none.'
     } elseif ([string]::IsNullOrWhiteSpace($linkTarget)) {
         Add-Row -Id 'loaded-copy' -Status 'INFO' -Detail "no junction at $link - this checkout may or may not be what Claude Code loads; a marketplace install is a separate copy and is not updated by git"
     } elseif (Test-LwgPathUnder -Path $Root -Root $linkTarget) {
@@ -289,7 +310,7 @@ try {
             $n += '.claude-plugin/plugin.json changes: the plugin NAME is what the state directory is resolved from, so a rename moves every log to a new directory and leaves the old one behind. The manifest does NOT name a hooks file - hooks are registered in hooks/hooks.json, which is reported on its own line.'
         }
         if ($Files -contains 'statusline/statusline.ps1') {
-            $n += "statusline/statusline.ps1 changes: the live status line is a COPY at $(Join-Path $env:USERPROFILE '.claude\statusline.ps1'). git does not touch it. Re-copy it after the pull or it stays stale, silently."
+            $n += "statusline/statusline.ps1 changes: the live status line is a COPY at $(if ([string]::IsNullOrWhiteSpace($claudeHome)) { '<the configuration directory, which could not be resolved on this machine>\statusline.ps1' } else { Join-Path $claudeHome 'statusline.ps1' }). git does not touch it. Re-copy it after the pull or it stays stale, silently."
         }
         if ($Files -contains 'config.json') {
             $n += 'config.json changes: module ON/OFF flags travel with the repo, so a pull can change what runs. The flag differences are listed below.'
@@ -335,9 +356,9 @@ try {
 
     # The status-line copy, checked on every run and not only when it changed -
     # it can be stale from an update made weeks ago.
-    $slLive = Join-Path $env:USERPROFILE '.claude\statusline.ps1'
+    $slLive = if ([string]::IsNullOrWhiteSpace($claudeHome)) { '' } else { Join-Path $claudeHome 'statusline.ps1' }
     $slRepo = Join-Path $Root 'statusline\statusline.ps1'
-    if ((Test-Path -LiteralPath $slLive) -and (Test-Path -LiteralPath $slRepo)) {
+    if ((-not [string]::IsNullOrWhiteSpace($slLive)) -and (Test-Path -LiteralPath $slLive) -and (Test-Path -LiteralPath $slRepo)) {
         $a = (Get-FileHash -LiteralPath $slLive -Algorithm SHA256).Hash
         $b = (Get-FileHash -LiteralPath $slRepo -Algorithm SHA256).Hash
         if ($a -eq $b) { Add-Row -Id 'statusline' -Status 'OK' -Detail "$slLive is byte-identical to the repo copy" }
@@ -345,6 +366,8 @@ try {
             Add-Row -Id 'statusline' -Status 'WARN' -Detail "$slLive DIFFERS from statusline/statusline.ps1 - one of them is stale and nothing on this machine reconciles them"
             $needs += "the installed status line differs from the repo copy. Copy-Item `"$slRepo`" `"$slLive`" makes the repo version live - check which way round you want it first, because a fix made to the live file is lost."
         }
+    } elseif ([string]::IsNullOrWhiteSpace($slLive)) {
+        Add-Row -Id 'statusline' -Status 'INFO' -Detail 'no configuration directory could be resolved, so the live status line was not looked for. This is not evidence that it is missing.'
     } elseif (-not (Test-Path -LiteralPath $slLive)) {
         Add-Row -Id 'statusline' -Status 'INFO' -Detail "no $slLive - the HH segment is not installed on this machine"
     }

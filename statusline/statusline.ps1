@@ -164,7 +164,65 @@ function AsNum($v) {
 }
 $EPOCH = [datetime]::SpecifyKind([datetime]'1970-01-01T00:00:00', 'Utc')
 
-$home_ = $env:USERPROFILE
+# --- Claude Code's configuration directory ---------------------------------
+# CLAUDE_CONFIG_DIR relocates it away from ~/.claude. Until 3 September 2026
+# NOTHING in this repository read it, so on a machine that sets it this file
+# read a data root nothing had ever been written to and rendered off an empty
+# log - which, for an indicator whose entire job is to say whether the plugin is
+# healthy, is the false green it exists to prevent.
+#
+# THIS IS A SECOND COPY OF lib\common.ps1's Get-LwgClaudeHomeInfo, AND THAT IS
+# DELIBERATE. This script is a settings.json `statusLine.command`: it runs as a
+# fresh powershell.exe on every assistant message, and its cost is paid by the
+# operator on every one of them. Dot-sourcing lib\common.ps1 was measured on
+# this branch rather than guessed - seven runs of `powershell -NoProfile
+# -Command ". lib\common.ps1"` against seven runs of `-Command "1"`, median
+# delta 66 ms, for a 3537-line file of which this needs eleven. 66 ms per
+# rendered message to avoid twenty lines of duplication is the wrong trade, and
+# "the status line dot-sources nothing" is a standing property of this file
+# rather than an oversight.
+#
+# THE PRICE OF THE COPY IS THAT THE TWO MUST BE KEPT IN STEP, so they
+# cross-reference each other by name: lib\common.ps1's block above
+# Get-LwgClaudeHomeInfo says the status line keeps its own copy and why, and
+# this comment says where the original is. The PRECEDENCE and the three awkward
+# values - trailing separator, relative value, a directory that is not there -
+# are argued in full there and only applied here. Two rules matter to a reader
+# of this file:
+#
+#   * an unset, empty or whitespace-only CLAUDE_CONFIG_DIR is NOT a value, and
+#     resolution continues to the profile;
+#   * a CLAUDE_CONFIG_DIR naming a directory that does not exist is returned AS
+#     GIVEN. Falling back to the profile then would silently reinstate the whole
+#     defect on exactly the machine that set the variable.
+#
+# CLAUDE_PLUGIN_DATA still wins for the DATA directory specifically - see
+# LwgDataDirs, which leads with it - because it names the exact directory rather
+# than a tree one is derived from. Same order as lib\common.ps1.
+function LwgClaudeHome {
+    $v = $env:CLAUDE_CONFIG_DIR
+    if (-not [string]::IsNullOrWhiteSpace($v)) {
+        $t = $v.Trim().TrimEnd([char[]]@('\', '/'))
+        # `C:` alone is a drive-RELATIVE path in Windows and means something
+        # else entirely, so a bare drive keeps its root separator.
+        if ($t.Length -eq 2 -and $t[1] -eq ':') { $t = $t + '\' }
+        if ($t.Length -gt 0) {
+            try { $t = [IO.Path]::GetFullPath($t) } catch { }
+            if ($t.Length -gt 3) { $t = $t.TrimEnd([char[]]@('\', '/')) }
+        }
+        return $t
+    }
+    $p = $env:USERPROFILE
+    if ([string]::IsNullOrWhiteSpace($p)) { return $null }
+    return [IO.Path]::Combine($p.TrimEnd([char[]]@('\', '/')), '.claude')
+}
+
+# Resolved ONCE. Every path below that used to be composed from
+# $env:USERPROFILE and a literal `.claude` hangs off this instead. $null is
+# possible - a machine with neither variable - and every consumer below is
+# written to survive it rather than to compose a path onto nothing, which is how
+# bin\lwg-toggle.ps1 exited 3 on a file it had just successfully written.
+$claudeHome = LwgClaudeHome
 
 # Every LW-WATCHTOWER plugin data dir, newest first.
 #
@@ -205,7 +263,10 @@ function LwgDataDirs {
     # an explicit CLAUDE_PLUGIN_DATA is authoritative, so it leads the list
     if ($env:CLAUDE_PLUGIN_DATA) { $dirs += [string]$env:CLAUDE_PLUGIN_DATA }
     try {
-        $root = Join-Path $env:USERPROFILE '.claude\plugins\data'
+        # $claudeHome, not $env:USERPROFILE + '.claude' - see LwgClaudeHome. A
+        # $null home makes Join-Path throw, which this catch already absorbs
+        # into "no directories", the same answer a missing root gives.
+        $root = Join-Path $claudeHome 'plugins\data'
         foreach ($c in @(Get-ChildItem -LiteralPath $root -Directory -Filter 'lw-watchtower*' -ErrorAction Stop |
                          Sort-Object LastWriteTime -Descending)) { $dirs += $c.FullName }
     } catch {}
@@ -325,8 +386,8 @@ function WriteSignal {
         # consumer holding CLAUDE_PLUGIN_DATA has a directory Get-LwgStateDir
         # made, which the union picks up on the next render.
         $targets = @($Dirs)
-        if ($targets.Count -eq 0) {
-            $targets = @([IO.Path]::Combine($env:USERPROFILE, '.claude\plugins\data', 'lw-watchtower'))
+        if ($targets.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($claudeHome)) {
+            $targets = @([IO.Path]::Combine($claudeHome, 'plugins\data', 'lw-watchtower'))
         }
 
         foreach ($dir in $targets) {
@@ -483,8 +544,14 @@ function LwgPluginRoots {
         return $found
     }
 
-    $prof  = $env:USERPROFILE
-    $roots += @(& $glob (Join-Path $prof '.claude\skills'))
+    # THE CONFIGURATION ROOT, not the profile - see LwgClaudeHome. Both the
+    # skills directory and the plugins base live under it, and both moved with
+    # it on a machine that sets CLAUDE_CONFIG_DIR while this file went on
+    # looking under ~\.claude and finding nothing.
+    $cfgHome = $claudeHome
+    if (-not [string]::IsNullOrWhiteSpace($cfgHome)) {
+        $roots += @(& $glob (Join-Path $cfgHome 'skills'))
+    }
 
     # EVERY PLUGINS BASE TO SCAN, in the same order of authority Get-Detection
     # uses: the relocated one if CLAUDE_CODE_PLUGIN_CACHE_DIR names it, then the
@@ -495,7 +562,7 @@ function LwgPluginRoots {
     # and would otherwise scan everything twice on every assistant message.
     $bases = New-Object System.Collections.ArrayList
     if ($env:CLAUDE_CODE_PLUGIN_CACHE_DIR) { [void]$bases.Add([string]$env:CLAUDE_CODE_PLUGIN_CACHE_DIR) }
-    [void]$bases.Add((Join-Path $prof '.claude\plugins'))
+    if (-not [string]::IsNullOrWhiteSpace($cfgHome)) { [void]$bases.Add((Join-Path $cfgHome 'plugins')) }
     $baseSeen = @{}
     $pluginBases = @()
     foreach ($b in $bases) {
@@ -674,7 +741,11 @@ function TailWindow([string]$path, [int]$maxBytes, [int]$maxLine, [int]$keep) {
 }
 
 function HealthSeg($sessionId) {
-    $home_ = $env:USERPROFILE
+    # The LEGACY ~/.claude/health tree below is composed off the resolved
+    # configuration root, not off $env:USERPROFILE - see LwgClaudeHome. It is
+    # allowed to be $null on a machine with no home at all, and every use of it
+    # here is guarded rather than composed onto nothing.
+    $home_ = $claudeHome
     # -LiteralPath, and it is load-bearing rather than tidiness. Every candidate
     # here is DERIVED - from $PSScriptRoot, from a glob over the plugins tree,
     # from $env:CLAUDE_PLUGIN_DATA - so it can carry any character a machine
@@ -697,8 +768,10 @@ function HealthSeg($sessionId) {
         $supervisors += (Join-Path $r 'lib\supervisor.ps1')
         $healers     += (Join-Path $r 'agents\lw-healer.md')
     }
-    $supervisors += (Join-Path $home_ '.claude\health\supervisor.ps1')
-    $healers     += (Join-Path $home_ '.claude\agents\lw-healer.md')
+    if (-not [string]::IsNullOrWhiteSpace($home_)) {
+        $supervisors += (Join-Path $home_ 'health\supervisor.ps1')
+        $healers     += (Join-Path $home_ 'agents\lw-healer.md')
+    }
 
     $script = & $first $supervisors
     $healer = & $first $healers
@@ -712,7 +785,7 @@ function HealthSeg($sessionId) {
 
     $logs = @()
     foreach ($dir in $gmDataDirs) { $logs += (Join-Path $dir 'health.jsonl') }
-    $logs += (Join-Path $home_ '.claude\health\health.jsonl')
+    if (-not [string]::IsNullOrWhiteSpace($home_)) { $logs += (Join-Path $home_ 'health\health.jsonl') }
 
     # THE READ IS BOUNDED, and both bounds are defensive on purpose: this file
     # reads logs it does not write, including logs written by an older copy of

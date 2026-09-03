@@ -304,31 +304,53 @@ function Invoke-Uninstall {
       REMOVED when it is not, because "the variable is not set" is one of the
       cases and inheriting the caller's value would quietly defeat it.
 
+      CLAUDE_CONFIG_DIR IS SET TOO, AND ON THIS SCRIPT THAT IS A SAFETY CONTROL
+      RATHER THAN A TIDINESS ONE. From 3 September 2026 bin\lwg-uninstall.ps1
+      resolves its default configuration root through CLAUDE_CONFIG_DIR, and
+      this file drives a script that DELETES. Every case passes -ClaudeHome, and
+      an explicit parameter beats the variable by design, so nothing here
+      depends on the variable being clear - but a runner carrying it must not be
+      one edit away from a case that forgets -ClaudeHome and points a removal at
+      a real machine. -ConfigDir defaults to empty, which the child reads as
+      unset; a case about the variable passes a scratch path.
+
+      -NoClaudeHome OMITS -ClaudeHome, so the script resolves its own default.
+      Exactly one case uses it - the one about that default - and it is a switch
+      rather than the norm because every other case here must state the tree it
+      is aimed at rather than infer it. A run without it is a run whose target
+      is decided by the environment, which is not a thing to do casually to a
+      script that deletes: the case that uses it passes no removal flag.
+
       Returns @{ code; out } where `out` is the whole stdout as one string.
     #>
     param(
         [Parameter(Mandatory = $true)][hashtable]$Tree,
         [string]$DataEnv,
-        [string[]]$ScriptArgs = @()
+        [string[]]$ScriptArgs = @(),
+        [string]$ConfigDir = '',
+        [switch]$NoClaudeHome
     )
 
     $saveProfile = $env:USERPROFILE
     $saveData    = $env:CLAUDE_PLUGIN_DATA
+    $saveCfg     = $env:CLAUDE_CONFIG_DIR
     try {
-        $env:USERPROFILE = $Tree.profile
+        $env:USERPROFILE       = $Tree.profile
+        $env:CLAUDE_CONFIG_DIR = $ConfigDir
         if ([string]::IsNullOrWhiteSpace($DataEnv)) {
             Remove-Item -LiteralPath 'Env:\CLAUDE_PLUGIN_DATA' -ErrorAction SilentlyContinue
         } else {
             $env:CLAUDE_PLUGIN_DATA = $DataEnv
         }
 
-        $all = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $UninstallPath,
-                 '-ClaudeHome', $Tree.claudeHome) + $ScriptArgs
+        $all = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $UninstallPath) +
+               $(if ($NoClaudeHome) { @() } else { @('-ClaudeHome', $Tree.claudeHome) }) + $ScriptArgs
         $lines = & powershell.exe @all
         $code  = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
         return @{ code = $code; out = (@($lines) -join "`n") }
     } finally {
-        $env:USERPROFILE = $saveProfile
+        $env:USERPROFILE       = $saveProfile
+        $env:CLAUDE_CONFIG_DIR = $saveCfg
         if ($null -eq $saveData) {
             Remove-Item -LiteralPath 'Env:\CLAUDE_PLUGIN_DATA' -ErrorAction SilentlyContinue
         } else {
@@ -387,8 +409,12 @@ function Invoke-UninstallWithConcurrentWrite {
 
     $saveProfile = $env:USERPROFILE
     $saveData    = $env:CLAUDE_PLUGIN_DATA
+    $saveCfg     = $env:CLAUDE_CONFIG_DIR
     try {
-        $env:USERPROFILE = $Tree.profile
+        $env:USERPROFILE       = $Tree.profile
+        # Cleared for the same reason as in Invoke-Uninstall: this child
+        # DELETES, and its default configuration root now reads this variable.
+        $env:CLAUDE_CONFIG_DIR = ''
         Remove-Item -LiteralPath 'Env:\CLAUDE_PLUGIN_DATA' -ErrorAction SilentlyContinue
 
         $argLine = '-NoProfile -ExecutionPolicy Bypass -File "' + $UninstallPath + '" -ClaudeHome "' + $Tree.claudeHome + '"'
@@ -417,7 +443,8 @@ function Invoke-UninstallWithConcurrentWrite {
         $p.WaitForExit()
         return @{ code = $p.ExitCode; out = (@($lines) -join "`n"); wroteAtMs = $wrote; totalMs = [int]$sw.ElapsedMilliseconds }
     } finally {
-        $env:USERPROFILE = $saveProfile
+        $env:USERPROFILE       = $saveProfile
+        $env:CLAUDE_CONFIG_DIR = $saveCfg
         if ($null -eq $saveData) {
             Remove-Item -LiteralPath 'Env:\CLAUDE_PLUGIN_DATA' -ErrorAction SilentlyContinue
         } else {
@@ -554,6 +581,83 @@ function Test-DryRunListsRedirectedDir {
 
     Add-Result -Name 'dry run: CLAUDE_PLUGIN_DATA redirected - lists exactly that directory, deletes nothing' `
                -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | row: $row")
+}
+
+function Test-ConfigDirIsTheDefaultRootAndIsDisclosed {
+    <#
+      #146 - THE UNINSTALLER'S DEFAULT ROOT HONOURS CLAUDE_CONFIG_DIR, AND SAYS
+      SO ON THE RUN.
+
+      Until 3 September 2026 the default was Join-Path $env:USERPROFILE
+      '.claude'. On a machine that relocates the configuration directory this
+      script therefore reported a footprint of a tree the CLI does not use, and
+      with -Apply would have removed nothing while saying it had. That is
+      strictly worse than the incomplete report this file's header promises not
+      to produce: an empty footprint of the wrong tree reads as a clean machine.
+
+      THE FIXTURE PUTS THE RELOCATED ROOT OUTSIDE THE PROFILE. <case>\cfgroot
+      is a sibling of <case>\profile, so code that still resolves through the
+      profile cannot accidentally satisfy this.
+
+      NO -ClaudeHome AND NO REMOVAL FLAG. -ClaudeHome is omitted because the
+      DEFAULT is the subject; every removal flag is omitted because a run whose
+      target is decided by an environment variable is exactly the run that must
+      not be allowed to delete. The dry run is the default mode and prints the
+      whole footprint, which is all this case reads.
+
+      RED AT ec80e88: the junction row named <profile>\.claude\skills\..., and
+      the blind-spot block stated "Nothing in this plugin reads
+      CLAUDE_CONFIG_DIR" - a sentence the fix makes false and which is replaced
+      by a disclosure of the root actually used.
+    #>
+    $t   = New-CaseTree 'cfgdir-default'
+    $cfg = Join-Path $t.dir 'cfgroot'
+    [void][IO.Directory]::CreateDirectory((Join-Path $cfg 'plugins\data'))
+
+    $r = Invoke-Uninstall -Tree $t -NoClaudeHome -ConfigDir $cfg
+
+    $bad = @()
+    if ($r.code -ne 0)                   { $bad += "exit $($r.code), expected 0" }
+    if ($r.out -notlike "*$cfg*")        { $bad += "no line in the footprint names the relocated root $cfg" }
+    if ($r.out -like "*$($t.claudeHome)*") { $bad += "the footprint still names $($t.claudeHome), which is the profile default the CLI is NOT using on this machine" }
+    if ($r.out -match 'Nothing in this plugin reads CLAUDE_CONFIG_DIR') {
+        $bad += 'the blind-spot block still states that nothing reads CLAUDE_CONFIG_DIR, which this run just did'
+    }
+    if ($r.out -notmatch 'CONFIG DIRECTORY THESE ROWS DESCRIBE') {
+        $bad += 'the run does not disclose which configuration directory its rows describe'
+    }
+
+    Add-Result -Name 'default root: CLAUDE_CONFIG_DIR is honoured and the run says which root it used' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
+}
+
+function Test-ExplicitClaudeHomeBeatsConfigDir {
+    <#
+      THE OTHER HALF, AND THE ONE THAT KEEPS THIS SUITE MEANINGFUL. Every other
+      case in this file passes -ClaudeHome and asserts against that tree. If an
+      environment variable could overrule it, none of them would be testing what
+      they say they are - they would be testing whatever the runner's
+      environment happened to hold.
+
+      So: -ClaudeHome names the case tree, CLAUDE_CONFIG_DIR names a DIFFERENT
+      directory, and the footprint must describe the first and not the second.
+      Passes at ec80e88 as well - it is the invariant the #146 change had to
+      preserve, not evidence of it, and it is here to fail loudly if a later
+      change reverses the precedence.
+    #>
+    $t   = New-CaseTree 'cfgdir-overruled'
+    $cfg = Join-Path $t.dir 'cfgroot'
+    [void][IO.Directory]::CreateDirectory((Join-Path $cfg 'plugins\data'))
+
+    $r = Invoke-Uninstall -Tree $t -ConfigDir $cfg
+
+    $bad = @()
+    if ($r.code -ne 0)                     { $bad += "exit $($r.code), expected 0" }
+    if ($r.out -notlike "*$($t.claudeHome)*") { $bad += "the footprint does not name the tree -ClaudeHome gave it, $($t.claudeHome)" }
+    if ($r.out -like "*$cfg\skills*")      { $bad += "the footprint describes $cfg, which CLAUDE_CONFIG_DIR named and -ClaudeHome overruled" }
+
+    Add-Result -Name 'precedence: -ClaudeHome beats CLAUDE_CONFIG_DIR' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
 }
 
 function Test-DryRunWithRemoveDataDeletesNothing {
@@ -1913,6 +2017,8 @@ try {
     [void][IO.Directory]::CreateDirectory($script:Work)
 
     Test-DryRunListsRedirectedDir
+    Test-ConfigDirIsTheDefaultRootAndIsDisclosed
+    Test-ExplicitClaudeHomeBeatsConfigDir
     Test-DryRunWithRemoveDataDeletesNothing
     Test-ApplyDeletesRedirectedDir
     Test-FallbackUsedWhenEnvUnset
