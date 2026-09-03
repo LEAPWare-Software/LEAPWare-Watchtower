@@ -1608,7 +1608,7 @@ jobs:
             exit 1
           }
 
-          # Fixtures first: ten cases over planted repositories, each proving one
+          # Fixtures first: eleven cases over planted repositories, each proving one
           # rule can FIRE. A guard proved only against a clean history is a guard
           # proved against nothing.
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite

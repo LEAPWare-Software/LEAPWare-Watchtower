@@ -106,6 +106,9 @@ $script:Allowed = @(
     @{ address = 'leapware@outlook.com'
        why     = 'the repository identity. Every commit authored for this project uses it, enforced clone-side by a conditional git identity keyed on the remote URL.' }
 
+    @{ address = '300127941+LEAPWare-HQ@users.noreply.github.com'
+       why     = "the maintainer account's GitHub-issued noreply alias - the SECOND identity the same account has. FOUND BY THIS GUARD on its first pull request, #193: a pull_request event checks out GitHub's ephemeral MERGE COMMIT, which is authored by this alias, so the step failed on a commit that never lands and would have failed on every pull request this account opens. A users.noreply address is GitHub's own privacy mechanism - it is what you get INSTEAD OF a personal address - so accepting it is this guard's policy being applied rather than relaxed, and it is the author of any commit made through the web UI. Same shape and same reason as the Dependabot entry below." }
+
     @{ address = 'noreply@github.com'
        why     = 'GitHub itself, as the committer of every squash merge and every web-UI edit. Unavoidable and not a personal identity.' }
 
@@ -360,6 +363,19 @@ if (-not $Live) {
         -BodyExtra "Signed-off-by: dependabot[bot] <support@github.com>`nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>"
     $r = Test-Repository -RepoPath $depend
     Add-Case -Name 'B5 the real Dependabot trailer pair from b12635b passes' `
+        -Ok ($null -eq $r.aborted -and $r.offenders.Count -eq 0) `
+        -Detail ("expected 0 offenders; got {0}" -f $r.offenders.Count)
+
+    # B6 - the shape that made this guard red on its own pull request. GitHub's
+    #      ephemeral merge commit for a pull_request event is authored by the
+    #      maintainer account's users.noreply alias, NOT by the repository
+    #      identity, and the alias is a second identity for the same account
+    #      rather than a person's address. Planted with the real value off
+    #      refs/pull/193/merge, so this case fails if the entry is ever dropped.
+    $webflow = New-FixtureRepo -Name 'webflow-alias' -AuthorName 'LEAPWare' `
+        -AuthorEmail '300127941+LEAPWare-HQ@users.noreply.github.com'
+    $r = Test-Repository -RepoPath $webflow
+    Add-Case -Name "B6 the maintainer account's web-flow noreply alias passes (the #193 case)" `
         -Ok ($null -eq $r.aborted -and $r.offenders.Count -eq 0) `
         -Detail ("expected 0 offenders; got {0}" -f $r.offenders.Count)
 

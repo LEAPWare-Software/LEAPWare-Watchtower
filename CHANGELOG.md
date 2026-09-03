@@ -254,6 +254,10 @@ project exists to refuse.
   **Found while fixing it, by the new guard on its first run:** every Dependabot commit also carries
   `Signed-off-by: dependabot[bot] <support@github.com>`. Nothing had ever seen it, because nothing
   had ever read a trailer. It is a GitHub role address and is allowlisted with that reason stated.
+  The guard then found a second one on its own pull request: a `pull_request` event checks out
+  GitHub's ephemeral merge commit, which is authored by the maintainer account's `users.noreply`
+  alias rather than by the repository identity. That alias is GitHub's own privacy mechanism and is
+  the author of any web-UI commit, so it is allowlisted with that reason stated too.
 
 - **The uninstaller reported success and deleted nothing when the data directory was redirected.**
   `bin/lwg-uninstall.ps1` hardcoded `~\.claude\plugins\data` and never read `CLAUDE_PLUGIN_DATA` —
