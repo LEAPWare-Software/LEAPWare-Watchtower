@@ -1157,14 +1157,28 @@ try {
     # 5. EXACTLY ONE BACKUP, HOLDING THE ORIGINAL BYTES. Not "at least one":
     #    an installer that backs up twice leaves the operator guessing which
     #    file is the one to restore.
+    #
+    #    THE SECOND CASE IS NOT GUARDED ON THE FIRST (#136 instance 3). It used
+    #    to sit inside `if ($baks.Count -eq 1)`, so an installer that took two
+    #    backups failed the count case and DELETED the only case that reads a
+    #    backup's bytes - the tally shrank by one with no skip line, in exactly
+    #    the state where "which file is the one to restore" matters most. A case
+    #    a defect can remove is a case that reports coverage it is not
+    #    providing. It now runs always and fails honestly, naming which of the
+    #    two things went wrong; the same hoist was made for the two sibling
+    #    instances in tests\gate_delegate.ps1 and tests\stop_behaviour.ps1.
     $baks = Get-SettingsBackups $t.dir
     Add-Result 'exactly one settings backup after one apply' ($baks.Count -eq 1) `
         "found $($baks.Count): $($baks -join ', ')"
-    if ($baks.Count -eq 1) {
-        Add-Result 'the backup holds the original bytes exactly' `
-            (Test-BytesEqual ([IO.File]::ReadAllBytes($baks[0])) $FixtureBytes) `
+    $bakBytes = $null
+    if ($baks.Count -ge 1) { try { $bakBytes = [IO.File]::ReadAllBytes($baks[0]) } catch { } }
+    Add-Result 'the backup holds the original bytes exactly' `
+        ($baks.Count -eq 1 -and (Test-BytesEqual $bakBytes $FixtureBytes)) `
+        $(if ($baks.Count -ne 1) {
+            "there is no single backup to read: found $($baks.Count) ($($baks -join ', ')). This case is NOT skipped when the count is wrong - an installer that took two backups would otherwise delete the only case that reads a backup at all."
+          } else {
             'the backup is not a byte copy of the file that was replaced, so restoring it does not restore the original'
-    }
+          })
 
     # 7. THE OPERATOR'S OWN TUNING. 45, not the installer's default of 120.
     Add-Result 'statusLine.refreshInterval 45 is preserved, not reset to the default' `
@@ -1186,6 +1200,19 @@ try {
     #     serialiser had its depth reduced, and it stayed green against the
     #     Get-PropArray break, which is how the scoping above was established
     #     rather than assumed.
+    #
+    #     THE NULL-INJECTION CASE THAT USED TO SIT HERE HAS MOVED TO SECTION 31
+    #     (#137 instance 4). It asserted that the written file carries no bare
+    #     `null` as an array member, which is the shape Get-PropArray's `, @()`
+    #     exists to prevent - on a path where Get-PropArray is never called. The
+    #     measurement recorded two paragraphs above is what settled it: the
+    #     ADJACENT case here was confirmed red against a reduced serialiser
+    #     depth and stayed GREEN against the Get-PropArray break, so on this
+    #     fixture nothing could ever have produced the null it looked for. It
+    #     was a row on a published tally for a check that could not fail. It is
+    #     relocated rather than deleted - deleting it moves a case count quoted
+    #     in tracked pages, and the assertion is a good one in the place where
+    #     the defence it names actually runs.
     $askVal = $null
     if ($null -ne $after -and $null -ne $after.PSObject.Properties['permissions']) {
         $ap = $after.permissions.PSObject.Properties['ask']
@@ -1194,10 +1221,6 @@ try {
     Add-Result 'a one-element permissions.ask survives as an array of one string' `
         ($askVal -is [array] -and @($askVal).Count -eq 1 -and @($askVal)[0] -is [string] -and @($askVal)[0] -eq 'Bash(lwg-noop-fixture)') `
         "permissions.ask came back as type '$(if ($null -eq $askVal) { 'null' } else { $askVal.GetType().Name })' with value '$($askVal -join '|')' - a one-element array flattened to a bare string, or a null was injected into it"
-    $afterText = [IO.File]::ReadAllText($t.settings, [Text.Encoding]::UTF8)
-    Add-Result 'the written file contains no injected null' `
-        ($afterText -notmatch '(?m)^\s*null\s*,?\s*$') `
-        "a bare null appears as an array member in the written file:`n$afterText"
 
     # 8a. THE COPYFILE EXTRA ACTION, create branch. The settings key is pointed
     #     at a file, so the file has to be there - and has to be the tracked one.
@@ -3384,19 +3407,55 @@ try {
         ("before: $beforeUps`n        after : $afterUps`n" +
          "        This plugin registers on UserPromptSubmit zero times, so the entry is the operator's and the merge must carry it through untouched. A hook that is not registered simply never fires, so losing one is silent.")
 
-    # 31d. EXACTLY ONE BACKUP, HOLDING THE ORIGINAL BYTES (#142 row 2). The
+    # 31d. NO INJECTED NULL - RELOCATED HERE FROM SECTION 16 (#137 instance 4).
+    #
+    #      THE CASE IS UNCHANGED; ITS FIXTURE IS THE POINT. It asserts that no
+    #      bare `null` was written as an array member, which is the shape
+    #      Get-PropArray's `, @()` exists to prevent: `@($v)` on an ABSENT
+    #      property is `@($null)`, a one-element array holding $null, and the
+    #      null then goes back into the file as a member of the array. Every
+    #      hooks event array grew a leading null that way.
+    #
+    #      IT SAT IN SECTION 16, ON THE STATUSLINE PATH, WHERE Get-PropArray IS
+    #      NEVER CALLED. That was not an inference: the case beside it there was
+    #      measured red against a reduced serialiser depth and GREEN against the
+    #      Get-PropArray break, so on that fixture nothing could produce the
+    #      null this line looks for. It was a row on a published tally for a
+    #      check with nothing to match under any build.
+    #
+    #      HERE IT CAN FAIL. New-HooksPlan calls Get-PropArray once per event in
+    #      hooks.json, and fixture B declares NONE of those events - it carries
+    #      UserPromptSubmit only - so every one of those calls is the absent-
+    #      property case the defence is for. Relocated rather than deleted: the
+    #      assertion is a good one where the defence it names actually runs, and
+    #      deleting it would move a case count quoted in tracked pages.
+    $afterText = ''
+    try { $afterText = [IO.File]::ReadAllText($t.settings, [Text.Encoding]::UTF8) } catch { }
+    Add-Result 'the written file contains no injected null' `
+        ($afterText -ne '' -and $afterText -notmatch '(?m)^\s*null\s*,?\s*$') `
+        "a bare null appears as an array member in the written file - Get-PropArray returned @(`$null) for an event the operator's settings.json does not declare, and it was written back into the hooks array:`n$afterText"
+
+    # 31e. EXACTLY ONE BACKUP, HOLDING THE ORIGINAL BYTES (#142 row 2). The
     #      hooks path had one Get-SettingsBackups assertion before this, and it
     #      asserted a count of ZERO on the marketplace write-nothing case.
+    #
+    #      NOT GUARDED ON THE COUNT CASE, for the reason section 5 gives at
+    #      length (#136 instance 3): a case a defect can delete reports coverage
+    #      it is not providing.
     $baks = Get-SettingsBackups $t.dir
     Add-Result 'hooks writer: exactly one settings backup after one hooks apply' ($baks.Count -eq 1) `
         "found $($baks.Count): $($baks -join ', ')"
-    if ($baks.Count -eq 1) {
-        Add-Result 'hooks writer: the backup holds the original bytes exactly' `
-            (Test-BytesEqual ([IO.File]::ReadAllBytes($baks[0])) $HooksFixtureBytes) `
+    $hooksBakBytes = $null
+    if ($baks.Count -ge 1) { try { $hooksBakBytes = [IO.File]::ReadAllBytes($baks[0]) } catch { } }
+    Add-Result 'hooks writer: the backup holds the original bytes exactly' `
+        ($baks.Count -eq 1 -and (Test-BytesEqual $hooksBakBytes $HooksFixtureBytes)) `
+        $(if ($baks.Count -ne 1) {
+            "there is no single backup to read: found $($baks.Count) ($($baks -join ', '))"
+          } else {
             'the backup is not a byte copy of the file the hooks apply replaced, so restoring it does not restore the original'
-    }
+          })
 
-    # 31e. IDEMPOTENCE (#142 row 4). BYTE identity, on a plan that really did
+    # 31f. IDEMPOTENCE (#142 row 4). BYTE identity, on a plan that really did
     #      write - which is what separates this from section 19's second run,
     #      where the installer had DECLINED to change anything and the second
     #      run therefore proved nothing about a write it never made.
@@ -3413,7 +3472,7 @@ try {
         (Test-BytesEqual ([IO.File]::ReadAllBytes($t.settings)) $bytesAfterApply) `
         'the file changed on a hooks run that reported no change - re-running setup is the commonest thing an operator does with it'
 
-    # 31f. ROLLBACK, BYTE FOR BYTE (#142 row 5). -Step rollback takes no
+    # 31g. ROLLBACK, BYTE FOR BYTE (#142 row 5). -Step rollback takes no
     #      -Section: it restores the last backup this installer took, whichever
     #      section took it, and until now the only section it had ever been
     #      asked to undo was statusline.
@@ -3427,7 +3486,7 @@ try {
         "found $((Get-PreRollbackBackups $t.dir).Count) pre-rollback copies, expected 1 - a rollback the operator did not mean is otherwise unrecoverable"
 
     # -------------------------------------------------------------------
-    # 31g. A STALE -BaseHash ON THE HOOKS PLAN (#142 row 3).
+    # 31h. A STALE -BaseHash ON THE HOOKS PLAN (#142 row 3).
     #
     #      Its own tree, because it must run against a file no apply has
     #      touched. Both stale-hash cases in this suite drove -Section
