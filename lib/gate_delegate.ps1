@@ -531,10 +531,16 @@ function Get-LwgFastJsonMembers {
 
 function Test-LwgFastDelegateOff {
     <#
-      $true ONLY when config.json proves interaction.delegate is off and proves
-      no per-repo block could turn it on. $false means "I did not establish
-      that", which is not "it is on" - it is the instruction to run the slow
-      path, and it is the answer to every doubt.
+      $true ONLY when BOTH DOCUMENTS prove interaction.delegate is off and prove
+      no per-repo block could turn it on - the shipped defaults in config.json,
+      and the operator override under the state directory that Get-LwgConfig
+      merges over them (#11). $false means "I did not establish that", which is
+      not "it is on" - it is the instruction to run the slow path, and it is the
+      answer to every doubt.
+
+      The rules below are stated once, for config.json, and applied to both by
+      Test-LwgFastDelegateOffText. Where they read differently over an override
+      is written out at the second call, near the bottom of this function.
 
       THE REPOS RULE IS DELIBERATELY OVER-CONSERVATIVE, and it is what keeps
       this honest. The slow path resolves the switch through Test-LwgModule,
