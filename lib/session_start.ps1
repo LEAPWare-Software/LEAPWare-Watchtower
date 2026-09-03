@@ -30,6 +30,13 @@ try {
     $payload = Read-LwgStdin
     $cfg     = Get-LwgConfig
     $repo    = Get-LwgRepo $payload
+    # Nothing in this plugin checked the operating system or the Claude Code
+    # build - not a doctor row, not a hook, not a comment. Three of the eight
+    # events hooks/hooks.json registers on were read out of one specific binary
+    # and may not exist on an older one, and when they do not fire the failure
+    # mode is silence. This does not fix that; it RECORDS the machine, so a
+    # session leaves evidence of what it ran on rather than none.
+    $plat = Get-LwgPlatformInfo
 
     # --- what is genuinely running -----------------------------------------
     # Counting config.json's flags reports every switched-on module as active,
@@ -203,6 +210,7 @@ try {
         mode            = $mode
         selfcheck       = $selfcheck
         failures        = $failures
+        platform        = $plat
     } | Out-Null
 
     $dot      = [char]0x00B7
@@ -282,6 +290,16 @@ try {
         $context += " Self-check did NOT run (self_health is off), so none of the above was verified this session - it is what config.json and the module registry DECLARE, not what has been proven to work."
     } elseif (-not $selfcheck.ok) {
         $context += " Self-check DEGRADED ($($failures -join '; ')) - even the above may not fire."
+    }
+    # Only when it is NOT Windows. On the supported platform this costs the
+    # model nothing, and on any other one it is the single most important fact
+    # about the session: hooks/hooks.json invokes `powershell` by that name in
+    # all thirteen registrations, so nothing above is running at all and every
+    # count on this line is a statement about a registry rather than about a
+    # machine. Saying it here is not a substitute for the doctor row that
+    # belongs in bin/lwg-doctor.ps1; it is what can be said from this file.
+    if (-not $plat.supported) {
+        $context += " PLATFORM UNSUPPORTED (os '$($plat.os)'): every hook registration invokes Windows PowerShell by name, so none of the above can fire and the counts describe what is DECLARED only."
     }
 
 } catch {

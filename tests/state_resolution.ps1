@@ -14,7 +14,7 @@
   no case at all. This file is that coverage, built around the five defects it
   pins.
 
-  THE FOUR IT PINS
+  THE FIVE IT PINS
 
     #146 CLAUDE_CONFIG_DIR was honoured by NOTHING. Every path in the plugin
          composed $env:USERPROFILE with a literal `.claude`, so on a machine
@@ -49,6 +49,10 @@
          this suite's sibling batches will call; the two CALL SITES
          (bin\lwg-setup.ps1 and statusline\statusline.ps1) are not touched here
          and the defect stays open in both until they are.
+
+    #132 nothing checked the operating system or the Claude Code build, and the
+         module registry recorded no dependency between a module and the hook
+         events it needs, so nothing could even ask the question. Section E.
 
   THE SANDBOX
 
@@ -699,11 +703,128 @@ function Test-D3-AbsenceIsReportedAsAbsenceAndNotAsRepos {
 }
 
 # =========================================================================
+# SECTION E - #132, the platform and the hook events
+# =========================================================================
+
+function Test-E1-TheSessionRecordNamesItsPlatform {
+    $c = Invoke-SessionStartCase -Name 'e1'
+    if ($null -eq $c.record) {
+        Add-Case 'E1 the SessionStart record names the platform it ran on' $false "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    $plat = $c.record.platform
+    $problems = @()
+    if ($null -eq $plat) {
+        $problems += ('REGRESSION (#132): the record carries no platform at all. Nothing in this plugin checked the ' +
+                      'operating system or the Claude Code build, so a session on a machine the hook events were ' +
+                      'never read out of leaves no evidence of what it ran on.')
+    } else {
+        if ([string]::IsNullOrWhiteSpace([string]$plat.os))          { $problems += 'platform.os is empty' }
+        if ($plat.supported -isnot [bool])                            { $problems += "platform.supported is [$($plat.supported)], expected a real boolean" }
+        if ([string]::IsNullOrWhiteSpace([string]$plat.ps_version))   { $problems += 'platform.ps_version is empty' }
+        if (-not ($c.record.PSObject.Properties['platform']))         { $problems += 'platform is not a member of the record' }
+        # The build the events were read out of has to be recorded somewhere a
+        # machine can read, not only in a table cell on the install page.
+        if ([string]::IsNullOrWhiteSpace([string]$plat.verified_build)) {
+            $problems += 'platform.verified_build is empty - the Claude Code build the hook events were read out of is stated in prose on docs/install.md and nowhere a check can reach'
+        }
+    }
+    Add-Case 'E1 the SessionStart record names the platform it ran on' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-E2-TheRegistryDeclaresItsHookEvents {
+    <#
+      #132's core: three of the eight events this plugin registers on were read
+      out of one specific binary, and NOTHING relates a module to the events it
+      needs - so nothing can say which modules go inert on a build that lacks
+      them. The map has to exist before any check can use it, and it has to
+      agree with hooks/hooks.json or it is a second thing to keep correct.
+    #>
+    $probeRoot = New-PluginTree (Join-Path $script:Work 'e2')
+    $prof = New-Dir (Join-Path $script:Work 'e2-profile')
+    $data = New-Dir (Join-Path $script:Work 'e2-data')
+    $probe = New-Probe -Root $probeRoot -Name 'probe' -Body @"
+    `$m = [ordered]@{}
+    foreach (`$k in `$script:LwgModuleRegistry.Keys) {
+        `$m[`$k] = @(`$script:LwgModuleRegistry[`$k].events)
+    }
+    `$o['events'] = `$m
+    `$o['implemented'] = @(Get-LwgImplementedModules)
+"@
+    $r = Invoke-Child -ScriptPath $probe -EnvSet @{ USERPROFILE = $prof; CLAUDE_PLUGIN_DATA = $data }
+    $j = Read-Json $r 'the registry-events probe'
+    if (-not $j.ok) { Add-Case 'E2 every implemented module declares the hook events it depends on, and every one is registered' $false $j.why; return }
+    if ($j.obj.error) { Add-Case 'E2 every implemented module declares the hook events it depends on, and every one is registered' $false "REGRESSION (#132): $($j.obj.error)"; return }
+
+    $hooksPath = Join-Path $script:RepoRoot 'hooks\hooks.json'
+    if (-not (Test-Path -LiteralPath $hooksPath)) { Abort-Suite "missing $hooksPath" }
+    $registered = @((Get-Content -Raw -LiteralPath $hooksPath | ConvertFrom-Json).hooks.PSObject.Properties.Name)
+    if ($registered.Count -eq 0) { Abort-Suite 'hooks/hooks.json registers no events - the parse is broken, not the tree.' }
+
+    $problems = @()
+    foreach ($m in @($j.obj.implemented)) {
+        # An absent `events` field round-trips through @() and JSON as a
+        # one-element array holding $null, so emptiness is tested on the
+        # CONTENT rather than on the count.
+        $declared = @($j.obj.events.$m | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        if ($declared.Count -eq 0) {
+            $problems += ("REGRESSION (#132): '$m' is implemented and declares no hook events, so nothing can tell " +
+                          'whether the build it is running on carries the events it needs.')
+            continue
+        }
+        foreach ($e in $declared) {
+            if ($registered -notcontains $e) {
+                $problems += "'$m' declares event '$e', which hooks/hooks.json does not register - the map has drifted from the registrations"
+            }
+        }
+    }
+    Add-Case 'E2 every implemented module declares the hook events it depends on, and every one is registered' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-E3-ThePlatformAnswerHasOneHome {
+    <#
+      One resolver, so bin\lwg-doctor.ps1's platform and build rows - which are
+      #132's suggested fixes 1 and 3, and which live in a file this batch does
+      not own - are built on the same answer the hook records rather than on a
+      second copy of it.
+    #>
+    $root = New-PluginTree (Join-Path $script:Work 'e3')
+    $prof = New-Dir (Join-Path $script:Work 'e3-profile')
+    $data = New-Dir (Join-Path $script:Work 'e3-data')
+    $probe = New-Probe -Root $root -Name 'probe' -Body @"
+    `$p = Get-LwgPlatformInfo
+    `$o['os']             = `$p.os
+    `$o['supported']      = `$p.supported
+    `$o['is_bool']        = (`$p.supported -is [bool])
+    `$o['ps_version']     = `$p.ps_version
+    `$o['verified_build'] = `$p.verified_build
+    `$o['claude_version'] = `$p.claude_version
+"@
+    $r = Invoke-Child -ScriptPath $probe -EnvSet @{ USERPROFILE = $prof; CLAUDE_PLUGIN_DATA = $data; CLAUDE_CODE_VERSION = '2.0.9' }
+    $j = Read-Json $r 'the platform probe'
+    if (-not $j.ok) { Add-Case 'E3 the OS and the Claude Code build have one resolver' $false $j.why; return }
+    $o = $j.obj
+    if ($o.error) {
+        Add-Case 'E3 the OS and the Claude Code build have one resolver' $false `
+            ("REGRESSION (#132): $($o.error). A repository-wide search for IsWindows, OSVersion.Platform, " +
+             "'claude --version' and CLAUDE_CODE_VERSION across bin\, lib\ and statusline\ returned nothing.")
+        return
+    }
+    $problems = @()
+    if ($o.is_bool -ne $true)                     { $problems += "supported is not a [bool]: [$($o.supported)]" }
+    if ([string]::IsNullOrWhiteSpace([string]$o.os)) { $problems += 'os is empty' }
+    if ([string]$o.verified_build -ne '2.1.220')  { $problems += "verified_build is '$($o.verified_build)', expected the 2.1.220 build docs/install.md names as the one the events were read out of" }
+    if ([string]$o.claude_version -ne '2.0.9')    { $problems += "claude_version is '$($o.claude_version)' - CLAUDE_CODE_VERSION was set to 2.0.9 in the child and must be read rather than guessed at" }
+    if ([string]::IsNullOrWhiteSpace([string]$o.ps_version)) { $problems += 'ps_version is empty' }
+    Add-Case 'E3 the OS and the Claude Code build have one resolver' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+# =========================================================================
 
 Say ''
 Say 'LW-WATCHTOWER state-resolution and platform suite'
 Say '  A #146 CLAUDE_CONFIG_DIR   B #60 probe 2   C #106 selfcheck.probe'
-Say '  D #8 marketplace layout'
+Say '  D #8 marketplace layout    E #132 platform and hook events'
 Say ''
 
 try {

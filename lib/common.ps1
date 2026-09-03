@@ -23,6 +23,30 @@
 #   kind    'gate'    can BLOCK an action    'observe'  advisory only
 #   status  'implemented' | 'planned'
 #   impl    the file that carries the behaviour, $null when there is none
+#   events  the hook events this module DEPENDS ON, every one of them a key in
+#           hooks/hooks.json. Until 3 September 2026 nothing in this tree
+#           related a module to the events it needs, which is why nothing could
+#           notice the failure this field exists to make noticeable: three of
+#           the eight events registered - SubagentStart, PostToolUseFailure and
+#           StopFailure - were read out of the 2.1.220 binary, docs/install.md
+#           says in prose that older builds may not carry all of them, and on
+#           such a build those registrations are simply inert. The failure mode
+#           of an inert hook is SILENCE, indistinguishable from a session in
+#           which nothing went wrong - while the banner goes on counting
+#           failure_capture and context_injection among the active modules,
+#           because it counts the REGISTRY and not observed behaviour.
+#           THIS IS THE MAP, NOT THE CHECK. The checks that consume it - a
+#           build WARN and a per-event "observed on this machine at least once"
+#           row - belong in bin/lwg-doctor.ps1, which already proves that
+#           SessionStart genuinely fires by reading the event log, and that
+#           file is not this batch's to edit. A banner that reported observed
+#           firing per module cannot be built from the current ledger either:
+#           the `event` field in lw-watchtower.jsonl carries a SEMANTIC record
+#           name (DocsCoupling, GateDeny, ContextPressure), not the hook event,
+#           and most modules write nothing at all on the quiet path - so
+#           "never observed" would be unreadable from "nothing to report".
+#           Making it derivable needs a per-event observation record on every
+#           hook path, which spans five files this batch does not own.
 #   blocked $true when the module CANNOT be built as specified, not merely has
 #           not been - the data it needs reaches no hook. 'Planned' covers both
 #           cases and understates this one, so the two are distinguished here
@@ -63,29 +87,40 @@
 # orphan_watch, the eighth observer - declare their own `switch` and SHIP OFF.
 $script:LwgModuleRegistry = [ordered]@{
     failure_capture      = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1'
+                              events = @('SessionStart', 'PostToolUseFailure', 'SubagentStop', 'Stop', 'StopFailure')
                               note = 'Five hook events, gated on the flag; exits 2 to alert the orchestrator.' }
     context_pressure     = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/stop_advisories.ps1'
+                              events = @('Stop')
                               note = 'context_window is NOT in any hook payload. Occupancy is recomputed from the transcript''s last assistant usage block using the CLI''s own formula. The context window SIZE is not observable, so it is resolved from config/observation and the percentage is suppressed outright when the size is not trustworthy.' }
     self_health          = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/session_start.ps1'
+                              events = @('SessionStart')
                               note = 'The SessionStart self-check. Switching it off skips every probe, and the session then reports mode "unverified" rather than any word that implies it was validated - an unrun check must never read as a passed one.' }
     log_rotation         = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/common.ps1 (Invoke-LwgRotate), called from lib/supervisor.ps1'
+                              events = @('SessionStart', 'PostToolUseFailure', 'SubagentStop', 'Stop', 'StopFailure')
                               note = 'Runs on its own flag alone. The call sits ABOVE the failure_capture gate in supervisor.ps1, so switching failure capture off stops the writes to health.jsonl but never the cap on its size. A rotation that cannot complete now writes a RotateFailed event to lw-watchtower.jsonl and leaves every archive generation intact - it used to destroy one and report nothing.' }
     docs_coupling        = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/post_edit.ps1, lib/stop_advisories.ps1'
+                              events = @('PostToolUse', 'Stop')
                               note = 'PostToolUse records edited paths; Stop compares them. Only files edited THROUGH Edit/Write/NotebookEdit are seen - a file changed by a shell command is invisible.' }
     git_hygiene          = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/stop_advisories.ps1'
+                              events = @('Stop')
                               note = 'ADVISORY on Stop - it warns and never blocks. The only module allowed to spawn a subprocess, and it only does so at turn end, inside a repo, with a hard timeout. A git command that fails or times out is reported as UNKNOWN, never as a clean tree. The open-PR check is the one network call, is skipped unless there is unpushed work on a non-default branch, and is skipped loudly when gh is missing or slow.' }
     context_injection    = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/subagent_start.ps1'
+                              events = @('SubagentStart')
                               note = 'SubagentStart, once per dispatch. Injects context/worker_facts.md as hookSpecificOutput.additionalContext, because CLAUDE.md is snapshotted into a subagent at PARENT-SESSION start and a mid-session edit never reaches a worker dispatched afterwards. The file is read live on every dispatch, so what a worker gets is current by construction. Deliberately does NOT dot-source this file on its fast path: that plus one ConvertFrom-Json measured 634 ms against a 273 ms interpreter floor, on a hook that every worker in every session pays for.' }
     send_liveness_gate   = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_send.ps1'
+                              events = @('PreToolUse')
                               switch = @{ block = 'supervision'; key = 'send_liveness'; default = $false }
                               note = 'OFF BY DEFAULT. PreToolUse on SendMessage: when supervision.send_liveness is on it refuses a send whose recipient it can prove is DEAD MID-FLIGHT - a subagent transcript exists for this session, no SubagentStop record was ever written for it, and the transcript has not been written for stale_minutes (default 15). Built from a measured failure: an orchestrator SendMessage was queued to an agent dead for 28m45s, the "Message queued for delivery" ack was read as done, and the user was told work was complete that never happened. The gate DENIES on positive evidence of death and on an unresolvable recipient; it ABSTAINS (allows, logged) where the evidence layer cannot support a verdict - a `name@team` recipient, or a session health.jsonl has never recorded. Its switch is supervision.send_liveness, NOT a `modules` key, for the same reason as delegate_gate: Get-LwgConfig fails OPEN and a corrupt config must not arm a blocking gate. Requires failure_capture to have been writing SubagentStop records; without them a completed agent is indistinguishable from a dead one and the gate abstains rather than guesses.' }
     completion_audit     = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_stop.ps1'
+                              events = @('Stop', 'SubagentStop')
                               switch = @{ block = 'supervision'; key = 'completion_audit'; default = $false }
                               note = 'OFF BY DEFAULT. A turn-end gate, registered on BOTH Stop and SubagentStop and WITHOUT asyncRewake on either, so its exit 2 BLOCKS the turn end. It sat on Stop ALONE until 11 August 2026, and because subagents and teammates emit SubagentStop and never Stop it fired for no worker at all in that period. The two registrations are NOT interchangeable, which is why the file takes a -HookEvent argument: on SubagentStop the payload''s transcript_path is the PARENT''S transcript and the subagent''s own is agent_transcript_path, so a gate reading the former would block a worker for what the ORCHESTRATOR said - in a delegate pattern the common case, not an edge one, and reproduced as a real exit 2 against the pre-fix code. Subagent mode also LIFTS the sidechain skip, because every record of a real subagent transcript carries isSidechain:true and skipping them would leave the gate armed and auditing nothing, and it uses a local turn-boundary test rather than Get-LwgPromptText, whose sidechain rejection was built for mission_drift - a module since removed - and is correctly KEPT in Stop mode. An absent agent_transcript_path degrades to a silent no-op and NEVER falls back to the parent. When supervision.completion_audit is on it refuses to let a turn end whose final assistant text asserts completed work while the turn''s LAST tool action was SendMessage - queued-for-delivery is not delivery and not completion, and nothing after the send could have established anything. It fires ONCE per turn end: on the continuation stop_hook_active is true and it stands down, per the same loop-guard contract every Stop hook here honours - so it forces one round of verification, it cannot force honesty. The claim detection is a REGEX over prose and is stated as such: past-tense completion verbs, suppressed by hedging vocabulary. It will miss claims phrased outside its list and it can misread quoted text; the enumeration is in the file header and in docs/modules.md.' }
     orphan_watch         = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1'
+                              events = @('Stop', 'SubagentStop')
                               switch = @{ block = 'supervision'; key = 'orphan_watch'; default = $false }
                               note = 'OFF BY DEFAULT. At Stop, reconciles the session''s subagent TRANSCRIPTS against its SubagentStop records in health.jsonl: a transcript with no stop record that has not been written for stale_minutes (default 15) is an ORPHAN - an agent killed mid-flight, which produces NO record anywhere (Get-FailedTasks counts only failed/killed BACKGROUND TASKS in the Stop payload, and a killed subagent appears in that list not at all; a cross-check found FOUR orphans against a health log with zero PostToolUseFailure records in 1,175 entries). Alerts through the supervisor''s existing exit-2 asyncRewake path, deduped per agent through alerted.json. RUNS INSIDE lib/supervisor.ps1 BELOW THE failure_capture GATE, and that coupling is correct rather than convenient: SubagentStop records are what failure_capture writes, and reconciling against records nothing was writing would call every finished agent an orphan. failure_capture off = orphan_watch inert, and the doctor''s module roster counts it from the same registry entry either way - that roster is what is left of the status command, which is deleted.' }
     delegate_gate        = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_delegate.ps1'
+                              events = @('PreToolUse')
                               switch = @{ block = 'interaction'; key = 'delegate'; default = $false }
                               note = 'THE ONLY GATE THIS PLUGIN SHIPS, AND IT IS OFF BY DEFAULT. PreToolUse on Edit|Write|NotebookEdit|Bash|PowerShell: when interaction.delegate is on it refuses those five tools for calls that are NOT from a subagent, so the chat session is reserved for talking to the operator and the work goes to workers. Its switch is interaction.delegate - the key /lw-watchtower:delegate writes - and NOT a `modules` key; see the `switch` field above for why one flag rather than two. It decides "subagent" by the PRESENCE of agent_id in the payload and deliberately never looks at agent_type: a settings.json `agent` key gives the MAIN THREAD a non-empty agent_type, so a gate matching on that would read the main thread as a subagent and fail open on exactly the calls it exists to refuse. It carries no exemption, no allowlist and no safety determination of any kind, and nothing it DECIDES consults tool_name, because the matcher in hooks/hooks.json is the single place the tool list lives. It does read payload.tool_name, once, AFTER the decision to refuse, purely to name the refused tool in the message - a payload carrying none is refused identically with the text falling back to "this tool". That is spelled out rather than glossed as "it does not even read tool_name", which is what this note said until 3 August 2026 and is not true of lib/gate_delegate.ps1. Over-blocking it accepts, stated rather than left to be found: with it on, /lw-watchtower:delegate off cannot turn it off from the main thread, because that command runs through Bash. The deny text names the two ways out. COST: the hook runs on all five tools whether the switch is on or off - the figures below were not re-measured when PowerShell joined the matcher on 1 August 2026, since adding a tool changes how many calls are charged rather than what a call costs. That is true NOW and was not true when it was written: both hook-identity functions in bin/lwg-setup.ps1 key on the matcher STRING, so widening it made every v0.3.0 registration unrecognisable and setup added a SECOND PreToolUse group beside it - two gate runs per call, on a machine whose operator never armed the switch. $script:LwgSupersededMatchers in that file now maps the old spelling to the current one, and tests/setup_merge.ps1 pins both that the gate ends up registered exactly once and that the stale matcher is reported rather than silently accepted. See docs/limitations.md. With the switch OFF it is ~436 ms against a ~294 ms interpreter floor - one machine''s medians, so ~142 ms of it is the gate''s own work, paid by an operator who never turns it on. That was ~652 ms until a raw-text fast path landed on 31 July 2026. With the switch ON it is ~868 ms, SLOWER than before, because the fast path runs, fails to prove the switch off, and the slow path then does everything it always did - that cost falls on the operator who armed the gate, on a call being blocked anyway. See docs/modules.md for the run.' }
 }
@@ -120,6 +155,79 @@ foreach ($k in $script:LwgModuleRegistry.Keys) {
 }
 
 $script:LwgVersion = '0.4.0'
+
+# The Claude Code build the eight hook events in hooks/hooks.json were read out
+# of. docs/install.md states it in a table cell, in prose, and NOTHING acted on
+# it: no check anywhere in bin/, lib/ or statusline/ read the OS or the CLI
+# build - a repository-wide search for IsWindows, OSVersion.Platform,
+# `claude --version` and CLAUDE_CODE_VERSION returned nothing at all. A number
+# only a person can read is not a number a check can use, so it is spelled here
+# once and bin/lwg-doctor.ps1's build row - which belongs to another batch -
+# can compare against it rather than carry a second copy.
+$script:LwgVerifiedBuild = '2.1.220'
+
+$script:LwgPlatformInfo = $null
+
+function Get-LwgPlatformInfo {
+    <#
+      The machine and the CLI build this is running on. Returns a HASHTABLE:
+
+        @{ os; is_windows; supported; ps_version; ps_edition;
+           claude_version; verified_build; build_known }
+
+        supported       $false on anything but Windows. hooks/hooks.json invokes
+                        `powershell` by that name in all thirteen registrations
+                        and every path composed here is NTFS-shaped, so a
+                        non-Windows machine is a silent non-install rather than
+                        a degraded one. .claude-plugin/plugin.json opens with
+                        "WINDOWS ONLY" and nothing enforced it.
+        claude_version  $env:CLAUDE_CODE_VERSION when the CLI sets it, $null
+                        otherwise - and $null is reported as $null. Shelling out
+                        to `claude --version` was rejected: this is called from
+                        a SessionStart hook, and a subprocess on a hook path to
+                        learn a string is the cost this plugin refuses
+                        everywhere else. A caller that needs the build and does
+                        not have it must say it does not have it, which is what
+                        build_known is for.
+        build_known     whether claude_version was actually observed. Three
+                        states, not two: an unread version must not render as
+                        "read, and it matched".
+
+      Memoised; -Refresh re-runs it. Never throws.
+    #>
+    param([switch]$Refresh)
+
+    if (-not $Refresh -and $null -ne $script:LwgPlatformInfo) { return $script:LwgPlatformInfo }
+
+    $info = @{
+        os = 'unknown'; is_windows = $false; supported = $false
+        ps_version = ''; ps_edition = ''
+        claude_version = $null; verified_build = $script:LwgVerifiedBuild; build_known = $false
+    }
+    try {
+        # [Environment]::OSVersion.Platform and NOT the automatic $IsWindows:
+        # that variable does not exist in Windows PowerShell 5.1, which is the
+        # only interpreter hooks/hooks.json ever invokes, so reading it there
+        # yields $null and a plugin that cannot tell where it is running.
+        $p = ''
+        try { $p = [string][Environment]::OSVersion.Platform } catch { }
+        $info.is_windows = ($p -like 'Win*')
+        $info.os = $(if ($info.is_windows) { 'windows' }
+                     elseif ($p -eq 'Unix') { 'unix' }
+                     elseif ([string]::IsNullOrWhiteSpace($p)) { 'unknown' }
+                     else { $p.ToLowerInvariant() })
+        $info.supported = $info.is_windows
+        try { $info.ps_version = [string]$PSVersionTable.PSVersion } catch { }
+        try { $info.ps_edition = [string]$PSVersionTable.PSEdition } catch { }
+        if (-not [string]::IsNullOrWhiteSpace($env:CLAUDE_CODE_VERSION)) {
+            $info.claude_version = [string]$env:CLAUDE_CODE_VERSION
+            $info.build_known    = $true
+        }
+    } catch { }
+
+    $script:LwgPlatformInfo = $info
+    return $info
+}
 
 function Get-LwgPluginRoot {
     <# Plugin root = the parent of lib/. CLAUDE_PLUGIN_ROOT when Claude Code sets it. #>
