@@ -12,7 +12,18 @@
   context and the mode word all come out of it - and its five self-check probes,
   its state-dir resolution and the platform it resolves them on were asserted by
   no case at all. This file is that coverage, built around the five defects it
-  pins.
+  pins - and, since sections F and G were added, around the surfaces of that
+  hook which running it three times still left unasserted.
+
+  EXECUTION IS NOT COVERAGE, and sections F and G exist because of it. When this
+  file landed, #177's headline claim - "lib\session_start.ps1 is executed by no
+  test" - stopped being true, and the issue was deliberately NOT closed on that:
+  the hook was being run nine times by a suite that read two of its five
+  self-check probes, one of its six mode words, and nothing at all off the
+  envelope it prints. A file can be run repeatedly by cases that assert nothing
+  about the branches that matter. Sections F and G are the rest of it: the four
+  probes with no assertion anywhere in tests\, the five mode words section B
+  left unpinned, the banner (#144) and the additionalContext envelope.
 
   THE FIVE IT PINS
 
@@ -53,6 +64,18 @@
     #132 nothing checked the operating system or the Claude Code build, and the
          module registry recorded no dependency between a module and the hook
          events it needs, so nothing could even ask the question. Section E.
+
+  AND THE TWO COVERAGE GAPS, which are not defects in the tree but absences in
+  this file, and are marked as such because a green run over them says only that
+  the behaviour is now WATCHED:
+
+    #177 the probes config_from_file, thresholds_live, payload_session and
+         payload_cwd had zero hits across all of tests\, and the mode ladder had
+         one of its six words asserted. Section F.
+
+    #144 the SessionStart banner was asserted by nothing. A silent banner, a
+         blank one, or any of the three self-reported failure strings the file
+         can emit would have failed no build. Section G, with the envelope.
 
   THE SANDBOX
 
@@ -410,15 +433,26 @@ function Invoke-SessionStartCase {
       Run the real hook against a scratch plugin tree carrying $ConfigJson, with
       its own isolated data directory, and hand back the parsed SessionStart
       record plus the hook's own stdout envelope.
+
+      -PayloadJson OVERRIDES the stdin the hook is given. It defaults to empty,
+      which keeps New-Payload's well-formed record, so every case written before
+      it existed is unchanged. Sections F and G need it because two of the five
+      self-check probes read the PAYLOAD - payload_session and payload_cwd - and
+      a helper that can only ever hand over a complete one cannot make either of
+      them fail. An empty string is not usable as "no payload": Invoke-Child
+      would write zero bytes and the difference between that and a payload
+      carrying neither key is a difference in what is being tested, so the case
+      passes the object it means.
     #>
-    param([string]$Name, [string]$ConfigJson = '')
+    param([string]$Name, [string]$ConfigJson = '', [string]$PayloadJson = '')
 
     $root = New-PluginTree (Join-Path $script:Work $Name) -ConfigJson $ConfigJson
     $prof = New-Dir (Join-Path $script:Work "$Name-profile")
     $data = New-Dir (Join-Path $script:Work "$Name-data")
     $hook = Join-Path $root 'lib\session_start.ps1'
 
-    $r = Invoke-Child -ScriptPath $hook -Stdin (New-Payload $root) -WorkDir $root `
+    $stdin = $(if ([string]::IsNullOrEmpty($PayloadJson)) { New-Payload $root } else { $PayloadJson })
+    $r = Invoke-Child -ScriptPath $hook -Stdin $stdin -WorkDir $root `
          -EnvSet @{ USERPROFILE = $prof; CLAUDE_PLUGIN_DATA = $data; CLAUDE_PLUGIN_ROOT = $root }
 
     $envelope = $null
@@ -820,11 +854,660 @@ function Test-E3-ThePlatformAnswerHasOneHome {
 }
 
 # =========================================================================
+# SECTION F - #177, the four unasserted probes and the mode ladder
+#
+# #177's headline - "lib\session_start.ps1 is executed by no test" - stopped
+# being true when this file landed, and the re-scoping comment on that issue is
+# the reason it stayed open anyway: EXECUTION IS NOT COVERAGE. Sections A, B and
+# C run the hook nine times between them and assert two of its five self-check
+# probes and one of the six words its mode ladder can produce. The rest was run
+# and looked at by nothing.
+#
+# WHAT THIS SECTION ADDS, and it is the list the issue was re-scoped to:
+#
+#   the probes config_from_file, thresholds_live, payload_session and
+#   payload_cwd, none of which appeared anywhere in tests\ - F1 asserts all four
+#   are recorded and true on the config this repository ships, and F2, F3 and F4
+#   each drive ONE of them false from a different direction, so a probe that
+#   answered a constant would be caught by whichever case it disagreed with.
+#
+#   the mode ladder. Get-LwgSessionMode has six answers and section B pinned one
+#   of them, 'degraded'. F5 to F9 pin the other five - observe-only, unverified,
+#   partial, enforcing, inert - each from a config that makes that answer the
+#   only correct one, and each asserting the word in the LEDGER RECORD and in
+#   the BANNER, because a ladder that resolved correctly and printed something
+#   else would be the same lie one step later. #177 names four of these five;
+#   'inert' is here because the ladder is a total function over the same three
+#   inputs and leaving one answer unpinned is how the next one drifts.
+#
+# THE FIXTURE CONFIGS ARE WRITTEN OUT IN FULL rather than patched from the
+# shipped one, because the counts each case asserts are read off the config it
+# was given. A fixture that inherited anything would make those numbers a
+# statement about config.json instead of about the ladder.
+#
+# THE COUNTS ARE CONCRETE - 7/11, 11/11, 0 gates, 3 gates - and not recomputed
+# from the registry inside the case. Deriving them here would mean the case and
+# the code under test share a mistake; a registry change that moves them is
+# meant to bring this file with it, and that is the test working rather than
+# failing.
+# =========================================================================
+
+# The three self-reported failure banners lib\session_start.ps1 can emit, by the
+# fragment of each that is stable under a version bump. Located by reading the
+# file, not by line number - #144's own comments record all three line numbers
+# moving once already.
+$script:BannerFailures = @(
+    'startup failed, see log'          # the initial value, still standing if the try block never completed
+    '(governance not loaded)'          # the catch block
+    'output serialisation failed'      # the last-resort hand-built envelope
+)
+
+function Get-BannerFailure {
+    <# Which of the three failure banners this text is, or '' for none. #>
+    param([string]$Banner)
+    foreach ($f in $script:BannerFailures) { if ([string]$Banner -like "*$f*") { return $f } }
+    return ''
+}
+
+function Test-BannerMode {
+    <#
+      Does the banner end on this mode word? The word is the LAST thing on the
+      line except for an optional parenthetical, so anchoring on that is what
+      separates "the banner names the mode" from "the mode word appears
+      somewhere in the banner", which a module name could satisfy.
+    #>
+    param([string]$Banner, [string]$Mode)
+    return ([string]$Banner -match ([regex]::Escape($Mode) + '\s*(\(|$)'))
+}
+
+function Invoke-ModeCase {
+    <#
+      One mode-ladder case: run the hook against $ConfigJson and assert the mode
+      word in the ledger record AND in the banner, plus the module and gate
+      counts the banner prints. Every assertion is reported through one
+      Add-Case, because they are one claim about one run.
+    #>
+    param([string]$Name, [string]$CaseName, [string]$ConfigJson,
+          [string]$Mode, [string]$Counts, [string]$Gates, [string]$Split = '')
+
+    $c = Invoke-SessionStartCase -Name $Name -ConfigJson $ConfigJson
+    if ($null -eq $c.record) {
+        Add-Case $CaseName $false "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    $banner = [string]$c.envelope.systemMessage
+    $problems = @()
+    if ([string]$c.record.mode -ne $Mode) {
+        $problems += "the ledger record says mode '$($c.record.mode)', expected '$Mode'. failures: [$($c.record.failures -join '; ')]"
+    }
+    if (-not (Test-BannerMode $banner $Mode)) {
+        $problems += "the BANNER does not end on '$Mode': [$banner]"
+    }
+    $f = Get-BannerFailure $banner
+    if ($f -ne '') { $problems += "the banner is the self-reported failure string '$f': [$banner]" }
+    if ($banner -notmatch [regex]::Escape($Counts)) {
+        $problems += "the banner does not say '$Counts': [$banner]"
+    }
+    if ($banner -notmatch [regex]::Escape($Gates)) {
+        $problems += "the banner does not say '$Gates': [$banner]"
+    }
+    if ($Split -ne '' -and $banner -notmatch [regex]::Escape($Split)) {
+        $problems += "the banner does not account for the remainder with '$Split': [$banner]"
+    }
+    if ($c.code -ne 0) { $problems += "the hook exited $($c.code); it must always exit 0. stderr: $($c.err)" }
+    Add-Case $CaseName ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-F1-TheFourUnassertedProbesAreRecordedAndPass {
+    <#
+      The control for F2 to F4, and the case that closes the "0 hits in tests\"
+      row on its own: all four probes are WRITTEN to the record and all four are
+      true on the config this repository ships. Without it, "make the probe able
+      to fail" and "make it always fail" are indistinguishable - the same
+      argument B4 makes for probe 2.
+    #>
+    $c = Invoke-SessionStartCase -Name 'f1'
+    if ($null -eq $c.record) {
+        Add-Case 'F1 config_from_file, thresholds_live, payload_session and payload_cwd are recorded and pass on the shipped config' $false `
+            "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    $sc = $c.record.selfcheck
+    $problems = @()
+    if ($sc.ran -ne $true) { $problems += "selfcheck.ran is [$($sc.ran)] - self_health is ON in the shipped config.json, so every probe below should have run" }
+    foreach ($probe in @('config_from_file', 'thresholds_live', 'payload_session', 'payload_cwd')) {
+        $p = $sc.PSObject.Properties[$probe]
+        if ($null -eq $p) {
+            $problems += "selfcheck.$probe is ABSENT from the record - the probe wrote no result at all, so nothing downstream could tell 'not checked' from 'checked and fine'"
+        } elseif ($p.Value -ne $true) {
+            $problems += "selfcheck.$probe is [$($p.Value)] on the shipped config.json. failures: [$($c.record.failures -join '; ')]"
+        }
+    }
+    if ($sc.ok -ne $true) { $problems += "selfcheck.ok is [$($sc.ok)] on the shipped config.json: [$($c.record.failures -join '; ')]" }
+    Add-Case 'F1 config_from_file, thresholds_live, payload_session and payload_cwd are recorded and pass on the shipped config' `
+        ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-F2-AConfigThatDoesNotParseFailsConfigFromFile {
+    <#
+      Get-LwgConfig FAILS OPEN - a config.json it cannot read is silently
+      replaced by the built-in defaults and governance stays on. That is the
+      right polarity and it is also why this probe exists: the session then runs
+      on settings the operator never wrote, and config_from_file is the only
+      thing that says so. It is the one probe whose failure is invisible in
+      every other output.
+    #>
+    $c = Invoke-SessionStartCase -Name 'f2' -ConfigJson "{ this is not JSON, and Get-LwgConfig will fall back"
+    if ($null -eq $c.record) {
+        Add-Case 'F2 an unreadable config.json fails config_from_file and degrades the session' $false `
+            "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    $problems = @()
+    if ($c.record.selfcheck.config_from_file -ne $false) {
+        $problems += ("config_from_file is [$($c.record.selfcheck.config_from_file)] for a config.json that does not parse. " +
+                      "The session is running on built-in defaults and reporting the operator's own configuration.")
+    }
+    if (($c.record.failures -join ' ') -notmatch 'config\.json unreadable') {
+        $problems += "no failure names the unreadable config: [$($c.record.failures -join '; ')]"
+    }
+    if ([string]$c.record.mode -ne 'degraded') {
+        $problems += "mode is '$($c.record.mode)', expected 'degraded' - a failed probe must reach the mode word"
+    }
+    Add-Case 'F2 an unreadable config.json fails config_from_file and degrades the session' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-F3-AConfigWithNoThresholdsFailsThresholdsLive {
+    <#
+      A config that PARSES and carries a modules block - so config_from_file is
+      true - and no thresholds at all. Both halves are asserted: the case would
+      be satisfied by a probe that simply mirrored config_from_file if it only
+      looked at thresholds_live.
+    #>
+    $cfg = @'
+{
+  "version": "0.4.0",
+  "modules": {},
+  "repos": {}
+}
+'@
+    $c = Invoke-SessionStartCase -Name 'f3' -ConfigJson $cfg
+    if ($null -eq $c.record) {
+        Add-Case 'F3 a config with no thresholds fails thresholds_live and nothing else' $false `
+            "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    $problems = @()
+    if ($c.record.selfcheck.thresholds_live -ne $false) {
+        $problems += ("thresholds_live is [$($c.record.selfcheck.thresholds_live)] for a config declaring no thresholds. " +
+                      "The pressure monitors then compare against a hardcoded guess and nothing says so.")
+    }
+    if ($c.record.selfcheck.config_from_file -ne $true) {
+        $problems += "config_from_file is [$($c.record.selfcheck.config_from_file)] for a config.json that parses and carries a modules block"
+    }
+    if (($c.record.failures -join ' ') -notmatch 'thresholds') {
+        $problems += "no failure names the thresholds: [$($c.record.failures -join '; ')]"
+    }
+    if ([string]$c.record.mode -ne 'degraded') {
+        $problems += "mode is '$($c.record.mode)', expected 'degraded'"
+    }
+    Add-Case 'F3 a config with no thresholds fails thresholds_live and nothing else' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-F4-APayloadMissingSessionAndCwdFailsBothPayloadProbes {
+    <#
+      The two probes that read the HOOK PAYLOAD rather than the config. A
+      session_id of $null means nothing downstream can correlate a record with
+      the session that produced it, which is why the file calls it a real
+      failure rather than cosmetic - and until this case the claim rested on the
+      comment alone.
+
+      The payload is a well-formed JSON object carrying NEITHER key, not an
+      empty stdin: an absent payload is a different input and would exercise
+      Read-LwgStdin instead of these two probes.
+    #>
+    $c = Invoke-SessionStartCase -Name 'f4' -PayloadJson '{"source":"startup"}'
+    if ($null -eq $c.record) {
+        Add-Case 'F4 a payload with no session_id and no cwd fails both payload probes' $false `
+            "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    $problems = @()
+    if ($c.record.selfcheck.payload_session -ne $false) {
+        $problems += "payload_session is [$($c.record.selfcheck.payload_session)] for a payload carrying no session_id"
+    }
+    if ($c.record.selfcheck.payload_cwd -ne $false) {
+        $problems += "payload_cwd is [$($c.record.selfcheck.payload_cwd)] for a payload carrying no cwd"
+    }
+    $f = ($c.record.failures -join ' ')
+    if ($f -notmatch 'session_id')      { $problems += "no failure names session_id: [$f]" }
+    if ($f -notmatch 'payload\.cwd')    { $problems += "no failure names payload.cwd: [$f]" }
+    if ([string]$c.record.mode -ne 'degraded') {
+        $problems += "mode is '$($c.record.mode)', expected 'degraded'"
+    }
+    Add-Case 'F4 a payload with no session_id and no cwd fails both payload probes' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-F5-TheShippedConfigIsObserveOnly {
+    <#
+      The word the shipped plugin actually reports, and the one an operator sees
+      most: seven of eleven modules run, no gate is armed, so nothing can block
+      anything. '(4 off)' is asserted with it because the parenthetical is what
+      stops 7/11 being read as coverage - the four are built and switched off,
+      not unwritten.
+    #>
+    Invoke-ModeCase -Name 'f5' -CaseName 'F5 the shipped config.json reports mode observe-only, 7/11 modules and 0 gates' `
+        -ConfigJson '' -Mode 'observe-only' -Counts '7/11 modules' -Gates '0 gates' -Split '(4 off)'
+}
+
+function Test-F6-SelfHealthOffIsUnverified {
+    <#
+      self_health off. Six modules still run, so the session is not inert - and
+      the ladder must NOT report observe-only, partial or enforcing, because all
+      three assert in this plugin's own documentation that the self-check
+      passed. Nothing checked anything this session and the word has to say so.
+    #>
+    $cfg = @'
+{
+  "version": "0.4.0",
+  "modules": {
+    "failure_capture": true,
+    "context_pressure": true,
+    "self_health": false,
+    "log_rotation": true,
+    "docs_coupling": true,
+    "git_hygiene": true,
+    "context_injection": true
+  },
+  "repos": {},
+  "thresholds": {
+    "ratelimit": { "warn_pct": 88, "land_all_pct": 92 },
+    "context":   { "warn_pct": 75, "critical_pct": 90 }
+  }
+}
+'@
+    Invoke-ModeCase -Name 'f6' -CaseName 'F6 self_health off reports mode unverified, never a word that implies a check passed' `
+        -ConfigJson $cfg -Mode 'unverified' -Counts '6/11 modules' -Gates '0 gates' -Split '(5 off)'
+}
+
+function Test-F7-OneLiveGateIsPartial {
+    <#
+      interaction.delegate on arms delegate_gate, the one gate an operator can
+      turn on with a shipped command. Eight modules of eleven then run with one
+      gate live, which is 'partial' and not 'enforcing': three implemented
+      modules are still switched off and the word has to carry that.
+
+      '1 gate' singular is asserted deliberately - the banner picks the word off
+      the count, and a plural on one gate is the kind of detail that is only
+      ever noticed by a reader who then distrusts the rest of the line.
+    #>
+    $cfg = @'
+{
+  "version": "0.4.0",
+  "modules": {
+    "failure_capture": true,
+    "context_pressure": true,
+    "self_health": true,
+    "log_rotation": true,
+    "docs_coupling": true,
+    "git_hygiene": true,
+    "context_injection": true
+  },
+  "interaction": { "delegate": true },
+  "repos": {},
+  "thresholds": {
+    "ratelimit": { "warn_pct": 88, "land_all_pct": 92 },
+    "context":   { "warn_pct": 75, "critical_pct": 90 }
+  }
+}
+'@
+    Invoke-ModeCase -Name 'f7' -CaseName 'F7 one live gate with modules still off reports mode partial and 1 gate' `
+        -ConfigJson $cfg -Mode 'partial' -Counts '8/11 modules' -Gates '1 gate' -Split '(3 off)'
+}
+
+function Test-F8-EverythingOnIsEnforcing {
+    <#
+      Every implemented module on and all three gates armed. This is the only
+      configuration in which 'enforcing' is honest, and it is also the one case
+      in which the banner has no parenthetical to add: on THIS fixture nothing
+      is planned and nothing is off, so the count and the total are the same
+      number and there is no remainder to account for. That branch is asserted
+      here by its absence - an '(0 planned)' or '(0 off)' would be noise
+      standing where a real caveat belongs.
+
+      SAID OF THIS FIXTURE AND OF NOTHING ELSE. On the config this repository
+      SHIPS, four modules are built and switched off, so the banner does carry
+      a parenthetical and F5 asserts it - tests\gate_delegate.ps1's N3 sweep
+      exists to fail any tracked line that says otherwise, and it is right to,
+      because a reader who took the sentence for a general one would conclude
+      that delegate_gate is either armed or not counted as implemented, and
+      both are wrong about the one component here that can refuse a call.
+    #>
+    $cfg = @'
+{
+  "version": "0.4.0",
+  "modules": {
+    "failure_capture": true,
+    "context_pressure": true,
+    "self_health": true,
+    "log_rotation": true,
+    "docs_coupling": true,
+    "git_hygiene": true,
+    "context_injection": true
+  },
+  "interaction": { "delegate": true },
+  "supervision": {
+    "send_liveness": true,
+    "completion_audit": true,
+    "orphan_watch": true
+  },
+  "repos": {},
+  "thresholds": {
+    "ratelimit": { "warn_pct": 88, "land_all_pct": 92 },
+    "context":   { "warn_pct": 75, "critical_pct": 90 }
+  }
+}
+'@
+    $c = Invoke-SessionStartCase -Name 'f8' -ConfigJson $cfg
+    if ($null -eq $c.record) {
+        Add-Case 'F8 every implemented module on and three gates armed reports mode enforcing, with no parenthetical' $false `
+            "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    $banner = [string]$c.envelope.systemMessage
+    $problems = @()
+    if ([string]$c.record.mode -ne 'enforcing') { $problems += "the ledger record says mode '$($c.record.mode)', expected 'enforcing'. failures: [$($c.record.failures -join '; ')]" }
+    if (-not (Test-BannerMode $banner 'enforcing')) { $problems += "the BANNER does not end on 'enforcing': [$banner]" }
+    if ($banner -notmatch '11/11 modules') { $problems += "the banner does not say '11/11 modules': [$banner]" }
+    if ($banner -notmatch '3 gates')              { $problems += "the banner does not say '3 gates': [$banner]" }
+    if ($banner -match '\d+/\d+ modules \w+\s*\(') { $problems += "the banner prints a parenthetical on a config with nothing planned and nothing off: [$banner]" }
+    $f = Get-BannerFailure $banner
+    if ($f -ne '') { $problems += "the banner is the self-reported failure string '$f': [$banner]" }
+    Add-Case 'F8 every implemented module on and three gates armed reports mode enforcing, with no parenthetical' `
+        ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-F9-NothingRunningIsInert {
+    <#
+      The last rung. Every module in the `modules` block off - self_health among
+      them - and no switch-backed module armed, so nothing is running at all.
+      'inert' rather than 'unverified' because with an active count of zero
+      "nothing is running" is the stronger and completely verifiable statement,
+      and the ladder prefers it. #177 names four words; this is the fifth, and
+      an unpinned rung on a total function is where the next drift lands.
+    #>
+    $cfg = @'
+{
+  "version": "0.4.0",
+  "modules": {
+    "failure_capture": false,
+    "context_pressure": false,
+    "self_health": false,
+    "log_rotation": false,
+    "docs_coupling": false,
+    "git_hygiene": false,
+    "context_injection": false
+  },
+  "repos": {},
+  "thresholds": {
+    "ratelimit": { "warn_pct": 88, "land_all_pct": 92 },
+    "context":   { "warn_pct": 75, "critical_pct": 90 }
+  }
+}
+'@
+    Invoke-ModeCase -Name 'f9' -CaseName 'F9 nothing enabled at all reports mode inert, 0/11 modules and 0 gates' `
+        -ConfigJson $cfg -Mode 'inert' -Counts '0/11 modules' -Gates '0 gates' -Split '(11 off)'
+}
+
+# =========================================================================
+# SECTION G - #144, the banner, and #177's additionalContext envelope
+#
+# THE BANNER (#144). lib\session_start.ps1 emits one line every session sees,
+# and no test had ever read it. A silent banner, a blank banner, or any of the
+# THREE self-reported failure strings the file can emit would have failed no
+# build. The three are located by their text and not by line number: #144 cited
+# :22 / :158 / :227, the second and third have since moved to :228 and :307, and
+# a third string at :324 - 'output serialisation failed', written straight to
+# the console when the envelope will not serialise - was not in the issue at all
+# and is the one a "not either failure string" assertion would sail past.
+#
+# THE ENVELOPE (#177). Invoke-SessionStartCase has parsed the hook's stdout into
+# $envelope since this file landed and no case had read a field off it.
+# additionalContext is the only model-visible output this plugin produces at
+# session start and it is paid for on every session, so what it says is a
+# behavioural claim like any other: it must describe what is RUNNING. G5 to G7
+# assert the three statements it makes that can be wrong in the expensive
+# direction - the module roster, the gate sentence, and the one that says the
+# self-check did not run.
+#
+# G3 IS THE ONE THAT CANNOT BE FAKED BY A CONSTANT. A banner hardcoded to a
+# plausible string passes G1, G2 and G4; it fails G3, which requires the banner
+# to carry the reason THIS degraded session degraded.
+#
+# G2 CARRIES ONE MORE THING AND IT IS NOT COVERAGE: #132's banner word. Every
+# other case in sections F and G is green at 4342980 and is offered as coverage;
+# G2 is red there, because the banner called its count 'active' when the count
+# is a statement about config.json and the registry. Read its comment.
+# =========================================================================
+
+function Test-G1-TheBannerIsEmittedAndIsNotAFailureString {
+    $c = Invoke-SessionStartCase -Name 'g1'
+    $banner = [string]$c.envelope.systemMessage
+    $problems = @()
+    if ($null -eq $c.envelope) { $problems += "the hook printed nothing that parses as JSON. exit $($c.code), stdout: [$($c.raw)], stderr: $($c.err)" }
+    if ([string]::IsNullOrWhiteSpace($banner)) {
+        $problems += "systemMessage is empty. A silent banner is indistinguishable from a plugin that is not installed, and until this case it would have failed no build. Raw stdout: [$($c.raw)]"
+    }
+    $f = Get-BannerFailure $banner
+    if ($f -ne '') {
+        $problems += ("the banner is the self-reported failure string '$f': [$banner]. " +
+                      "The hook exits 0 on every path, so this reaches the operator as an ordinary session.")
+    }
+    if ($banner -notmatch '^LW-WATCHTOWER v\d') { $problems += "the banner does not open with 'LW-WATCHTOWER v<version>': [$banner]" }
+    if ($c.code -ne 0) { $problems += "the hook exited $($c.code); it must always exit 0. stderr: $($c.err)" }
+    Add-Case 'G1 the SessionStart banner is emitted, non-empty, and is none of the three failure strings' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-G2-TheBannerNumbersAreTheOnesTheConfigImplies {
+    <#
+      A banner that is present and well-formed can still be wrong about every
+      number on it. On the shipped config the answer is 7 of 11 enabled, four
+      built and switched off, no gate live, observe-only - and the last of those
+      is asserted here as well as in F5 on purpose: F5 pins the ladder's ANSWER,
+      this pins that the banner PRINTS the answer it was given.
+
+      AND THE NOUN (#132). THIS IS THE ONE CASE IN SECTIONS F AND G THAT IS RED
+      AT 4342980, and it is red for a defect rather than for a coverage gap: the
+      banner said 'N/M modules ACTIVE' there. $activeCount comes from
+      Get-LwgActiveModules, whose own docstring says the count is "enabled by
+      config AND backed by code" - the registry and config.json, and nothing
+      that was observed to happen. 'Active' reads as "these ran". Three of the
+      eight events hooks/hooks.json registers on were read out of one specific
+      binary and are simply inert on a build that does not carry them, while
+      this line goes on counting the module, so the word claimed an observation
+      the plugin has never had, in the one line every session reads.
+
+      The other five mode cases assert the FRACTION and not the noun - '7/11
+      modules' - deliberately. They are coverage and are green at that commit,
+      and folding the wording defect into all six would have made five green
+      cases look like five red ones and lost which change did what.
+
+      BOTH DIRECTIONS. Asserting 'enabled' alone would pass on a banner that
+      printed both words; the absence of 'active' is the half that says the
+      overstatement is gone rather than merely joined.
+    #>
+    $c = Invoke-SessionStartCase -Name 'g2'
+    $banner = [string]$c.envelope.systemMessage
+    $problems = @()
+    foreach ($want in @('7/11 modules enabled', '(4 off)', '0 gates', 'observe-only')) {
+        if ($banner -notmatch [regex]::Escape($want)) { $problems += "the banner does not say '$want'" }
+    }
+    if ($banner -match 'modules active') {
+        $problems += ("REGRESSION (#132): the banner says 'modules active'. The count is Get-LwgActiveModules', " +
+                      "which is enabled-by-config AND backed-by-code - a statement about the registry, not about " +
+                      "anything that was observed to fire. Nothing in this plugin knows whether a registered hook " +
+                      "ran at all, so 'active' claims an observation it does not have.")
+    }
+    if ($null -ne $c.record -and [string]$c.record.mode -ne 'observe-only') {
+        $problems += "the ledger record says mode '$($c.record.mode)' while the banner was asked for 'observe-only' - the two come from one variable and must not be able to disagree"
+    }
+    if ($problems.Count -gt 0) { $problems += "banner: [$banner]" }
+    Add-Case 'G2 the banner prints the count, the remainder, the gate count and the mode - and calls the count ENABLED, not active (#132)' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-G3-ADegradedSessionStillGetsARealBannerCarryingTheReason {
+    <#
+      The failure path that is NOT one of the three failure strings: the hook
+      completed, a probe failed, and the banner has to say which. 'degraded'
+      alone tells a reader something is missing and not what, so the file
+      appends the first failure - and that append is the thing a constant banner
+      cannot fake.
+    #>
+    $c = Invoke-SessionStartCase -Name 'g3' -ConfigJson "{ deliberately unparseable"
+    $banner = [string]$c.envelope.systemMessage
+    $problems = @()
+    $f = Get-BannerFailure $banner
+    if ($f -ne '') { $problems += "the banner is the self-reported failure string '$f' - an unreadable config.json must degrade the session, not break the hook: [$banner]" }
+    if (-not (Test-BannerMode $banner 'degraded')) { $problems += "the banner does not report mode 'degraded': [$banner]" }
+    if ($banner -notmatch 'config\.json unreadable') {
+        $problems += "the banner reports a degraded session without naming what failed, so the operator is told something is wrong and not what: [$banner]"
+    }
+    if ($c.code -ne 0) { $problems += "the hook exited $($c.code); it must always exit 0. stderr: $($c.err)" }
+    Add-Case 'G3 a degraded session still gets a real banner, carrying the reason it degraded' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-G4-TheEnvelopeIsTheSessionStartShape {
+    $c = Invoke-SessionStartCase -Name 'g4'
+    $problems = @()
+    if ($null -eq $c.envelope) {
+        Add-Case 'G4 the hook emits the SessionStart hookSpecificOutput envelope' $false `
+            "the hook printed nothing that parses as JSON. exit $($c.code), stdout: [$($c.raw)], stderr: $($c.err)"
+        return
+    }
+    $hso = $c.envelope.hookSpecificOutput
+    if ($null -eq $hso) { $problems += 'there is no hookSpecificOutput object, so Claude Code is handed no context at all' }
+    else {
+        if ([string]$hso.hookEventName -ne 'SessionStart') { $problems += "hookSpecificOutput.hookEventName is '$($hso.hookEventName)', expected 'SessionStart'" }
+        if ([string]::IsNullOrWhiteSpace([string]$hso.additionalContext)) {
+            $problems += 'additionalContext is empty - it is the only model-visible output this plugin produces at session start and it is paid for on every session'
+        }
+    }
+    if ($c.envelope.suppressOutput -ne $true) { $problems += "suppressOutput is [$($c.envelope.suppressOutput)], expected true - the banner is the user-visible half and the envelope must not be printed beside it" }
+    Add-Case 'G4 the hook emits the SessionStart hookSpecificOutput envelope' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-G5-AdditionalContextDescribesWhatIsRunning {
+    <#
+      The roster and the gate sentence, on the shipped config. Every active
+      module is named because the sentence claims to name them; the four that
+      are built and switched off are accounted for because an unexplained gap in
+      a coverage report is the same defect as an overstated one; and the gate
+      sentence must say no gate is LIVE rather than that none exists, since
+      three do and are simply off.
+    #>
+    $c = Invoke-SessionStartCase -Name 'g5'
+    $ctx = [string]$c.envelope.hookSpecificOutput.additionalContext
+    $problems = @()
+    foreach ($want in @('mode observe-only', 'Running (7/11)', 'No gate is live')) {
+        if ($ctx -notmatch [regex]::Escape($want)) { $problems += "additionalContext does not say '$want'" }
+    }
+    foreach ($m in @('failure_capture', 'context_pressure', 'self_health', 'log_rotation', 'docs_coupling', 'git_hygiene', 'context_injection')) {
+        if ($ctx -notmatch [regex]::Escape($m)) { $problems += "additionalContext does not name the active module '$m'" }
+    }
+    foreach ($m in @('send_liveness_gate', 'completion_audit', 'orphan_watch', 'delegate_gate')) {
+        if ($ctx -notmatch [regex]::Escape($m)) { $problems += "additionalContext does not account for '$m', which is built and switched OFF - a reader totting up the names comes up short with no account of the remainder" }
+    }
+    if ($ctx -match 'can BLOCK a tool call') { $problems += 'additionalContext claims a gate can block on a config where none is armed' }
+    if ($problems.Count -gt 0) { $problems += "additionalContext: [$ctx]" }
+    Add-Case 'G5 additionalContext names every active module, accounts for the rest, and says no gate is live' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-G6-AdditionalContextNamesALiveGate {
+    <#
+      The other direction, and the expensive one. Telling the model nothing is
+      blocked while a gate is enforcing teaches it to distrust a guardrail that
+      works, which is the same class of lie as counting an unbuilt module as
+      coverage pointing the other way.
+    #>
+    $cfg = @'
+{
+  "version": "0.4.0",
+  "modules": {
+    "failure_capture": true,
+    "context_pressure": true,
+    "self_health": true,
+    "log_rotation": true,
+    "docs_coupling": true,
+    "git_hygiene": true,
+    "context_injection": true
+  },
+  "interaction": { "delegate": true },
+  "repos": {},
+  "thresholds": {
+    "ratelimit": { "warn_pct": 88, "land_all_pct": 92 },
+    "context":   { "warn_pct": 75, "critical_pct": 90 }
+  }
+}
+'@
+    $c = Invoke-SessionStartCase -Name 'g6' -ConfigJson $cfg
+    $ctx = [string]$c.envelope.hookSpecificOutput.additionalContext
+    $problems = @()
+    if ($ctx -match 'No gate is live') { $problems += 'additionalContext says no gate is live on a config where interaction.delegate arms delegate_gate' }
+    if ($ctx -notmatch 'delegate_gate')                 { $problems += 'additionalContext does not name the live gate' }
+    if ($ctx -notmatch 'can BLOCK a tool call outright') { $problems += 'additionalContext does not say the live gate can block a tool call' }
+    if ($ctx -notmatch [regex]::Escape('mode partial'))  { $problems += "additionalContext does not carry the mode word 'partial'" }
+    if ($problems.Count -gt 0) { $problems += "additionalContext: [$ctx]" }
+    Add-Case 'G6 additionalContext names the live gate and says it can block, when one is armed' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-G7-AdditionalContextSaysTheSelfCheckDidNotRun {
+    <#
+      Three states, not two. A model told nothing at all about the self-check
+      would reasonably assume it passed, which is exactly the assumption this
+      plugin exists to refuse - so with self_health off the context has to say
+      in words that none of what it just listed was verified.
+    #>
+    $cfg = @'
+{
+  "version": "0.4.0",
+  "modules": {
+    "failure_capture": true,
+    "context_pressure": true,
+    "self_health": false,
+    "log_rotation": true,
+    "docs_coupling": true,
+    "git_hygiene": true,
+    "context_injection": true
+  },
+  "repos": {},
+  "thresholds": {
+    "ratelimit": { "warn_pct": 88, "land_all_pct": 92 },
+    "context":   { "warn_pct": 75, "critical_pct": 90 }
+  }
+}
+'@
+    $c = Invoke-SessionStartCase -Name 'g7' -ConfigJson $cfg
+    $ctx    = [string]$c.envelope.hookSpecificOutput.additionalContext
+    $banner = [string]$c.envelope.systemMessage
+    $problems = @()
+    if ($ctx -notmatch 'Self-check did NOT run') { $problems += 'additionalContext does not say the self-check did not run' }
+    if ($ctx -notmatch 'not what has been proven to work') {
+        $problems += 'additionalContext does not say that what it listed is what config.json DECLARES rather than what was proven'
+    }
+    if ($ctx -match 'Self-check DEGRADED') { $problems += 'additionalContext reports a DEGRADED self-check for one that never ran - "did not run" is not "failed"' }
+    if ($banner -notmatch 'self_health off') { $problems += "the banner does not say the omission is deliberate: [$banner]" }
+    if ($problems.Count -gt 0) { $problems += "additionalContext: [$ctx]" }
+    Add-Case 'G7 additionalContext says the self-check did NOT run, rather than reporting it passed or failed' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+# =========================================================================
 
 Say ''
 Say 'LW-WATCHTOWER state-resolution and platform suite'
 Say '  A #146 CLAUDE_CONFIG_DIR   B #60 probe 2   C #106 selfcheck.probe'
 Say '  D #8 marketplace layout    E #132 platform and hook events'
+Say '  F #177 the four unasserted probes and the mode ladder'
+Say '  G #144 the banner   #177 the additionalContext envelope'
 Say ''
 
 try {
@@ -839,7 +1522,10 @@ try {
     # written and never called is a suite that reports a clean pass over
     # coverage it does not have - the founding defect this repository exists to
     # catch, in its own test harness. Sorting on the name gives A1..A5, B1..B4,
-    # C1, D1..D3, E1..E3, so section order is a property of the naming.
+    # C1, D1..D3, E1..E3, F1..F9, G1..G7, so section order is a property of the
+    # naming. IT IS A STRING SORT: F10 would come before F2, so a section stops
+    # at nine cases and the next one takes a new letter. That costs nothing
+    # except readability of the run, which is the only thing the order decides.
     $cases = @(Get-ChildItem function:\ | Where-Object { $_.Name -match '^Test-[A-Z]\d+-' } | Sort-Object Name)
     if ($cases.Count -eq 0) { Abort-Suite 'no case functions were discovered - the harness is broken, not the tree.' }
     foreach ($c in $cases) { & $c.Name }
