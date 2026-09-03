@@ -69,7 +69,7 @@ function Start-LwgProcess {
     <#
       Launch a bounded child and return a HANDLE to it without waiting:
 
-        @{ p; so; se; sw; state; ok; code; out; err; ms; wait_ms }
+        @{ p; so; se; sw; state; ok; code; out; err; ms; wait_ms; child_pid; kill }
 
       state is 'running' when it started and 'missing' when it could not be
       started at all. Pass the handle to Complete-LwgProcess to collect it.
@@ -110,8 +110,16 @@ function Start-LwgProcess {
         [string]$WorkDir
     )
 
+    # child_pid and kill are what make an expired child attributable in the
+    # evidence log - #98 item 3 - and they are NOT the same shape as each other.
+    # child_pid is filled in below on every path where the child started, and
+    # stays -1 where it did not; it is captured AT LAUNCH rather than read back
+    # later because Complete-LwgProcess disposes the Process object in its
+    # finally and .Id throws after that. kill is written only by the timeout
+    # path, and names the route Stop-LwgProcessTree took.
     $h = @{ p = $null; so = $null; se = $null; sw = [System.Diagnostics.Stopwatch]::StartNew()
-            state = 'error'; ok = $false; code = -1; out = ''; err = ''; ms = 0; wait_ms = 0 }
+            state = 'error'; ok = $false; code = -1; out = ''; err = ''; ms = 0; wait_ms = 0
+            child_pid = -1; kill = '' }
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $File
@@ -181,6 +189,7 @@ function Start-LwgProcess {
             return $h
         }
         if ($null -eq $h.p) { $h.state = 'missing'; return $h }
+        try { $h.child_pid = [int]$h.p.Id } catch { $h.child_pid = -1 }
 
         # Close stdin immediately: a child that reads it gets EOF instead of
         # blocking forever on input this hook is never going to send.
@@ -196,10 +205,133 @@ function Start-LwgProcess {
     return $h
 }
 
+function Stop-LwgProcessTree {
+    <#
+      Terminate $Proc AND EVERYTHING BENEATH IT, and say by which route.
+      Returns @{ method = <string>; pid = <int> }; method is one of
+
+        taskkill            taskkill /T /F ran and reported success
+        taskkill-exit-<n>   it ran and REFUSED - access denied, or a process in
+                            the tree it could not terminate. The distinction is
+                            the whole value of this field: a taskkill that merely
+                            STARTED proves nothing, and a field that said
+                            'taskkill' for a refusal would report the tree dead
+                            when it is not.
+        taskkill-timeout    it was started and had to be killed itself
+        taskkill-failed     it could not be started at all (not on PATH)
+        kill-only           the child had already exited, or has no usable id
+
+      WHY THIS EXISTS. Process.Kill() with no argument terminates the direct
+      child and nothing else. .NET Framework 4.x - the runtime Windows
+      PowerShell 5.1 runs on, which is the only supported host - has no
+      Kill(bool entireProcessTree); that overload arrived in .NET Core 3.0. So
+      the timeout path used to leave a credential helper, a pager or any other
+      helper the child had spawned running, holding the inherited write ends of
+      the redirected pipes, after the hook had exited.
+
+      THAT IS NO LONGER AN INFERENCE. #98 argued it from what git and gh are
+      known to spawn, and the counter-argument on that issue - that no orphan had
+      ever been observed from this plugin - was true when it was written. It is
+      not true now: tests\stop_behaviour.ps1 case B26 plants a real
+      grandchild under a real child, runs the real timeout path, and reads the
+      process table afterwards. It found the grandchild alive. The decision that
+      rested on "unobserved" is therefore reopened by evidence rather than by
+      argument, and this is the answer.
+
+      WHY taskkill AND NOT THE OTHER TWO OPTIONS #98 LISTS.
+        * A Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE is the clean
+          mechanism and is unavailable at an acceptable price: it needs
+          Add-Type, which compiles C# on every single hook invocation - on the
+          FAST path, not this one - to buy something only the timeout path uses.
+        * A Win32_Process ParentProcessId walk is one WMI query, and it has to
+          be written correctly: descendants must be enumerated BEFORE the root
+          dies, recursively, and killed leaf-first, or PID reuse turns it into a
+          way of killing unrelated processes. taskkill /T does exactly that,
+          correctly, in a binary that ships with the OS.
+      The cost is one process spawn on a path where a child has ALREADY burned
+      its whole timeout, so it is charged where the time was already lost.
+
+      ORDERING IS THE WHOLE THING, and it is why taskkill runs before the
+      fallback Kill() rather than after. Windows never rewrites a child's
+      ParentProcessId when its parent dies, so /T against an already-dead root
+      walks nothing at all. The root must still be alive when taskkill reads the
+      table.
+
+      THE RESIDUAL, NAMED. Between HasExited returning false and taskkill
+      reading the process table, the child can exit and Windows can in principle
+      reissue its pid. The window is microseconds and the check narrows it
+      rather than closing it; there is no API on this runtime that closes it.
+      The fallback Kill() below carries the same window and always did.
+
+      OUTPUT IS REDIRECTED AND DELIBERATELY NEVER READ. taskkill prints a line
+      per process it terminates, and this runs inside a Stop hook whose stdout is
+      the systemMessage envelope - an unredirected SUCCESS: line would land in
+      it. The async reads are started and dropped so the pipe cannot fill and
+      stall the WaitForExit below; nothing here wants the text.
+    #>
+    param($Proc)
+
+    $out = @{ method = 'kill-only'; pid = -1 }
+    if ($null -eq $Proc) { return $out }
+    try { $out.pid = [int]$Proc.Id } catch { $out.pid = -1 }
+
+    try {
+        if ($out.pid -gt 0 -and -not $Proc.HasExited) {
+            $tk = New-Object System.Diagnostics.ProcessStartInfo
+            $tk.FileName               = 'taskkill'
+            # A literal built from an integer. Nothing from any payload reaches
+            # this string, which is why it needs no quoting rule of its own.
+            $tk.Arguments              = ('/PID {0} /T /F' -f $out.pid)
+            $tk.UseShellExecute        = $false
+            $tk.CreateNoWindow         = $true
+            $tk.RedirectStandardOutput = $true
+            $tk.RedirectStandardError  = $true
+
+            $k = [System.Diagnostics.Process]::Start($tk)
+            if ($null -eq $k) {
+                $out.method = 'taskkill-failed'
+            } else {
+                $out.method = 'taskkill'
+                try { $k.StandardOutput.ReadToEndAsync() | Out-Null } catch { }
+                try { $k.StandardError.ReadToEndAsync()  | Out-Null } catch { }
+                # NOT routed through Complete-LwgProcess, on purpose: that
+                # function's timeout path calls this one, so a taskkill that
+                # hung would tree-kill taskkill, recursively.
+                try {
+                    if (-not $k.WaitForExit(1000)) {
+                        $out.method = 'taskkill-timeout'
+                        try { $k.Kill() } catch { }
+                    } else {
+                        # STARTED IS NOT SUCCEEDED. taskkill exits nonzero when
+                        # it is denied access or cannot terminate a process in
+                        # the tree, and reporting that as 'taskkill' would be
+                        # this field claiming the tree died when it did not.
+                        $kc = -1
+                        try { $kc = [int]$k.ExitCode } catch { $kc = -1 }
+                        if ($kc -ne 0) { $out.method = ('taskkill-exit-{0}' -f $kc) }
+                    }
+                } catch { }
+                try { $k.Dispose() } catch { }
+            }
+        }
+    } catch {
+        # taskkill not on PATH, or Start threw. The fallback below is then the
+        # whole of the kill, and the caller is told which it got.
+        $out.method = 'taskkill-failed'
+    }
+
+    # The belt. Whatever taskkill did or did not manage, the DIRECT child must
+    # die - that half of the guarantee was never in doubt and must not become
+    # conditional on a binary being present.
+    try { if (-not $Proc.HasExited) { $Proc.Kill() } } catch { }
+
+    return $out
+}
+
 function Complete-LwgProcess {
     <#
-      Collect a handle from Start-LwgProcess, killing the child if it has not
-      finished within $TimeoutMs OF ITS OWN START. Fills in and returns the same
+      Collect a handle from Start-LwgProcess, killing the child AND EVERYTHING IT
+      SPAWNED if it has not finished within $TimeoutMs OF ITS OWN START. Fills in and returns the same
       hashtable, with state settled to ok / nonzero / timeout / missing / error.
 
       The remaining budget is computed from the handle's stopwatch, so time the
@@ -219,7 +351,7 @@ function Complete-LwgProcess {
     param($Handle, [int]$TimeoutMs = 1500)
 
     $r = $Handle
-    if ($null -eq $r) { return @{ ok = $false; state = 'error'; code = -1; out = ''; err = ''; ms = 0; wait_ms = 0 } }
+    if ($null -eq $r) { return @{ ok = $false; state = 'error'; code = -1; out = ''; err = ''; ms = 0; wait_ms = 0; child_pid = -1; kill = '' } }
     $w = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         if ($r.state -ne 'running') { return $r }
@@ -235,31 +367,29 @@ function Complete-LwgProcess {
             $r.state = if ($r.ok) { 'ok' } else { 'nonzero' }
         } else {
             $r.state = 'timeout'
-            # KILLS THE CHILD, NOT THE TREE BENEATH IT, and that limit is stated
-            # here because four places in this repository said "killed" without
-            # it. .NET Framework 4.x - the runtime Windows PowerShell 5.1 runs
-            # on, which is the only supported host - has no
-            # Kill(bool entireProcessTree); that overload arrived in .NET Core
-            # 3.0. So a `git` or `gh` that had itself spawned a credential
-            # helper leaves that helper running, holding the inherited write
-            # ends of the redirected pipes, after this hook has exited.
+            # KILLS THE TREE, NOT JUST THE CHILD - #98. Process.Kill() on its own
+            # terminates the direct child only on this runtime, and a `git` or
+            # `gh` that had spawned a credential helper left that helper running
+            # with the inherited write ends of the redirected pipes. That was
+            # measured, not inferred: tests\stop_behaviour.ps1 case B26
+            # planted a grandchild and found it alive after this line. See
+            # Stop-LwgProcessTree for the mechanism, the ordering rule that makes
+            # it work, and the pid-reuse residual it does not close.
             #
-            # WHAT STILL HOLDS: turn end is not blocked. This returns
-            # immediately after the kill and never awaits the read tasks on this
-            # path, so the "a child that hangs cannot stall turn end" half of
-            # the guarantee is intact. What does not hold is the word "killed"
-            # applied to the whole tree.
+            # WHAT ALREADY HELD AND STILL DOES: turn end is not blocked. This
+            # returns as soon as the kill is done and never awaits the read tasks
+            # on this path. Stop-LwgProcessTree's own wait is bounded at 1000 ms
+            # and it kills its taskkill rather than waiting longer.
             #
-            # NOT FIXED HERE, deliberately. The options on this runtime are
-            # `taskkill /T /F` (a real-binary spawn on a hook path), a Job
-            # Object with KILL_ON_JOB_CLOSE (meaningful P/Invoke in a file that
-            # keeps its subprocess plumbing minimal), or a Win32_Process walk
-            # (one WMI query on the slow path). No orphan has been observed from
-            # this plugin - the consequence is inferred from what git and gh are
-            # known to spawn generally - so the claim is corrected rather than
-            # the code changed. docs/architecture.md and config.json still state
-            # the uncorrected version.
-            try { $r.p.Kill() } catch { }
+            # WHAT THE FIX DOES NOT REACH: the four documented sites #98 lists
+            # now disagree with each other in the opposite direction.
+            # docs/architecture.md and config.json say "killed on expiry", which
+            # this makes true again; docs/modules.md was corrected on 2026-09-02
+            # to say a helper the child spawned is NOT killed, which this makes
+            # false. Neither page is edited from here.
+            $kt = Stop-LwgProcessTree -Proc $r.p
+            $r.kill = [string]$kt.method
+            if ([int]$kt.pid -gt 0) { $r.child_pid = [int]$kt.pid }
         }
     } catch {
         $r.state = 'error'
@@ -290,7 +420,8 @@ function Invoke-LwgProcess {
 
         ok        started, exited within the timeout, exit code 0
         nonzero   ran to completion but failed
-        timeout   still running when the clock ran out; killed
+        timeout   still running when the clock ran out; the child and its
+                  descendants are killed (Stop-LwgProcessTree)
         missing   could not be started at all (not on PATH)
         error     anything else
 
@@ -777,10 +908,14 @@ try {
     #     on a branch with no upstream, and the single network call (gh) only
     #     when there is unpushed work on a non-default branch, once per branch
     #     head per session;
-    #   * every child gets a hard timeout and the child itself is killed on
-    #     expiry - see Complete-LwgProcess for what that does NOT cover: on
-    #     .NET Framework 4.x there is no kill-the-tree overload, so a helper the
-    #     child spawned survives it. Turn end is still never blocked.
+    #   * every child gets a hard timeout, and on expiry the child AND ANYTHING
+    #     IT SPAWNED are killed - Complete-LwgProcess hands the timeout path to
+    #     Stop-LwgProcessTree, which runs `taskkill /T /F` against the live child
+    #     before terminating it, because .NET Framework 4.x has no kill-the-tree
+    #     overload of its own. Turn end is still never blocked; the extra wait is
+    #     bounded at 1000 ms and only on the path where the timeout already
+    #     expired. The residual it does not close - a pid reissued in the
+    #     microseconds after the HasExited check - is named at that function.
     #
     # WHAT A FAILED QUERY MEANS. If git does not answer - not installed, timed
     # out, exited nonzero - this module says the tree state is UNKNOWN and says
@@ -834,9 +969,29 @@ try {
                     $stNote = "working tree state is UNKNOWN - $why. Do not read this as a clean tree; check it yourself before reporting the work as landed"
                     $notes    += $stNote
                     $obsNotes += $stNote
+                    # child_pid and kill are recorded so an expired child is
+                    # ATTRIBUTABLE on a real machine - #98 item 3.
+                    #
+                    # child_pid is the child's OWN pid and is filled in on every
+                    # path where the child started at all - a `nonzero` record
+                    # carries one too, which is a small bonus rather than the
+                    # point. It is -1 only for 'missing' and 'error', where there
+                    # was no process to name.
+                    #
+                    # kill is non-empty ONLY on the timeout path, because it is
+                    # the route the tree kill took: 'taskkill' when taskkill ran
+                    # and reported success, 'taskkill-exit-<n>' when it ran and
+                    # refused (access denied, or a process it could not
+                    # terminate), 'taskkill-timeout' when it had to be killed
+                    # itself, 'taskkill-failed' when it could not be started, and
+                    # 'kill-only' when the child had already gone. Everything
+                    # except plain 'taskkill' means the pre-#98 behaviour may
+                    # still hold for that child's descendants, and the pid beside
+                    # it is what makes that checkable.
                     Write-LwgEvent -Event 'GitHygieneUnavailable' -Payload $payload -Extra @{
                         module = 'git_hygiene'; probe = 'status'; state = $st.state
                         code   = $st.code; ms = $st.ms; error = (Get-LwgRedacted -Text ([string]$st.err) -MaxLength 160)
+                        child_pid = $st.child_pid; kill = $st.kill
                     } | Out-Null
                 } else {
                     $branch = ''; $upstream = ''; $oid = ''
@@ -888,6 +1043,7 @@ try {
                             Write-LwgEvent -Event 'GitHygieneUnavailable' -Payload $payload -Extra @{
                                 module = 'git_hygiene'; probe = 'rev-list'; state = $rl.state
                                 code   = $rl.code; ms = $rl.ms; error = (Get-LwgRedacted -Text ([string]$rl.err) -MaxLength 160)
+                                child_pid = $rl.child_pid; kill = $rl.kill
                             } | Out-Null
                         }
                     }
@@ -1017,6 +1173,7 @@ try {
                                     Write-LwgEvent -Event 'GitHygieneUnavailable' -Payload $payload -Extra @{
                                         module = 'git_hygiene'; probe = 'gh-pr-list'; state = $gh.state
                                         code   = $gh.code; ms = $gh.ms; error = (Get-LwgRedacted -Text ([string]$gh.err) -MaxLength 160)
+                                        child_pid = $gh.child_pid; kill = $gh.kill
                                     } | Out-Null
                                 }
                             }
