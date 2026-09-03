@@ -6,7 +6,7 @@ name: CI
 # matrix, and every step runs under Windows PowerShell 5.1 rather than the `pwsh`
 # (PowerShell 7) that GitHub's Windows runners default to.
 #
-# THERE IS ONE JOB, AND TEN OF ITS FIFTEEN CHECK STEPS TEST BEHAVIOUR. The
+# THERE IS ONE JOB, AND TEN OF ITS SIXTEEN CHECK STEPS TEST BEHAVIOUR. The
 # `gate-regression` job and tests\gate_regression.ps1 went on 30 July 2026 with
 # the destructive command gate; the `permissions.deny parity` step and
 # tests\deny_parity.ps1 went the same day with the secret gate. Neither is coming
@@ -1494,5 +1494,88 @@ jobs:
           }
           if ($env:GITHUB_STEP_SUMMARY) {
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Documentation claims:** $label"
+          }
+          exit $code
+
+      # Every change starts from an issue (#147, 2026-09-03; #184). Two halves of
+      # that rule are machine-checkable and .github\scripts\pr_issue_ref.ps1 is those two:
+      # the body must reference an issue, and it must NOT use a closing keyword,
+      # because an auto-close closes an issue on merge with a merge commit as its
+      # only evidence - which is this project's closure rule being broken by
+      # automation rather than by a person.
+      #
+      # THIS STEP RUNS ON pull_request ONLY, and is skipped on a push. A push has
+      # no pull-request body, and the alternative - a step that exits 0 because it
+      # had nothing to read - is the shape #39 and #42 already record on this
+      # tree: a check reporting success for a question it never asked. A skipped
+      # step is visible in the run summary; a hollow pass is not.
+      #
+      # THE BODY IS NEVER INTERPOLATED INTO THIS FILE, and the first version of
+      # this step got that wrong. It passed the body in as
+      # `LWG_PR_BODY: ${{ github.event.pull_request.body }}`, and CI failed on the
+      # pull request that introduced it: a ${{ }} expression is substituted into
+      # the WORKFLOW TEXT before the YAML is parsed, so a multi-line body - or one
+      # holding a quote, a colon, a backtick fence, or the characters ${{ - is
+      # truncated and the remainder spills into the workflow as stray YAML. The
+      # guard received nothing and exited 2.
+      #
+      # It is also the textbook script-injection vector: a pull-request body is
+      # attacker-controlled text on a public repository, and expanding it into a
+      # step runs it with this workflow's permissions. No allowlist entry in
+      # tests\workflow_guard.ps1 would make that acceptable.
+      #
+      # So the guard reads the body from the webhook payload on disk -
+      # GITHUB_EVENT_PATH, which the runner sets - and parses it as JSON. Bytes in
+      # a file, never text the runner expands.
+      #
+      # IT DOES NOT LIVE UNDER tests\ ON PURPOSE. Every file there exercises the
+      # PLUGIN; this one checks a pull request's metadata and asserts nothing
+      # about the product. Counting it among "thirteen files in tests\, ten of
+      # which test behaviour" would make both of those documented numbers LESS
+      # true, and tests\doc_claims.ps1 derives them from tests\*.ps1 - so it
+      # sits beside the workflow that is its only caller instead.
+      - name: Pull-request issue reference
+        if: github.event_name == 'pull_request'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $suite = '.github\scripts\pr_issue_ref.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - no pull request was held to the issue protocol, which is not the same as every pull request complying"
+            exit 1
+          }
+
+          # Fixtures first - 18 cases over the matcher - then the real body. A
+          # green -Live run on a broken matcher would be meaningless, and this
+          # file is not under tests\ so tests\doc_claims.ps1 does not run it.
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $fixtureCode = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+          if ($fixtureCode -ne 0) {
+            Write-Host "::error title=Pull-request issue reference::the matcher's own fixtures did not pass (exit $fixtureCode), so nothing this step says about the body can be trusted"
+            exit $fixtureCode
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite -Live
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of .github\scripts\pr_issue_ref.ps1, the same 0/1/2 every
+          # suite here uses. Exit 2 means the body never reached the guard, and
+          # that fails the step rather than passing it.
+          $label = switch ($code) {
+            0       { 'PASS - the matcher fixtures passed and the body references an issue and uses no closing keyword. That is a statement about the BODY only: nothing here establishes that the issue exists, is open, or is the one this diff belongs to.' }
+            1       { 'FAIL (exit 1) - read the case lines above. Either the body references no issue, or it uses a closing keyword; use "Refs #N" and let the QA agent close the issue with its evidence.' }
+            2       { 'ABORT (exit 2) - no pull-request body reached the guard: GITHUB_EVENT_PATH named no readable payload, or the payload carried no pull_request. The protocol was NOT checked on this pull request. Not clean, and not a pass.' }
+            255     { 'NOT RUN (exit 255) - .github\scripts\pr_issue_ref.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "pull-request issue reference: $label"
+          } else {
+            Write-Host "::error title=Pull-request issue reference::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Pull-request issue reference:** $label"
           }
           exit $code
