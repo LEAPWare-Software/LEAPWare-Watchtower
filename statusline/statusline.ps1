@@ -487,6 +487,28 @@ function WriteSignal {
 # missing until 3 August 2026 and the unqualified version was false in exactly
 # the case the rest of this comment was written to fix.
 #
+# WHERE ELSE THIS LAYOUT IS SPELLED, AND WHY THERE ARE THREE (#8). The constant
+# was wrong in two files at once because it was written out twice; it is now
+# written out THREE times and they must be kept in step, so each names the
+# others:
+#
+#   lib\common.ps1  Get-LwgMarketplaceInstall  the resolver, and the only one
+#       that reads plugins\installed_plugins.json - the CLI's own record of what
+#       it installed and where. Layout-independent, and it carries the install
+#       SCOPE. Used by callers that can afford a dot-source and a
+#       ConvertFrom-Json.
+#   bin\lwg-setup.ps1  Get-Detection  a SUPERSET of both: registry first, then
+#       cache, marketplaces, marketplaces\<mk>\plugins and legacy repos, each
+#       narrowed to this plugin's name, with a sentence of evidence per hit
+#       because its verdict decides whether a second set of hook registrations
+#       is written.
+#   HERE  candidate ROOTS rather than a verdict, because a reader can afford to
+#       enumerate and filter where a writer cannot, and because this file
+#       dot-sources nothing - see LwgClaudeHome for that measurement.
+#
+# A change to the layout has to land in all three. The layout itself is argued
+# once, in lib\common.ps1's block above Get-LwgMarketplaceInstall.
+#
 # THE BASE OF THOSE PATHS IS NOT ALWAYS ~\.claude\plugins. CLAUDE_CODE_PLUGIN_CACHE_DIR
 # relocates the whole plugins directory; the CLI reads it, and bin\lwg-setup.ps1
 # reads it too - Get-Detection has honoured it since the detection probe was
@@ -614,8 +636,20 @@ $gmPluginRoots = @(LwgPluginRoots)
 # Health & Healing indicator.
 #   green  HH   = supervisor installed, records read for this session, no faults
 #   red    HHn  = one or more faults this session (count appended)
-#   purple HH?  = supervisor or healer agent not found (not installed), so
-#                 nothing can be determined at all
+#   purple HH?  = supervisor or healer agent NOT FOUND among the candidate roots
+#                 this file could resolve, so nothing can be determined at all
+#
+#                 "NOT FOUND" IS NOT "NOT INSTALLED", and this table said the
+#                 second for both (#8). It was not a wording slip: on a
+#                 marketplace install every root probe missed, this glyph
+#                 rendered, and the table told the reader the plugin was not
+#                 installed on a machine where it was installed and writing
+#                 records. The probes below can only report what they resolved -
+#                 CLAUDE_PLUGIN_ROOT, this script's parent, the skills glob, the
+#                 plugins cache and marketplaces trees - and a root laid out
+#                 somewhere none of them look is invisible to them, not absent.
+#                 lib/gate_delegate.ps1 wrote this rule down first: "I COULD NOT
+#                 FIND IT" IS NOT "IT IS NOT THERE".
 #   purple HHx  = a log EXISTS and could not be read
 #   dim    HH-  = nothing could be attributed to a session (unknown)
 #   any    ...! = at least one log line was too large to read and was SKIPPED,
@@ -1255,7 +1289,30 @@ function RepoSlug([string]$start) {
 
 $cfg = GmConfig
 
-# LW-WATCHTOWER thresholds, with built-in fallbacks when the config is unreadable.
+# LW-WATCHTOWER thresholds, with built-in fallbacks when NO CONFIG COULD BE
+# IDENTIFIED AT ALL - which is a wider set of states than "unreadable", and the
+# wording mattered.
+#
+# This line used to say "when the config is unreadable" and #8 is the issue that
+# proves it false. On a marketplace install $gmPluginRoots came back EMPTY,
+# GmConfig's loop never ran, and $cfg was $null - so every configured threshold
+# was replaced by a built-in while the operator's config.json sat on disk
+# perfectly readable and was never looked for. The comment described the one
+# cause that was not happening. GmConfig returns $null for four different
+# reasons and only one of them is a read failure:
+#
+#   no candidate root resolved       the state #8 is about
+#   no config.json beside a root     nothing to read
+#   the file does not parse          genuinely unreadable
+#   it parses but is not ours        no `modules`, no `thresholds` - see
+#                                    GmConfig's header on the profile-root
+#                                    config.json belonging to another tool
+#
+# ALL FOUR ARE NOW SAID OUT LOUD on the advisory row, because #8's whole
+# complaint about this block is that the substitution was SILENT. An operator
+# who set thresholds.ratelimit.warn_pct to 70 and is being warned at 88 has no
+# way to discover it from a status line that renders as though nothing were
+# wrong.
 #
 # PRESENCE, NOT TRUTHINESS, and a checked parse. These four reads were bare
 # `if ($cfg.thresholds...)` guards followed by a bare [double] cast, and each
@@ -1372,6 +1429,27 @@ foreach ($rl in @(@{ n = '5h'; v = $d.rate_limits.five_hour }, @{ n = '7d'; v = 
 # silent substitution this block used to make.
 if ($Tbad.Count) {
     $adv += Paint 35 ('config thresholds.' + ($Tbad -join ', thresholds.') + ' is not a number - built-in in force')
+}
+# NO CONFIG AT ALL IS ALSO A SUBSTITUTION, AND IT WAS THE SILENT ONE (#8).
+#
+# The row above covers a value that was read and could not be used. It said
+# nothing about the case where the file was never found - which is the case #8
+# is actually about: on a marketplace install every plugin root probe missed,
+# GmConfig returned $null, and all four built-ins stood while the operator's
+# config.json sat on disk unread. Every threshold silently wrong, on every
+# render, for the whole session.
+#
+# ONE ROW, NOT FOUR. Naming each threshold would be four advisories saying the
+# same thing. What the operator needs is that NOTHING they configured is in
+# force, and that is one fact.
+#
+# IT DOES NOT FIRE ON A HEALTHY MACHINE. GmConfig finds config.json beside any
+# candidate root carrying a plugin marker, which every real install has - a
+# junction, a marketplace cache root, a checkout. This row appearing means the
+# thresholds on screen are not the thresholds in the file, which is exactly when
+# an operator should be told.
+if ($null -eq $cfg) {
+    $adv += Paint 35 'no lw-watchtower config.json could be identified - all four built-in thresholds in force'
 }
 # The outstanding-trip advisory row was here. It named what was refused and where
 # to go about it, and it was the row that had to survive a scrolling log. Nothing

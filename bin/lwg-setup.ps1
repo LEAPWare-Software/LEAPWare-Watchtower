@@ -732,6 +732,19 @@ function Get-Detection {
     #     reason lib\common.ps1 gives about the data directory: the id in that
     #     name has changed once already.
     #
+    #     WHY THIS IS NOT ROUTED THROUGH lib\common.ps1's
+    #     Get-LwgMarketplaceInstall, which resolves the same fact (#8). That
+    #     function is the RESOLVER and this block is a SUPERSET of it: it reads
+    #     the same installed_plugins.json, and then also scans cache,
+    #     marketplaces, marketplaces\<mk>\plugins and legacy repos, honours
+    #     CLAUDE_CODE_PLUGIN_CACHE_DIR, and emits a sentence of evidence per hit.
+    #     Replacing this with a call to it would NARROW what the installer can
+    #     see - which is the inverse of the defect #8 is about, since a missed
+    #     install is what makes this command write a second full set of hook
+    #     registrations. The three spellings of the layout cross-reference each
+    #     other: this one, the resolver in lib\common.ps1, and LwgPluginRoots in
+    #     statusline\statusline.ps1. A layout change lands in all three.
+    #
     #     plugins\repos IS STILL SCANNED. It answers on no machine anyone has
     #     seen, but a build that lays things out differently must not blind this
     #     probe a second time, and a directory that does not exist costs one

@@ -523,6 +523,28 @@ function Get-LwgPluginName {
 # comment - that is stated in the issue and is a job for the batch that owns
 # that file.
 #
+# THAT BATCH LANDED, AND THERE ARE THREE SPELLINGS, NOT TWO. Recorded here so
+# this block is not read as the only one:
+#
+#   HERE  the resolver. The only spelling that reads
+#       plugins\installed_plugins.json, the CLI's own record of what it
+#       installed and where, so it is layout-independent and carries the install
+#       SCOPE. For callers that can afford a dot-source.
+#   bin\lwg-setup.ps1  Get-Detection  a SUPERSET: that registry read plus cache,
+#       marketplaces, marketplaces\<mk>\plugins and legacy repos, each narrowed
+#       to the plugin name, honouring CLAUDE_CODE_PLUGIN_CACHE_DIR, and emitting
+#       a sentence of evidence per hit - because its verdict decides whether
+#       setup writes a SECOND full set of hook registrations, and a verdict that
+#       consequential has to be arguable. It is deliberately NOT routed through
+#       this function: doing so would NARROW what the installer can see, which
+#       is the inverse of the defect #8 is about.
+#   statusline\statusline.ps1  LwgPluginRoots  candidate ROOTS rather than a
+#       verdict, and no dot-source at all - it runs on every assistant message,
+#       and that cost is measured in that file's LwgClaudeHome block.
+#
+# A change to the layout lands in all three. The layout itself is argued once,
+# in the paragraphs above.
+#
 # THIS RESOLVER READS AND NEVER GUESSES. installed_plugins.json first, because
 # it is the CLI's own record of the answer, it survives a layout change, and it
 # carries the scope. The cache walk is the fallback for a machine whose record

@@ -2057,6 +2057,52 @@ try {
         ($r.out -match 'HH\?') `
         "nothing is installed under this profile and the segment did not say so. Output:`n$($r.out)"
 
+    # -------------------------------------------------------------------
+    # 20c. A THRESHOLD SUBSTITUTION THE OPERATOR IS NEVER TOLD ABOUT (#8).
+    #
+    #      #8's fifth failure scenario, and the half of it the marketplace fix
+    #      did not close. An operator sets thresholds.ratelimit.warn_pct to 70,
+    #      GmConfig cannot identify a config for ANY reason - no candidate root
+    #      resolved, no config.json beside one, the file does not parse, or it
+    #      parses and is not this plugin's - and all four built-ins stand. Every
+    #      threshold on screen is then not the threshold in the file, on every
+    #      render, for the whole session, and nothing says so.
+    #
+    #      The row that names a threshold READ AND UNUSABLE already existed. The
+    #      row for "no config was found at all" did not, and that is the state #8
+    #      is actually about: on a marketplace install the file was perfectly
+    #      readable and was never looked for.
+    #
+    #      SAME FIXTURE AS THE BARE CONTROL ABOVE - no install anywhere - because
+    #      that is a machine with no identifiable config, which is the condition
+    #      under test. The bare control asserts the HH glyph; this asserts the
+    #      advisory row, and they are different surfaces.
+    #
+    #      RED AT ec80e88: the advisory row carried nothing about the config.
+    # -------------------------------------------------------------------
+    Add-Result 'no config identified: the status line SAYS the built-in thresholds are in force' `
+        ($r.out -match 'no lw-watchtower config\.json could be identified') `
+        "all four thresholds were replaced by built-ins and the operator was told nothing. A status line that renders as though the configured values were in force is worse than one that renders nothing. Output:`n$($r.out)"
+
+    # CONTROL: a machine whose config IS found must NOT carry that row. Without
+    # this, "always warn" passes the case above and puts a permanent false
+    # advisory on every correctly-installed machine. The relocated-cache fixture
+    # two cases up planted a real config.json under a real marketplace root and
+    # proved it was read; this re-runs that shape and asserts the silence.
+    $t = New-CaseTree -Tag 'statusline-config-found' -Bytes $null
+    $slRoot4 = New-MarketplaceRoot -ProfileDir $t.profile -PluginName $PluginName -Contents 'full'
+    [IO.File]::WriteAllText((Join-Path $slRoot4 'config.json'),
+        '{"thresholds":{"context":{"warn_pct":1,"critical_pct":99}}}')
+    $slCopy = Join-Path (Join-Path $t.profile '.claude') 'statusline.ps1'
+    [IO.File]::Copy($RepoStatusLine, $slCopy, $true)
+    $payload = '{"session_id":"lwg-merge-suite-session","model":{"display_name":"FixtureModel"},' +
+               '"context_window":{"used_percentage":10},' +
+               '"workspace":{"current_dir":"' + $t.dir.Replace('\', '/') + '"}}'
+    $r4 = Invoke-StatusLine -ProfileDir $t.profile -ScriptPath $slCopy -PayloadJson $payload
+    Add-Result 'CONTROL: a status line that DID find a config says nothing about built-ins' `
+        ($r4.out -notmatch 'could be identified' -and $r4.out -match 'plan for compaction') `
+        "the planted config warns at 1% against a context of 10%, so it was read - and the row must then be silent. A permanent advisory on a healthy machine trains the operator to ignore the channel. Output:`n$($r4.out)"
+
     # ===================================================================
     # 23. THE STATUS LINE'S PAYLOAD READER, ITS NUMBERS AND ITS CLOCK.
     #
