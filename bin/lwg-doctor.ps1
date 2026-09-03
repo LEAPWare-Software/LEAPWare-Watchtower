@@ -503,10 +503,42 @@ try {
     # docs/troubleshooting.md still promised it on 3 August 2026, and
     # docs/faq.md inverts it, telling a reader that seeing GM is the sign of a
     # stale copy. See docs/gates-removed.md.
+    #
+    # THE CONFIGURATION DIRECTORY IS RESOLVED, NEVER COMPOSED (#146). This line
+    # read `Join-Path $env:USERPROFILE '.claude\settings.json'` until 3 September
+    # 2026, and it was the LAST live composition of that shape in the tree -
+    # every other caller moved onto lib\common.ps1's Get-LwgClaudeHomeInfo when
+    # that function landed. On a machine that sets CLAUDE_CONFIG_DIR the doctor
+    # was therefore health-checking a settings.json the CLI does not read: a
+    # green statusline row about a file nothing loads, which is worse than no
+    # row at all because it converts a broken install into an attested one. The
+    # resolver's own header names this command as one of the two callers that
+    # must report WHICH root it resolved and why, so the path-bearing failures
+    # below say which of CLAUDE_CONFIG_DIR and USERPROFILE answered.
+    #
+    # A MACHINE WITH NEITHER IS A FAIL THAT SAYS SO. $null comes back when
+    # neither variable holds anything; it is carried as $null and reported,
+    # rather than composed onto to produce a path this check invented and then
+    # diagnosed.
     Invoke-Check -Id 'statusline' -Body {
-        $sp = Join-Path $env:USERPROFILE '.claude\settings.json'
+        $homeInfo = $null
+        try { $homeInfo = Get-LwgClaudeHomeInfo } catch { }
+        if ($null -eq $homeInfo) { $homeInfo = @{ path = $null; source = 'unresolved'; exists = $false; raw = $null } }
+        $cfgHome = [string]$homeInfo.path
+        $via = switch ([string]$homeInfo.source) {
+            'env'     { ' (resolved from CLAUDE_CONFIG_DIR)' }
+            'profile' { ' (resolved from USERPROFILE\.claude - CLAUDE_CONFIG_DIR is not set)' }
+            default   { '' }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($cfgHome)) {
+            Add-Row -Id 'statusline' -Status 'FAIL' -Detail 'no Claude Code configuration directory could be resolved: neither CLAUDE_CONFIG_DIR nor USERPROFILE holds a value. There is no settings.json to read, so nothing here says the status line is configured and nothing here says it is not'
+            return
+        }
+
+        $sp = Join-Path $cfgHome 'settings.json'
         if (-not (Test-Path -LiteralPath $sp)) {
-            Add-Row -Id 'statusline' -Status 'FAIL' -Detail "no settings file at $sp - the status line cannot be configured"
+            Add-Row -Id 'statusline' -Status 'FAIL' -Detail "no settings file at $sp$via - the status line cannot be configured"
             return
         }
         # PS 5.1's Get-Content -Raw keeps a UTF-8 BOM, which ConvertFrom-Json
@@ -514,7 +546,7 @@ try {
         $raw = (Get-Content -LiteralPath $sp -Raw).TrimStart([char]0xFEFF)
         $st  = ($raw | ConvertFrom-Json).statusLine
         if ($null -eq $st -or [string]::IsNullOrWhiteSpace([string]$st.command)) {
-            Add-Row -Id 'statusline' -Status 'FAIL' -Detail "$sp has no statusLine.command - the HH segment is not rendered, so this plugin has no visible indicator"
+            Add-Row -Id 'statusline' -Status 'FAIL' -Detail "$sp$via has no statusLine.command - the HH segment is not rendered, so this plugin has no visible indicator"
             return
         }
         # Pull the script path back out of the command line: the first token

@@ -31,6 +31,14 @@
                      stale copy of this plugin's, with the printed remedy being
                      to overwrite it. The inverse was quieter and also wrong: an
                      identical file attested an install that never happened.
+                     #146 is the same row's other half and is about WHICH FILE
+                     it opens: the settings path was composed from
+                     $env:USERPROFILE and a literal `.claude` - the last live
+                     composition of that shape in the tree - so on a machine
+                     that sets CLAUDE_CONFIG_DIR the row health-checked a
+                     settings.json the CLI does not read and reported green
+                     about it. One case drives the relocated directory and the
+                     six above it hold the profile branch it must not lose.
     sessionstart     #42. It read at most the last 256 KB of the event log and,
                      finding no SessionStart record in that window, reported
                      "the hook is not firing" and failed the run - a definite
@@ -364,8 +372,17 @@ function Invoke-Doctor {
       which is how the "the build was not read" case is driven. An omitted
       -Build is not the same as an empty one; $PSBoundParameters is what tells
       them apart.
+
+      CLAUDE_CODE_VERSION IS A FIFTH SANDBOX VARIABLE AND IT IS CLEARED (#146).
+      The statusline check resolves the configuration directory through
+      lib\common.ps1's Get-LwgClaudeHomeInfo, whose precedence puts
+      CLAUDE_CONFIG_DIR AHEAD of USERPROFILE - so on a machine that sets it,
+      every case here would silently run against the operator's real
+      configuration directory instead of the scratch profile it seeded, and the
+      statusline cases would report on somebody's live settings.json. Cleared by
+      default, and -ConfigDir is how the one case that wants it set gets it.
     #>
-    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun, [string]$DoctorPath, [string]$Build)
+    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun, [string]$DoctorPath, [string]$Build, [string]$ConfigDir)
 
     if ([string]::IsNullOrWhiteSpace($DoctorPath)) { $DoctorPath = $script:DoctorPath }
     $seedBuild = if ($PSBoundParameters.ContainsKey('Build')) { $Build } else { $script:VerifiedBuild }
@@ -375,6 +392,7 @@ function Invoke-Doctor {
     $prevD = $env:CLAUDE_PLUGIN_DATA
     $prevR = $env:CLAUDE_PLUGIN_ROOT
     $prevC = $env:CLAUDE_CODE_PLUGIN_CACHE_DIR
+    $prevH = $env:CLAUDE_CONFIG_DIR
     $out  = ''
     $code = 255
     try {
@@ -382,6 +400,7 @@ function Invoke-Doctor {
         $env:CLAUDE_PLUGIN_DATA           = $StateDir
         $env:CLAUDE_PLUGIN_ROOT           = ''
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = ''
+        $env:CLAUDE_CONFIG_DIR            = $ConfigDir
         $env:CLAUDE_CODE_VERSION          = $seedBuild
         # -Quiet is passed as a real switch on the child's command line rather
         # than spliced into a string: the only case that uses it asserts what
@@ -399,6 +418,7 @@ function Invoke-Doctor {
         $env:CLAUDE_PLUGIN_DATA           = $prevD
         $env:CLAUDE_PLUGIN_ROOT           = $prevR
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $prevC
+        $env:CLAUDE_CONFIG_DIR            = $prevH
         $env:CLAUDE_CODE_VERSION          = $prevV
     }
     return @{ code = $code; out = $out }
@@ -1749,7 +1769,60 @@ try {
          "expected a [PASS] that still disclaims observed firing, and exit 0; got [$($row.status)] $($row.detail) at exit $($bv.code). Full output:`n$($bv.out)")
 
     # -------------------------------------------------------------------
-    # 30. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
+    # 30. THE STATUSLINE CHECK READS THE CONFIGURATION DIRECTORY THE CLI
+    #     ACTUALLY USES, NOT $env:USERPROFILE + '.claude' (#146).
+    #
+    #     The setup is the whole case. TWO profiles: the healthy one, which has
+    #     the wired settings.json and a byte copy of the repo status line, and a
+    #     SECOND, EMPTY one. The child is then run with CLAUDE_CONFIG_DIR
+    #     pointing at the healthy profile's .claude and USERPROFILE pointing at
+    #     the empty one - which is the shape of every machine that relocates its
+    #     configuration directory, and which makes the two answers point at
+    #     different trees rather than at the same one by accident.
+    #
+    #     A check that composes the path from USERPROFILE finds nothing there
+    #     and FAILs. A check that resolves it through Get-LwgClaudeHomeInfo finds
+    #     the wired settings.json and PASSes. There is no reading of this case
+    #     that both answers satisfy, which is what the two profiles are for: a
+    #     single-profile version would pass on the composition and on the
+    #     resolution alike and would establish nothing.
+    #
+    #     THE DETAIL IS ASSERTED TOO, and not only the status. The row is
+    #     required to name which root answered, because the failure this case
+    #     exists to stop is not "the doctor errored" - it is the doctor
+    #     attesting a green status line against a settings.json the CLI never
+    #     loads, and a green row that does not say which file it read is exactly
+    #     as unreadable after the fix as before it.
+    #
+    #     THE CONTROL FOR THE OTHER BRANCH IS ALREADY HERE. Every statusline
+    #     case above runs with CLAUDE_CONFIG_DIR CLEARED - Invoke-Doctor clears
+    #     it for exactly this reason - and drives this row through PASS, WARN
+    #     and FAIL off USERPROFILE alone. So a check that satisfied this case by
+    #     reading CLAUDE_CONFIG_DIR and nothing else would take all six of them
+    #     down with it, and the precedence is pinned from both sides rather than
+    #     from the side that changed.
+    #
+    #     BASELINE 4342980: RED. bin\lwg-doctor.ps1:507 reads
+    #     `Join-Path $env:USERPROFILE '.claude\settings.json'` there - the last
+    #     live composition of that shape in the tree - so the row FAILs with
+    #     "no settings file at <the empty profile>".
+    # -------------------------------------------------------------------
+    $t     = New-HealthyCase -Tag 'cfgdir-relocated' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $empty = Join-Path $t.dir 'empty-profile'
+    [void][IO.Directory]::CreateDirectory((Join-Path $empty '.claude'))
+    $relocated = Join-Path $t.profile '.claude'
+    $r   = Invoke-Doctor -ProfileDir $empty -StateDir $t.state -ConfigDir $relocated
+    $row = Get-DoctorRow -Text $r.out -Id 'statusline'
+    Add-Result 'the statusline check reads CLAUDE_CONFIG_DIR''s settings.json, not one composed from USERPROFILE' `
+        ($row.found -and $row.status -eq 'PASS' -and $row.detail -match 'statusline\.ps1' -and
+         $row.detail -notmatch 'no settings file at') `
+        ("CLAUDE_CONFIG_DIR named $relocated, which holds the wired settings.json, while USERPROFILE named " +
+         "$empty, which holds nothing. Expected a [PASS] naming the wired status line; got [$($row.status)] " +
+         "$($row.detail). A [FAIL] saying 'no settings file at' means the check composed the path from " +
+         "USERPROFILE and health-checked a file the CLI does not read. Full output:`n$($r.out)")
+
+    # -------------------------------------------------------------------
+    # 31. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
     #     pointed into the scratch tree; this asserts what that was supposed to
     #     buy rather than assuming it. Nothing under the operator's own
     #     ~\.claude\plugins\data\<plugin>* may have grown a byte or gained a
