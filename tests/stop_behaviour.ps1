@@ -1287,6 +1287,148 @@ try {
         ($b24said -eq 3 -and $b24bad.Count -eq 0) `
         ("REGRESSION: query-failed went into the same dedupe signature as the tree conditions, so a git that never answers was announced on turn 1 and never again - and this module's own documentation says its silence means git said nothing was wrong. Turns that reported UNKNOWN: $b24said of 3. Problems: [" + ($b24bad -join '; ') + "]. Messages: " + ($b24msgs -join ' || '))
 
+    # --- the timeout path, against a real process table ------------------
+    # B26 IS THE OBSERVATION #98 SAID DID NOT EXIST. That issue argued from what
+    # git and gh are known to spawn that Process.Kill() on the timeout path
+    # leaves a helper running, and the counter-argument recorded on it - that no
+    # orphan had ever been observed from this plugin, so paying for a tree kill
+    # was the wrong trade - was true when it was written. This case plants a real
+    # grandchild under a real child, drives the REAL timeout branch, and then
+    # reads the process table. Against the pre-fix file it reports the grandchild
+    # ALIVE. So the decision is reopened by a measurement rather than by an
+    # argument, and lib\stop_advisories.ps1 now tree-kills.
+    #
+    # THE HELPERS ARE EXTRACTED BY AST rather than dot-sourced. Dot-sourcing
+    # lib\stop_advisories.ps1 would run the whole Stop hook and exit 0 out of
+    # this suite, so the three functions are lifted from the SHIPPED FILE'S OWN
+    # TEXT by [Language.Parser]::ParseFile - the same reader .github\workflows
+    # already uses on this tree. Nothing is retyped here, so this cannot pass
+    # against a copy that has drifted from the file it is testing.
+    #
+    # WHY -TimeoutMs 1 IS NOT A ONE-MILLISECOND RACE. The handle carries its own
+    # stopwatch, started at launch, and the remaining budget is TimeoutMs MINUS
+    # that. The marker poll above has already burned far more than 1 ms, so the
+    # budget is 0 and the timeout branch is entered deterministically.
+    $b26 = @{ ok = $false; detail = ''; gcPid = -1; chPid = -1; state = ''; kill = ''; alive = $true }
+    $b26h = $null
+    $b26dir = Join-Path $work 'b26'
+    [void][IO.Directory]::CreateDirectory($b26dir)
+    try {
+        $b26tok = $null; $b26perr = $null
+        $b26ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            $AdvisoryPath, [ref]$b26tok, [ref]$b26perr)
+        # Two are REQUIRED and the tree killer is OPTIONAL, deliberately. Making
+        # Stop-LwgProcessTree mandatory would turn this case against the pre-fix
+        # file into "the fixture could not be built", which is an abort and not
+        # a red - and a regression case that cannot FAIL for the reason it names
+        # proves nothing. Lifted this way it drives the real timeout branch of
+        # whichever version it is pointed at, and reports the grandchild alive
+        # when that version leaves it alive.
+        $b26need = @('Start-LwgProcess', 'Complete-LwgProcess')
+        $b26want = $b26need + @('Stop-LwgProcessTree')
+        $b26defs = @($b26ast.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $b26want -contains $n.Name
+        }.GetNewClosure(), $true))
+        $b26got = @($b26defs | ForEach-Object { $_.Name })
+        foreach ($n in $b26need) {
+            if ($b26got -notcontains $n) {
+                throw ("lib\stop_advisories.ps1 no longer defines $n, so this case could not be built at all")
+            }
+        }
+        foreach ($d in $b26defs) { . ([scriptblock]::Create($d.Extent.Text)) }
+
+        # The grandchild announces its own pid and then outlives everything it
+        # is allowed to. The child spawns it and sleeps, so the child is the one
+        # that hits the timeout and the grandchild is the thing Kill() misses.
+        $b26marker = Join-Path $b26dir 'grandchild.pid'
+        $b26gc     = Join-Path $b26dir 'grandchild.ps1'
+        $b26ch     = Join-Path $b26dir 'child.ps1'
+        [IO.File]::WriteAllText($b26gc, (
+            '[IO.File]::WriteAllText(' + "'" + $b26marker + "'" + ', [string]$PID)' + "`r`n" +
+            'Start-Sleep -Seconds 60' + "`r`n"), [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText($b26ch, (
+            "Start-Process -FilePath 'powershell' -WindowStyle Hidden -ArgumentList " +
+            "@('-NoProfile','-ExecutionPolicy','Bypass','-File','" + $b26gc + "')" + "`r`n" +
+            'Start-Sleep -Seconds 60' + "`r`n"), [Text.UTF8Encoding]::new($false))
+
+        $b26h = Start-LwgProcess -File 'powershell' `
+            -ProcArgs @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $b26ch) -WorkDir $b26dir
+        # Read BEFORE anything that can throw. Every abort below this line -
+        # the marker never appearing, most of all - leaves two 60-second
+        # sleepers behind unless the cleanup knows their pids.
+        try { $b26.chPid = [int]$b26h.p.Id } catch { $b26.chPid = -1 }
+        if ($b26h.state -ne 'running') { throw "the child did not start: state=$($b26h.state) err=$($b26h.err)" }
+
+        $b26sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($b26sw.Elapsed.TotalSeconds -lt 20 -and -not [IO.File]::Exists($b26marker)) {
+            Start-Sleep -Milliseconds 100
+        }
+        if (-not [IO.File]::Exists($b26marker)) {
+            throw 'the grandchild never wrote its marker, so the fixture never armed and this case established nothing'
+        }
+        $b26.gcPid = [int]([IO.File]::ReadAllText($b26marker).Trim())
+
+        $b26r      = Complete-LwgProcess -Handle $b26h -TimeoutMs 1
+        $b26.state = [string]$b26r.state
+        $b26.kill  = [string]$b26r.kill
+
+        # The OS reaps asynchronously. Poll rather than assert immediately, so a
+        # slow machine reports a real result instead of a timing artefact.
+        $b26sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($b26sw.Elapsed.TotalSeconds -lt 10) {
+            $b26.alive = $false
+            try { $null = Get-Process -Id $b26.gcPid -ErrorAction Stop; $b26.alive = $true } catch { }
+            if (-not $b26.alive) { break }
+            Start-Sleep -Milliseconds 200
+        }
+
+        $b26.ok = ($b26.state -eq 'timeout' -and -not $b26.alive)
+        $b26.detail = ("state=$($b26.state) kill=$($b26.kill) grandchild pid $($b26.gcPid) alive=$($b26.alive)")
+    } catch {
+        $b26.ok = $false
+        $b26.detail = 'the fixture did not run: ' + $_.Exception.Message
+    } finally {
+        # A red run, AND EVERY ABORT PATH ABOVE, must leave nothing sleeping on
+        # the machine. The child tree goes first, by the same mechanism the fix
+        # uses, because on the paths that threw before the timeout ran the child
+        # is still alive and is the grandchild's parent; then the grandchild by
+        # pid, because on the paths where the tree kill was the thing under test
+        # it may be all that is left.
+        #
+        # BOTH ARE GUARDED ON NOT-KNOWN-DEAD, and that is not tidiness. A pid
+        # whose process has exited can be reissued by Windows, so cleaning up a
+        # pid this case has already watched die is a way of killing somebody
+        # else's process. state is set only when Complete-LwgProcess returned -
+        # which is the path on which the child is already dead - and alive is
+        # left $true until the poll above actually observes the grandchild gone.
+        if ($b26.chPid -gt 0 -and [string]::IsNullOrEmpty($b26.state)) {
+            try {
+                $b26tk = New-Object System.Diagnostics.ProcessStartInfo
+                $b26tk.FileName               = 'taskkill'
+                $b26tk.Arguments              = ('/PID {0} /T /F' -f $b26.chPid)
+                $b26tk.UseShellExecute        = $false
+                $b26tk.CreateNoWindow         = $true
+                $b26tk.RedirectStandardOutput = $true
+                $b26tk.RedirectStandardError  = $true
+                $b26k = [System.Diagnostics.Process]::Start($b26tk)
+                if ($null -ne $b26k) {
+                    try { $b26k.StandardOutput.ReadToEndAsync() | Out-Null } catch { }
+                    try { $b26k.StandardError.ReadToEndAsync()  | Out-Null } catch { }
+                    try { if (-not $b26k.WaitForExit(2000)) { $b26k.Kill() } } catch { }
+                    try { $b26k.Dispose() } catch { }
+                }
+            } catch { }
+        }
+        if ($b26.gcPid -gt 0 -and $b26.alive) {
+            try { Stop-Process -Id $b26.gcPid -Force -ErrorAction SilentlyContinue } catch { }
+        }
+    }
+    Add-Result 'B26: on timeout the child AND the helper it spawned are killed' `
+        $b26.ok `
+        ("REGRESSION for #98, and it was RED before the fix: Process.Kill() on .NET Framework 4.x terminates the direct child only - there is no Kill(bool entireProcessTree) before .NET Core 3.0 - so a git or gh that had spawned a credential helper left it running with the inherited write ends of the redirected pipes. Expected state=timeout and the grandchild gone; got " + $b26.detail + ". Any kill= other than plain 'taskkill' - 'taskkill-failed' (not startable), 'taskkill-exit-<n>' (started and refused), 'taskkill-timeout' - means the tree kill did not do its job, which leaves the OLD behaviour and is a real failure of the fix rather than of the fixture. An empty kill= is the pre-fix file, which had no tree kill at all.")
+
     # =====================================================================
     # SECTION C - failure_capture and log_rotation, END TO END
     # =====================================================================
