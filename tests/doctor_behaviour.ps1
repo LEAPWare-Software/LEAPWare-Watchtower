@@ -47,8 +47,9 @@
                      scan that read nothing must never be readable as a clean
                      one.
 
-  It does NOT drive the other four checks, and a green run here says nothing
-  about them.
+  It does NOT drive the other four checks. Case 25 establishes that they RAN and
+  nothing else, and a green run here says nothing about what any of them
+  answered.
 
   IT ALSO DRIVES ONE THING THAT IS NOT A CHECK AT ALL: the informational roster
   at the foot of the report - the per-gate paragraphs and the module table that
@@ -59,6 +60,13 @@
   report merged into a diagnosis is one edit away from becoming part of the
   diagnosis, and every gate here ships OFF, so a leak would fail a correct
   default install.
+
+  AND IT PINS WHICH CHECKS EXIST AT ALL. Case 25 asserts the SET of check ids
+  the doctor printed against the literal list at $script:ExpectedCheckIds, for
+  the reason written above that list: until it existed, a doctor with a whole
+  Invoke-Check block deleted reported 19 of 19 and exit 0 here. It is the only
+  thing in this file that says anything about the other four checks, and what it
+  says is that they RAN - never what they answered.
 
   ---------------------------------------------------------------------------
   HOW A CASE IS RUN, AND WHY IT CANNOT REACH THE OPERATOR'S OWN STATE
@@ -102,7 +110,7 @@
   in place. The two #42 cases added afterwards were proved red against the tree
   they landed in, which carries that check unchanged from fd8d023.
 
-  TEN OF THE TWENTY-FIVE CASES ARE LABELLED CONTROL, in the name and in the
+  TEN OF THE TWENTY-SIX CASES ARE LABELLED CONTROL, in the name and in the
   comment. None is offered as evidence that anything was fixed. They exist
   because the cheapest way to pass the others is to answer "not ours" to
   everything, "FAIL" to every config, "PASS" to every log and to read no file
@@ -114,11 +122,12 @@
   defect was reproduced on and the tree they were proved red against, and each
   says so in its own comment.
 
-  FOUR OF THE TWENTY-FIVE HAVE NO fd8d023 BASELINE AT ALL - cases 16-18, on the
+  FIVE OF THE TWENTY-SIX HAVE NO fd8d023 BASELINE AT ALL - cases 16-18, on the
   informational roster, which did not exist there and is not a defect being
-  fixed, and case 24, on a code path that did not exist there either. They pin a
-  boundary rather than a repair, and their red proof is a mutation stated in
-  their own comment, not an old commit.
+  fixed; case 24, on a code path that did not exist there either; and case 25,
+  which pins WHICH CHECKS RUN and would pass at fd8d023 for a doctor that had
+  the same eight ids. They pin a boundary rather than a repair, and their red
+  proof is a mutation stated in their own comment, not an old commit.
 
   ---------------------------------------------------------------------------
   WHAT IS DELIBERATELY NOT COVERED
@@ -191,6 +200,47 @@ $script:Work    = ''
 # statusline\statusline.ps1 carries on a comment line near its top. A third
 # spelling of it in this file is a third place for it to go stale.
 $script:Marker = 'LWG-STATUSLINE-IDENTITY'
+
+# THE CHECK SURFACE, PINNED BY IDENTITY AND NOT BY SIZE (#205).
+#
+# WHAT WAS WRONG. This suite could not tell that a check had DISAPPEARED. An
+# independent QA agent deleted a whole Invoke-Check block from a scratch copy of
+# bin\lwg-doctor.ps1 and ran the suite against it:
+#
+#     doctor with 8 checks  ->  19 of 19, exit 0
+#     doctor with 7 checks  ->  19 of 19, exit 0
+#
+# Green both times. The reason is that the one case reading the header - the
+# roster case - asserts the printed rows against the number the DOCTOR derived
+# at run time, and header and rows come from the same ArrayList. They agree at
+# any count. That derivation is correct and stays: it is why the doctor has
+# never transcribed its own number and why the count could not drift silently
+# when agent-roles was deleted with verification_gate. The gap was that nothing
+# held the other end.
+#
+# WHY NOT `Rows.Count -eq 8`. A bare count buys the guard and hands back the
+# coupling tax this project has already measured (#195): a number asserted here
+# AND in every page that counts checks, so adding one check moves assertions
+# across the tree. Worse, it reports a smaller number and leaves the reader to
+# work out which check went.
+#
+# WHAT THIS LIST IS. The IDENTITY of the surface, and it is deliberately a
+# literal - a list derived from the doctor would be the same tautology the
+# header/rows comparison already is. It fails loudly and NAMES the id when a
+# check vanishes; it fails when one is ADDED too, which is the moment that
+# check's documentation and every row-count claim need writing, so the failure
+# is the reminder; and it reads as a decision in the diff - `+ 'platform'` says
+# something, `8 -> 9` does not. The count stays derived everywhere else.
+$script:ExpectedCheckIds = @(
+    'plugin-manifest'
+    'marketplace'
+    'hooks-declared'
+    'config-registry'
+    'state-dir'
+    'sessionstart'
+    'statusline'
+    'commands'
+)
 
 function Add-Result {
     param([string]$Name, [bool]$Ok, [string]$Detail)
@@ -1437,7 +1487,62 @@ try {
          "Full output:`n$($cr.out)")
 
     # -------------------------------------------------------------------
-    # 25. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
+    # 25. #205. THE DOCTOR RUNS EXACTLY THESE CHECKS, BY NAME.
+    #
+    #     The one case above that reads the header compares it against the rows
+    #     the same run printed, and both come from $script:Rows - so they agree
+    #     at any count, and a check deleted by an edit, a bad merge or a
+    #     refactor left every suite in this repository green. That was proved by
+    #     mutation, not argued: a doctor with a whole Invoke-Check block removed
+    #     reported 19 of 19, exit 0.
+    #
+    #     This is the other end. $script:ExpectedCheckIds is a literal list, and
+    #     the reasoning for a SET rather than a count is written above it.
+    #
+    #     THE ABORT PATH IS ASSERTED, NOT ASSUMED. On exit 3 the doctor prints a
+    #     FRAGMENT of a checkup, and a fragment is missing ids for a reason that
+    #     is not a deleted check. A case that compared the sets anyway would go
+    #     red with the wrong message, so the abort is read first and named.
+    #
+    #     IT DOES NOT LOOK AT STATUS. Two of the eight FAIL on any machine where
+    #     the plugin is not installed under ~\.claude\plugins\data, which is a
+    #     property of the machine and not a defect; the sandbox here seeds both
+    #     of them green anyway. What is pinned is which checks RAN, and that is
+    #     true at PASS, WARN and FAIL alike.
+    #
+    #     RED PROOF, A MUTATION, RUN WHOLE AND QUOTED RATHER THAN PREDICTED.
+    #     Both were applied to a scratch copy of the tree, run with -Root at it,
+    #     and the copy thrown away.
+    #
+    #       the marketplace Invoke-Check block deleted
+    #           BEFORE this case existed: 25 of 25, exit 0, over a doctor with
+    #           seven checks - the hole, reproduced.
+    #           AFTER: this case RED - "missing: marketplace; unexpected: none;
+    #           the doctor printed 7 distinct row id(s)". No other case moved.
+    #       Add-Row -Id 'phantom' -Status 'PASS' appended to that block
+    #           AFTER: this case RED - "missing: none; unexpected: phantom; the
+    #           doctor printed 9 distinct row id(s)". Case 16 stayed GREEN: the
+    #           row is real, so the header counts it and the two still agree.
+    #           That is the pair - 16 sees a line that only LOOKS like a row,
+    #           this one sees a row that should not be there.
+    # -------------------------------------------------------------------
+    Set-CaseConfig -Mutate $null
+    $t  = New-HealthyCase -Tag 'check-surface' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $cs = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $ids        = @((Get-RowMap -Text $cs.out).Keys)
+    $aborted    = ($cs.code -eq 3 -or $cs.out -match '(?m)^ABORTED:')
+    $missing    = @($script:ExpectedCheckIds | Where-Object { $ids -notcontains $_ })
+    $unexpected = @($ids | Where-Object { $script:ExpectedCheckIds -notcontains $_ })
+    Add-Result 'the doctor runs exactly the check ids this suite names - none missing, none unexpected' `
+        (-not $aborted -and $missing.Count -eq 0 -and $unexpected.Count -eq 0) `
+        ("missing: $(if ($missing.Count) { $missing -join ', ' } else { 'none' }); " +
+         "unexpected: $(if ($unexpected.Count) { $unexpected -join ', ' } else { 'none' }); " +
+         "the doctor printed $($ids.Count) distinct row id(s): $($ids -join ', ')" +
+         $(if ($aborted) { '. THE DOCTOR ABORTED - the report is a fragment of a checkup, so the missing ids above are not evidence that any check was deleted' } else { '' }) +
+         ". Full output:`n$($cs.out)")
+
+    # -------------------------------------------------------------------
+    # 26. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
     #     pointed into the scratch tree; this asserts what that was supposed to
     #     buy rather than assuming it. Nothing under the operator's own
     #     ~\.claude\plugins\data\<plugin>* may have grown a byte or gained a
@@ -1510,8 +1615,8 @@ Write-Output 'question of a value that Test-LwgFlag and Test-LwgModule ask, the'
 Write-Output 'statusline check establishes whose file it is looking at before it diagnoses'
 Write-Output 'drift, sessionstart tells a log it could not read to the end from a hook'
 Write-Output 'that is not firing, and commands measures the tracked tree and says so" - not as'
-Write-Output '"the doctor is correct". Four of its eight checks'
-Write-Output 'are driven by nothing here, no case executes the status line, and a file byte-identical'
+Write-Output '"the doctor is correct". Four of its eight checks are driven by nothing here'
+Write-Output 'beyond the one case that establishes they RAN, no case executes the status line, and a file byte-identical'
 Write-Output 'to the repo copy is indistinguishable from an install by any content marker'
 Write-Output 'and is named in the header as not covered.'
 Write-Output 'EXIT: 0'
