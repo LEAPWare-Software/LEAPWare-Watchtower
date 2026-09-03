@@ -387,13 +387,76 @@ try {
             Add-Row -Id 'sessionstart' -Status 'FAIL' -Detail "no event log at $log - the SessionStart hook has never recorded a run, so it is declared but not firing$caveat"
             return
         }
-        # 256 KB of tail is many hundreds of records and costs one seek.
+        # A WINDOW IS A BOUND ON THE READ AND NEVER EVIDENCE OF ABSENCE.
+        #
+        # This check used to read the last 256 KB and, finding no SessionStart
+        # in it, report "the hook is not firing" and fail the run. The whole of
+        # the reasoning was a comment saying 256 KB is many hundreds of records.
+        # Many hundreds of records is not "far enough back to reach a session
+        # start": nothing bounds how many other records a busy session writes
+        # between two of them, so one long session, or one regression run that
+        # appends in bulk, is enough to push a perfectly good SessionStart out
+        # of the window - and the operator is then told to reinstall a plugin
+        # whose hook fired correctly. That is the collapse this file's own
+        # header refuses at the top: "I found a fault" and "I could not look"
+        # are different statements, and Get-LwgTailLines returns no signal that
+        # tells them apart, so this check works the difference out itself.
+        #
+        # THREE ANSWERS, NOT TWO, and which one is given turns on how much of
+        # the file was actually read:
+        #
+        #   found                     report on the record, as before.
+        #   missing, whole file read  FAIL. Absence was established, so the
+        #                             fault claim is earned and its wording is
+        #                             unchanged.
+        #   missing, read stopped short
+        #                             WARN that says so. Nothing here
+        #                             establishes anything about the hook.
+        #
+        # THE FAST PATH IS KEPT AND THE WIDE READ IS ONLY THE FALLBACK. 256 KB
+        # costs one seek and answers on any log whose session start is anywhere
+        # near the end, which is the ordinary case. Only a miss pays for the
+        # second read, and only on a log big enough to have truncated the first.
+        #
+        # THE CEILING IS 8 MB BECAUSE Invoke-LwgLogRotate CAPS THE LIVE LOG AT
+        # 5 MB. A file past this ceiling means rotation is not running either -
+        # worth knowing, and still not a statement about the SessionStart hook.
+        # It is a ceiling rather than "read the whole thing" because this runs
+        # on an operator's machine against a file whose size nothing here
+        # controls.
+        $window = 262144
+        $widest = 8388608
+
+        # -1 means the length could not be read at all, which is neither a fault
+        # nor a complete read and must not be rounded to either.
+        $len = -1
+        try { $len = [long](Get-Item -LiteralPath $log -ErrorAction Stop).Length } catch { }
+        if ($len -lt 0) {
+            Add-Row -Id 'sessionstart' -Status 'WARN' -Detail "event log $log exists but its length could not be read, so this check could not establish how much of it it was looking at - nothing here says the hook is or is not firing$caveat"
+            return
+        }
+
+        $scanned = [long][Math]::Min([long]$window, $len)
         $rec = $null
-        foreach ($line in @(Get-LwgTailLines -Path $log -Bytes 262144)) {
+        foreach ($line in @(Get-LwgTailLines -Path $log -Bytes $window)) {
             try { $r = $line | ConvertFrom-Json } catch { continue }
             if ($r.event -eq 'SessionStart') { $rec = $r }
         }
+        if ($null -eq $rec -and $len -gt $scanned) {
+            $scanned = [long][Math]::Min([long]$widest, $len)
+            foreach ($line in @(Get-LwgTailLines -Path $log -Bytes ([int]$scanned))) {
+                try { $r = $line | ConvertFrom-Json } catch { continue }
+                if ($r.event -eq 'SessionStart') { $rec = $r }
+            }
+        }
         if ($null -eq $rec) {
+            if ($scanned -lt $len) {
+                # $caveat is APPENDED rather than interpolated into the format
+                # string: a brace in it would be read as a placeholder by -f.
+                $msg = "no SessionStart record in the last {0:N0} KB of a {1:N0} KB event log - this check could not look far enough back, which is NOT the same as the hook not firing. Nothing here is a finding about the hook; a log this size also means rotation is not keeping up with it" -f ($scanned / 1KB), ($len / 1KB)
+                Add-Row -Id 'sessionstart' -Status 'WARN' -Detail ($msg + $caveat)
+                return
+            }
             Add-Row -Id 'sessionstart' -Status 'FAIL' -Detail "event log exists but holds no SessionStart record - the hook is not firing$caveat"
             return
         }
