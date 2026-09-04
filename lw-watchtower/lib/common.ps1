@@ -979,6 +979,57 @@ function Merge-LwgConfigOverride {
     return $out
 }
 
+function Test-LwgConfigShape {
+    <#
+      Is this parsed document a config.json this file may merge an operator
+      override onto? $true only for an object whose `modules` member is itself
+      an object carrying AT LEAST ONE member.
+
+      THIS IS A SHAPE TEST AND IT USED TO BE A NULL TEST, which is the whole
+      point of the function. The line it replaces was
+
+          if ($null -ne $cfg -and $null -ne $cfg.modules) { $base = $cfg }
+
+      and in PowerShell $false, 0, '', @() and 'yes' are every one of them
+      non-$null. So a seventeen-byte file - {"modules":false} - with no
+      thresholds, no `interaction` block, no `repos` block and none of the
+      shipped defaults in it was accepted as a GOOD config, the operator's
+      override was merged over it, and delegate_gate, the only thing in this
+      plugin that can refuse a tool call, came up ARMED. Measured on all of
+      {"modules":false}, {"modules":0}, {"modules":"yes"}, {"modules":[]} and
+      {"modules":{}}: gate_delegate exited 2 while the self-check in the same
+      process reported the config degraded.
+
+      That is the exact lockout the two polarity decisions below Get-LwgConfig's
+      name exist to prevent, and it is what docs/configuration.md means by "a
+      corrupt config leaves the gate off". An operator who edits config.json
+      down to "modules": false meaning TURN EVERYTHING OFF got every observing
+      module on, a live blocking gate, and no route back: with the gate armed
+      the main thread cannot call Bash, so it cannot run the command that would
+      switch it off again.
+
+      WHY AT LEAST ONE MEMBER AND NOT MERELY AN OBJECT. {"modules":{}} declares
+      nothing at all, and every module then resolves through Test-LwgModule's
+      absent-key default, so an empty object is a destroyed file wearing the
+      right brackets - the same input the null test was already wrong about.
+
+      WHAT THIS DELIBERATELY STILL ACCEPTS, stated so nobody reads the check as
+      wider than it is: {"modules":{"git_hygiene":true}} is a shaped document
+      with a real declaration in it, so it IS accepted as the base and an
+      override can arm a gate over it. That is a hand-written minimal config,
+      not a destroyed one. Its missing thresholds are what self_health's probe 3
+      is for, and the session reports `degraded` and names them.
+    #>
+    param($Config)
+
+    if ($Config -isnot [System.Management.Automation.PSCustomObject]) { return $false }
+    $m = $Config.modules
+    if ($m -isnot [System.Management.Automation.PSCustomObject]) { return $false }
+    # .PSObject.Properties on a PSCustomObject from ConvertFrom-Json is exactly
+    # its JSON members, so an empty object counts zero and nothing else does.
+    return (@($m.PSObject.Properties).Count -gt 0)
+}
+
 function Get-LwgConfig {
     <#
       The shipped defaults from config.json, with the operator's override
@@ -988,7 +1039,8 @@ function Get-LwgConfig {
       Adds three fields to what it returns:
 
         _source          'file' when config.json parsed and carried a `modules`
-                         block, 'defaults' when it did not. UNCHANGED in meaning
+                         block of the SHAPE Test-LwgConfigShape describes,
+                         'defaults' when it did not. UNCHANGED in meaning
                          and in spelling - both configuring commands refuse to
                          write when it is not 'file', and several readers test it.
         _override        the override document's path when one was read and
@@ -999,7 +1051,9 @@ function Get-LwgConfig {
       TWO POLARITY DECISIONS, both stated here because both are the difference
       between a nuisance and a lockout.
 
-      1. A config.json that does not parse discards the override too. The
+      1. A config.json that does not parse, OR that parses into something that
+         is not the shape of a config (Test-LwgConfigShape, immediately above),
+         discards the override too. The
          override is merged over the SHIPPED DEFAULTS, and when those could not
          be read there is nothing to merge onto but the built-in fallback - which
          deliberately carries no `interaction` and no `supervision` block, so
@@ -1034,7 +1088,7 @@ function Get-LwgConfig {
             $raw = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
             if (-not [string]::IsNullOrWhiteSpace($raw)) {
                 $cfg = $raw | ConvertFrom-Json -ErrorAction Stop
-                if ($null -ne $cfg -and $null -ne $cfg.modules) { $base = $cfg }
+                if (Test-LwgConfigShape -Config $cfg) { $base = $cfg }
             }
         }
     } catch { }

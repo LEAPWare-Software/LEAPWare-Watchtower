@@ -559,11 +559,20 @@ function Test-B2-ASwitchBackedFlagIsCheckedToo {
       interaction.delegate. A probe that read only the `modules` block would
       walk straight past the flag that arms the only gate this plugin ships,
       which is the value #60's own worked example turns on.
+
+      THE `modules` BLOCK CARRIES ONE KEY AND IT USED TO BE EMPTY (#268). This
+      case is about a non-boolean at a SWITCH-BACKED key, and `modules` was `{}`
+      only because it was not the subject. Since #268 an empty `modules` object
+      is not a config Get-LwgConfig will merge an override onto - a destroyed
+      file wearing the right brackets - so `{}` here would have made this case
+      test the config-shape boundary instead of the probe. One real declaration
+      moves it back off that boundary and changes nothing it asserts. The
+      boundary itself is pinned by its own cases in tests/config_behaviour.ps1.
     #>
     $cfg = @'
 {
   "version": "0.4.0",
-  "modules": {},
+  "modules": { "git_hygiene": true },
   "interaction": { "delegate": "false" },
   "repos": {},
   "thresholds": {
@@ -1166,11 +1175,20 @@ function Test-F3-AConfigWithNoThresholdsFailsThresholdsLive {
       true - and no thresholds at all. Both halves are asserted: the case would
       be satisfied by a probe that simply mirrored config_from_file if it only
       looked at thresholds_live.
+
+      THE MODULES BLOCK CARRIES ONE KEY AND IT USED TO BE EMPTY (#268). The
+      subject here is the absence of THRESHOLDS, and `"modules": {}` sat on a
+      boundary that has since moved: an empty modules object is no longer a
+      config this plugin will merge an operator override onto, because
+      {"modules":{}} declares nothing and every module then resolves through the
+      absent-key default - which is how a seventeen-byte file came to arm a
+      blocking gate. Written this way the case asserts what it always meant,
+      and config_from_file is true for the reason its own comment gives.
     #>
     $cfg = @'
 {
   "version": "0.4.0",
-  "modules": {},
+  "modules": { "git_hygiene": true },
   "repos": {}
 }
 '@
