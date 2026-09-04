@@ -579,6 +579,131 @@ function Get-FirstLines {
     return (($Out -split "`r?`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -First $N) -join ' | ')
 }
 
+function New-HandBuiltGitDir {
+    <#
+      A .git directory holding one `config` with one [remote "origin"] url, and
+      nothing else. That is the entire input Get-LwgRepoInfo takes - walk up for
+      .git, follow `commondir` if there is one, parse the remote urls out of
+      `config` - so a fabricated directory is the same evidence a real clone
+      gives it, minus the network and the git binary. New-Sandbox builds
+      $sand.repo exactly this way for B9 and says why there; section I needs two
+      more of them, so the shape is written once here.
+    #>
+    param([string]$WorkTree, [string]$Slug)
+
+    [void](New-Item -ItemType Directory -Path $WorkTree -Force)
+    $dotgit = Join-Path $WorkTree '.git'
+    [void](New-Item -ItemType Directory -Path $dotgit -Force)
+    # Indented lines and all, because Get-LwgRepoInfo trims each line before
+    # matching and a fixture that only worked unindented would stop testing the
+    # parser that reads real files.
+    [IO.File]::WriteAllLines((Join-Path $dotgit 'config'), @(
+        '[core]',
+        '    repositoryformatversion = 0',
+        '    bare = false',
+        '[remote "origin"]',
+        ('    url = https://github.com/' + $Slug + '.git'),
+        '    fetch = +refs/heads/*:refs/remotes/origin/*'), [Text.ASCIIEncoding]::new())
+    return $WorkTree
+}
+
+function New-Junction {
+    <#
+      A REAL directory junction, built with `mklink /J` - the same command the
+      dev-route install uses, which is the whole reason section I exists. A
+      junction needs no privilege (a symbolic link does), so this works on a CI
+      runner and on a developer's box alike.
+
+      Returns $true when the link exists afterwards and is a reparse point.
+      Never throws: section I asserts on the answer, because a suite that
+      ABORTED here would throw away the verdicts of sections A to H over an
+      environment fault that has nothing to do with them.
+
+      A .cmd file rather than one long `cmd /c` string, for the reason
+      Invoke-Config gives above: cmd's rule about stripping the first and last
+      quote of a /c argument makes a quoted path in such a string unreliable,
+      and every path here comes out of [IO.Path]::GetTempPath().
+    #>
+    param([hashtable]$Sand, [string]$Link, [string]$Target, [string]$Tag)
+
+    $bat = Join-Path $Sand.work "$Tag.cmd"
+    [IO.File]::WriteAllLines($bat, @(
+        '@echo off',
+        ('mklink /J "{0}" "{1}" >nul 2>&1' -f $Link, $Target),
+        'exit /b %ERRORLEVEL%'), [Text.ASCIIEncoding]::new())
+    try { & $env:ComSpec /c $bat | Out-Null } catch { }
+
+    if (-not (Test-Path -LiteralPath $Link)) { return $false }
+    try {
+        return (([IO.File]::GetAttributes($Link) -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    } catch { return $false }
+}
+
+function Invoke-RepoProbe {
+    <#
+      Ask lib\common.ps1's Get-LwgRepoInfo about a list of paths, IN A REAL CHILD
+      PROCESS against the sandbox's byte copy of lib\, and return
+      @{ code; out; rows } - a hashtable, so PowerShell does not enumerate it
+      away across the function boundary. `rows` is tag -> @{ gitdir; root; slug }.
+
+      A CHILD RATHER THAN A DOT-SOURCE, for two reasons this suite already pays
+      for everywhere else. Dot-sourcing lib\common.ps1 into THIS process would
+      load 4,000 lines of the code under test into the harness that judges it,
+      and it would do so with the operator's own USERPROFILE and
+      CLAUDE_PLUGIN_DATA live - the swap in Push-ChildEnv is what keeps a
+      load-time side effect inside the sandbox, and it only covers children.
+      The memoisation cache is per process too, so a child also guarantees that
+      no probe below is answered out of a cache another case filled.
+
+      One child for every path rather than one per path: the tags are distinct
+      keys into the same cache, so a single run answers them all independently
+      and the suite pays one process instead of five.
+    #>
+    param([hashtable]$Sand, [hashtable]$Paths, [string]$Tag)
+
+    $probe = Join-Path $Sand.work "$Tag.ps1"
+    $list  = Join-Path $Sand.work "$Tag.paths"
+    $of    = Join-Path $Sand.work "$Tag.out"
+    $ef    = Join-Path $Sand.work "$Tag.err"
+    $bat   = Join-Path $Sand.work "$Tag.cmd"
+
+    [IO.File]::WriteAllLines($list, @($Paths.Keys | ForEach-Object { $_ + "`t" + $Paths[$_] }), [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllLines($probe, @(
+        'param([string]$Common, [string]$List)',
+        '$ErrorActionPreference = ''Stop''',
+        '. $Common',
+        'foreach ($line in [IO.File]::ReadAllLines($List)) {',
+        '    if ([string]::IsNullOrWhiteSpace($line)) { continue }',
+        '    $p = $line -split "`t", 2',
+        '    $r = Get-LwgRepoInfo -Path $p[1]',
+        '    Write-Output ("{0}|{1}|{2}|{3}" -f $p[0], $r.gitdir, $r.root, $r.slug)',
+        '}'), [Text.UTF8Encoding]::new($false))
+
+    $common = Join-Path $Sand.plugin 'lib\common.ps1'
+    $cmd = ('powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" -Common "{1}" -List "{2}" 1>"{3}" 2>"{4}"' -f $probe, $common, $list, $of, $ef)
+    [IO.File]::WriteAllLines($bat, @('@echo off', ('cd /d "{0}"' -f $Sand.work), $cmd, 'exit /b %ERRORLEVEL%'), [Text.ASCIIEncoding]::new())
+
+    $prev = Push-ChildEnv -Sand $Sand
+    try {
+        & $env:ComSpec /c $bat | Out-Null
+        $code = $LASTEXITCODE
+    } finally {
+        Pop-ChildEnv -Prev $prev
+    }
+
+    $out = ''; $err = ''
+    try { $out = [IO.File]::ReadAllText($of) } catch { }
+    try { $err = [IO.File]::ReadAllText($ef) } catch { }
+
+    $rows = @{}
+    foreach ($line in ($out -split "`r?`n")) {
+        if ($line -notmatch '\|') { continue }
+        $f = $line -split '\|', 4
+        if ($f.Count -eq 4) { $rows[$f[0]] = @{ gitdir = $f[1]; root = $f[2]; slug = $f[3] } }
+    }
+    return @{ code = $code; out = $out; err = $err; rows = $rows }
+}
+
 # ===========================================================================
 # RUN
 # ===========================================================================
@@ -1126,6 +1251,146 @@ try {
     Add-Result 'H4 and no comment in $status still claims a machine holds two module lists together (#75)' `
         ($null -ne $statusBlock -and $machineClaim -eq '') `
         (('$status.{0} still says the lists are "held to each other by a machine rather than by memory". No such machine exists: config-registry compares the modules keys against the registry and the declared switch keys, and reads nothing else. Deleting the array while keeping the sentence would leave the misleading half of #75 in place.') -f $machineClaim)
+
+    # -----------------------------------------------------------------------
+    # I. THE WALK THROUGH A JUNCTION - #228
+    #
+    #    Every case above reaches lib\common.ps1's Get-LwgRepoInfo through
+    #    bin\lwg-config.ps1, and B8/B9 are the two sides of "am I inside a
+    #    repository". This section asks the same function the question the
+    #    DEV-ROUTE INSTALL SHAPE asks it, which no case anywhere had ever put:
+    #    the caller's path is a DIRECTORY JUNCTION into a clone.
+    #
+    #    Claude Code loads this plugin from ~\.claude\skills\lw-watchtower, a
+    #    junction made with `mklink /J`. It used to point at the repository
+    #    ROOT, so the depth-0 `.git` probe succeeded and the shape was never
+    #    exercised; since the payload moved under lw-watchtower\ (#118) it
+    #    points at a SUBDIRECTORY of the clone, which has no .git of its own.
+    #    `Split-Path -Parent` is a STRING operation on the link path, so the
+    #    walk climbed out of the repository entirely - ~\.claude\skills ->
+    #    ~\.claude -> ~ -> C:\Users -> C:\ - and gave one of two wrong answers:
+    #
+    #      * nothing, and bin\lwg-update.ps1:284-286 fires
+    #        FAIL "<root> is not inside a git repository, so there is nothing to
+    #        pull". /lw-watchtower:update dead on every dev-route machine; or
+    #      * SOMEBODY ELSE'S REPOSITORY, when any directory on that climb carries
+    #        a .git - a dotfiles repo under ~ is the common case. Worse than
+    #        none: the update route would report and pull against it.
+    #
+    #    I4 IS THE FIRST WRONG ANSWER AND I5 IS THE SECOND, and they are
+    #    separate cases because a fix can close one and leave the other open.
+    #    Asking git only when the walk comes back EMPTY closes I4 and never
+    #    fires for I5 at all: there the walk comes back FULL, holding the
+    #    stranger's repository. Both are red at c39e782.
+    #
+    #    NOTHING HERE SHELLS OUT TO GIT, on either side of the seam. The
+    #    fixtures are hand-built .git\config files for the reason New-Sandbox
+    #    already gives, and they are also the reason the remedy could not be
+    #    `git rev-parse`: git exits 128 on a .git holding a config and no HEAD,
+    #    where this walk resolves it - so a git-first Get-LwgRepoInfo would take
+    #    tests\gate_delegate.ps1's New-LwgFakeRepo assertion with it. Measured
+    #    on #228 before this was written.
+    #
+    #    THE CONTROLS ARE WHAT MAKE THE TWO REDS MEAN ANYTHING. A junction that
+    #    was never created, a probe child that never ran, a fixture repository
+    #    the walk cannot read from the physical side, and a stranger fixture
+    #    that is itself unreadable would each turn one of the cases below green
+    #    or vacuous without a line of the behaviour being right. I7 is the other
+    #    direction: a plain directory with no .git above it must still resolve
+    #    to NOTHING, because "resolves a repository for everything" would pass
+    #    I4 and I5 and break the cache route, where a null gitdir is the
+    #    CORRECT answer.
+    # -----------------------------------------------------------------------
+    Write-Output ''
+    Write-Output 'I. Get-LwgRepoInfo through a directory junction - #228'
+
+    # A fixture clone whose slug is NOT the one $sand.repo carries, so no case
+    # below can pass by resolving the sandbox repository B9 uses instead.
+    $jRepo    = New-HandBuiltGitDir -WorkTree (Join-Path $sand.root 'jrepo') -Slug 'junction/target'
+    $jPayload = Join-Path $jRepo 'payload'
+    [void](New-Item -ItemType Directory -Path $jPayload -Force)
+
+    # The dotfiles repository the string walk climbs into. The link lives INSIDE
+    # its work tree, which is what makes the second wrong answer reachable.
+    $sRepo    = New-HandBuiltGitDir -WorkTree (Join-Path $sand.root 'home') -Slug 'stranger/dotfiles'
+    $sSkills  = Join-Path $sRepo 'skills'
+    [void](New-Item -ItemType Directory -Path $sSkills -Force)
+
+    # A plain directory - not a link, no .git of its own, and nothing above it
+    # carries one either, because the sandbox root is under the system temp
+    # directory. The null answer this must keep giving is the cache route's.
+    $plainSub = Join-Path $sand.root 'plainsub'
+    [void](New-Item -ItemType Directory -Path $plainSub -Force)
+
+    $linkPlain    = Join-Path $sand.root 'jlink'
+    $linkStranger = Join-Path $sSkills 'lw-watchtower'
+    $madePlain    = New-Junction -Sand $sand -Link $linkPlain    -Target $jPayload -Tag 'i-mk1'
+    $madeStranger = New-Junction -Sand $sand -Link $linkStranger -Target $jPayload -Tag 'i-mk2'
+
+    $junctionsOk = ($madePlain -and $madeStranger -and
+                    -not (Test-Path -LiteralPath (Join-Path $linkPlain '.git')) -and
+                    -not (Test-Path -LiteralPath (Join-Path $linkStranger '.git')))
+
+    Add-Result 'I1 CONTROL: two real mklink /J junctions were built, neither carrying a .git of its own' `
+        $junctionsOk `
+        (('the junction fixtures could not be built (plain={0}, under-stranger={1}), or one of them has a .git of its own - either way I4 and I5 below would be asking about an ordinary directory and would prove nothing about a reparse point. A junction needs no privilege, so this is a filesystem or ComSpec fault, not a permissions one.') -f $madePlain, $madeStranger)
+
+    $probe = Invoke-RepoProbe -Sand $sand -Tag 'i-probe' -Paths @{
+        link_plain    = $linkPlain
+        link_stranger = $linkStranger
+        physical      = $jPayload
+        holder        = $sSkills
+        plain         = $plainSub
+    }
+    $need = @('link_plain', 'link_stranger', 'physical', 'holder', 'plain')
+    $got  = @($need | Where-Object { $probe.rows.ContainsKey($_) })
+
+    Add-Result 'I2 CONTROL: the probe child ran and answered for every path it was given' `
+        ($probe.code -eq 0 -and $got.Count -eq $need.Count) `
+        (('the child that dot-sources the sandbox copy of lib\common.ps1 exited {0} and returned {1} of {2} row(s). Every case below reads those rows, so a child that died or answered short would make each of them assert over an empty string. stdout: {3} stderr: {4}') -f `
+            $probe.code, $got.Count, $need.Count, (Get-FirstLines $probe.out 6), (Get-FirstLines $probe.err 3))
+
+    $rPlainLink = if ($probe.rows.ContainsKey('link_plain'))    { $probe.rows['link_plain'] }    else { @{ gitdir = ''; root = ''; slug = '' } }
+    $rStranger  = if ($probe.rows.ContainsKey('link_stranger')) { $probe.rows['link_stranger'] } else { @{ gitdir = ''; root = ''; slug = '' } }
+    $rPhysical  = if ($probe.rows.ContainsKey('physical'))      { $probe.rows['physical'] }      else { @{ gitdir = ''; root = ''; slug = '' } }
+    $rHolder    = if ($probe.rows.ContainsKey('holder'))        { $probe.rows['holder'] }        else { @{ gitdir = ''; root = ''; slug = '' } }
+    $rPlain     = if ($probe.rows.ContainsKey('plain'))         { $probe.rows['plain'] }         else { @{ gitdir = ''; root = ''; slug = '' } }
+
+    $wantGitDir = Join-Path $jRepo '.git'
+
+    Add-Result 'I3 CONTROL: the fixture clone resolves from the PHYSICAL path' `
+        ($rPhysical.gitdir -eq $wantGitDir -and $rPhysical.slug -eq 'junction/target') `
+        (('the payload subdirectory reached by its real path resolved gitdir "{0}" slug "{1}", expected "{2}" and junction/target. The fixture repository is unreadable, so I4 would be failing over the fixture rather than over the junction.') -f `
+            $rPhysical.gitdir, $rPhysical.slug, $wantGitDir)
+
+    Add-Result 'I4 a junction into a clone SUBDIRECTORY resolves the clone, not nothing (#228)' `
+        ($rPlainLink.gitdir -eq $wantGitDir -and $rPlainLink.root -eq $jRepo -and $rPlainLink.slug -eq 'junction/target') `
+        (('through the junction Get-LwgRepoInfo answered gitdir "{0}" root "{1}" slug "{2}", expected "{3}", "{4}" and junction/target. An empty gitdir is the dev-route defect: bin\lwg-update.ps1 fires FAIL "<root> is not inside a git repository, so there is nothing to pull" off exactly this value, so /lw-watchtower:update is dead on every machine installed by junction. Split-Path -Parent is a string operation and cannot see past a reparse point; the walk has to continue from what the link POINTS AT.') -f `
+            $rPlainLink.gitdir, $rPlainLink.root, $rPlainLink.slug, $wantGitDir, $jRepo)
+
+    Add-Result 'I5 and it answers the clone even when the link sits inside SOMEBODY ELSE''S repository (#228)' `
+        ($rStranger.slug -eq 'junction/target' -and $rStranger.root -eq $jRepo) `
+        (('the junction lives under a work tree whose origin is stranger/dotfiles - the dotfiles-repo-under-~ shape - and Get-LwgRepoInfo answered slug "{0}" root "{1}", expected junction/target and "{2}". This is the half a git-when-the-walk-comes-back-empty fallback never reaches: the walk comes back FULL here, holding the wrong repository, and the update route would report and pull against it.') -f `
+            $rStranger.slug, $rStranger.root, $jRepo)
+
+    Add-Result 'I6 CONTROL: the directory the link LIVES in still resolves the stranger' `
+        ($rHolder.slug -eq 'stranger/dotfiles') `
+        (('the ordinary directory holding the junction resolved slug "{0}", expected stranger/dotfiles. The stranger fixture is unreadable, so I5 would be passing because there was nothing there to resolve rather than because the walk hopped past it.') -f $rHolder.slug)
+
+    Add-Result 'I7 CONTROL: a plain directory with no .git above it still resolves to nothing' `
+        ($rPlain.gitdir -eq '' -and $rPlain.root -eq '' -and $rPlain.slug -eq '') `
+        (('a directory that is not a link and has no repository above it answered gitdir "{0}" root "{1}" slug "{2}", expected all three empty. A null gitdir is the CORRECT answer on the marketplace cache route, where there is no clone at all; a walk that resolves something for every path would satisfy I4 and I5 and break that.') -f `
+            $rPlain.gitdir, $rPlain.root, $rPlain.slug)
+
+    # The reparse points are removed HERE rather than left to the finally.
+    # Directory.Delete on a junction removes the LINK and does not follow it,
+    # where Remove-Item -Recurse over a tree holding one has a history of
+    # deleting through it. Both targets are inside the sandbox, so nothing of
+    # the operator's could be reached either way - this is about the suite not
+    # modelling a pattern that is unsafe the moment somebody copies it.
+    foreach ($lnk in @($linkPlain, $linkStranger)) {
+        try { if (Test-Path -LiteralPath $lnk) { [IO.Directory]::Delete($lnk, $false) } } catch { }
+    }
 
 } catch {
     $script:Aborted = $_.Exception.Message
