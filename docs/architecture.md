@@ -109,9 +109,20 @@ lw-watchtower/lib/gate_delegate.ps1
                              they inspected. See docs/modules.md
 lw-watchtower/lib/gate_send.ps1
                              send_liveness_gate. PreToolUse on SendMessage;
-                             refuses a send whose recipient it can prove is dead
-                             mid-flight, abstains where the evidence cannot
-                             support a verdict. OFF by default; its switch is
+                             THREE outcomes, not two. It refuses a send whose
+                             recipient it can prove is dead mid-flight - the
+                             liveness verdict, and the only one of its FIVE
+                             refusals that is one. It also refuses a
+                             recipient that resolves to nothing at all: no
+                             readable `to`, no subagents directory for the
+                             session, no agent of that name, or no transcript
+                             for the agent the name resolved to. What is left
+                             to abstain on is an address it does not judge
+                             (main, or any name@team) and evidence it cannot
+                             use (a session health.jsonl never recorded, a
+                             transcript still inside the stale window). See
+                             docs/modules.md, which states the same split.
+                             OFF by default; its switch is
                              supervision.send_liveness
 lw-watchtower/lib/gate_stop.ps1
                              completion_audit. Registered on Stop AND on
