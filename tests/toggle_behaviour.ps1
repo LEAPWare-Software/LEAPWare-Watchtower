@@ -499,8 +499,17 @@ function Push-ChildEnv {
       settings path out of that variable, and an unset one was the state that
       made a written file exit 3; what is left asserts that no surviving path
       reads it.
+
+      -NoPluginData CLEARS CLAUDE_PLUGIN_DATA and points CLAUDE_CONFIG_DIR at
+      the sandbox profile, which is how this command is ACTUALLY spawned. Claude
+      Code hands $CLAUDE_PLUGIN_DATA to plugin HOOKS; a slash command runs
+      through Bash(powershell:*) and is never handed it, so it falls through to
+      Get-LwgStateDirInfo's discovery. Every case here before section I ran with
+      the variable set, which is a hook's environment and not this command's -
+      convenient, and it is the one branch on which #270 cannot happen. Same
+      switch, same wording and same reason as tests\config_behaviour.ps1's.
     #>
-    param([hashtable]$Sand, [switch]$NoUserProfile)
+    param([hashtable]$Sand, [switch]$NoUserProfile, [switch]$NoPluginData)
     $prev = @{
         up  = $env:USERPROFILE
         dat = $env:CLAUDE_PLUGIN_DATA
@@ -509,7 +518,7 @@ function Push-ChildEnv {
         cfg = $env:CLAUDE_CONFIG_DIR
     }
     $env:USERPROFILE                  = $(if ($NoUserProfile) { $null } else { $Sand.profile })
-    $env:CLAUDE_PLUGIN_DATA           = $Sand.data
+    $env:CLAUDE_PLUGIN_DATA           = $(if ($NoPluginData) { $null } else { $Sand.data })
     $env:CLAUDE_PLUGIN_ROOT           = $null
     $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $null
     # CLAUDE_CONFIG_DIR JOINED THE SANDBOX ON 3 SEPTEMBER 2026. No path in
@@ -520,7 +529,12 @@ function Push-ChildEnv {
     # CLAUDE_PLUGIN_DATA is not set. A runner carrying the variable would point
     # that fallback at the real machine while USERPROFILE pointed harmlessly at
     # the sandbox. Cleared, so the sandbox is the whole sandbox.
-    $env:CLAUDE_CONFIG_DIR            = $null
+    #
+    # -NoPluginData is the one exception, and it points the variable at the
+    # SANDBOX profile rather than clearing it: that is what makes the fallback
+    # scan look under the sandbox's plugins\data, which is where section I
+    # plants its two candidates.
+    $env:CLAUDE_CONFIG_DIR            = $(if ($NoPluginData) { $Sand.profile } else { $null })
     return $prev
 }
 
@@ -564,7 +578,10 @@ function Invoke-Toggle {
         # bin\lwg-toggle.ps1, which is what every case but one wants. The #273
         # case passes New-NoFileHashRunner's launcher, which runs that same
         # script with Get-FileHash unresolvable.
-        [string]$ScriptPath
+        [string]$ScriptPath,
+        # Run the child the way Bash(powershell:*) runs it, with no
+        # CLAUDE_PLUGIN_DATA - see Push-ChildEnv. Section I uses it.
+        [switch]$NoPluginData
     )
 
     if ([string]::IsNullOrWhiteSpace($CfgPath)) { $CfgPath = $Sand.ov }
@@ -583,7 +600,7 @@ function Invoke-Toggle {
     # of this command, on any path, for any reason, moves a byte of the file
     # that is inside the plugin's git working tree.
     $baseBefore = Get-Bytes -Path $Sand.cfg
-    $prev = Push-ChildEnv -Sand $Sand -NoUserProfile:$NoUserProfile
+    $prev = Push-ChildEnv -Sand $Sand -NoUserProfile:$NoUserProfile -NoPluginData:$NoPluginData
     try {
         & $env:ComSpec /c $bat | Out-Null
         $code = $LASTEXITCODE
@@ -1148,8 +1165,88 @@ try {
          "'config.json could not be read', which reads as a broken config file and is nothing of the kind. Output:`n$($h1.out)`n$($h1.err)")
 
     # =======================================================================
+    # SECTION I - #270, two state directories and a command that cannot tell
+    # which one a hook reads
+    #
+    # A hook is handed $CLAUDE_PLUGIN_DATA by Claude Code. This command runs
+    # through Bash(powershell:*) and is never handed it, so it falls through to
+    # Get-LwgStateDirInfo's discovery and RANKS the lw-watchtower* siblings by
+    # most recent write. An operator who has run this plugin from a marketplace
+    # install AND from a checkout has two of them, and the two readers then land
+    # on different files. THIS COMMAND IS WHERE THAT WAS MEASURED:
+    # /lw-watchtower:delegate off exited 0 and printed "delegate is OFF" with
+    # "[merged over the defaults; this is what a hook reads]" beside the file it
+    # had written, and the very next main-thread Bash call was refused exit 2 by
+    # a gate reading the override in the OTHER directory. Seconds later the same
+    # command reported ON, from the other file, with no operator action between.
+    #
+    # THE CODE FIX FOR THIS LANDED IN #292 AND THIS CASE DID NOT, and the reason
+    # is worth keeping: the case moves this suite's count, that count was quoted
+    # in files two other lanes owned in the same wave, and moving it would have
+    # failed Documentation claims on a number that lane could not fix. The
+    # deferral is the whole of why it is here now.
+    #
+    # SO THE RED IS AT 192176b, NOT AT THIS BRANCH'S BASE, and that is stated
+    # rather than glossed: at 3e36d79 the refusal is already in
+    # bin/lwg-toggle.ps1, so these three cases are green there with the test hunk
+    # alone. 192176b is main immediately before #292, and I1 and I2 fail there.
+    #
+    # EVERY CASE ABOVE THIS SECTION RAN WITH CLAUDE_PLUGIN_DATA SET, which is a
+    # hook's environment and not this command's. -NoPluginData puts it back on
+    # its own spawn.
+    # =======================================================================
+    Write-Output ''
+    Write-Output 'I. two state directories, and which file a hook reads (#270)'
+
+    # Two suffixed candidates under the profile's plugins\data, which is where
+    # discovery looks when CLAUDE_PLUGIN_DATA is unset. The marketplace-shaped
+    # one holds the operator's real choice; the checkout-shaped one is newer, so
+    # the mtime ranking prefers it - which is exactly the measured failure.
+    $iData   = Join-Path $sand.profile 'plugins\data'
+    $iMarket = Join-Path $iData 'lw-watchtower-leapware-watchtower'
+    $iInline = Join-Path $iData 'lw-watchtower-inline'
+    foreach ($d in @($iMarket, $iInline)) { [void](New-Item -ItemType Directory -Path $d -Force) }
+    $iOv = Join-Path $iMarket 'config.override.json'
+    [IO.File]::WriteAllText($iOv, '{"interaction":{"delegate":true}}', [Text.UTF8Encoding]::new($false))
+    Start-Sleep -Milliseconds 1100
+    [IO.File]::WriteAllText((Join-Path $iInline 'marker.txt'), 'newer', [Text.ASCIIEncoding]::new())
+
+    Write-ConfigFile -Path $sand.cfg -Text $good
+    $i1 = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate off' -Tag 'i1' -CfgPath $iOv -NoPluginData
+    $i1wrote = @(Get-ChildItem -LiteralPath $iData -Recurse -Filter 'config.override.json' -File -ErrorAction SilentlyContinue)
+
+    Add-Result 'I1 a write is REFUSED when two state directories are candidates (#270)' `
+        ($i1.code -eq 3 -and $i1wrote.Count -eq 1 -and -not $i1.changed -and ($i1.out -like '*AMBIGUOUS*')) `
+        ("exit was {0}, the seeded override was {1}, and {2} config.override.json file(s) exist under plugins\data (expected the 1 that was seeded). This command IS the documented escape hatch from an armed gate: an operator locked out of Bash runs it, and reporting 'delegate is OFF' over a write nothing reads leaves them locked out having done the one thing they were told to do. stdout: {3}" -f `
+            $i1.code, $(if ($i1.changed) { 'CHANGED' } else { 'untouched - correctly' }), $i1wrote.Count,
+            (($i1.out -split "`r?`n" | Select-Object -First 8) -join ' | '))
+
+    $i2 = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate' -Tag 'i2' -CfgPath $iOv -NoPluginData
+
+    Add-Result 'I2 the REPORT names both candidates instead of claiming the file it picked is what a hook reads (#270)' `
+        ($i2.code -eq 0 -and ($i2.out -like '*AMBIGUOUS*') -and `
+         ($i2.out -like '*lw-watchtower-inline*') -and ($i2.out -like '*lw-watchtower-leapware-watchtower*')) `
+        ("exit was {0}. A report is allowed to run here - nothing is written - but it is not allowed to label one of two files '[merged over the defaults; this is what a hook reads]' when it cannot know that, which is the sentence an operator read while the gate went on refusing them. stdout: {1}" -f `
+            $i2.code, (($i2.out -split "`r?`n" | Select-Object -First 8) -join ' | '))
+
+    # THE CONTROL, and it is what makes I1 a statement about ambiguity rather
+    # than about the environment: remove the second candidate and the identical
+    # command writes and exits 0. Without it a "fix" that simply refused whenever
+    # CLAUDE_PLUGIN_DATA is unset would pass I1 and I2 and break every
+    # marketplace install, where the variable is never set for a command.
+    Remove-Item -LiteralPath $iInline -Recurse -Force
+    $i3 = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate off' -Tag 'i3' -CfgPath $iOv -NoPluginData
+    $i3text = ''
+    try { $i3text = [IO.File]::ReadAllText($iOv) } catch { }
+
+    Add-Result 'I3 CONTROL: one candidate and the same command writes, into the directory that already had the override (#270)' `
+        ($i3.code -eq 0 -and ($i3text -match '"delegate"\s*:\s*false') -and ($i3.out -notlike '*AMBIGUOUS*')) `
+        ("exit was {0} and the override now reads [{1}]. The refusal above must be about not knowing WHICH file, not about the variable being unset - a command that refused whenever CLAUDE_PLUGIN_DATA is absent would refuse on every ordinary install. stdout: {2}" -f `
+            $i3.code, $i3text.Trim(), (($i3.out -split "`r?`n" | Select-Object -First 6) -join ' | '))
+
+    # =======================================================================
     # SECTION G - the invariant, over every run this suite made
-    # Evaluated LAST, so $script:Runs holds sections A to H rather than A to C.
+    # Evaluated LAST, so $script:Runs holds sections A to I rather than A to C.
     # =======================================================================
     Write-Output ''
     Write-Output 'G. the exit-3 invariant over every run above'

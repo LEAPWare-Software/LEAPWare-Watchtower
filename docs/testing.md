@@ -29,7 +29,7 @@ that covers a **deletion**.
 and the model-visible `additionalContext` envelope.
 `tests/doctor_behaviour.ps1` runs `bin/lwg-doctor.ps1` against seeded configs and seeded
 `settings.json` files with 42 cases, on **two of its ten checks and no others**.
-`tests/toggle_behaviour.ps1` drives `bin/lwg-toggle.ps1`'s write to the override file with 29 cases,
+`tests/toggle_behaviour.ps1` drives `bin/lwg-toggle.ps1`'s write to the override file with 32 cases,
 and `tests/config_behaviour.ps1` does the same for `bin/lwg-config.ps1`, each closing with an
 invariant that the plugin root's tracked `config.json` was not moved by a byte. They are the only
 suites besides the merge suite that cover a **write to a file an operator owns**.
