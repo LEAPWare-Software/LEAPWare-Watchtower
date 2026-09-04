@@ -17,15 +17,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > the manifest. **No tag existed before `v0.3.0`** — `0.1.0` and `0.2.0` were declared and worked
 > under, never published, which is why neither carries a link at the foot of this file.
 
-## [0.4.0] — unreleased
+## [0.4.0] — 2026-09-04
 
-**The manifests declare `0.4.0` and no tag carries it.** That is deliberate and it is the rule this
-release adds: `main` must never declare a version a tag has already published. It was written
-because this section was EMPTY while twelve commits and +5322/-489 lines sat on `main` past
-`v0.3.0`, every declaration site still reading `0.3.0` — so the tag and the branch were two
-different trees wearing one name, and two of those commits changed how an existing `config.json` is
-read. Two entries below were also written into the released `[0.3.0]` section after the tag existed;
-they are moved here, unedited, because they describe post-tag work.
+**Until the day this tag was cut, the manifests declared `0.4.0` and no tag carried it.** That gap
+was deliberate and it is the rule this release adds: `main` must never declare a version a tag has
+already published. It was written because this section was EMPTY while twelve commits and
++5322/-489 lines sat on `main` past `v0.3.0`, every declaration site still reading `0.3.0` — so the
+tag and the branch were two different trees wearing one name, and two of those commits changed how
+an existing `config.json` is read. The gap closes in two commits and not one: this section is dated
+in the commit `v0.4.0` points at, and the five declaration sites move to `0.5.0` in the commit
+after it, which is the procedure `CONTRIBUTING.md` states under *Versions and releases*. Two
+entries below were also written into the released `[0.3.0]` section after the tag existed; they are
+moved here, unedited, because they describe post-tag work.
 
 **Why `0.4.0` and not `0.3.1`.** See Breaking. A patch number would be a lie about a config file
 whose meaning changed.
@@ -158,6 +161,21 @@ project exists to refuse.
   that should have denied, allowed. If you have relied on a capitalised key being inert, it is not
   inert any more; it now means what it reads as.
 
+- **A `config.json` whose `modules` member is not an object is REFUSED rather than merged over
+  (2026-09-04, #268, #292).** `Get-LwgConfig` tested `$null -ne $cfg.modules`, and `$false` is not
+  `$null` — so `{"modules":false}`, seventeen bytes carrying no thresholds and none of the shipped
+  defaults, was a **good** config: the operator's override merged over it and `delegate_gate` came
+  up **armed**, off a file the same process's self-check called degraded. `Test-LwgConfigShape` now
+  requires an object whose `modules` member is itself an object carrying at least one flag.
+
+  **What an operator should check.** A file that fails that shape resolves `_source = 'defaults'`,
+  which already degrades the session, names `config.json` in the banner and in the model-visible
+  context, and makes both configuring commands refuse to write. So a `config.json` of yours carrying
+  `"modules": false`, a `modules` array, or an empty `modules` object stopped being read on this
+  release, and the shipped defaults are what you are running — announced on three surfaces rather
+  than left to be discovered, which is the half that was missing when the same file was silently
+  good enough to arm a gate.
+
 ### Removed
 
 - **Six slash commands, and everything that only existed to serve them (2026-09-02, #199).**
@@ -288,6 +306,135 @@ project exists to refuse.
   declaration sites, the difference between a declaration and a citation of a tag (`## [0.3.0]` and
   "UAT against v0.3.0" name the tested tree and must never be bumped), and the release procedure.
 
+- **`send_liveness_gate` — a `PreToolUse` gate that refuses a `SendMessage` whose recipient it can
+  *prove* is dead (2026-08-01).** `lw-watchtower/lib/gate_send.ps1`, registered in
+  `lw-watchtower/hooks/hooks.json` as `PreToolUse` with matcher `SendMessage`.
+  **Ships switched off**; its switch is **`supervision.send_liveness`**, declared on the registry
+  entry's own `switch` field rather than as a `modules` flag, because `Get-LwgConfig` fails **open**
+  and a corrupt config must not arm a blocking gate. It was built from a measured failure rather
+  than from a plan: an orchestrator issued `SendMessage`, received *"Message queued for delivery"*,
+  and 3.46 seconds later told the operator the work was done — the recipient had been dead
+  **28 minutes 45 seconds**, its transcript half an hour old and `health.jsonl` holding no
+  `SubagentStop` record for it, because a subagent killed mid-flight produces no record anywhere.
+
+  **What it refuses, and what it refuses to decide.** Three liveness states follow from what is
+  observable: a `SubagentStop` record exists — completed normally, a send resumes it, **allow**; no
+  record but the transcript was written recently — presumed running, **allow**; no record and the
+  transcript silent past `module_config.send_liveness_gate.stale_minutes` (default **15**,
+  deliberately above the ten-minute `Bash` ceiling so an agent inside one long call is not called
+  dead) — **deny**. A deny additionally requires that `health.jsonl` holds at least one record of
+  any kind for this session: a session `failure_capture` never saw **abstains**, allowed and logged
+  `SendGateAbstain`, because a gate must not convict on the silence of a witness that was never
+  present. `to: main` is always allowed; an address containing `@` is an agent-team address whose
+  layout is not observable from a hook, so it abstains. Unreadable stdin, or a payload carrying no
+  `to`, is a **deny** while the switch is on — the gate's one job is to establish the recipient
+  before the send — while a config it cannot read, or any throw, is an **allow**. It denies with the
+  reason on stderr and **exit 2**, the only code that stops a `PreToolUse` call. Its over-blocking
+  and its bypasses are enumerated in `docs/modules.md` rather than left to be found: an operator
+  running agent teams should not arm it.
+
+- **`completion_audit` — a turn-end gate against asserting completed work on the strength of a
+  queued message (2026-08-01).** `lw-watchtower/lib/gate_stop.ps1`, registered **twice** — on
+  `Stop` and on `SubagentStop` — and on both deliberately **without
+  `asyncRewake`**, which is what makes its exit 2 *block the turn end* and feed stderr back to the
+  model rather than raise an alert. **Ships switched off**; its switch is
+  **`supervision.completion_audit`**, on the registry entry's `switch` field for the same fail-open
+  reason. It is a separate script rather than a sixth module inside `lib/stop_advisories.ps1`
+  because that file's header promises *"these are advisories, they must never block"* and exits 0 on
+  every path; a blocking module inside it would falsify its own header.
+
+  **What it refuses.** Reading the current turn — every record after the last typed user prompt — it
+  refuses the turn end when **all four** hold: the turn contains at least one `tool_use` and the
+  **last** one is `SendMessage`, so nothing after the send could have established anything;
+  assistant text follows that `SendMessage`; the final assistant text matches the completion-claim
+  vocabulary; and it does **not** match the hedging vocabulary — *will*, *once*, *queued*,
+  *dispatched*, *asked*, *awaiting*, *in progress*. A reply that says the work was **handed off** is
+  the honest sentence this gate exists to demand and must never be refused. It fires at most once
+  per turn end and stands down on `stop_hook_active`, so **it can force one round of verification;
+  it cannot force honesty**. An error **allows** — exit 0, logged `GateError` — because a broken
+  audit must never pin a session shut. `docs/modules.md` enumerates both directions it can be wrong
+  in, because detecting *"asserted completion"* in prose is a regex over language and is the weakest
+  kind of rule this plugin ships.
+
+- **`orphan_watch` — reconciles this session's subagent transcripts against its `SubagentStop`
+  records and alerts on an agent that died mid-flight (2026-08-01).** It runs inside
+  `lw-watchtower/lib/supervisor.ps1` (`Get-OrphanAgents`) on `Stop` and `SubagentStop`, and it
+  **observes**: it raises the supervisor's exit-2 `asyncRewake`
+  alert, which reaches the orchestrator mid-turn, and blocks nothing. **Ships switched off**; its
+  switch is **`supervision.orphan_watch`**, on the registry entry's own `switch` field rather than
+  as a `modules` flag. The gap it closes was measured: `failure_capture`'s failed-task count reads
+  `$payload.background_tasks` and a subagent killed mid-flight appears in that list not at all — a
+  cross-check of 70 subagent transcripts against the health log found **four** transcripts with no
+  `SubagentStop` record, four agents that died while `failed_tasks` read `0`, in a log holding
+  **zero** `PostToolUseFailure` records across 1,175 entries.
+
+  **What it refuses to infer.** An agent **spawned** (its transcript exists), never **stopped** (no
+  `SubagentStop` record for its id), and **silent** past `stale_minutes` (default 15) is an orphan.
+  One death signal is believed with no threshold at all — the harness's own task-notification saying
+  `<status>failed</status>`, because that is a terminal statement rather than an inference; two such
+  deaths went unreported for **ninety minutes** because nothing read it. There is deliberately **no
+  second, shorter threshold**: a five-minute fast path keyed on transcript prose was shipped here and
+  removed after an adversarial re-derivation over 1,050 transcripts found four silence gaps of
+  25.4 s, 93.8 s, 3,824 s and 4,011 s that **all four recovered and carried on** — one in four false
+  positives on the exact control that exists to stop an operator being told something is dead when
+  it is not. Its verdict stops in three places, each an abstain rather than a guess: it sits below
+  the `failure_capture` flag check, so **`failure_capture` off means `orphan_watch` inert** whatever
+  its own switch says; a session with no health records at all yields no orphans; and it judges only
+  as far back as it can prove it looked, using this session's `SessionStart` record as the proof that
+  the log window reaches past every `SubagentStop` the session could have written.
+
+- **Six new rules in `tests/doc_claims.ps1`, the three done-conditions wave D could not close**
+  (#181, #104, #188, #151, #288). `tag-citation-is-published` fails on an imperative or a status
+  citation of a tag this repository has not cut — the `git checkout v0.3.0` route and a
+  `Supported versions` row both named a ref `git ls-remote --tags origin` does not return.
+  `command-exit-codes` ties each `lw-watchtower/commands/*.md` exit-code account to its script **in
+  both directions**, because the direction that was already clean would have passed on the day it
+  landed and caught nothing; `commands/update.md` documented two of its script's five codes and went
+  red against the new rule. `tests-file-enumeration` holds **both** enumerations — the `tests/` file
+  list and the `ci.yml` step list — where a contributor is told a block IS that list.
+  `branch-protection-not-the-job-id` holds `README.md` and `docs/limitations.md` to the check
+  run's **name** rather than the job id. The guard reads **190 recognised claims** at this release,
+  and `.github/ISSUE_TEMPLATE/config.yml`'s marker now exempts the quotation it is on rather than
+  splitting it (#284) — before that fix `Test-Claim` reached `Test-LineExempt` only after a match,
+  so the exemption never fired and the reason recorded for the unread line was not the operating one.
+
+- **`release.yml` refuses to publish unless the tagged commit's `Fast checks` succeeded** (#211
+  checkbox 3, #288). A tag can be pushed at any commit, including one no check run has ever seen, so
+  a release workflow that only reads the tag publishes whatever was tagged. The gate reads the check
+  run **on the tagged commit** and was proven against the live API rather than red-first: a commit
+  whose required check passed, and a commit that has never been checked, each run through it.
+
+- **`tests/portability_scan.ps1` fails on a rule that asked nothing of any file, and prints every
+  allowlist entry's reach** (#237, #227, #244). A scoped rule whose globs match nothing printed a
+  line above a **green exit** and nothing consumed it, which made a rule switched off by an
+  unrelated directory rename indistinguishable, on the only channel CI reads, from a rule that ran
+  everywhere and found nothing — `tests/payload_guard.ps1` already failed that condition as `S7`.
+  It is **exit 2, not exit 1**, deliberately: exit 1 means "the tree was checked and is dirty" and
+  tells the reader to fix a file, which is unactionable advice about a rule that never ran. The
+  allowlist gets the opposite answer for the opposite reason — a dead `files` entry can only make
+  the scan ask **more**, so its reach is **measured and printed per entry** beside the count of
+  matches excused, because `0` excused of `2` in reach is a defensive entry doing its job and `0`
+  excused of `0` is an entry that cannot fire at all. **The limitation is stated with the fix**: the
+  #236 payload move would have narrowed the one scoped rule from 33 files to **1**, not to 0, and no
+  boolean can see a narrowing — the assertion catches the switch-off, the printed count catches the
+  narrowing, and neither substitutes for the other. In the same pass `tests/payload_guard.ps1`'s J10
+  margin was re-measured against a floor rather than asserted beside a comment that contradicted it.
+
+- **The three v0.4.0 acceptance passes are committed as records** (#281, #290, and the re-UAT under
+  `.github/notes/uat/`). The CPO stranger install (33 steps), the CTO reproduce pass (87 claims, 76
+  reproduced) and the adversarial pass (65 conditions, 471 spawns), each naming the commit it ran
+  from and the issues it filed. They live under `.github/notes/`, which neither the payload nor the
+  website carries, so the record survives the fixes it caused; the operator's home directory and the
+  machine name are masked in them, and nothing else in a record is edited.
+
+  **The three step-5 re-UAT passes ran against `1baf6d4` and all three said ship** — the CPO
+  stranger install, the CTO reproduce pass and the adversarial pass, committed beside the first
+  three; the findings they produced were fixed and then re-verified by an independent QA lane at
+  `cce2108`, which re-ran each finding's exact condition rather than reading the diff (#147, row
+  2026-09-04 10:35); and the one number a live session was placed here to measure — the
+  slash-command refusal count behind #277 — was **not** measured, because the credential rule
+  forbids the session it needed, so it is a stated limit of this release and not a result.
+
 ### Changed
 
 - **Operator settings leave the git working tree (#11, #229).** `/lw-watchtower:config` and
@@ -306,6 +453,15 @@ project exists to refuse.
   `context_injection` is the module `/lw-watchtower:config` will not switch, because
   `lib/subagent_start.ps1` reads `config.json` directly on its fast path and an override for it
   would be reported as applied and ignored by the hook it switches. The command refuses and says so.
+
+  **THAT CARVE-OUT WAS LIFTED ON 2026-09-04 (#11, #261), and the sentence above is left standing
+  rather than deleted because it describes what shipped for a wave.** PR #252 gave
+  `lib/subagent_start.ps1` the override, so the reason for the refusal went before the refusal did —
+  it outlived it by one wave only because the case pinning it lived in a file another lane owned.
+  `context_injection` is now written by `/lw-watchtower:config` like every other module. **The rule
+  behind the carve-out is not removed**: a module whose hook reads `config.json` behind
+  `Get-LwgConfig`'s back still must not be written by this command, and the block records why the
+  special case was there.
 
 - **The doctor reads the settings file the CLI actually reads** (#224), and an unread Claude Code
   build stopped being reported as a fault.
@@ -338,6 +494,39 @@ project exists to refuse.
 - **`bin/lwg-setup.ps1`'s Q1 no longer prints `recommended: YES` for an answer that selects nothing**,
   and the lead-in no longer claims every question has a recommendation that is safe to accept — it
   was already false of Q2 and is now false of two of six.
+
+- **`/lw-watchtower:update` and `/lw-watchtower:uninstall` say which install route the run is on,
+  and `update` exits 2 rather than 1 on the marketplace route** (#276, #291). On the route
+  `README.md` and `docs/install.md` recommend to consumers, `update` could only ever end
+  `[FAIL] repo … nothing to pull`, exit 1 — a failure row for being installed the recommended way —
+  and nothing in the output named `claude plugin update`, which is what updates that route.
+  `uninstall` called the CLI cache *"source code and possibly unpushed work"* and, three lines under
+  a header naming that same cache as the plugin root, said it *"only knows about the junction"*.
+  **The new exit code is 2 and the choice is the entry:** 1 is REFUSED and nothing is wrong; 0 is
+  "up to date", which the run has not established and cannot, because it did not look; 2 is the code
+  that file already reserves for *a check could not be made*. The route is read off the
+  `plugins\cache\<marketplace>\<plugin>\<version>` shape of the path, and every line that prints it
+  says so. If a script of yours branches on `update` exiting 0 or 1, it will see 2 on that route.
+
+- **All six command pages carry `disallowed-tools: "PowerShell"`** (#277, #291). The model reached
+  for the `PowerShell` tool first in five of six measured sessions and was refused each time —
+  `/lw-watchtower:doctor` took seven turns, five refusals and 73.7 s for a script that runs in 1.3 s.
+  A command's `disallowed-tools` is unioned into the turn's tool-permission context before the model
+  is asked anything, and the next user input replaces that scope rather than accumulating it, so the
+  deny lasts exactly as long as the command. **The cost is stated rather than hidden**: on a machine
+  with no working Bash tool these commands can no longer run at all. That machine cannot run them
+  unattended today either, because each page's one instruction is a `powershell … -File` line the
+  PowerShell tool refuses on its own terms.
+
+  **The deny gained a guard and a sentence on 2026-09-04 (#277, #303).** It shipped on all six pages
+  with no case anywhere under `tests/` — `git grep disallowed -- tests/` had no hits — so it could
+  come back off one page at a time and nothing would notice. `S12` in `tests/payload_guard.ps1` now
+  asks both halves of every command page: the deny, and the `Bash(powershell:*)` entry in
+  `allowed-tools`, without which a page carrying the deny would have no pre-approved way to run its
+  one line at all. Each page also gained a sentence above its first fenced block telling the reader
+  to run that line through the **Bash** tool and why, rather than leaving the model to discover the
+  refusal; `setup.md` has four such blocks and carries one line covering all of them instead of the
+  same paragraph four times.
 
 ### Fixed
 
@@ -573,6 +762,229 @@ project exists to refuse.
   `bin/lwg-sitrep.ps1`, the duplicate `progress` probe is deleted, and the new caveat states that the
   existence of both files is the whole of what the tick proves.
 
+- **The terminal the CLI was launched from decided the doctor's verdict** (#273, #291).
+  `Get-FileHash` is not a compiled cmdlet in Windows PowerShell 5.1 — it is a function exported by
+  `Microsoft.PowerShell.Utility`, and it stops resolving the moment a PowerShell 7 `PSModulePath` is
+  inherited: 5.1 then resolves that module name to PS7's 7.0.0.0 manifest, whose `FunctionsToExport`
+  is empty, ahead of its own 3.1.0.0. Claude Code hands every hook and every command the environment
+  the terminal was launched with, so an operator who started the CLI from a `pwsh` prompt — the
+  Windows Terminal default wherever PowerShell 7 is installed — ran every script in `bin/` in that
+  state. Measured on an install that was correct and whose status line was byte-identical to the
+  tracked copy: `bin/lwg-doctor.ps1` printed `VERDICT: NOT healthy` and exited 1;
+  `bin/lwg-uninstall.ps1` reported *"could not complete"* and exited **3 before a single footprint
+  row**; `bin/lwg-update.ps1` could not complete; `bin/lwg-setup.ps1 -Step detect` printed
+  `copy vs original : could not be compared`. All four now report what they measured. **A healthy
+  install being called unhealthy by the shell it was started from is the same defect class as an
+  unrun check reading as a passed one** — the verdict was about the environment and said it was
+  about the tree.
+
+- **Every hook read stdin through the console's input code page, not the payload's encoding**
+  (#269, #292). `[Console]::In` decodes with the **console's** input code page — IBM437 in the child
+  Claude Code actually spawns, never the UTF-8 the payload is written in. One non-ASCII character in
+  `cwd` and the audit trail recorded a path that never existed, `repo` resolved to `null`, and every
+  `repos` entry applied to nothing. All four places stdin is read now use the reader `statusline.ps1`
+  already used, and each is pinned by a case in a different suite.
+
+- **A split state directory made a command assert what it had not read, on both halves of the
+  report** (#270, #292, #291). With two `lw-watchtower*` directories under the data root — what an
+  operator gets after running the plugin from a checkout as well as from the marketplace — a
+  command's discovery and a hook's `CLAUDE_PLUGIN_DATA` name different directories. `/delegate off`
+  printed `delegate is OFF`, `effective here : OFF` and `[this is what a hook reads]` while the gate
+  went on denying every main-thread `Bash` call, and the doctor printed
+  `[PASS] state-dir … VERDICT: healthy` over `{"interaction":{"delegate":true}}` in the other
+  directory. **Making a command and a hook resolve the same directory is unachievable by
+  construction and is not attempted** — a command is never handed the variable and is never told what
+  the CLI chose. What is fixed is the claim: both configuring commands **refuse to write** over an
+  ambiguous resolution, naming every candidate and which of them holds an override; the doctor's
+  `state-dir` row becomes a `WARN` with exit 2 and no `healthy` verdict, listing every candidate,
+  which one this run read, and the way out; and the footer's absence claim becomes
+  `override: none IN THE DIRECTORY THIS RUN RESOLVED`. The second sentence is the one that cost: an
+  operator locked out of `Bash` read `override: none` and concluded the gate was off.
+
+- **`/lw-watchtower:config` sent operators to three slash commands that do not exist** (#274, #292).
+  The route was built at run time from the registry's switch key, so it named a command for every
+  switch whether a page existed for it or not. It is now **derived** from `commands\<key>.md` on
+  disk, and otherwise names the file and the full path to edit by hand.
+
+- **Three low-severity reporting defects the UAT passes found** (#271, #266, #267, #292). The
+  `PostToolUseFailure` rewake spent an `asyncRewake` wake on `Subagent dispatch failed:` / `Error:`
+  with **both fields empty**; an empty field is now named as absent, and when both are gone the alert
+  says once that the payload could not be read and points at the transcript. The model-visible
+  context printed `The other 4: 4 (…)` on every session start on the shipped configuration — one
+  bucket accounting for the whole remainder, with the count printed twice.
+  `tests/subagent_scan.ps1`'s docstring still described the `context_injection` refusal #261 removed,
+  and is now past tense and dated. Two stale statements nobody had filed went with them:
+  *"`Invoke-LwgRotate` has exactly one call site"* — there are three, and the sentence sat in **two**
+  files where the pass found one — and `tests/gate_delegate.ps1`'s header naming
+  `tests/evidence_states.ps1`, deleted in wave 1.
+
+- **Four claims in `docs/architecture.md` that the machine contradicts, driven arm by arm rather than
+  argued** (#262, #263, #264, #265, #286). The page said the status line *"takes a peak of the
+  recorded fault counts … and that peak is lowered by nothing"*; `HH`*n* is **three** arms added
+  together and no single sentence is true of all three — the `failed_tasks` arm is a **gauge** that a
+  clean turn end lowers to zero, the `PostToolUseFailure` arm **accumulates** and a clean turn end
+  does not lower it, and only the orphan arm is a peak. It promised `send_liveness_gate`
+  *"abstains where the evidence cannot support a verdict"*; with the switch armed that gate has
+  **five** refusal paths and only one of them is a liveness verdict. Its state-directory table
+  accounted for three of the five files a session leaves behind, and the guessable correction was the
+  wrong one — `alerted.json` is **not** per session: two different session ids append to the same
+  file, capped at its last 200 entries, with orphan ids namespaced under one shared ledger. Three
+  further details were stale, including *"the four in-process modules"* where the registry names
+  three. `docs/modules.md`, `config.json` and `lib/common.ps1` all stated the gate's behaviour
+  correctly; only the architecture page did not.
+
+- **Five pages told a stranger something the machine does not do** (#280, #272, #275, #279,
+  #112 item 3, #285). `claude plugin uninstall` **deletes** the plugin's data directory and
+  `--keep-data` is the flag that keeps it — the pages carried *this plugin's* uninstaller's rule
+  ("kept unless you pass `-RemoveData`") and then told the reader to run the CLI's. The README ended
+  the install at a step whose real first `/lw-watchtower:doctor` run is `NOT healthy`, exit 1, until
+  `/lw-watchtower:setup` has run. Two routes were named for reading which commit you are on, neither
+  of which reads one; the two commands that read `gitCommitSha` and the clone's `HEAD` are named
+  instead, with the pin/know distinction intact. `lw-watchtower/` was called *"the whole of what a
+  consumer receives"* — the cache and the marketplace clone are two named directories, and *"nothing
+  outside it is **loaded**"* is true where *"nothing outside it reaches you"* is not. Every sentence
+  was re-measured against the tree rather than taken from the pass report, and two measurements came
+  back in the tree's favour.
+
+- **Twelve issues no single lane could take, swept in one pass** (#261). Each was something an
+  earlier lane had measured and could not finish — a fix whose case lived in another lane's file, a
+  false sentence in a `.ps1` no document lane could edit, a guard that could not be exempted because
+  three regexes had their only site on the page being exempted. Five landed red-first: the
+  `context_injection` refusal lifted (#11, above); every **glob** of a scoped rule asserted rather
+  than the rule as a whole, with an explicit `may_be_empty` (#247); the registry note pointing at
+  `kind` instead of restating a gate count (#249); the doctor no longer printing that `self_health`
+  is exercised by nothing (#253); and `doc_claims` reading a claim that wraps across a comment
+  continuation (#258). Three more were fixed as prose in code and pages, and three were closed as
+  **does not reproduce** with the measurement rather than with a change — including the
+  `tests/doc_claims.ps1` abort, which did not reproduce in four whole runs, and where **no retry was
+  added and no case was changed**, because a retry converts a flaky case into a slow green one.
+
+- **The prose sites five issues had stayed open on, and the rules that now hold them** (#181, #104,
+  #188, #240, #87, #251, #151, #192, #185, #259, #260, #128, #279, #288). Wave D was a prose pass and
+  three of its done-conditions asked for a guard rule nobody owned; the rules are under Added, and
+  the sentences they found are corrected here. `README.md:93` said
+  `tests/config_behaviour.ps1` runs 42 where the suite runs **49** — the defect the `runs N` branch
+  was written to read. `commands/update.md` documented two of its script's five exit codes.
+  `.github/PULL_REQUEST_TEMPLATE.md` told a contributor its invocation block IS the `tests/` list
+  while naming a suite deleted in wave 1. `deleted-script` scope was re-enabled over `commands/` and
+  `agents/` (#192), and the header sweep across every sibling suite closed #240's items 2 and 3.
+
+- **The machine name two committed UAT records quoted is masked** (#289, #290).
+  `tests/portability_scan.ps1`'s `this-hostname` rule refuses a tracked file that names the computer
+  it ran on; the two records passed CI because the runner is not that machine, and failed the scan on
+  the machine itself, which is where every lane runs it. The records are records — the name is
+  masked and nothing else moves.
+
+- **The documentation guard's own abort, and a case that scored its own lost race as a defect**
+  (#250, #298, #296, #195, #302). `tests/doc_claims.ps1` starts thirteen sibling suites at once and
+  sets `LWG_SUITE_PARALLEL` in the children. Exactly two cases in the tree return a **wall-clock
+  duration** as a verdict, and both now read that flag: `tests/gate_delegate.ps1`'s J10 already did,
+  and `tests/stop_behaviour.ps1`'s D4 now does. D4 sits in the suite the guard's first two aborts
+  named — `ABORT: tests\stop_behaviour.ps1 exited 1`, twice, each time with the suite green
+  `117 of 117` standalone minutes later — and an abort is total, *"nothing about the documentation
+  was established by this run"*, so one timing case losing a race to twelve other suites cost every
+  page its only guard. **Nothing was widened and nothing is retried**: the 5000 ms difference does
+  not move, the sample count does not move, nothing runs twice. The case is still counted, it prints
+  a line saying it skipped and why, and it is still enforced by its own CI step and by every local
+  run. The suite's tally is unchanged at `120 of 120`.
+
+  **`tests/toggle_behaviour.ps1`'s A5 was scoring its own lost race as a stale-read overwrite**
+  (#298) — one red in four whole runs on a clean tree, and the defect it reported did not exist. A5
+  plants a change inside the toggle's read-to-write window; when the appends landed outside that
+  window the toggle wrote legitimately, on a file nothing had changed since it read it, and the case
+  called that the defect. The outcome is now read off **the copy the toggle itself took**:
+  `Save-LwgTextFile` writes its `.bak` after the changed-under-us check has passed and before it
+  writes, so a backup byte-identical to the seed proves the mutation landed late and the attempt
+  established nothing — which is retried, like the three other ways an attempt could already
+  establish nothing. The two shapes that are real defects still fail the case: a replacement with no
+  backup at all, and a replacement whose backup is longer than the seed. **`bin/lwg-toggle.ps1` is
+  untouched** — nothing was added to the payload to make a test easier — and the tally stays at 32.
+
+  Two claims in `docs/testing.md` went with them, both stale exactly where the documentation guard
+  cannot look. The toggle suite's total read **26 cases** against a suite that runs **32** (#296),
+  about 1,500 characters after the nearest mention of the suite's name, which is outside every
+  window the guard opens; the sentence now opens with the suite's name, which puts it inside one, so
+  a wrong number there fails the build from now on. And the guard's own timing paragraph said it
+  *"re-runs the **eleven** other files in parallel"* — it re-runs **thirteen**, and the number was
+  spelled as a word, which no rule here can read.
+
+- **The uninstaller promised the logs survive the command it then handed over** (#280, #299, #303).
+  On a marketplace install one report said, of one directory, that `health.jsonl` and
+  `lw-watchtower.jsonl` are `kept - this is evidence` and need `-RemoveData -ConfirmToken
+  DELETE-MY-LWG-LOGS` to delete — and eleven lines lower named `claude plugin uninstall
+  <plugin>@<marketplace>` as the command that removes the install. Measured on CLI `2.1.260` against
+  a clean profile, by the reporter and again independently: that command **deletes the plugin's data
+  directory whole** — every file in it, including files this plugin never wrote — with no prompt and
+  no token, while leaving the cache copy in place with an `.orphaned_at` marker. `--keep-data` is
+  the only form that keeps it, and `git grep keep-data -- lw-watchtower/bin/` had no hits at all.
+  All three marketplace-route sites now carry the flag, and the case asserts it of **every** line of
+  a run that names the command rather than of the first, because correcting one of three would have
+  left the report contradicting itself in the other two. **A fourth site is on the junction route**
+  and has its own two assertions: that run's blind-spot list describes a marketplace install the
+  machine might also have, and it used to send the operator to `/plugin uninstall` for it — the
+  in-session form, the one `--keep-data` was never measured on. The correction is
+  **route-conditional**, not unconditional: on a junction install no CLI uninstall owns that data
+  directory, the original sentence is true there, and a warning about a command the operator is not
+  going to run is the same defect facing the other way. The junction route is the case's own control.
+
+  In the same paragraph — the one headed *what this script cannot see* — **a hard-coded size**
+  (#299). Every run told every operator that their `~/.claude.json` *"is a 46 KB telemetry blob"*.
+  It was a string literal: true of one machine on the day it was written and of nobody else's, and
+  the clean profile that filed it measured **1,495 bytes**. The size now comes off the disk, from
+  whichever of the two locations holds the file, and when neither exists the sentence says no size
+  was stated and names both paths it looked at — a fallback literal would have been the same defect
+  with a longer code path.
+
+- **An override that is a directory stopped being reported as no override at all** (#300, #304).
+  `/lw-watchtower:doctor` printed `[PASS] config-registry` and `override: none - these are the
+  shipped defaults` while a `config.override.json` sat at exactly the path that line names — as a
+  **directory**. Every other shape an override can take and still not be readable — unparseable
+  text, zero bytes, a top-level array, a file the process is denied — was already reported
+  `[FAIL] config-registry … it was DISCARDED`; only the directory reached none of that.
+  `Get-LwgConfig` gated its entire override read on `[IO.File]::Exists`, which answers `$false` for
+  a directory, so the block was skipped and both `_override` and `_override_error` stayed empty —
+  the state four surfaces render as *there is no override*. It is the split-state-directory sentence
+  again: a footer asserting an absence the run never established. The fix is in the shared resolver
+  rather than in the doctor, because four call sites render those two fields and they must not
+  disagree, and `[IO.Directory]::Exists` is asked **first**, ordered before the file test rather
+  than merged into it — a directory is a thing that EXISTS and cannot be read, which is the
+  DISCARDED branch, while a genuinely absent file is the untouched `none` branch, and one test
+  cannot tell them apart.
+
+  **The write half is not cosmetic, and it was measured rather than read out of the source.** At the
+  baseline `bin/lwg-config.ps1 -Module git_hygiene -Off -Apply` printed its whole plan — what this
+  does, the before and after, the effect, the counts, when it takes hold — and then ended
+  `could not complete: … "Access to the path '<path>\config.override.json' is denied."`, exit 3,
+  under a line saying nothing above should be read as a description of what the configuration now
+  contains. It reached that only because it had been told there was no file there. It now refuses by
+  name **before** printing a plan it cannot carry out, at exit 1, exactly as it does for the four
+  other unreadable shapes; `bin/lwg-toggle.ps1` exited 3 before and exits 3 still, and what changed
+  is that it says the override is not a file instead of quoting a denied write.
+
+- **The state directory's inventory gained the one file in it that decides something, and the
+  shipped switchboard stopped promising a correction it never makes** (#301, #282, #306).
+  `docs/architecture.md`'s *"What is in there"* table is where an operator answers *what is this
+  plugin keeping, and what can I delete*. Nine rows were logs, per-session scratch or historical
+  residue: delete one and you lose a record. The tenth file the plugin writes there had no row at
+  all, and it is the opposite kind of file — `config.override.json` is the operator's own
+  configuration, the only place any of it lives, and deleting it silently reverts every setting they
+  made, an armed gate included, with nothing in the plugin reporting the loss. The page named the
+  file 138 lines above the table, which is the same shape as the `alerted.json` half of #264. The
+  row is derived from the writers rather than from the prose: **written by a command, never by a
+  hook** — `bin/lwg-config.ps1` and `bin/lwg-toggle.ps1` are the only two scripts that write it —
+  and read by `Get-LwgConfig`, which every hook goes through, and by `lib/gate_delegate.ps1`'s fast
+  path *first*, on its own, before `common.ps1` is dot-sourced at all. That fast path builds the
+  override's own path and scans it, so with the file absent it is the only reader there is, which is
+  exactly the path the delete case exercises.
+
+  And `lw-watchtower/config.json`'s two `context_pressure` `$comment` strings still said the
+  observed-window rule is *"self-correcting after one turn"* (#282). Driven end to end against a
+  model carrying no `[1m]` tag and no config entry: the first reading is stored as `<model>#pending`
+  and changes nothing, the **second** promotes it, and only a **third** turn resolves against it —
+  two turns to promote, three before it is used, and a promoted entry is never revised.
+  `docs/modules.md` had already been corrected; `config.json` is the file that ships to the machine
+  and still carried the one-turn sentence in two places. No key, no value and no shape moved.
+
 ### Not fixed in this release, and named so it is not discovered instead
 
 - **`version-not-a-published-tag` cannot run in CI**, for the reason given above. The rule is stated
@@ -594,6 +1006,77 @@ project exists to refuse.
   section was released, by deleting the predecessor repository that served the ref. The bullet is
   restated rather than deleted so the list does not silently lose an item it once carried; the
   resolution and what it does **not** cover are recorded in full under Fixed above.
+- **`StopFailure` exiting 1 and recording nothing does not reproduce** (#278). `lib/supervisor.ps1`
+  contains no `exit 1` on any path; all three `StopFailure` shapes exit 0 and record, empty stdin
+  included. It is also **not** the stdin-encoding defect above. The reporter's own race hypothesis is
+  the one the timing supports, and it is recorded on the issue with that measurement rather than
+  closed as a code change that was never made.
+- **Two more findings were measured to not reproduce, and the flake beside them was explained
+  before the tag** (#242, #254, #250). The junction install route was proven end to end and both
+  code sites checked correct;
+  the "no `config.json`" case runs and the three sites that have to agree were read. The
+  `tests/doc_claims.ps1` abort did not reproduce in four whole runs, and its fixture-root root-cause
+  candidate was **refused with the measurement** — there is no fixed fixture root to key, so the
+  candidate could not be what happened. Option 1 landed instead: the abort now prints the failing
+  sibling's own output rather than only the exit code. **The flake was then explained and repaired,
+  and the account of it is under Fixed above** (#250, #302): the aborting case is D4, the only
+  wall-clock verdict in the tree besides J10, losing a race with the twelve sibling suites the guard
+  starts beside it. This bullet is left standing rather than deleted, because it records what was
+  established when it was written and the sentence *"the flake itself is unexplained"* was the
+  honest state of it for a wave.
+- **Two fixes briefed for this release were refused as no-ops, with the measurement** (#277
+  `allowed-tools`, #240 item 2). Adding `PowerShell(powershell:*)` beside `Bash(powershell:*)` —
+  Claude Code's own convention — changes nothing on the shipped CLI: the PowerShell tool runs its
+  validator bundle before any rule is consulted, one check returns `behavior: "ask"` for a command
+  that launches a nested `powershell`, and the decision merge is deny, then ask, then allow, so the
+  allow branch is never reached. A case asserting the rule was present would have guarded a no-op.
+  `$script:ExpectedCases` in `tests/config_behaviour.ps1` is a self-check in a file its lane did not
+  own, and is left named rather than half-built. **The third thing #277 asked for is also not in
+  this release, for a different reason**: a live count of the model's `permission_denials`, to be
+  read against the five refusals in seven turns the issue was filed on, needs an authenticated
+  session in a scratch profile — and placing a credential in one is forbidden here after the
+  2026-09-04 attempt invalidated the operator's own token. What shipped is the deny, a guard over
+  it, and a sentence on each page; **what the deny costs the model in practice is unmeasured**, and
+  the three step-5 passes record it that way rather than estimating it.
+- **Two `docs/modules.md` sections were audited and their findings filed rather than fixed** (#282
+  `sev:medium` on `context_pressure`, #283 `sev:low` on `docs_coupling`). Nine claims were tried
+  against each; the false ones are named on the issues. `orphan_watch`'s section was audited the same
+  way and **nothing false was found**. **Both were then fixed before the tag** — #283's
+  `docs/modules.md` bullet, and #282's remaining half, the two `$comment` strings in the shipped
+  `config.json`, which is under Fixed above. The bullet stays because the audit is the record: what
+  was tried, what came back false, and that a clean result exists for the third section.
+- **`bin/lwg-setup.ps1 -Step detect`'s `marketplace install:` line is unchanged** (#276). That scan
+  is a deliberate discovery superset whose header records that narrowing it re-opens #8; the
+  measurement and the recommendation are on the issue.
+
+### Known issues at release
+
+**Every issue carrying the `sev:low` label that was open on the day this section was dated**, one
+line each, re-measured against the tracker in the pull request that dated this heading rather than
+copied from an earlier draft. Read it as a measurement of the **issue tracker**, not of the tree: an
+issue here closes only when an independent pass has verified the fix, so a line can name a defect
+this same section records as **fixed above** and be open only because nobody has closed it yet — on
+the list below that is #276, whose `update` and `uninstall` halves this section records under
+Changed and whose third item it records under *Not fixed* as refused with the measurement. Where the
+two disagree, the entry above says what the code does and the line here says what the tracker said
+on the day.
+
+**What this list is not.** It is not the whole open tracker. What was open **above** `sev:low` when
+this heading was dated is named here rather than left to be inferred, because a list that stops at
+one severity and says nothing about the others reads as a claim that there are none: **#178**, the
+pull-request refs only GitHub Support can purge, and **#211**, the release-workflow gate this tag is
+the first real exercise of. Both are recorded above, neither is a defect a contributor can close,
+and nothing else above `sev:low` was open.
+
+- #125 — Owner-only repository settings that remain: social preview image, the stale docs/session-transition-spec branch, and the empty wiki
+- #169 — Status line cannot show the subscription plan name: no hook and no status-line field carries it
+- #195 — Every derived number is restated in a dozen places, so a one-line change costs a tree-wide sweep
+- #240 — tests/config_behaviour.ps1's header states THIRTY-TWO cases against a suite that runs 42, and no guard on either route can read it
+- #241 — doc_claims reads every tracked page with a bare Get-Content, so BOM-less UTF-8 decodes as ANSI and no rule can ever be keyed on a non-ASCII character
+- #276 — /lw-watchtower:update can only fail on a marketplace install and does not say what to run instead; uninstall and setup print junction-route sentences on the same route
+- #297 — The doctor's plugin-manifest row prints 'version 0.4.0' and not the gitCommitSha the CLI recorded for that install
+- #307 — The doctor's state-dir list and Get-LwgStateDirSplit call an override that is a directory "absent", so one run can name the file and deny it exists in the same report
+- #308 — docs/testing.md:1155 says the documentation guard re-runs the eleven behavioural suites; it re-runs thirteen, and the word form is invisible to doc_claims
 
 ## [0.3.0] — 2026-07-31
 
@@ -2016,13 +2499,19 @@ Loader only. No governance module had behaviour yet.
   the banner and the model-visible context block. Always exits 0.
 - Apache-2.0 `LICENSE`, `.gitignore`.
 
-[0.4.0]: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/tree/main
+[0.4.0]: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/releases/tag/v0.4.0
 
-<!-- The 0.4.0 link points at `main` rather than a tag, because there is no tag to point at: `main`
-     declares 0.4.0 and nothing has published it. It becomes a `releases/tag/v0.4.0` link on the day
-     it is cut, and the declaration sites move off 0.4.0 in the commit after that — see
-     CONTRIBUTING.md, "Versions and releases". The former `[Unreleased]` heading is gone rather than
-     left empty above this one: an empty [Unreleased] is what twelve unrecorded commits sat behind.
+<!-- The 0.4.0 link points at the release the `v0.4.0` tag published on 4 September 2026, which is
+     the form this comment promised it would take on the day it was cut. It is a `releases/tag/`
+     link and deliberately NOT a compare, which is the usual Keep a Changelog shape for a released
+     heading: a compare here would have to read `v0.3.0...v0.4.0`, and `v0.3.0` is a ref this
+     repository does not have — measured on the day, `git ls-remote --tags origin` returned nothing
+     and `gh api repos/:owner/:repo/tags` returned an empty list, for the reason recorded below. A
+     compare against a base that 404s is the same unresolvable citation as a link to a release that
+     does not exist. The declaration sites move off 0.4.0 in the commit after the tag — see
+     CONTRIBUTING.md, "Versions and releases". The former `[Unreleased]`
+     heading is gone rather than left empty above this one: an empty [Unreleased] is what twelve
+     unrecorded commits sat behind.
 
      THE 0.3.0 LINK DEFINITION WAS DELETED ON 3 SEPTEMBER 2026 AND THE HEADING IS DELIBERATELY LEFT
      UNLINKED. It pointed at `releases/tag/v0.3.0` on THIS repository, which 404s: `git tag -l` here
