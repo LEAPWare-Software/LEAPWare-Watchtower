@@ -504,7 +504,13 @@ function Test-NoConfigFailsOpen {
 
 function Test-TheOperatorOverrideSwitchesTheModuleOff {
     <#
-      #11, AND THE ONE MODULE /lw-watchtower:config STILL WILL NOT WRITE.
+      #11, AND THE MODULE /lw-watchtower:config USED TO REFUSE TO WRITE.
+
+      The heading said "THE ONE MODULE ... STILL WILL NOT WRITE" until
+      4 September 2026 (#267). That refusal was lifted with #261 once this
+      hook began reading the override, so the sentence had outlived the state
+      it described - everything below it is a correct record of why this case
+      exists and stays as written.
 
       Since 3 September 2026 config.json is the SHIPPED DEFAULTS and nothing
       writes it: the operator's own ON/OFF choices go to config.override.json
@@ -515,7 +521,8 @@ function Test-TheOperatorOverrideSwitchesTheModuleOff {
       read-back all reported as off - while the hook went on injecting into
       every dispatch. bin\lwg-config.ps1 refused to write this one module
       rather than ship that, which made it the only module of seven that could
-      not be switched at all.
+      not be switched at all - a refusal #261 removed once the hook read the
+      override, so this paragraph is history rather than current behaviour.
 
       THE OVERRIDE IS THE ONLY DIFFERENCE BETWEEN THE TWO RUNS. Both carry the
       same config.json, with the global flag TRUE, so a silent off-run is
