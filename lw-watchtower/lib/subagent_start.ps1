@@ -79,6 +79,18 @@
   and it is bounded by the escalation rule below rather than being left free to
   drift from them.
 
+  THE OPERATOR OVERRIDE IS READ TOO, AND THAT IS NEW - #11
+  config.json is the SHIPPED DEFAULTS and nothing writes it any more. The
+  operator's own ON/OFF choices go to config.override.json under the state
+  directory, which Get-LwgConfig merges over the defaults for every other
+  reader in this plugin. This hook read config.json ALONE until 3 September
+  2026, so switching context_injection off did nothing to it while the banner,
+  the doctor and the config command's own read-back all reported it off -
+  which is why bin\lwg-config.ps1 refused to write this one module at all.
+  The same two scanners are now run over the override, with no rules of their
+  own, and the escalation below is what covers every shape they cannot read.
+  Section 2 of the body carries the whole of that reasoning and its cost.
+
   PER-REPO OVERRIDES STILL WORK, EXACTLY
   The fast scan answers only the GLOBAL flag. If config.json's `repos` block
   carries an override for this module - which the shipped config does not -
@@ -488,6 +500,102 @@ try {
         if ($null -ne $repoSpan) {
             $o = Get-LwgJsonBool -Text $rawCfg.Substring($repoSpan.start, ($repoSpan.end - $repoSpan.start)) -Key $LwgModuleName
             if ($null -ne $o) { $escalate = $true }
+        }
+
+        # --- AND THE OPERATOR OVERRIDE - #11 --------------------------------
+        # config.json is the SHIPPED DEFAULTS. Since 3 September 2026 the
+        # configuring commands write config.override.json under the state
+        # directory instead, and Get-LwgConfig - which everything else in this
+        # plugin resolves through - merges it over them. UNTIL THIS BLOCK THIS
+        # HOOK READ config.json ALONE, so an operator who switched
+        # context_injection off got a flag that the banner, the doctor and the
+        # config command's own read-back all reported as off while this hook
+        # went on injecting into every dispatch. That is the silent no-op the
+        # whole plugin exists to catch, and bin\lwg-config.ps1 REFUSED to write
+        # this one module rather than ship it - see the refusal there, which
+        # names this file.
+        #
+        # THE SAME TWO SCANNERS, over the second document, and no rule of their
+        # own: the override's `modules` block is merged over the defaults member
+        # by member, so a value found here REPLACES the one above and an absent
+        # one leaves it standing - which is exactly what Get-LwgJsonBool
+        # returning $null already means. lib\gate_delegate.ps1 made the same
+        # decision for the same reason on the same day.
+        #
+        # WHAT IT COSTS. One environment read and one File.Exists on a fresh
+        # install, where the file does not exist - so the fast exit is untouched
+        # by anything an operator has not done. On a configured machine it is
+        # one more small ReadAllText - the shipped override is tens of bytes,
+        # against config.json's ~29 KB - and two more runs of the span scanner
+        # over it. Measured on this machine, 25 interleaved rounds, wall clock
+        # including interpreter startup:
+        #
+        #     fast path, fresh install (no override)      see the PR for #11
+        #     fast path, configured (override present)    - both within noise
+        #
+        # Nothing here dot-sources common.ps1 and no cmdlet is called on this
+        # path; the escalation below is unchanged and still costs what it did.
+        #
+        # THREE THINGS SEND IT TO THE SLOW PATH INSTEAD OF ANSWERING, and each
+        # of them is a place where this scanner and ConvertFrom-Json could
+        # disagree:
+        #
+        #   * CLAUDE_PLUGIN_DATA unset. Get-LwgStateDirInfo can still DISCOVER
+        #     the directory from the configuration root, and spelling that
+        #     resolution a second time here is the duplication this repo has
+        #     already had to fix once. Under a live hook the variable is set -
+        #     it is the branch every hook takes - so this costs the fast exit
+        #     only where no hook is running.
+        #   * anything before the opening brace, or no brace at all. An override
+        #     whose top level is not a JSON object is DISCARDED by Get-LwgConfig
+        #     outright, and `[{"modules":{...}}]` would otherwise be read here
+        #     as a global flag.
+        #   * the two characters \u anywhere in it. \uXXXX is the only JSON
+        #     escape that can spell a letter, so `"modules"` is a member
+        #     ConvertFrom-Json sees and this scanner cannot. The gate carries
+        #     the long version of this note.
+        #
+        # AND THE `repos` RULE IS THE SAME ONE AS ABOVE: a per-repo override in
+        # the override document can only be resolved with the slug, which this
+        # path never parses, so it escalates rather than guessing.
+        #
+        # ONLY WHEN config.json ITSELF CARRIED A `modules` BLOCK. Get-LwgConfig
+        # merges the override over the DEFAULTS, and when those could not be
+        # read there is nothing to merge onto - it discards the override too and
+        # returns the built-in fallback. $modSpan is the cheap proxy for the
+        # condition it uses, so the two agree about that state as well.
+        if ($null -ne $modSpan) {
+            if ([string]::IsNullOrWhiteSpace($env:CLAUDE_PLUGIN_DATA)) {
+                $escalate = $true
+            } else {
+                $ovPath = [System.IO.Path]::Combine($env:CLAUDE_PLUGIN_DATA, 'config.override.json')
+                $ovText = ''
+                try {
+                    if ([System.IO.File]::Exists($ovPath)) { $ovText = [System.IO.File]::ReadAllText($ovPath) }
+                } catch { $ovText = '' }
+
+                # An EMPTY override is not an override: Get-LwgConfig reports it
+                # as such and merges nothing, so the defaults above stand.
+                if (-not [string]::IsNullOrWhiteSpace($ovText)) {
+                    $ovOpen = $ovText.IndexOf('{')
+                    if ($ovOpen -lt 0 -or
+                        $ovText.Substring(0, $ovOpen).Trim().Length -ne 0 -or
+                        $ovText.IndexOf('\u', [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                        $escalate = $true
+                    } else {
+                        $ovMod = Get-LwgJsonObjectSpan -Text $ovText -Key 'modules'
+                        if ($null -ne $ovMod) {
+                            $ovVal = Get-LwgJsonBool -Text $ovText.Substring($ovMod.start, ($ovMod.end - $ovMod.start)) -Key $LwgModuleName
+                            if ($null -ne $ovVal) { $enabled = [bool]$ovVal }
+                        }
+                        $ovRepos = Get-LwgJsonObjectSpan -Text $ovText -Key 'repos'
+                        if ($null -ne $ovRepos) {
+                            $ovRepoVal = Get-LwgJsonBool -Text $ovText.Substring($ovRepos.start, ($ovRepos.end - $ovRepos.start)) -Key $LwgModuleName
+                            if ($null -ne $ovRepoVal) { $escalate = $true }
+                        }
+                    }
+                }
+            }
         }
     }
 

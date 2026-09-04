@@ -272,6 +272,33 @@ try {
         $onlyReg    = @($inRegistry | Where-Object { $inConfig   -notcontains $_ })
 
         $bits = @()
+
+        # AN OVERRIDE THAT WAS READ AND THEN DISCARDED - #11. Since 3 September
+        # 2026 the operator's ON/OFF choices are not in config.json at all: they
+        # are in config.override.json under the state directory, and
+        # Get-LwgConfig merges that over these defaults. It IGNORES one it
+        # cannot read rather than throwing - the right polarity, because a
+        # half-written settings file must not arm a gate and must not take the
+        # plugin down either - and carries the reason out in _override_error.
+        #
+        # SO THIS ROW IS THE ONLY PLACE THAT CAN SAY IT HAPPENED. _source is
+        # still 'file': config.json parsed perfectly. Every check below, every
+        # count in the roster at the foot, and the SessionStart banner then
+        # report the SHIPPED DEFAULTS while an operator's entire configuration
+        # sits in a file nothing read - and the doctor called that machine
+        # healthy. Both configuring commands already refuse to write in this
+        # state and name the file; this is the reporting half of the same rule.
+        #
+        # FAIL, NOT WARN, for exactly the reason the two rules below it are:
+        # what is written is not what is in effect. The polarity is safe - the
+        # defaults stand, so every gate is OFF rather than silently ON - which
+        # is why it is a row here and not a refusal anywhere.
+        if ("$($cfg._override_error)" -ne '') {
+            $ovp = ''
+            try { $ovp = "$(Get-LwgConfigOverridePath)" } catch { $ovp = '' }
+            if ([string]::IsNullOrWhiteSpace($ovp)) { $ovp = 'config.override.json under the state directory' }
+            $bits += "the operator override $ovp exists but $($cfg._override_error), so it was DISCARDED - every ON/OFF choice recorded in it is being ignored and everything below reports the shipped defaults instead"
+        }
         if ($onlyConfig.Count -gt 0) { $bits += "in config.json but not in the registry (a switch wired to nothing): $($onlyConfig -join ', ')" }
         if ($onlyReg.Count -gt 0)    { $bits += "in the registry but not in config.json (cannot be switched off): $($onlyReg -join ', ')" }
 
@@ -1166,9 +1193,30 @@ try {
     Write-Output ("  {0} of {1} modules ACTIVE (enabled in config AND declared implemented in the registry)" -f $iActive.Count, $iAll.Count)
     Write-Output ("  {0} gate(s) SHIPPED: {1}" -f $iShipped.Count, $(if ($iShipped.Count) { $iShipped -join ', ' } else { 'none - this plugin has no blocking code at all' }))
     Write-Output ("  {0} gate(s) LIVE: {1}" -f $iActiveGates.Count, $(if ($iActiveGates.Count) { ($iActiveGates -join ', ') + ' - these can BLOCK a tool call outright' } else { 'none - nothing can be blocked right now' }))
-    Write-Output ("  resolved for repo: {0}   config: {1}" -f `
+    # BOTH FILES THE VALUES CAME FROM - #11. Everything above is resolved
+    # through Get-LwgConfig, which merges config.override.json under the state
+    # directory over the shipped defaults, so naming config.json alone would
+    # credit every operator setting to a file that does not hold one. An
+    # override that EXISTS and could not be read is named too, because its
+    # values are being DISCARDED and a roster that quietly showed the defaults
+    # instead would be the silent no-op this report exists to catch - the
+    # config-registry row above FAILS on that state, and this line is what
+    # says which file it is talking about.
+    #
+    # THE WORDING IS LIFTED FROM bin\lwg-config.ps1's own source line rather
+    # than reinvented, so the two reports do not describe one machine in two
+    # vocabularies.
+    $iOvPath = ''
+    try { $iOvPath = "$(Get-LwgConfigOverridePath)" } catch { $iOvPath = '' }
+    if ([string]::IsNullOrWhiteSpace($iOvPath)) { $iOvPath = 'config.override.json under the state directory' }
+    $iOvNote =
+        if ("$($iCfg._override_error)" -ne '') { "   override: IGNORED - $iOvPath $($iCfg._override_error)" }
+        elseif ("$($iCfg._override)" -ne '')   { "   override: $($iCfg._override)" }
+        else                                   { '   override: none - these are the shipped defaults' }
+    Write-Output ("  resolved for repo: {0}   config: {1}{2}" -f `
         $(if ($iRepo) { $iRepo } else { '(not in a repo)' }), `
-        $(if ($iCfg._source -eq 'file') { 'config.json' } else { 'BUILT-IN DEFAULTS (config.json unreadable)' }))
+        $(if ($iCfg._source -eq 'file') { 'config.json' } else { 'BUILT-IN DEFAULTS (config.json unreadable)' }), `
+        $iOvNote)
 
     # --- the gates, one paragraph each --------------------------------------
     # Printed even under -Quiet. The two counts above are numbers; this is the

@@ -192,10 +192,15 @@ try {
     }
 
     # THE PATHS GIT PRINTS ARE REPO-ROOT-RELATIVE AND THE PAYLOAD IS NO LONGER AT
-    # THE REPO ROOT. Every `git status --porcelain=v2` and `git diff --name-only`
-    # below runs with -WorkDir $Root and NO --relative, so git prints
-    # `lw-watchtower/hooks/hooks.json` where the comparisons underneath were
-    # written against `hooks/hooks.json`. NOTHING GOES RED WHEN THAT STOPS
+    # THE REPO ROOT. Every `git diff --name-only` below runs with -WorkDir $Root
+    # and NO --relative, so git prints `lw-watchtower/hooks/hooks.json` where the
+    # comparisons underneath were written against `hooks/hooks.json`.
+    #
+    # `git status --porcelain=v2` IS THE EXCEPTION AND IT IS MEASURED, not
+    # assumed: it honours status.relativePaths, which defaults to true, so it
+    # prints paths relative to -WorkDir - i.e. already payload-relative. The one
+    # comparison against $dirtyPaths therefore does NOT take this prefix, and the
+    # long version of that measurement is beside it. NOTHING GOES RED WHEN THAT STOPS
     # MATCHING: the operator simply stops being told that a hooks change needs a
     # new session, that the status-line copy is now stale, or that module flags
     # moved - the advisories just quietly stop. That is the failure this block
@@ -357,14 +362,58 @@ try {
         $shown = @($dirtyPaths | Select-Object -First 8)
         $more  = $dirtyPaths.Count - $shown.Count
         $list  = if ($shown.Count -gt 0) { ' ' + ($shown -join ', ') + $(if ($more -gt 0) { " (and $more more)" } else { '' }) } else { '' }
-        # config.json IS THE ONE THIS COMMAND CAUSES ITSELF, so it is called out
-        # by name rather than left in a list the operator reads as their own
-        # work. This says what happened; it does not say the write was wrong,
-        # because deciding where those writes should go is #11 and is not this
-        # file's to settle.
+        # config.json IS STILL CALLED OUT BY NAME, AND THE SENTENCE NOW SAYS THE
+        # OPPOSITE - #234.
+        #
+        # It landed in #220 saying this plugin had written the file: at that
+        # time /lw-watchtower:config and the toggle commands did write it, so an
+        # operator meeting a dirty checkout after arming a gate needed telling
+        # that the change was not theirs. PR #229 moved every one of those
+        # writes out of the repository - config.json is the SHIPPED DEFAULTS and
+        # nothing in this tree writes it, operator settings go to
+        # config.override.json under the state directory - and the sentence went
+        # on saying it anyway. So the only way this file can be dirty today is
+        # that a person edited it, and the row was telling that person their own
+        # edit was probably the plugin's and "may not be yours to commit". An
+        # operator who believed it would discard their own work as residue.
+        #
+        # A REPORT THAT STATES A MECHANISM THAT IS NO LONGER RUNNING is the
+        # exact class of defect this plugin exists to catch, and it was pointed
+        # at its own updater for a day. Worth the paragraph.
+        #
+        # NAMING THE PATH IS KEPT, because that half was always useful and is
+        # escape route 2b on #11. What is replaced is the ATTRIBUTION, and the
+        # useful half now runs the other way: this is the one file in a dirty
+        # list that the operator can be told, positively, that no command in
+        # this plugin touched.
+        # AND THE PREFIX IS NOT APPLIED HERE, WHICH IS NOT AN OVERSIGHT. It was
+        # applied here by PR #236 along with the eight comparisons that do need
+        # it, and that made this sentence unreachable on the shape it was added
+        # for. Measured, git 2.53.0, one repository, one dirty file at
+        # `sub/config.json`:
+        #
+        #   git -C <repo>     status --porcelain=v2   ->  sub/config.json
+        #   git -C <repo/sub> status --porcelain=v2   ->  config.json
+        #   git -C <repo/sub> status --porcelain      ->  sub/config.json
+        #   git -C <repo/sub> diff --name-only        ->  sub/config.json
+        #
+        # `status --porcelain=v2` honours status.relativePaths, which defaults
+        # to true, so it prints paths relative to the CURRENT DIRECTORY - and
+        # every call here passes -WorkDir $Root, which is the payload directory.
+        # `--porcelain` (v1) forces the setting off, and `diff --name-only` is
+        # repo-root-relative always, which is why $changed below DOES need the
+        # prefix and $dirtyPaths does not. The comment at the derivation says
+        # both are repo-root-relative; that half is wrong and this is the
+        # correction.
+        #
+        # BOTH SPELLINGS ARE ACCEPTED rather than the bare one, because
+        # status.relativePaths is an operator setting and a machine that has
+        # turned it off gets the repo-root-relative form here. Testing for both
+        # costs nothing and is right on either.
         $own = ''
-        if ($dirtyPaths -contains ($script:PathPrefix + 'config.json')) {
-            $own = ' config.json is written by /lw-watchtower:config and by the toggle commands, so a flag you changed through this plugin dirties its own checkout and lands here - that change may not be yours to commit. See issue #11.'
+        if ($dirtyPaths -contains 'config.json' -or
+            $dirtyPaths -contains ($script:PathPrefix + 'config.json')) {
+            $own = ' config.json is the SHIPPED DEFAULTS and no command in this plugin writes it - /lw-watchtower:config and the toggle commands write config.override.json under the state directory, outside this checkout. So this change is somebody''s edit in this repository, not plugin residue, and it is yours to keep or discard.'
         }
         Add-Row -Id 'worktree' -Status 'FAIL' -Detail "$dirty uncommitted change(s) on ${branch}:$list. This command does not stash, reset or check out anything - commit or set them aside first.$own"
     } else {
