@@ -675,9 +675,44 @@ if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $scri
             $who = if ($payload.tool_input.subagent_type) { $payload.tool_input.subagent_type } else { $payload.tool_name }
             $who = ConvertTo-SafeField $who
             $what = if ($payload.tool_input.description) { " ($(ConvertTo-SafeField $payload.tool_input.description))" } else { '' }
-            [Console]::Error.WriteLine("Subagent dispatch failed: $who$what")
-            [Console]::Error.WriteLine("Error: $(ConvertTo-SafeField $payload.error)")
-            [Console]::Error.WriteLine("Assess whether this needs a retry (one model tier up), an lw-healer dispatch, or should be reported to the user as blocked.")
+            $err = ConvertTo-SafeField $payload.error
+
+            # AN EMPTY FIELD IS NAMED, NOT LEFT AS A COLON WITH NOTHING AFTER IT
+            # (#271). This hook carries asyncRewake, so every line here is spent
+            # WAKING THE MODEL - and on a payload this process could not read it
+            # used to produce, verbatim:
+            #
+            #     Subagent dispatch failed:
+            #     Error:
+            #     Assess whether this needs a retry (one model tier up), ...
+            #
+            # Both fields empty, and a three-way instruction the model cannot
+            # act on because nothing names the agent, the tool or the error.
+            # Measured on all twelve garbage stdin shapes, in both switch
+            # states: byte-identical output every time.
+            #
+            # STILL FIRING, AND STILL EXIT 2, deliberately. The EVENT'S OWN
+            # OCCURRENCE is the evidence: Claude Code dispatches
+            # PostToolUseFailure because a tool call failed, so a wake is
+            # earned even when the body is unreadable. What was wrong is a wake
+            # that names nothing while sounding like it does. Every other hook
+            # in this tree reasons explicitly about unreadable stdin -
+            # delegate_gate denies, send_liveness_gate denies,
+            # context_injection injects nothing - and this path did not.
+            #
+            # The placeholders are STATED rather than silently omitted, because
+            # a line that quietly disappears is indistinguishable from a hook
+            # that decided the field did not matter.
+            if ([string]::IsNullOrWhiteSpace($who) -and [string]::IsNullOrWhiteSpace($err)) {
+                # Both gone means the payload itself was unreadable, and saying
+                # that once beats saying nothing twice.
+                [Console]::Error.WriteLine("A tool call failed, and this hook could not read its payload: it carried no tool name, no subagent type and no error text.")
+                [Console]::Error.WriteLine("The failure is real - Claude Code only dispatches this event for one - but nothing here can name it. Read the transcript for the failed call.")
+            } else {
+                [Console]::Error.WriteLine("Subagent dispatch failed: $(if ([string]::IsNullOrWhiteSpace($who)) { '(the hook payload carried no tool or agent name)' } else { "$who$what" })")
+                [Console]::Error.WriteLine("Error: $(if ([string]::IsNullOrWhiteSpace($err)) { '(the hook payload carried no error text)' } else { $err })")
+                [Console]::Error.WriteLine("Assess whether this needs a retry (one model tier up), an lw-healer dispatch, or should be reported to the user as blocked.")
+            }
             exit 2
         }
 

@@ -1707,6 +1707,61 @@ try {
         ($rc6b.code -eq 2 -and $rc6b.err -like '*dispatch*' -and $rc6b.err -like '*fixture dispatch error*') `
         "expected exit 2 and a stderr line naming the failed dispatch and its error; got exit $($rc6b.code), stderr [$($rc6b.err)]"
 
+    # --- C6c, C6d: the alert has to NAME something - #271 -----------------
+    # This hook carries asyncRewake (hooks/hooks.json), so every line it writes
+    # to stderr is spent WAKING THE MODEL. On a payload it could not read it
+    # produced, verbatim:
+    #
+    #     Subagent dispatch failed:
+    #     Error:
+    #     Assess whether this needs a retry (one model tier up), ...
+    #
+    # Both data fields empty, and a three-way instruction the model cannot act
+    # on because nothing names the agent, the tool or the error. Measured
+    # identical across all twelve garbage stdin shapes and both switch states.
+    #
+    # THE EXIT 2 IS NOT THE DEFECT AND IS NOT CHANGED. Claude Code dispatches
+    # this event only when a tool call actually failed, so the event's own
+    # occurrence is evidence and a wake is earned; docs/architecture.md records
+    # the exit as a deliberate asyncRewake alert rather than a refusal. What was
+    # wrong is a wake that names nothing while sounding like it does.
+    #
+    # TWO CASES BECAUSE THERE ARE TWO BRANCHES. C6c is the whole payload gone;
+    # C6d is a payload that reads fine and simply carries no error text, which
+    # is the commoner shape and the one a fix that only handled "empty stdin"
+    # would miss. C6b above is the control for both: a fully populated payload
+    # must still name the real values and must NOT acquire a placeholder.
+    #
+    # ASSERTED ON THE SHAPE, NOT ON THE WORDING. A line ending in a colon, and a
+    # bare `Error:`, are the defect; the sentences that replace them are prose
+    # and will be reworded, so matching them exactly would make this fail for a
+    # change of words rather than a change of behaviour - the rule C6 states one
+    # case above.
+    #
+    # RED-FIRST: both FAIL at 6aebcd6.
+    $rc6c = Invoke-LwgSupervisor -Case $c6 -Event 'PostToolUseFailure' -Tag 'c6-emptystdin' -Payload ''
+    $c6cLines = @(($rc6c.err -split "`r?`n") | Where-Object { $_.Trim() -ne '' })
+    $c6cDangling = @($c6cLines | Where-Object { $_ -match ':\s*$' })
+    Add-Result 'C6c: an unreadable payload still alerts, and the alert names the condition (#271)' `
+        ($rc6c.code -eq 2 -and $c6cDangling.Count -eq 0 -and $c6cLines.Count -gt 0) `
+        ("this hook is asyncRewake, so these lines are spent waking the model. Expected exit 2 with no line ending in a colon and nothing after it; got exit $($rc6c.code) and " +
+         "$($c6cDangling.Count) dangling line(s). stderr: [" + ($rc6c.err.Trim() -replace "`r?`n", ' | ') + ']')
+
+    $c6dPayload = '{"session_id":"' + $c6.session + '","cwd":"' + ($c6.ws -replace '\\', '/') + '",' +
+                  '"hook_event_name":"PostToolUseFailure","tool_name":"Agent","tool_use_id":"lwg-fixture-tu-6d",' +
+                  '"is_interrupt":false,"tool_input":{"subagent_type":"lwg-fixture-worker","description":"fixture dispatch"}}'
+    $rc6d = Invoke-LwgSupervisor -Case $c6 -Event 'PostToolUseFailure' -Tag 'c6-noerrtext' -Payload $c6dPayload
+    $c6dLines = @(($rc6d.err -split "`r?`n") | Where-Object { $_.Trim() -ne '' })
+    $c6dDangling = @($c6dLines | Where-Object { $_ -match ':\s*$' })
+    Add-Result 'C6d: a readable payload carrying no error text names the agent and says the text is missing (#271)' `
+        ($rc6d.code -eq 2 -and $c6dDangling.Count -eq 0 -and $rc6d.err -like '*lwg-fixture-worker*') `
+        ("the dispatch is named and the error is not, which is the commoner shape: the first line must still carry the worker and the second must say the text was absent rather than end in a colon. " +
+         "got exit $($rc6d.code), $($c6dDangling.Count) dangling line(s). stderr: [" + ($rc6d.err.Trim() -replace "`r?`n", ' | ') + ']')
+
+    Add-Result 'C6: CONTROL a fully populated payload names the real values and acquires no placeholder' `
+        ($rc6b.err -notlike '*carried no*' -and $rc6b.err -like '*lwg-fixture-worker*') `
+        ("C6c and C6d must not be satisfiable by always printing the placeholder. The populated run's stderr was: [" + ($rc6b.err.Trim() -replace "`r?`n", ' | ') + ']')
+
     # --- C7: failure_capture off -----------------------------------------
     $c7 = New-LwgSupervisorCase -Name 'c7' -Modules @{ failure_capture = $false; log_rotation = $true }
     $rc7 = Invoke-LwgSupervisor -Case $c7 -Event 'Stop' -Tag 'c7-run1' `

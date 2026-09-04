@@ -163,7 +163,7 @@ tests/gate_delegate.ps1      99 cases against lib/gate_delegate.ps1, each run
                              through a real pipe into a real child process. One
                              of ELEVEN behavioural suites, and the only one that
                              covers a PreToolUse gate - see docs/testing.md
-tests/stop_behaviour.ps1     117 cases against the Stop-hook handlers:
+tests/stop_behaviour.ps1     120 cases against the Stop-hook handlers:
                              helpers in process, lib/stop_advisories.ps1 and
                              lib/supervisor.ps1 in real child processes. The
                              suite that reaches the most OBSERVING modules
