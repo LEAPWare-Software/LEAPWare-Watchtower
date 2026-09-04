@@ -158,7 +158,7 @@ quoting them. They are also not the same machine's numbers as the previous revis
 the merge suite read 248 s and the gate suite 179 s there, and the gate suite's drop is a change in
 what it runs rather than in how fast the machine is.
 
-The documentation-claim guard re-runs the eleven other files in parallel to read the tallies they print
+The documentation-claim guard re-runs the thirteen other files in parallel to read the tallies they print
 about themselves, so it costs the slowest of them rather than the sum.
 `-SkipSuites` skips that and then **exits 2 rather than 0**, because a run that did not check
 something must not report as one that did. The job's `timeout-minutes` and the `-SuiteTimeoutSec` the
@@ -973,6 +973,13 @@ Exit codes: `0` every recognised claim agrees, `1` at least one disagrees, `2` a
 `-SkipSuites` was passed — and **finding zero claims is an abort**, because a pattern set that matches
 nothing is broken rather than clean. A sibling suite exiting non-zero aborts this one on purpose: a
 case tally from a failing suite is not a fact.
+
+**Two cases do not run in that phase.** `tests/doc_claims.ps1` sets `LWG_SUITE_PARALLEL` in the
+siblings it starts, and the two cases in the tree whose verdict is a wall-clock duration read it and
+report SKIPPED rather than measuring a machine running thirteen suites at once. They are still
+counted in their suite's tally and still enforced by that suite's own CI step and by every local
+run — what the flag removes is the one context in which the number they read is about the runner.
+It is not a retry: nothing runs twice, and no threshold was widened to fit.
 
 ### The opt-out, and when to use it
 
