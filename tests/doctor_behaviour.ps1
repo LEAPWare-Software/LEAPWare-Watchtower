@@ -139,20 +139,38 @@
   in place. The two #42 cases added afterwards were proved red against the tree
   they landed in, which carries that check unchanged from fd8d023.
 
-  ELEVEN OF THE THIRTY CASES ARE LABELLED CONTROL, in the name and in the
+  THE THREE FIGURES BELOW ARE A RECORD OF THE DAY THE BASELINE WAS TAKEN, NOT A
+  COUNT OF WHAT THIS FILE RUNS NOW. This file held THIRTY cases when the fd8d023
+  proof was taken, and every sub-count in this section is over those thirty.
+  They are left as they were because they are the arithmetic of a red-first
+  proof against a tree NO CLONE OF THIS REPOSITORY REACHES - fd8d023 is not an
+  ancestor of anything here - so re-deriving them is not available, and moving
+  the total alone would leave three figures in one section contradicting each
+  other (#240 item 3).
+
+  IT HAS GROWN SINCE, AND THIS HEADER DELIBERATELY DOES NOT SAY BY HOW MUCH. The
+  live total is the `RESULT: N of N case(s) passed` line this file prints, which
+  is also where tests\doc_claims.ps1 reads it from; a second copy here is a
+  number nobody maintains, and the one that used to be here went stale twice
+  before anything noticed. Same treatment as tests\config_behaviour.ps1's
+  header, for the same reason, decided on the same issue.
+
+  ELEVEN OF THE THIRTY CASES WERE LABELLED CONTROL, in the name and in the
   comment. None is offered as evidence that anything was fixed. They exist
   because the cheapest way to pass the others is to answer "not ours" to
   everything, "FAIL" to every config, "PASS" to every log, to read no file at
   all and to WARN at every build, and the controls are what make that not work.
-  EIGHT of the eleven pass at fd8d023 too. The two #204 controls do not - they
-  assert the phrase naming the enumeration, which no row carried there - and
-  neither does the #132 one, over a check that did not exist there.
+  That is still what every case named CONTROL here is for, and cases added since
+  carry the label on the same terms. EIGHT of the eleven pass at fd8d023 too.
+  The two #204 controls do not - they assert the phrase naming the enumeration,
+  which no row carried there - and neither does the #132 one, over a check that
+  did not exist there.
 
   THE #204 CASES BASELINE ON c3e4139, NOT ON fd8d023 - that is the tree the
   defect was reproduced on and the tree they were proved red against, and each
   says so in its own comment.
 
-  NINE OF THE THIRTY HAVE NO fd8d023 BASELINE AT ALL - cases 16-18, on the
+  NINE OF THE THIRTY HAD NO fd8d023 BASELINE AT ALL - cases 16-18, on the
   informational roster, which did not exist there and is not a defect being
   fixed; case 24, on a code path that did not exist there either; case 25, which
   pins WHICH CHECKS RUN and would pass at fd8d023 only for a doctor carrying the
