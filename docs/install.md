@@ -459,9 +459,11 @@ removed, and it names what.
 
 ### What removing the plugin leaves behind
 
-Four classes of artefact, and removing the plugin's load path removes none of them. The
-uninstaller's own `LEFT BEHIND` and `CANNOT SEE` blocks are the authority on this and are printed on
-every run — this list says what to expect, not what those blocks say.
+Four classes of artefact. `/lw-watchtower:uninstall` leaves all four unless you opt in to a removal,
+and **removing the load path removes one of them anyway** — the state and log directories, on the
+marketplace route, which is the section below. The uninstaller's own `LEFT BEHIND` and `CANNOT SEE`
+blocks are the authority on what *that command* does and are printed on every run; they describe
+their own behaviour and cannot describe the CLI's, so read this list and the next section together.
 
 - **The copied `~\.claude\statusline.ps1`.** `copy` is the default `-StatusLineMode`, so on a default
   install this is a real file — a whole copy of [`statusline/statusline.ps1`](../lw-watchtower/statusline/statusline.ps1),
@@ -484,16 +486,44 @@ every run — this list says what to expect, not what those blocks say.
   longer exist. `/lw-watchtower:uninstall` **reports** how many references to this plugin
   it sees under `hooks` and does **not** remove them; that edit is yours to make by hand.
 - **The state and log directories.** They live under `$CLAUDE_PLUGIN_DATA` — never in the repo — and
-  are kept unless you pass `-RemoveData` with the confirmation token, because `health.jsonl` and
-  `lw-watchtower.jsonl` are the record of everything this plugin observed, including whatever made you want
-  to uninstall it. See [State directory](architecture.md#state-directory).
+  `/lw-watchtower:uninstall` keeps them unless you pass `-RemoveData` with the confirmation token,
+  because `health.jsonl` and `lw-watchtower.jsonl` are the record of everything this plugin observed,
+  including whatever made you want to uninstall it. **That is true of this plugin's uninstaller and
+  not of the CLI's:** on a marketplace install, `claude plugin uninstall` deletes the directory, and
+  it is the next step this page tells you to run. Read the next section before you run it. See
+  [State directory](architecture.md#state-directory).
 
 ### Removing the load path itself
 
 The uninstaller deliberately does not do either of these.
 
-- **Marketplace install:** `/plugin uninstall lw-watchtower@leapware-watchtower`. That copy lives in the CLI
-  cache with its own data directory, which `/lw-watchtower:uninstall` cannot see.
+- **Marketplace install:** `/plugin uninstall lw-watchtower@leapware-watchtower` in a session, or
+  `claude plugin uninstall lw-watchtower@leapware-watchtower` on the command line. That copy lives in
+  the CLI cache, which `/lw-watchtower:uninstall` cannot see.
+
+  **It deletes this plugin's state and log directory, and it does not warn you.** Measured on CLI
+  2.1.260 against a clean profile: after the plain form,
+  `~\.claude\plugins\data\lw-watchtower-leapware-watchtower\` is gone — the whole directory, every
+  file in it, including a file this plugin never wrote — while the payload copy under
+  `~\.claude\plugins\cache\leapware-watchtower\lw-watchtower\<version>\` is still there in full,
+  carrying a new `.orphaned_at` marker for a later CLI sweep to act on. So the plain form keeps the
+  code and destroys the evidence, which is the reverse of what `/lw-watchtower:uninstall` does with
+  the same two artefacts. A data directory whose name does not match the installed plugin id — the
+  pre-rename `lw-gmhh*` one, for instance — is not touched.
+
+  **`--keep-data` is the order that keeps it**, and it is the only one:
+
+  ```powershell
+  claude plugin uninstall lw-watchtower@leapware-watchtower --keep-data
+  ```
+
+  Measured on the same profile: the directory and its contents survive that form byte for byte, and
+  survive `claude plugin marketplace remove` afterwards as well. The flag was measured on the
+  `claude plugin` command line and **this page does not claim the in-session `/plugin` form takes
+  it** — so if you are uninstalling from inside a session, copy `health.jsonl` and
+  `lw-watchtower.jsonl` somewhere outside `~\.claude\plugins\data\` first. `--keep-data` is the CLI's
+  flag, not this plugin's; `claude plugin uninstall --help` is where it is documented and where a
+  later build would say if it had changed.
 - **Junction install:** delete the junction at `%USERPROFILE%\.claude\skills\lw-watchtower` with
   `cmd /c rmdir "%USERPROFILE%\.claude\skills\lw-watchtower"`, which removes the link and not the clone.
   Use that verb and not a PowerShell one. Removing the junction is what deregisters every hook,
