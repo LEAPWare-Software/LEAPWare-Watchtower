@@ -3236,11 +3236,21 @@ try {
         ("expected '(3):' and three lines matching '^\s+- \S'; found $($bullets.Count) bullet(s). " +
          "`return , @(`$n)` collapses every need onto one space-joined bullet while the count still says (1), so the block cannot say how many things need attention. Output:`n$($a.out)")
 
-    Add-Result 'update: and each of the three is its own bullet, not three joined into one' `
-        ([bool](($bullets -join "`n") -match 'hooks/hooks\.json changes:' -and
-                ($bullets -join "`n") -match '\.claude-plugin/plugin\.json changes:' -and
-                ($bullets -join "`n") -match 'new or changed slash command \(commands/delegate\.md\)')) `
-        ("all three needs must appear, and the count above says they are on separate lines. Bullets:`n" + ($bullets -join "`n"))
+    # PER BULLET, NOT OVER THE JOINED TEXT, and the difference is the whole
+    # defect. Asserting that all three substrings appear ANYWHERE is satisfied
+    # by the collapse - one bullet holding all three space-joined contains every
+    # one of them - which is exactly the shape of the two negative substring
+    # tests in 26h that let this ship. So: each pattern must match exactly ONE
+    # bullet, and no bullet may match more than one.
+    $needPatterns = @('hooks/hooks\.json changes:',
+                      '\.claude-plugin/plugin\.json changes:',
+                      'new or changed slash command \(commands/delegate\.md\)')
+    $perPattern = @($needPatterns | ForEach-Object { $p = $_; @($bullets | Where-Object { $_ -match $p }).Count })
+    $overloaded = @($bullets | Where-Object { $b = $_; @($needPatterns | Where-Object { $b -match $_ }).Count -gt 1 })
+    Add-Result 'update: and each of the three is its own bullet, not three joined into one (#222)' `
+        ([bool](@($perPattern | Where-Object { $_ -ne 1 }).Count -eq 0 -and $overloaded.Count -eq 0)) `
+        ("each need must be on a line of its own: bullets matched per need = $($perPattern -join ', ') (each must be 1), and $($overloaded.Count) bullet(s) carried more than one need. " +
+         "`$OFS joins the whole array into one string in `"    - `$n`", so the collapse puts all three on one line and every plain substring test stays true. Bullets:`n" + ($bullets -join "`n"))
 
     # CONTROL, and the other half of #222: an EMPTY need list. The wrapper made
     # this the worse of the two - a header saying (1) over a bullet with nothing
