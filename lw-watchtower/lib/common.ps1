@@ -2743,11 +2743,41 @@ function Test-LwgHasFlag {
     return $false
 }
 
+function Read-LwgStdinText {
+    <#
+      The whole of stdin, decoded as UTF-8, as a string. '' when there is
+      nothing to read or the stream cannot be opened - never $null, and it never
+      throws, because every caller is on a hook path where an exception is a
+      refusal nobody asked for.
+
+      detectEncodingFromByteOrderMarks is $true so that a UTF-8 BOM is CONSUMED
+      by the reader rather than handed on as U+FEFF to a caller that tests the
+      first character. The reader is disposed rather than left to the finaliser:
+      it owns the standard input handle, and a hook that exits with it open has
+      the same shape as one that never drained the pipe.
+
+      Type accelerators and ::new(), not New-Object: the three drains that carry
+      a copy of these lines sit on documented no-cmdlet fast paths.
+
+      See Read-LwgStdin's header for WHY this exists rather than [Console]::In.
+    #>
+    $sr = $null
+    try {
+        $sr = [IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false), $true)
+        return $sr.ReadToEnd()
+    } catch {
+        return ''
+    } finally {
+        if ($null -ne $sr) { try { $sr.Dispose() } catch { } }
+    }
+}
+
 function Read-LwgStdin {
     <#
       Read the hook JSON from stdin. Returns an empty object for empty or
       unparseable input so callers never have to null-check the result.
-      NOTE: a PowerShell object pipe does not reach [Console]::In - test with
+      NOTE: a PowerShell object pipe does not reach the process's standard
+      input at all - test with
       `cmd /c "type payload.json | powershell -File ..."`.
 
       -Raw parses text the CALLER already drained instead of reading stdin. A
@@ -2763,6 +2793,33 @@ function Read-LwgStdin {
       The local is $text, NOT $raw: PowerShell variable names are
       case-INSENSITIVE, so a local $raw and the parameter $Raw would be one
       variable and the read would overwrite what the caller passed.
+
+      THE PAYLOAD IS DECODED AS UTF-8 EXPLICITLY, and deliberately NOT through
+      [Console]::In. This is Read-LwgStdinText below, and the same three lines
+      appear in the three scripts that have to drain the pipe before this file
+      is dot-sourced - lib/gate_delegate.ps1, lib/gate_send.ps1 and
+      lib/subagent_start.ps1. Four copies, because a pipe is consumed exactly
+      once and those three cannot call a function that does not exist yet.
+
+      [Console]::In is built from [Console]::InputEncoding, which is the
+      CONSOLE's input code page - IBM437 in a `powershell -File` child spawned
+      with stdin redirected from a pipe, measured on this machine - while
+      Claude Code writes this payload as UTF-8. Read through it, every non-ASCII
+      byte arrives mojibaked: `cwd` then names a directory that does not exist,
+      Get-LwgRepoInfo's walk finds no .git, `repo` resolves to $null, every
+      `repos` entry in config.json falls through to the global default, and the
+      event log records a path that never existed - silently, on every record.
+      Measured: a cwd of "...\hello w<U+00F6>rld <U+65E5><U+672C>" was written
+      to lw-watchtower.jsonl as "hello w<U+251C><U+2562>rld ..." with
+      "repo":null, and the same session still reported mode `partial` with the
+      gate live.
+
+      statusline/statusline.ps1:52-86 found this first, stated it in full, and
+      fixed it for itself; the reasoning was never applied to the nine hooks,
+      which are the components that read a payload on every tool call. Its note
+      on why setting [Console]::InputEncoding is the worse option (it throws
+      with no console attached, and must precede the first read because the
+      reader is cached) holds here too, which is why this opens the raw stream.
     #>
     param(
         [AllowNull()][AllowEmptyString()]
@@ -2773,7 +2830,7 @@ function Read-LwgStdin {
     $text = ''
     try {
         if ($PSBoundParameters.ContainsKey('Raw')) { $text = [string]$Raw }
-        else { $text = [Console]::In.ReadToEnd() }
+        else { $text = Read-LwgStdinText }
         if (-not [string]::IsNullOrWhiteSpace($text)) { $payload = $text | ConvertFrom-Json }
     } catch { $payload = $null }
     # Garbage that happens to be valid JSON ("null", "42", "[]") parses to a

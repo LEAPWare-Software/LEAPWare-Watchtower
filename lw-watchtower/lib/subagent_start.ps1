@@ -466,7 +466,18 @@ function Get-LwgWorkerFacts {
 try {
     # 1. Drain stdin. Unparsed - see the header. Keeping the pipe empty also
     #    means the CLI's writer never blocks on a hook that ignored it.
-    try { $LwgStdinRaw = [Console]::In.ReadToEnd() } catch { $LwgStdinRaw = '' }
+    #
+    #    DECODED AS UTF-8 EXPLICITLY, and deliberately NOT through
+    #    [Console]::In, whose encoding is the CONSOLE's input code page and not
+    #    the payload's - so an agent name or a cwd carrying one non-ASCII byte
+    #    arrives mojibaked. ::new() and the type accelerators rather than
+    #    New-Object, because this is the no-cmdlet fast path the header
+    #    describes. lib/common.ps1's Read-LwgStdinText is the same three lines
+    #    with the full reasoning; this file drains before it is dot-sourced.
+    try {
+        $LwgStdinReader = [IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false), $true)
+        try { $LwgStdinRaw = $LwgStdinReader.ReadToEnd() } finally { $LwgStdinReader.Dispose() }
+    } catch { $LwgStdinRaw = '' }
 
     $root       = Get-LwgRootLocal
     $cfgPath    = [System.IO.Path]::Combine($root, 'config.json')

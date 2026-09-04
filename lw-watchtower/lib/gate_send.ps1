@@ -129,8 +129,18 @@ $ErrorActionPreference = 'Stop'
 
 # stdin is drained first and unconditionally - a pipe is consumed exactly once,
 # and the writer at the other end must never be left holding an unread pipe.
+#
+# DECODED AS UTF-8 EXPLICITLY, and deliberately NOT through [Console]::In,
+# whose encoding is the CONSOLE's input code page and not the payload's. This
+# gate reads tool_input.to, and a recipient it cannot resolve is DENIED - so a
+# worker whose name is not ASCII would be refused for the encoding rather than
+# for the evidence. lib/common.ps1's Read-LwgStdinText is the same three lines
+# with the full reasoning; this file drains before it is dot-sourced.
 $LwgRawStdin = ''
-try { $LwgRawStdin = [Console]::In.ReadToEnd() } catch { $LwgRawStdin = '' }
+try {
+    $LwgStdinReader = [IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false), $true)
+    try { $LwgRawStdin = $LwgStdinReader.ReadToEnd() } finally { $LwgStdinReader.Dispose() }
+} catch { $LwgRawStdin = '' }
 
 $payload = [pscustomobject]@{}
 

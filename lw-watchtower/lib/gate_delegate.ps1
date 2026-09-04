@@ -343,8 +343,20 @@ $ErrorActionPreference = 'Stop'
 # fast path reaches a conclusion, so the writer at the other end is never left
 # holding an unread pipe on the strength of a decision made after it.
 # lib/subagent_start.ps1 drains for the same reason and records the same note.
+#
+# DECODED AS UTF-8 EXPLICITLY, and deliberately NOT through [Console]::In,
+# whose encoding is the CONSOLE's input code page - IBM437 in a child spawned
+# this way - while Claude Code writes this payload as UTF-8. Through
+# [Console]::In every non-ASCII byte in cwd, tool_input.file_path or a repo
+# slug arrives mojibaked and the GateDeny record names a path that never
+# existed. lib/common.ps1's Read-LwgStdinText is the same three lines with the
+# full reasoning; this file cannot call it, because common.ps1 is not loaded
+# yet and the pipe is consumed exactly once.
 $LwgRawStdin = ''
-try { $LwgRawStdin = [Console]::In.ReadToEnd() } catch { $LwgRawStdin = '' }
+try {
+    $LwgStdinReader = [IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false), $true)
+    try { $LwgRawStdin = $LwgStdinReader.ReadToEnd() } finally { $LwgStdinReader.Dispose() }
+} catch { $LwgRawStdin = '' }
 
 # The only characters JSON structure can hide behind. Everything between two of
 # them is skipped by a native IndexOfAny rather than stepped over in PowerShell.
