@@ -52,7 +52,7 @@ body:
         the measurement. "It looks wrong" is not evidence; neither is a claim inherited from another
         page — this project has been wrong-by-one across ten pages at once by copying.
       placeholder: |
-        e.g. lib/common.ps1:64-91 declares 11 modules and 3 gates. Both manifests say ten and one.
+        e.g. lw-watchtower/lib/common.ps1:88-126 declares 11 modules and 3 gates. Both manifests say ten and one.
         Measured 2026-09-03 with: git grep -n "ten modules"
     validations:
       required: true

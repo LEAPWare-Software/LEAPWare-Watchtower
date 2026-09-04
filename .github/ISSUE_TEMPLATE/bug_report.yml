@@ -101,7 +101,7 @@ body:
     attributes:
       label: Output of /lw-watchtower:doctor
       description: >-
-        Or `powershell -NoProfile -ExecutionPolicy Bypass -File bin\lwg-doctor.ps1`. It also prints
+        Or `powershell -NoProfile -ExecutionPolicy Bypass -File lw-watchtower\bin\lwg-doctor.ps1`. It also prints
         the resolved state directory, which is where the logs are.
       render: text
 
