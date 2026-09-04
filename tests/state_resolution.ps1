@@ -876,6 +876,10 @@ function Test-E4-NoRegistryNoteContradictsTheRegistrysOwnGateCount {
       rewording the sentence around the same claim does not get past it, and
       adding a fourth gate without touching any note cannot break it.
 
+      RED AT 09b20be, where delegate_gate's note opens "THE ONLY GATE THIS
+      PLUGIN SHIPS" and three entries in the same table declare kind = 'gate':
+      32 of 33, this case the only failure.
+
       WHAT IT DOES NOT CATCH, said rather than left to be found: a note that
       asserts exclusivity in words this pattern does not spell. The pattern is
       the four English shapes for "there is one of these" next to the word
