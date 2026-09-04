@@ -255,13 +255,23 @@ jobs:
             exit 1
           }
 
+          # JOINED, NEVER Out-String. Windows PowerShell 5.1's Out-String wraps
+          # at the host's console width, and a check-runs response carries long
+          # `details_url` and `output.summary` values - a break landing inside a
+          # JSON string makes ConvertFrom-Json throw, and this block would then
+          # refuse a tag whose checks were green. That is the failure #211 exists
+          # to prevent, arriving from the guard rather than from the tree. gh
+          # returns the body a line at a time already, so joining is exact; the
+          # [string] cast is for the 2>&1 path, where the elements are
+          # ErrorRecords rather than strings.
           $raw = & gh api "repos/$env:GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100" 2>&1
+          $rawText = (@($raw) | ForEach-Object { [string]$_ }) -join "`n"
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error title=Required check::the check-runs API could not be read for $sha - $raw"
+            Write-Host "::error title=Required check::the check-runs API could not be read for $sha - $rawText"
             Write-Host "::error title=Required check::a query that could not run is not a check that passed. Nothing published."
             exit 1
           }
-          try { $parsed = ($raw | Out-String) | ConvertFrom-Json } catch { $parsed = $null }
+          try { $parsed = $rawText | ConvertFrom-Json } catch { $parsed = $null }
           if ($null -eq $parsed -or $null -eq $parsed.check_runs) {
             Write-Host "::error title=Required check::the check-runs response for $sha did not parse, so nothing was established about it. Nothing published."
             exit 1

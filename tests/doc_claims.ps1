@@ -859,7 +859,7 @@ if (-not $SkipSuites) {
             # failure as two lines saying `RESULT: 2 violation(s)` and nothing
             # about WHICH two files, which is the same nothing this whole change
             # exists to stop. Both headers open a block and both blocks are kept.
-            $markerPat = '(?i)^\s*(?:\[FAIL\]|FAIL\b|X\s|ABORT|ABORTED|RESULT:|EXIT:|\d+\s+FAILED)'
+            $markerPat = '(?i)^\s*(?:\[FAIL\]|FAIL\b|ABORT|ABORTED|RESULT:|EXIT:|\d+\s+FAILED)'
             $tailFrom  = -1
             for ($li = 0; $li -lt $outLines.Count; $li++) {
                 if ($outLines[$li] -match '(?i)^\s*(?:\d+\s+FAILED\b|VIOLATIONS?\b)') { $tailFrom = $li; break }
