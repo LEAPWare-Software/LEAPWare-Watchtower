@@ -62,6 +62,15 @@
      absolute threshold is a case that fails on a slow laptop and passes on a
      fast one for reasons that have nothing to do with the code.
 
+     THAT ONE CASE - D4's duration verdict, and only that one - REPORTS SKIPPED
+     WHEN LWG_SUITE_PARALLEL IS SET, which tests\doc_claims.ps1 sets in the
+     thirteen sibling suites it starts at once (#250). The reasoning above is
+     about machine speed and not about twelve suites running beside this one.
+     It is still counted in the tally, it still prints a line saying it skipped,
+     and it is still enforced by this suite's own CI step and by every local
+     run. Nothing else in this file may skip: a case that cannot run is an abort
+     or a failure, never a quiet subtraction.
+
   E. THIS SUITE ITSELF. One case, and the only one here that asserts on the
      harness rather than on anything the harness drives: that the operator's
      live event log is the same size after the run as it was before it. See
@@ -2206,9 +2215,50 @@ try {
     $m4b = Measure-LwgRender -Dir $d4poison -Tag 'd4-poison-'
     $d4delta = $m4b.median - $m4a.median
 
-    Add-Result 'D4: ten oversized records cost the render almost nothing' `
-        ($d4delta -lt 5000) `
-        ("REGRESSION: the status line read this file with Get-Content -Tail 300, whose cost is superlinear in line length. Ten 200,000-character records took the render median from 1,280 ms to 105,988 ms on this machine - the indicator took a minute and a half to draw, several times a turn. clean median $($m4a.median) ms [$(@($m4a.times) -join ',')], poisoned median $($m4b.median) ms [$(@($m4b.times) -join ',')], delta $d4delta ms")
+    # THE ONLY VERDICT IN THIS FILE THAT IS A DURATION, AND IT DOES NOT RUN
+    # UNDER tests\doc_claims.ps1's SIBLING PHASE - #250. That phase starts all
+    # thirteen sibling suites at once, most of them spawning a child process per
+    # case, and sets LWG_SUITE_PARALLEL in the children. Section D's header
+    # reasons about MACHINE SPEED - a slow laptop against a fast one - and about
+    # nothing else; none of it is about twelve other suites running beside this
+    # one. Two aborts of the whole documentation guard named THIS suite
+    # (`ABORT: tests\stop_behaviour.ps1 exited 1`, green 117 of 117 standalone
+    # minutes later, both recorded on #250), and the abort is total - "nothing
+    # about the documentation was established by this run" - so one timing case
+    # losing a race costs the pages their only guard.
+    #
+    # SKIPPED, NOT WIDENED AND NOT RETRIED. The 5000 ms difference does not
+    # move, the sample count does not move, and nothing runs twice. The case is
+    # still COUNTED in this suite's tally and still prints a line saying what
+    # happened, so a run that skipped it cannot be mistaken for a run that
+    # passed it - and it is still ENFORCED everywhere else, which is its own CI
+    # step and every local run of this file. What is removed is the one context
+    # in which its input is known to measure the runner.
+    #
+    # ONLY THE DURATION VERDICT IS SKIPPED, NOT THE MEASUREMENT AND NOT THE CASE
+    # BELOW IT. $m4a and $m4b feed the render-content case as well, and that one
+    # asserts on the '!' marker rather than on a clock, so it must keep running
+    # here. That is a departure from the hunk written out on #250, which wrapped
+    # the measurement itself; wrapping it would have starved the second case of
+    # its inputs. Six child renders therefore still run under the flag - if an
+    # abort ever names this suite again, the render-content case and the fixture
+    # timeouts in B26 are what is left to look at.
+    #
+    # THE VARIABLE IS READ HERE, not declared in doc_claims: that file knows it
+    # launched siblings and nothing more. A list of "which cases are timing
+    # cases" held over there is a list that goes stale here. The other duration
+    # verdict in the fourteen suites is tests\gate_delegate.ps1's J10, which
+    # reads the same flag for the same reason.
+    $d4Parallel = -not [string]::IsNullOrWhiteSpace($env:LWG_SUITE_PARALLEL)
+    if ($d4Parallel) {
+        Write-Output '  D4 timing  SKIPPED under the parallel runner - a difference between two medians taken beside twelve other suites measures the runner, not the renderer (#250)'
+        Add-Result 'D4: ten oversized records cost the render almost nothing' $true `
+            ('SKIPPED: LWG_SUITE_PARALLEL is set, so this run is one of the thirteen sibling suites tests\doc_claims.ps1 starts at once. This is the only case in this file whose verdict is a wall-clock difference, and a difference between two medians taken while twelve other suites are spawning a process per case measures the runner. Nothing is widened and nothing is retried - run this suite on its own, which its own CI step and every local run do, and the case is enforced exactly as written. The render-content case below it is NOT skipped: it asserts on the ''!'' marker rather than on a clock, so both renders still happen. See the block above it and #250.')
+    } else {
+        Add-Result 'D4: ten oversized records cost the render almost nothing' `
+            ($d4delta -lt 5000) `
+            ("REGRESSION: the status line read this file with Get-Content -Tail 300, whose cost is superlinear in line length. Ten 200,000-character records took the render median from 1,280 ms to 105,988 ms on this machine - the indicator took a minute and a half to draw, several times a turn. clean median $($m4a.median) ms [$(@($m4a.times) -join ',')], poisoned median $($m4b.median) ms [$(@($m4b.times) -join ',')], delta $d4delta ms")
+    }
     Add-Result 'D4: and it SAYS the log held something it could not read' `
         ($m4b.render -match 'HH[0-9]*!' -and $m4a.render -notmatch 'HH[0-9]*!') `
         ("a skipped record could have been a fault, and a fault dropped on the floor renders green - the one failure mode this indicator must never have. The trailing '!' is what keeps the skip visible. poisoned render: [" + (($m4b.render -replace "$([char]27)\[[0-9]+m", '').Trim()) + '], clean render: [' + (($m4a.render -replace "$([char]27)\[[0-9]+m", '').Trim()) + ']')
