@@ -486,16 +486,28 @@ function New-Sandbox {
 }
 
 function Push-ChildEnv {
-    <# Returns the previous values so the caller can restore them in a finally. #>
-    param([hashtable]$Sand)
+    <#
+      Returns the previous values so the caller can restore them in a finally.
+
+      -NoPluginData CLEARS CLAUDE_PLUGIN_DATA and points CLAUDE_CONFIG_DIR at
+      the sandbox profile, which is how this command is ACTUALLY spawned. Claude
+      Code hands $CLAUDE_PLUGIN_DATA to plugin HOOKS; a slash command runs
+      through Bash(powershell:*) and is never handed it, so it falls through to
+      Get-LwgStateDirInfo's discovery. Every case here before section J ran with
+      the variable set, which is the hook's environment and not the command's -
+      convenient, and it is the branch on which #270 cannot happen.
+    #>
+    param([hashtable]$Sand, [switch]$NoPluginData)
     $prev = @{
         up  = $env:USERPROFILE
         dat = $env:CLAUDE_PLUGIN_DATA
         rt  = $env:CLAUDE_PLUGIN_ROOT
         cd_ = $env:CLAUDE_CODE_PLUGIN_CACHE_DIR
+        cfg = $env:CLAUDE_CONFIG_DIR
     }
     $env:USERPROFILE                  = $Sand.profile
-    $env:CLAUDE_PLUGIN_DATA           = $Sand.data
+    $env:CLAUDE_PLUGIN_DATA           = $(if ($NoPluginData) { $null } else { $Sand.data })
+    $env:CLAUDE_CONFIG_DIR            = $(if ($NoPluginData) { $Sand.profile } else { $null })
     $env:CLAUDE_PLUGIN_ROOT           = $null
     $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $null
     return $prev
@@ -508,6 +520,7 @@ function Pop-ChildEnv {
     $env:CLAUDE_PLUGIN_DATA           = $Prev.dat
     $env:CLAUDE_PLUGIN_ROOT           = $Prev.rt
     $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $Prev.cd_
+    $env:CLAUDE_CONFIG_DIR            = $Prev.cfg
 }
 
 function Invoke-Config {
@@ -536,7 +549,11 @@ function Invoke-Config {
         # directory, so this is the only knob that changes either answer. Only
         # the `cd /d` moves: the .cmd, .out and .err stay in $Sand.work so a
         # case cannot leave litter in a directory another case reads.
-        [string]$WorkDir
+        [string]$WorkDir,
+        # Spawn the command the way a SLASH COMMAND is spawned rather than the
+        # way a hook is - no CLAUDE_PLUGIN_DATA, so the state directory is
+        # discovered. Section J needs it; see Push-ChildEnv.
+        [switch]$NoPluginData
     )
     if ([string]::IsNullOrWhiteSpace($WorkDir)) { $WorkDir = $Sand.work }
 
@@ -549,7 +566,7 @@ function Invoke-Config {
 
     $before     = Get-Bytes -Path $Sand.ov
     $baseBefore = Get-Bytes -Path $Sand.cfg
-    $prev = Push-ChildEnv -Sand $Sand
+    $prev = Push-ChildEnv -Sand $Sand -NoPluginData:$NoPluginData
     try {
         & $env:ComSpec /c $bat | Out-Null
         $code = $LASTEXITCODE
@@ -1475,6 +1492,84 @@ try {
     foreach ($lnk in @($linkPlain, $linkStranger)) {
         try { if (Test-Path -LiteralPath $lnk) { [IO.Directory]::Delete($lnk, $false) } } catch { }
     }
+
+    # =======================================================================
+    # SECTION J - #270, two state directories and a command that cannot tell
+    # which one a hook reads
+    #
+    # A hook is handed $CLAUDE_PLUGIN_DATA by Claude Code. A slash command runs
+    # through Bash(powershell:*) and is never handed it, so it falls through to
+    # Get-LwgStateDirInfo's discovery and RANKS the lw-watchtower* siblings by
+    # most recent write. An operator who has run this plugin from a marketplace
+    # install AND from a checkout has two of them, and then the two readers can
+    # land on different files. Measured end to end on lib/gate_delegate.ps1 and
+    # bin/lwg-toggle.ps1: /lw-watchtower:delegate off exited 0, printed
+    # "delegate is OFF" and "[merged over the defaults; this is what a hook
+    # reads]", and the very next main-thread Bash call was refused with exit 2
+    # by a gate reading the override in the OTHER directory.
+    #
+    # EVERY CASE ABOVE THIS SECTION RAN WITH CLAUDE_PLUGIN_DATA SET, which is a
+    # hook's environment and not a command's - convenient, and the one branch on
+    # which this cannot happen. -NoPluginData is what puts the command back on
+    # its own spawn.
+    #
+    # WHY THE COMMAND REFUSES RATHER THAN WARNS. The write it would make is
+    # recorded, verified against itself and read by nobody - the same silent
+    # no-op every other refusal in this file exists to prevent, arrived at
+    # through the DIRECTORY rather than through the key. J3 is the case that
+    # says the refusal is not a dead end.
+    #
+    # RED-FIRST: J1 and J2 FAIL at 6aebcd6, where the command writes and reports
+    # "override: none - these are the shipped defaults" over the other
+    # directory's live override.
+    # =======================================================================
+    Write-Output ''
+    Write-Output 'J. two state directories, and which file a hook reads (#270)'
+
+    # Two suffixed candidates under the profile's plugins\data, which is where
+    # discovery looks when CLAUDE_PLUGIN_DATA is unset. The marketplace-shaped
+    # one holds the operator's real choice; the checkout-shaped one is newer, so
+    # the mtime ranking prefers it - which is exactly the measured failure.
+    $jData   = Join-Path $sand.profile 'plugins\data'
+    $jMarket = Join-Path $jData 'lw-watchtower-leapware-watchtower'
+    $jInline = Join-Path $jData 'lw-watchtower-inline'
+    foreach ($d in @($jMarket, $jInline)) { [void](New-Item -ItemType Directory -Path $d -Force) }
+    [IO.File]::WriteAllText((Join-Path $jMarket 'config.override.json'), '{"modules":{"git_hygiene":false}}', [Text.UTF8Encoding]::new($false))
+    Start-Sleep -Milliseconds 1100
+    [IO.File]::WriteAllText((Join-Path $jInline 'marker.txt'), 'newer', [Text.ASCIIEncoding]::new())
+
+    Write-ConfigFile -Path $sand.cfg -Text ([IO.File]::ReadAllText((Join-Path $Root 'config.json')))
+    $j1 = Invoke-Config -Sand $sand -ScriptArgs '-Module docs_coupling -Off -Apply' -Tag 'j1' -NoPluginData
+    $j1wrote = @(Get-ChildItem -LiteralPath $jData -Recurse -Filter 'config.override.json' -File -ErrorAction SilentlyContinue)
+
+    Add-Result 'J1 a write is REFUSED when two state directories are candidates (#270)' `
+        ($j1.code -eq 1 -and $j1wrote.Count -eq 1 -and ($j1.out -like '*AMBIGUOUS*')) `
+        ("exit was {0} and {1} config.override.json file(s) exist under plugins\data (expected the 1 that was seeded). A write here is recorded, verified against itself and read by nobody - and this command is the documented escape hatch from an armed gate, so reporting success over it leaves an operator locked out having run the one thing they were told to run. stdout: {2}" -f `
+            $j1.code, $j1wrote.Count, (Get-FirstLines $j1.out 8))
+
+    $j2 = Invoke-Config -Sand $sand -ScriptArgs '' -Tag 'j2' -NoPluginData
+
+    Add-Result 'J2 the LISTING names both candidates instead of asserting the defaults (#270)' `
+        ($j2.code -eq 0 -and ($j2.out -like '*AMBIGUOUS*') -and `
+         ($j2.out -like '*lw-watchtower-inline*') -and ($j2.out -like '*lw-watchtower-leapware-watchtower*') -and `
+         ($j2.out -notlike '*override: none - these are the shipped defaults*')) `
+        ("exit was {0}. 'override: none - these are the shipped defaults' is an assertion about an ABSENCE, and it was made over a live override sitting in the directory this run did not resolve - which is the same sentence /lw-watchtower:doctor printed while a gate was refusing every tool call. stdout: {1}" -f `
+            $j2.code, (Get-FirstLines $j2.out 8))
+
+    # THE CONTROL, and it is what makes J1 a statement about ambiguity rather
+    # than about the environment: remove the second candidate and the identical
+    # command writes and exits 0. Without it a fix that simply refused whenever
+    # CLAUDE_PLUGIN_DATA is unset would pass J1 and J2 and break every
+    # marketplace install, where the variable is never set for a command.
+    Remove-Item -LiteralPath $jInline -Recurse -Force
+    $j3 = Invoke-Config -Sand $sand -ScriptArgs '-Module docs_coupling -Off -Apply' -Tag 'j3' -NoPluginData
+    $j3text = ''
+    try { $j3text = [IO.File]::ReadAllText((Join-Path $jMarket 'config.override.json')) } catch { }
+
+    Add-Result 'J3 CONTROL: one candidate and the same command writes, into the directory that already had the override (#270)' `
+        ($j3.code -eq 0 -and ($j3text -like '*docs_coupling*') -and ($j3.out -notlike '*AMBIGUOUS*')) `
+        ("exit was {0} and the override now reads [{1}]. The refusal above must be about not knowing WHICH file, not about the variable being unset - a command that refused whenever CLAUDE_PLUGIN_DATA is absent would refuse on every ordinary install. stdout: {2}" -f `
+            $j3.code, $j3text, (Get-FirstLines $j3.out 6))
 
 } catch {
     $script:Aborted = $_.Exception.Message
