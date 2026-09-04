@@ -85,7 +85,7 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   [Attempted and blocked](docs/modules.md#attempted-and-blocked-ratelimit_escalation-and-cost_tracking).
 - **Eleven suites test behaviour, and a green run of all of them is a narrower claim than the
   totals suggest.** `tests/gate_delegate.ps1` runs 99 cases against `delegate_gate`;
-  `tests/supervision.ps1` runs 64 against `send_liveness_gate`, `completion_audit` and
+  `tests/supervision.ps1` runs 66 against `send_liveness_gate`, `completion_audit` and
   `orphan_watch`; `tests/stop_behaviour.ps1` runs 117 against the two turn-end hooks and the
   advisory modules behind them; `tests/setup_merge.ps1` runs 202 against the installer's `statusline`
   and `hooks` merge and against the reporting surfaces that have no suite of their own;
