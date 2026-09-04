@@ -185,6 +185,78 @@ function Get-LwgFileSha256 {
     return [BitConverter]::ToString($bytes).Replace('-', '')
 }
 
+# ---------------------------------------------------------------------------
+# WHETHER THIS RUN HAD TO CHOOSE A STATE DIRECTORY, AND WHAT IT DID NOT LOOK AT
+# ---------------------------------------------------------------------------
+# #270. Claude Code hands every HOOK $CLAUDE_PLUGIN_DATA and hands a COMMAND -
+# which runs through Bash(powershell:*) - nothing at all, so a command discovers
+# its state directory by ranking `<name>*` directories under the data root by
+# the newest write anywhere inside them. With two of those on disk, which is
+# what an operator gets after running this plugin once from a checkout
+# (--plugin-dir writes lw-watchtower-inline) and once from the marketplace
+# (lw-watchtower-<marketplace>), the answer moves with whichever was written
+# last - and this report said:
+#
+#     [PASS] state-dir  ...\lw-watchtower-inline (source 'discovered', 2 candidate(s))
+#     resolved for repo: (not in a repo)   config: config.json   override: none - these are the shipped defaults
+#     VERDICT: healthy - no check failed and none raised a caveat
+#
+# over a config.override.json in the OTHER directory holding
+# {"interaction":{"delegate":true}} and a PreToolUse gate refusing every
+# main-thread call. Healthy, and no override - both asserted about a directory
+# this run had not read. The count was already on the row; nothing read it.
+#
+# WHAT IS NOT ATTEMPTED HERE, because it cannot be done: making a command and a
+# hook resolve the same directory. A command is never handed the variable and is
+# never told which directory the CLI chose, so no ranking recovers an answer it
+# was never given. What is fixable is the CLAIM, and that is all this does.
+#
+# RANKED, NOT `candidates`. `candidates` counts every `<name>*` directory,
+# including the unsuffixed fallback, and a bare directory beside one suffixed
+# sibling counts two while the resolver ranks nothing - it takes the suffixed
+# one outright. Only two or more SUFFIXED siblings are a real choice, and only
+# on the 'discovered' branch: the 'env' branch chose nothing, so a hook and a
+# command handed CLAUDE_PLUGIN_DATA are never told they are ambiguous.
+#
+# THIS DUPLICATES Get-LwgStateDirSplit, which lane F4-B added to lib/common.ps1
+# for bin/lwg-toggle.ps1 and bin/lwg-config.ps1 in the same wave. It is written
+# here instead of called because that function is not on this PR's base and a
+# call into it would be red until the other PR merged. Once both are on main
+# this should collapse into the one in lib/common.ps1 - noted on #270.
+function Get-DoctorStateSplit {
+    <#
+      Returns @{ ambiguous; ranked; lines }. `lines` are ready to print: one per
+      suffixed candidate, saying whether it holds a config.override.json and
+      which of them this run actually read.
+    #>
+    param($Info)
+
+    $r = @{ ambiguous = $false; ranked = @(); lines = @() }
+    if ($null -eq $Info -or "$($Info.source)" -ne 'discovered') { return $r }
+    $home_ = "$($Info.home)"
+    if ([string]::IsNullOrWhiteSpace($home_)) { return $r }
+
+    $name = ''
+    try { $name = Get-LwgPluginName } catch { }
+    if ([string]::IsNullOrWhiteSpace($name)) { $name = 'lw-watchtower' }
+
+    $cands = @()
+    try { $cands = @([IO.Directory]::GetDirectories([IO.Path]::Combine($home_, 'plugins\data'), ($name + '*'))) } catch { }
+    $ranked = @($cands | Where-Object { [IO.Path]::GetFileName($_) -ne $name })
+    if ($ranked.Count -lt 2) { return $r }
+
+    $r.ambiguous = $true
+    $r.ranked    = $ranked
+    foreach ($c in ($ranked | Sort-Object)) {
+        $held = $false
+        try { $held = [IO.File]::Exists([IO.Path]::Combine($c, 'config.override.json')) } catch { }
+        $r.lines += ("      {0}   {1}{2}" -f $c,
+                     $(if ($held) { 'HOLDS a config.override.json' } else { 'no config.override.json' }),
+                     $(if ("$($Info.path)" -eq "$c") { '   <== this run read this one' } else { '' }))
+    }
+    return $r
+}
+
 try {
     # The doctor must work when run from anywhere, including from a bin/ on
     # PATH, so the root is derived from this file rather than from the cwd.
@@ -481,6 +553,23 @@ try {
         $probe = Add-LwgLine -FileName 'doctor.probe' -Line ((Get-Date).ToUniversalTime().ToString('o'))
         if (-not $probe) {
             Add-Row -Id 'state-dir' -Status 'FAIL' -Detail "resolved to $($info.path) (source '$($info.source)') but is NOT writable - nothing can be logged"
+            return
+        }
+        # AMBIGUOUS IS NOT PASS (#270). The write probe succeeded, so this
+        # directory works - but "it works" is not the question when two of them
+        # are on disk and a hook is reading the other one. A caveat rather than
+        # a failure: nothing here is broken, and the operator is the only one
+        # who can say which directory is the live one.
+        $split = Get-DoctorStateSplit -Info $info
+        if ($split.ambiguous) {
+            Add-Row -Id 'state-dir' -Status 'WARN' -Detail (
+                "$($info.path) (source '$($info.source)', $($info.candidates) candidate(s)); write probe succeeded - " +
+                "but $($split.ranked.Count) state directories exist and THIS RUN CHOSE ONE OF THEM by which was written last. " +
+                "A HOOK is handed CLAUDE_PLUGIN_DATA and may be reading a different one, so every module flag, gate state " +
+                "and override reported below describes only the directory named here:`n" +
+                (($split.lines) -join "`n") + "`n" +
+                "      Set CLAUDE_PLUGIN_DATA to the one you mean and re-run: that puts this command on the same branch every " +
+                "hook takes, and the two then agree by construction. Deleting the directory you do not want also settles it.")
             return
         }
         Add-Row -Id 'state-dir' -Status 'PASS' -Detail "$($info.path) (source '$($info.source)', $($info.candidates) candidate(s)); write probe succeeded"
@@ -1345,9 +1434,21 @@ try {
     $iOvPath = ''
     try { $iOvPath = "$(Get-LwgConfigOverridePath)" } catch { $iOvPath = '' }
     if ([string]::IsNullOrWhiteSpace($iOvPath)) { $iOvPath = 'config.override.json under the state directory' }
+    #
+    # AND "none" IS A CLAIM ABOUT ONE DIRECTORY, NOT ABOUT THE MACHINE (#270).
+    # Get-LwgConfig reads the override under the state directory THIS RUN
+    # resolved. With two of them on disk that resolution was a choice made on
+    # mtime, and the sentence "override: none - these are the shipped defaults"
+    # was printed over an armed gate whose override sat in the other directory.
+    # An absence can only be reported for somewhere that was looked at, so when
+    # the choice was ambiguous the line says which somewhere - and the state-dir
+    # row above, now a WARN, carries the list and the way out.
+    $iSplit = @{ ambiguous = $false }
+    try { $iSplit = Get-DoctorStateSplit -Info (Get-LwgStateDirInfo) } catch { }
     $iOvNote =
         if ("$($iCfg._override_error)" -ne '') { "   override: IGNORED - $iOvPath $($iCfg._override_error)" }
         elseif ("$($iCfg._override)" -ne '')   { "   override: $($iCfg._override)" }
+        elseif ($iSplit.ambiguous)             { "   override: none IN THE DIRECTORY THIS RUN RESOLVED - see the state-dir row, $($iSplit.ranked.Count) exist" }
         else                                   { '   override: none - these are the shipped defaults' }
     Write-Output ("  resolved for repo: {0}   config: {1}{2}" -f `
         $(if ($iRepo) { $iRepo } else { '(not in a repo)' }), `

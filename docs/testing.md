@@ -28,7 +28,7 @@ that covers a **deletion**.
 `CLAUDE_CONFIG_DIR` precedence, the five self-check probes, every rung of the mode ladder, the banner
 and the model-visible `additionalContext` envelope.
 `tests/doctor_behaviour.ps1` runs `bin/lwg-doctor.ps1` against seeded configs and seeded
-`settings.json` files with 39 cases, on **two of its ten checks and no others**.
+`settings.json` files with 42 cases, on **two of its ten checks and no others**.
 `tests/toggle_behaviour.ps1` drives `bin/lwg-toggle.ps1`'s write to the override file with 28 cases,
 and `tests/config_behaviour.ps1` does the same for `bin/lwg-config.ps1`, each closing with an
 invariant that the plugin root's tracked `config.json` was not moved by a byte. They are the only

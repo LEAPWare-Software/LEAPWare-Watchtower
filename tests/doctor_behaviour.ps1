@@ -1457,6 +1457,86 @@ try {
         "expected PASS attesting the match with no mention of Get-FileHash anywhere in the report; got [$($row.status)] $($row.detail). Full output:`n$($r.out)"
 
     # -------------------------------------------------------------------
+    # 15c. TWO STATE DIRECTORIES, AND THE REPORT CALLED THE MACHINE HEALTHY
+    #      WITH NO OVERRIDE WHILE A GATE WAS ARMED IN THE ONE IT DID NOT READ
+    #      (#270).
+    #
+    #      Claude Code hands every HOOK $CLAUDE_PLUGIN_DATA and hands a COMMAND
+    #      - which runs through Bash(powershell:*) - nothing, so a command
+    #      discovers its state directory by ranking `<name>*` directories on the
+    #      newest write anywhere inside them. An operator who has run this plugin
+    #      from a checkout (--plugin-dir writes lw-watchtower-inline) as well as
+    #      from the marketplace has two of them, and from then on the answer
+    #      moves with whichever was written last.
+    #
+    #      THIS CASE IS THE DOCTOR'S HALF OF THAT ISSUE and nothing else. Making
+    #      a command and a hook resolve the SAME directory is unachievable by
+    #      construction and is not attempted: a command is never handed the
+    #      variable and is never told what the CLI chose. What is fixable is the
+    #      claim.
+    #
+    #      EVERY OTHER CHECK IS SEEDED TO PASS, deliberately, so the verdict
+    #      assertion is about this row and not about a scratch tree. The
+    #      SessionStart record goes into BOTH candidates, because which one the
+    #      resolver picks is the whole subject and a record in only one would
+    #      make check 6 flap with it.
+    #
+    #      BASELINE 6aebcd6 and 8f1b0c0, measured by hand on 2026-09-04 and
+    #      reported on the issue by UAT pass 3:
+    #
+    #        [PASS] state-dir  ...\lw-watchtower-inline (source 'discovered', 2 candidate(s)); write probe succeeded
+    #        resolved for repo: (not in a repo)   config: config.json   override: none - these are the shipped defaults
+    #        VERDICT: healthy - no check failed and none raised a caveat
+    #
+    #      over {"interaction":{"delegate":true}} sitting in the other one.
+    #
+    #      THREE ASSERTIONS, AND THE THIRD IS THE ONE THAT COSTS MOST TO GET
+    #      WRONG. A row that stopped saying PASS but left the footer asserting
+    #      "override: none - these are the shipped defaults" would still tell
+    #      the operator the lie that matters: the gate is off. So the footer
+    #      line is asserted separately from the row.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'state-split'
+    $dataRoot = Join-Path $t.profile '.claude\plugins\data'
+    $dirA = Join-Path $dataRoot 'lw-watchtower-lwg-fixture-marketplace'
+    $dirB = Join-Path $dataRoot 'lw-watchtower-inline'
+    $rec  = [ordered]@{
+        event     = 'SessionStart'
+        ts        = (Get-Date).ToUniversalTime().ToString('o')
+        mode      = 'lwg-doctor-behaviour-fixture'
+        selfcheck = [ordered]@{ ran = $true; ok = $true }
+    }
+    foreach ($d in @($dirA, $dirB)) {
+        [void][IO.Directory]::CreateDirectory($d)
+        [IO.File]::WriteAllText((Join-Path $d $LogLeaf),
+            ((ConvertTo-Json -InputObject ([pscustomobject]$rec) -Depth 10 -Compress) + "`r`n"),
+            (New-Object Text.UTF8Encoding($false)))
+    }
+    # The override lands in ONE of them, and in the one the mtime ranking is
+    # least likely to pick, so a run that reported "override: none" would be
+    # reporting it about a directory that has one two inches away.
+    [IO.File]::WriteAllText((Join-Path $dirA 'config.override.json'),
+        '{"interaction":{"delegate":true}}' + "`r`n", (New-Object Text.UTF8Encoding($false)))
+    $installed = Join-Path $t.profile '.claude\statusline.ps1'
+    [IO.File]::Copy($PlugStatusLine, $installed, $true)
+    [void](Set-CaseSettings -ProfileDir $t.profile -Command (New-StatusLineCommand $installed))
+    # -StateDir '' is what puts this on the DISCOVERY branch: every other case
+    # in this file runs with CLAUDE_PLUGIN_DATA set, which is a hook's
+    # environment and the one branch on which this cannot happen.
+    $r   = Invoke-Doctor -ProfileDir $t.profile -StateDir ''
+    $row = Get-DoctorRow -Text $r.out -Id 'state-dir'
+    Add-Result 'two state directories are not reported as a PASS, and both are named' `
+        ($row.found -and $row.status -ne 'PASS' -and
+         $r.out -match [regex]::Escape($dirA) -and $r.out -match [regex]::Escape($dirB)) `
+        "expected a non-PASS state-dir row naming both candidates; got [$($row.status)] $($row.detail). Full output:`n$($r.out)"
+    Add-Result 'the roster stops reporting an absent override it only looked for in one directory' `
+        ($r.out -notmatch 'override: none - these are the shipped defaults') `
+        "the footer asserted the shipped defaults over a config.override.json in $dirA, which is what tells an operator an armed gate is off. Full output:`n$($r.out)"
+    Add-Result 'a split state directory costs the run its healthy verdict' `
+        ($r.out -notmatch '(?m)^VERDICT: healthy') `
+        "expected the verdict to carry the caveat; every other check in this tree is seeded to pass, so this is the row that has to move it. Full output:`n$($r.out)"
+
+    # -------------------------------------------------------------------
     # 16-18. THE INFORMATIONAL ROSTER AT THE FOOT, AND THE THING IT MUST NOT
     #        TOUCH.
     #
