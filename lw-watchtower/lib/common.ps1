@@ -692,6 +692,18 @@ function Get-LwgStateDirInfo {
         resolved    $true only for 'env' and 'discovered'; $false means the path
                     is a GUESS and may well be a directory nothing else writes to
         candidates  how many <name>* directories were seen
+        ranked      the SUFFIXED candidates this call had to choose between, as
+                    full paths. Empty on the 'env' branch, which chooses
+                    nothing, and empty when there is no suffixed sibling at all.
+                    More than one entry means the answer came out of the mtime
+                    ranking below and could have gone the other way - it is a
+                    THIRD added key, for the same reason as the two below, and
+                    it is not the same question as `candidates`: a bare
+                    directory beside one suffixed sibling counts two candidates
+                    and ranks nothing, which is not ambiguous. The configuring
+                    commands read it because they are the callers that have to
+                    tell an operator that the file they are about to write may
+                    not be the file a hook reads (#270).
         home        the configuration root the search was made under, and
         home_source how that root was arrived at - 'env' (CLAUDE_CONFIG_DIR),
                     'profile', 'unresolved', or 'not-consulted' when
@@ -721,7 +733,7 @@ function Get-LwgStateDirInfo {
     if (-not $Refresh -and $null -ne $script:LwgStateDirInfo) { return $script:LwgStateDirInfo }
 
     $info = @{ path = $null; source = 'unresolved'; resolved = $false; candidates = 0
-               home = $null; home_source = 'not-consulted' }
+               ranked = @(); home = $null; home_source = 'not-consulted' }
 
     # 1. an explicit CLAUDE_PLUGIN_DATA is authoritative and ends the matter.
     #    The configuration root is deliberately NOT resolved on this branch: it
@@ -837,6 +849,14 @@ function Get-LwgStateDirInfo {
                 }
             }
             $info.path = $best; $info.source = 'discovered'; $info.resolved = $true
+            # Published so a CALLER can say the ranking happened. A hook never
+            # needs this - Claude Code hands it CLAUDE_PLUGIN_DATA and the env
+            # branch above returns before any of this runs - but a configuring
+            # command is spawned through Bash and is NOT handed that variable,
+            # so it gets here, ranks, and may land on a different directory from
+            # the one the hook was told to use. That is #270: /delegate off
+            # reporting OFF while the gate goes on denying.
+            $info.ranked = $suffixed
         }
         elseif ([IO.Directory]::Exists($bare)) {
             # No suffixed sibling. The bare dir is all there is, so use it - but
@@ -917,6 +937,23 @@ function Get-LwgDefaultConfig {
 # every hook, the banner, the doctor, the status line, and the configuring
 # commands' own read-back verification - resolves through this one function, so
 # the value a command verifies is the value a hook reads.
+#
+# THAT LAST CLAUSE HAS ONE CONDITION AND IT IS NOT DECORATIVE (#270). One
+# function resolves the override, but it does not always resolve the same
+# DIRECTORY for both readers. A hook is handed $CLAUDE_PLUGIN_DATA by Claude
+# Code and takes the env branch of Get-LwgStateDirInfo; a configuring command
+# runs through Bash(powershell:*), which is not handed that variable, so it
+# falls through to discovery and RANKS the lw-watchtower* siblings by most
+# recent write. With two or more suffixed siblings - which is what an operator
+# who has run this plugin from a marketplace install AND from a checkout has -
+# the two can land on different files, and then /lw-watchtower:delegate off
+# reports OFF while the gate goes on denying every main-thread Bash call.
+#
+# It is not fixable inside this function: the command is not told which
+# directory the CLI chose, and no ranking can recover an answer it was never
+# given. What IS fixable is the claim. Get-LwgStateDirSplit below reports the
+# condition, and both configuring commands refuse to write over it rather than
+# printing "this is what a hook reads" about a file that may not be.
 $script:LwgConfigOverrideName = 'config.override.json'
 
 function Get-LwgConfigOverridePath {
@@ -930,6 +967,77 @@ function Get-LwgConfigOverridePath {
     $dir = (Get-LwgStateDirInfo).path
     if ([string]::IsNullOrWhiteSpace($dir)) { return $null }
     return [IO.Path]::Combine($dir, $script:LwgConfigOverrideName)
+}
+
+function Get-LwgStateDirSplit {
+    <#
+      Whether this process had to CHOOSE between state directories, and the
+      lines that say so. Returns a HASHTABLE:
+
+        @{ ambiguous; chosen; paths; with_override; lines }
+
+        ambiguous      $true when more than one suffixed candidate was ranked
+        chosen         the directory the ranking picked
+        paths          every ranked candidate, full paths
+        with_override  those of them that hold a config.override.json
+        lines          ready-to-print report lines, '' when not ambiguous
+
+      FOR THE CONFIGURING COMMANDS, AND FOR NOTHING ON A HOOK PATH. A hook takes
+      Get-LwgStateDirInfo's env branch and never ranks, so `ambiguous` is $false
+      for every hook by construction and this costs it nothing; it is the
+      commands, spawned through Bash without CLAUDE_PLUGIN_DATA, that rank and
+      can therefore be wrong about which file a hook reads (#270).
+
+      IT REPORTS, IT DOES NOT RE-RANK. Preferring the candidate that holds an
+      override was considered and rejected: it would change the documented
+      five-step ladder in docs/architecture.md, it would still be a guess, and a
+      guess that happens to be right more often is exactly the shape of bug this
+      whole finding is - a component sounding certain about something it cannot
+      know. Naming the split is an answer the operator can act on.
+
+      Never throws: it is called from a report path that must still print.
+    #>
+    param([switch]$Refresh)
+
+    $r = @{ ambiguous = $false; chosen = $null; paths = @(); with_override = @(); lines = @() }
+    try {
+        $info    = Get-LwgStateDirInfo -Refresh:$Refresh
+        $r.chosen = $info.path
+        $ranked  = @($info.ranked)
+        if ($ranked.Count -lt 2) { return $r }
+
+        $r.ambiguous = $true
+        $r.paths     = $ranked
+        $lines = @(
+            ("the state directory is AMBIGUOUS: {0} directories match the plugin's name under" -f $ranked.Count),
+            'plugins\data, and this command had to pick one of them by which was written most',
+            'recently. A HOOK does not pick: Claude Code hands it $CLAUDE_PLUGIN_DATA. This',
+            'command runs through Bash, which is not handed that variable, so the file below',
+            'may not be the file a hook reads - and the pick can change between two runs of',
+            'this command with no operator action in between.',
+            ''
+        )
+        foreach ($d in $ranked) {
+            $ov   = [IO.Path]::Combine($d, $script:LwgConfigOverrideName)
+            $has  = $false
+            try { $has = [IO.File]::Exists($ov) } catch { }
+            if ($has) { $r.with_override += $ov }
+            $lines += ("  {0}{1}   override: {2}" -f `
+                $d,
+                $(if ($d -eq $info.path) { '   <- this run would use it' } else { '' }),
+                $(if ($has) { 'PRESENT' } else { 'absent' }))
+        }
+        $lines += ''
+        if (@($r.with_override).Count -gt 1) {
+            $lines += 'MORE THAN ONE of them already holds a config.override.json, so two recorded sets'
+            $lines += 'of operator choices exist and no rule here can say which one is in force.'
+        }
+        $lines += 'Set $CLAUDE_PLUGIN_DATA to the directory you mean and re-run, or delete the'
+        $lines += 'directories you do not use. /lw-watchtower:doctor names the state directory it'
+        $lines += 'resolves and how many candidates it saw.'
+        $r.lines = $lines
+    } catch { }
+    return $r
 }
 
 function Merge-LwgConfigOverride {

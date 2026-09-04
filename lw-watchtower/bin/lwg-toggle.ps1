@@ -825,6 +825,43 @@ try {
         exit 3
     }
 
+    # --- and the refusal for not knowing WHICH file a hook reads (#270) ------
+    # Measured: with plugins\data\lw-watchtower-leapware-watchtower (a
+    # marketplace install) beside plugins\data\lw-watchtower-inline (what
+    # --plugin-dir produces, i.e. every worktree agent), this command wrote
+    # `off` into the one IT discovered, printed "delegate is OFF",
+    # "effective here : OFF" and "[merged over the defaults; this is what a hook
+    # reads]" - and the very next main-thread Bash call was refused with exit 2
+    # by a gate reading the override in the OTHER directory. Seconds later the
+    # same command reported ON, from the other file, with no operator action in
+    # between.
+    #
+    # It is a refusal and not a warning because of what this command IS: the
+    # documented escape hatch from an armed gate. An operator locked out of Bash
+    # runs it, is told the gate is off, and is still locked out. Being told the
+    # truth - which directories exist, which of them already hold a recorded
+    # choice, and that this command cannot tell which one the CLI is handing the
+    # hooks - is the only answer that leads anywhere.
+    #
+    # THE WAY THROUGH IT IS ONE ENVIRONMENT VARIABLE, and it is named. Setting
+    # CLAUDE_PLUGIN_DATA makes Get-LwgStateDirInfo take its env branch, which is
+    # the same branch every hook takes, so command and hook resolve identically
+    # by construction rather than by luck. That is why this refusal is not a
+    # dead end.
+    $sdSplit = Get-LwgStateDirSplit
+    if ($null -ne $want -and $sdSplit.ambiguous) {
+        Write-LwgToggleRefusal (@(
+            ("this command cannot tell which config.override.json a hook reads, so it will not write one.")
+            ''
+        ) + $sdSplit.lines + @(
+            '',
+            ("With CLAUDE_PLUGIN_DATA set, this command and every hook resolve the same directory,"),
+            ('and this refusal cannot arise. Until then, editing {0}.{1} by hand in the file a hook' -f $block, $key),
+            'actually reads is the only change that is certain to take effect.'
+        ))
+        exit 3
+    }
+
     $beforeGlobal = Get-LwgPrefGlobal -Config $cfg -Block $block -Key $key -Default $spec.default
     $beforeRepo   = Get-LwgPrefRepo   -Config $cfg -Repo $repo -Block $block -Key $key
     $beforeEff    = if ($null -ne $beforeRepo) { $beforeRepo } else { $beforeGlobal }
@@ -982,7 +1019,19 @@ try {
     }
 
     # --- report -------------------------------------------------------------
-    Write-Output ("{0} is {1}    ({2})" -f $Flag, $(if ($afterEffOn) { 'ON' } else { 'OFF' }), $spec.summary)
+    # THE HEADLINE IS QUALIFIED WHERE IT CANNOT BE PROVEN - #270. "delegate is
+    # OFF", printed while the gate went on refusing every main-thread Bash call,
+    # is the single worst line this plugin produced under adversarial test, and
+    # it was worst because it was the FIRST line: an operator who reads no
+    # further has been told the opposite of what is happening. So the caveat
+    # goes on the headline and above the fields, not underneath them.
+    Write-Output ("{0} is {1}{3}    ({2})" -f `
+        $Flag, $(if ($afterEffOn) { 'ON' } else { 'OFF' }), $spec.summary,
+        $(if ($sdSplit.ambiguous) { ' HERE - and this run cannot prove a hook agrees' } else { '' }))
+    if ($sdSplit.ambiguous) {
+        Write-Output ''
+        foreach ($l in $sdSplit.lines) { Write-Output ("  {0}" -f $l) }
+    }
     Write-Output ''
     Write-Output ("  changed        : {0}" -f $changeLine)
     Write-Output ("  global default : {0}" -f (& $shown $afterGlobal))
@@ -1014,7 +1063,18 @@ try {
     if ("$($cfg._override_error)" -ne '') {
         Write-Output ("  override       : IGNORED - {0} exists but {1}, so nothing recorded in it is in effect" -f $ovPath, $cfg._override_error)
     } elseif ("$($cfg._override)" -ne '') {
-        Write-Output ("  override       : {0}   [merged over the defaults; this is what a hook reads]" -f $cfg._override)
+        # THE BRACKET IS A CLAIM AND IT IS ONLY TRUE UNQUALIFIED (#270). When
+        # this process had to rank state directories, the file named here is the
+        # one THIS command resolved, and a hook - handed CLAUDE_PLUGIN_DATA - may
+        # be reading a different one. Saying "this is what a hook reads" over
+        # that is the exact sentence the finding is about.
+        if ($sdSplit.ambiguous) {
+            Write-Output ("  override       : {0}   [merged over the defaults; whether a HOOK reads this file is NOT established - see below]" -f $cfg._override)
+        } else {
+            Write-Output ("  override       : {0}   [merged over the defaults; this is what a hook reads]" -f $cfg._override)
+        }
+    } elseif ($sdSplit.ambiguous) {
+        Write-Output '  override       : none IN THE DIRECTORY THIS RUN RESOLVED - see the note at the top'
     } else {
         Write-Output '  override       : none yet - every value above is the shipped default'
     }

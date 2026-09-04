@@ -195,6 +195,12 @@ try {
         )
         exit $script:Exit
     }
+    # WHETHER $ovPath IS EVEN THE FILE A HOOK READS - #270. Resolved once, here,
+    # because both the listing above and the write refusal below have to say the
+    # same thing about it, and Get-LwgStateDirSplit's answer is $false for every
+    # hook by construction (they take the env branch and never rank).
+    $sdSplit = Get-LwgStateDirSplit
+
     # ABSENT IS A STATE, NOT AN ERROR. A machine that has never been configured
     # has no override, and a writer that assumes its target exists exits 3 on
     # every fresh install - the measurement that killed route 2a on #11. So an
@@ -337,9 +343,22 @@ try {
     # command exists to refuse.
     $ovNote = if ("$($cfg._override_error)" -ne '') { "   override: IGNORED - $ovPath $($cfg._override_error)" }
               elseif ("$($cfg._override)" -ne '')   { "   override: $($cfg._override)" }
+              elseif ($sdSplit.ambiguous)           { '   override: none IN THE DIRECTORY THIS RUN RESOLVED - see the note below' }
               else                                   { '   override: none - these are the shipped defaults' }
     Write-Output ("  source: {0}{3}   scope: {1}{2}" -f `
         $(if ($onDefaults) { 'BUILT-IN DEFAULTS (config.json is unreadable or invalid)' } else { 'config.json' }), $scope, $repoNote, $ovNote)
+    # "override: none - these are the shipped defaults" over an armed gate is
+    # half of #270: with two candidate directories this command read the one it
+    # ranked highest, and the operator's real override was in the other. The
+    # 'none' branch above is the one that had to change wording, because the
+    # other two name a file and this one asserts an absence.
+    # Only on the LISTING. A -Module run reaches the refusal below, which carries
+    # the same block, and printing it twice in one run of a command whose whole
+    # subject is saying things once, accurately, would be its own small joke.
+    if ($sdSplit.ambiguous -and [string]::IsNullOrWhiteSpace($Module)) {
+        Write-Output ''
+        foreach ($l in $sdSplit.lines) { Write-Output ("  {0}" -f $l) }
+    }
 
     $implemented = @(Get-LwgImplementedModules)
     $planned     = @(Get-LwgPlannedModules)
@@ -533,6 +552,27 @@ try {
             'Writing here would replace text this command cannot read back, and would destroy whatever else that file was holding.',
             "Fix or delete $ovPath and run this again. Deleting it is safe: it holds only overrides, and everything falls back to the shipped defaults without it."
         )
+        exit $script:Exit
+    }
+
+    # AND THE REFUSAL FOR NOT KNOWING WHICH FILE A HOOK READS - #270. Two
+    # lw-watchtower* directories under plugins\data - a marketplace install
+    # beside what --plugin-dir produces - and this command, which is spawned
+    # through Bash and is NOT handed $CLAUDE_PLUGIN_DATA, ranks them by most
+    # recent write while every hook is simply told which one to use. The two can
+    # differ, and then a write here is recorded, verified against itself, and
+    # read by nobody: the same silent no-op every other refusal in this file
+    # exists to prevent, arrived at through the directory rather than through
+    # the key. bin\lwg-toggle.ps1 refuses the same condition in the same words.
+    if ($sdSplit.ambiguous) {
+        Write-Refusal (@(
+            'this command cannot tell which config.override.json a hook reads, so it will not write one.',
+            ''
+        ) + $sdSplit.lines + @(
+            '',
+            'With CLAUDE_PLUGIN_DATA set, this command and every hook resolve the same directory by',
+            'construction and this refusal cannot arise.'
+        ))
         exit $script:Exit
     }
 
