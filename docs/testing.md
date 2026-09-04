@@ -664,9 +664,12 @@ the toggle and `/lw-watchtower:config` read and write through, hashes from .NET,
 doctor, setup, update and uninstall. Until that landed, every toggle run under such a shell exited 3
 with *"config.json could not be read"*, which reads as a broken config file and was nothing of the
 kind. Section H of this suite is the case that pins it, and it plants the failure deliberately rather
-than waiting for a PowerShell 7 host. The only remaining `Get-FileHash` in the tree is the one-liner
-`docs/faq.md` and `docs/install.md` hand an operator to type, and both now say what to do when it
-does not resolve.
+than waiting for a PowerShell 7 host. The only remaining `Get-FileHash` **call** in the tree is the
+one-liner `docs/faq.md` and `docs/install.md` hand an operator to type, and both now say what to do
+when it does not resolve. `git grep Get-FileHash` still returns plenty of lines and none of them run:
+they are comments in `bin/` saying why the hash is computed from .NET instead, the alias
+`tests/doctor_behaviour.ps1` plants to make the failure happen on demand, and UAT records quoting the
+error as it reached an operator.
 
 **Eight of the cases are labelled `CONTROL`** and pass before the fix as well as after it, on
 purpose — they pin the other direction, so a "fix" that simply refuses everything, or reformats the
