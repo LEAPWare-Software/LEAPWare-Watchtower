@@ -387,6 +387,11 @@
                                  timeout, so its exit-2 abort can actually fire
     doctor-is-run-by-ci          no tracked page says the doctor is outside CI,
                                  because this file runs it on every push
+    docs-index-is-complete       every page under docs/ is linked from
+                                 docs/README.md, because GitHub Pages publishes
+                                 that whole directory to the open web and a page
+                                 nobody indexed is a page nobody decided to
+                                 publish. ONE DIRECTION ONLY - see the rule
 
   EXIT CODES - the same contract as this repo's other suites, and 2 is not a
   pass:
@@ -2286,6 +2291,80 @@ if ($testFiles.Count -gt 0) {
     if ($script:ForbiddenHits -eq 0) {
         Add-LongPass -Rule 'no-page-denies-the-suite' -File '.github/ISSUE_TEMPLATE/config.yml' -Line 0 `
             -Said 'no tracked page denies that a test suite exists'
+    }
+}
+
+# --- rule: every page the website publishes is indexed by docs/README.md ----
+# #183. GITHUB PAGES SERVES EVERY FILE UNDER docs/ TO THE OPEN WEB, from `main`
+# at path `/docs`, and a classic branch source has no exclusion mechanism - the
+# only choices are `/` and `/docs`. So "what is published" is exactly "what is
+# in that directory", and five internal pages were live on the public web
+# because nothing connected the two facts: a feasibility spike with a negative
+# verdict, a page whose second line read "Status: not built.", a v0.3.0
+# acceptance record, an unimplemented hosting plan, and a design specification
+# carrying an operational account of a session incident.
+#
+# WHAT THIS RULE REFUSES TO BE, and the refusal is the design. #183's fourth
+# done-condition asks for "something that checks whatever the site publishes
+# stays consumer-facing". The only mechanically checkable form of THAT is a
+# hardcoded list of the pages judged internal - which is the exact defect
+# tests\payload_guard.ps1 exists to prevent, and which goes green the day
+# somebody adds a sixth. Whether a page is consumer-facing is a judgement, and
+# no rule here can make it.
+#
+# WHAT IT IS INSTEAD. docs/README.md is the index the site's front door renders.
+# A page nobody chose to index is a page nobody decided to publish, and that is
+# checkable: "is it indexed?" stands in for "was publishing it a decision?".
+# Every one of the five was unindexed or was indexed only after the fact; the
+# fifth, harness-hosting-plan.md, was linked from nothing at all, which is how
+# it went unnoticed by an issue that enumerated four.
+#
+# ONE DIRECTION ONLY, AND THE OTHER HALF IS NAMED RATHER THAN LEFT OUT. This
+# checks that every page present is indexed. It does NOT check the converse -
+# that the index links nothing absent - because the index carries rows for the
+# pages that just left docs/, and correcting those rows is a document edit this
+# pass is not permitted to make. Those four dangling rows are #195's, they are
+# recorded on that issue verbatim, and until they are removed a reader of the
+# index is offered four links that 404. That is a real gap and it is stated
+# here rather than implied by a green line.
+#
+# MATCHED ON THE LINK TARGET, not on the file name appearing anywhere. A page
+# mentioned in a sentence is not indexed; a page reachable from the front door
+# is. The pattern accepts the bare name and a ./ prefix, which are the two
+# forms a same-directory link takes.
+$idxRel  = 'docs/README.md'
+$idxDoc  = Get-WideDoc $idxRel
+if ($null -eq $idxDoc) {
+    Abort "$idxRel is not in the wide set, so no published page was checked for being indexed."
+}
+$idxPages = @($tracked | Where-Object { $_ -match '^docs/.+\.md$' -and $_ -ne $idxRel -and (Test-StillOnDisk $_) })
+if ($idxPages.Count -eq 0) {
+    Abort 'no tracked page under docs/ was found, so the index rule established nothing about what the website publishes.'
+}
+$idxMissing = @()
+foreach ($rel in $idxPages) {
+    $leaf = $rel.Substring('docs/'.Length)
+    if ($idxDoc.Text -notmatch ('\]\(\s*(?:\./)?' + [regex]::Escape($leaf) + '\s*(?:#[^)]*)?\)')) {
+        $idxMissing += $leaf
+    }
+}
+# ONE CHECK PER PAGE, not one for the rule. The first draft incremented
+# $script:Checked once and then emitted a failure per unindexed page, so three
+# internal notes landing at once would have read as one checked claim and three
+# disagreements - a denominator that does not match its own numerator, in the
+# file whose subject is exactly that.
+$script:Checked += $idxPages.Count
+if ($idxMissing.Count -eq 0) {
+    $script:Passes += $idxPages.Count
+    if ($ShowPasses) { Say ("  [ok]   {0,-26} {1}  all {2} published page(s) indexed" -f 'docs-index-is-complete', $idxRel, $idxPages.Count) }
+} else {
+    $script:Passes += ($idxPages.Count - $idxMissing.Count)
+    foreach ($leaf in $idxMissing) {
+        Add-LongFailure -Rule 'docs-index-is-complete' -File $idxRel -Line 0 `
+            -Said "does not link docs/$leaf" `
+            -Expected 'a row for it, or the page moved out of docs/ - GitHub Pages publishes this directory whole and an unindexed page is one nobody decided to publish' `
+            -Source ("git ls-files -- docs/*.md found {0} page(s) beside this index" -f $idxPages.Count) `
+            -Excerpt "https://leapware-software.github.io/LEAPWare-Watchtower/$($leaf -replace '\.md$', '.html') is live to the open web and is reachable from no index. Internal notes go to .github/notes/, which neither the payload nor Pages reads."
     }
 }
 

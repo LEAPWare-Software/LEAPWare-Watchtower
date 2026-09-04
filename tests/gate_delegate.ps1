@@ -2523,7 +2523,10 @@ try {
     # silent skip written down on purpose, so it is gone.
     $nPayloadDirs = @('agents', 'bin', 'commands', 'context', 'hooks', 'lib', 'statusline')
     $nRepoDirs    = @('.github', 'docs', 'tests')
-    $nExempt = @('CHANGELOG.md', 'docs\uat-report.md', 'tests\gate_delegate.ps1')
+    # uat-report.md moved to .github\notes\ under #183 and .github IS still swept,
+    # so the exemption has to follow it or the sweep starts reading a v0.3.0
+    # acceptance record that quotes wrong sentences on purpose.
+    $nExempt = @('CHANGELOG.md', '.github\notes\uat-report.md', 'tests\gate_delegate.ps1')
     $nFiles  = @()
     # Each root is carried with the base its $rel is computed against, so a file
     # found under the payload reports lw-watchtower\... and one found under docs\

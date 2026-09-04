@@ -86,7 +86,8 @@
 # no signal at all: `-DryRunn` performed a real 15 KB write to settings.json and
 # exited 0 - the operator asked to see the write and got the write - and
 # `-StatusLineModee skip` silently installed the default `copy` instead. Measured in
-# the v0.3.0 UAT; see docs/uat-report.md. With it, an unknown parameter is a binding
+# the v0.3.0 UAT, which is now .github/notes/uat-report.md - it is not published
+# and not shipped, so it is named rather than linked. With it, an unknown parameter is a binding
 # error before a line of this script runs and nothing is written. Every caller in
 # this repo passes named parameters only, so nothing legitimate is refused by it.
 [CmdletBinding()]
