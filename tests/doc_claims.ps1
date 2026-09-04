@@ -851,10 +851,18 @@ if (-not $SkipSuites) {
     foreach ($r in $results) {
         if ($r.Code -ne 0) {
             $outLines  = @([string]$r.Out -split "`r?`n")
+            # THE SIBLINGS ARE NOT ALL SUITES. Eleven tally CASES and print
+            # `N FAILED:` with a line per failure; the two scans - the
+            # portability scan and the workflow guard - tally VIOLATIONS and
+            # print `VIOLATIONS - <why> (N):` with a `file:line: token` row per
+            # hit. Keying only on the suite vocabulary showed a real portability
+            # failure as two lines saying `RESULT: 2 violation(s)` and nothing
+            # about WHICH two files, which is the same nothing this whole change
+            # exists to stop. Both headers open a block and both blocks are kept.
             $markerPat = '(?i)^\s*(?:\[FAIL\]|FAIL\b|X\s|ABORT|ABORTED|RESULT:|EXIT:|\d+\s+FAILED)'
             $tailFrom  = -1
             for ($li = 0; $li -lt $outLines.Count; $li++) {
-                if ($outLines[$li] -match '(?i)^\s*\d+\s+FAILED\b') { $tailFrom = $li; break }
+                if ($outLines[$li] -match '(?i)^\s*(?:\d+\s+FAILED\b|VIOLATIONS?\b)') { $tailFrom = $li; break }
             }
             # THE DETAIL LINE IS THE POINT, AND IT IS THE LINE AFTER. Every suite
             # here prints `  FAIL  <case name>` and then its detail indented
@@ -878,7 +886,7 @@ if (-not $SkipSuites) {
                     }
                     continue
                 }
-                if ($tailFrom -ge 0 -and $li -gt $tailFrom -and $li -le ($tailFrom + 60)) { $null = $keepIdx.Add($li) }
+                if ($tailFrom -ge 0 -and $li -ge $tailFrom -and $li -le ($tailFrom + 60)) { $null = $keepIdx.Add($li) }
             }
             $keep = @($keepIdx | Sort-Object -Unique | ForEach-Object { $outLines[$_] } | Where-Object { $_.Trim() -ne '' })
             Say ''
