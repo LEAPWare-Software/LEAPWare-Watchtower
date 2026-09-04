@@ -725,7 +725,7 @@ in descending order of trust, recording which source it used in every log record
 | --- | --- |
 | `config` | an explicit entry in `module_config.context_pressure.window_tokens` |
 | `1m-tag` | the model id carries `[1m]`, which the CLI itself reads as one million |
-| `observed` | this model has been seen holding more than 200 000 tokens in a real turn — proof, not a guess, and self-correcting after one turn |
+| `observed` | this model has been seen holding more than 200 000 tokens on **two separate turns** — proof rather than a guess, and deliberately not settled on one sample. See below for what the second sample costs |
 | `default` | none of the above; 200 000 is **assumed**, and the advisory says `window assumed` |
 
 If occupancy ever exceeds the resolved window the figure is arithmetically impossible, so the
@@ -733,8 +733,33 @@ denominator is wrong. The module then **suppresses the percentage entirely** and
 `ContextWindowUnknown` telling you which model to add to the config. It does not report a false
 `100% CRITICAL`. Fabricating a governance number is worse than declining to produce one.
 
+**`observed` takes two samples, not one, and the second one is the difference between a proof and a
+guess.** An occupancy above the assumed window is ambiguous by construction — it is either a bigger
+window or a wrong numerator (a mis-summed usage block, records spanning a compaction, two models'
+figures landing under one key). A single reading used to settle it permanently, which is how one
+260 000 mis-read pinned the denominator at 1 M and rendered a real 150 k of 200 k turn as `15%`,
+level `ok`, silently. So the first reading above 200 000 is stored under a separate
+`<model>#pending` key, which the resolver cannot see and which changes nothing; a second reading, on
+a later turn, promotes it to the entry the resolver reads. **The cost is that the first turn or two
+of such a session report the window as unknown and print no percentage at all** — and that is the
+run that tells you `window_tokens` exists. Driven end to end against a model with no `[1m]` tag and
+no config entry: turn 1 at 260 k left `{"claude-z-1#pending":260000}` and no percentage; turn 2
+promoted it to `{"claude-z-1":260000}` and still printed none, because resolution reads the store as
+it stood on disk *before* that turn's write; a later turn at 950 k rendered
+`context 95% CRITICAL (950k/1.0M, window inferred from earlier turns)` with
+`window_source: observed`.
+
+**A promoted entry is never revised.** Corroboration makes a wrong pin much less likely; it does not
+make one recoverable. Both write branches are guarded on the stored figure still being at or below
+the 200 000 default, so the moment it goes above it nothing rewrites it, nothing clears it and there
+is no expiry — `observed` corrects the assumption *upward*, once, and in no other direction.
+Reproduced: after `{"claude-z-1":260000}` was promoted, a later turn at 950 k resolved against it
+and left it at 260 000. The two ways back are an explicit `window_tokens` entry, which outranks it,
+and deleting `context_windows.json` from the state directory — a missing file reads as an empty
+store, so the ladder starts again from the top.
+
 **Residual risk, stated plainly:** for an unrecognised model whose real window is 1 M, occupancy
-between 150 k and 200 k will read as `75–100%` until a single turn crosses 200 k and the
+between 150 k and 200 k will read as `75–100%` until **two** turns cross 200 000 and the
 `observed` rule corrects it permanently. Add the model to `window_tokens` to avoid the window
 entirely. `window_tokens` **ships empty**, so this chain runs for every model until you put
 something in it — an explicit entry wins outright and suppresses the three rules below it, which is
@@ -771,8 +796,8 @@ written when both read it. Two bounds apply and both cost something:
   every file edited after it was invisible to both modules while both went on being reported active.
   Nothing prunes the `.1` archives.
 - **A recorded path is capped at 1 024 characters.** A longer one is truncated, which removes the
-  extension, so it classifies as *neither* and neither module counts it. `MAX_PATH` is 260, so this
-  bites only on a value that was not a real path — which is the case it exists for: one
+  extension, so it classifies as *neither* and `docs_coupling` does not count it. `MAX_PATH` is 260,
+  so this bites only on a value that was not a real path — which is the case it exists for: one
   payload-supplied `tool_input.file_path` of 200 000 characters used to land whole, occupy most of
   the window the `Stop` half reads, and reach the operator's advisory intact, because
   `Split-Path -Leaf` returns the entire string when there is no separator in it.
