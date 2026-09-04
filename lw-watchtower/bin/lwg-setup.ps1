@@ -821,8 +821,18 @@ function Get-Detection {
     $d.statusLineDrift     = 'n/a'
     if ($d.repoStatusLineOk -and $d.installedOk) {
         try {
-            $a = (Get-FileHash -LiteralPath $d.installedStatusLine -Algorithm SHA256).Hash
-            $b = (Get-FileHash -LiteralPath $d.repoStatusLine      -Algorithm SHA256).Hash
+            # Get-Sha256, NOT Get-FileHash (#273). Get-FileHash is a function
+            # exported by the Microsoft.PowerShell.Utility MODULE in Windows
+            # PowerShell 5.1, and it stops resolving when a PowerShell 7
+            # PSModulePath is inherited - which is what Claude Code hands every
+            # command when the operator launched the CLI from a pwsh prompt.
+            # This block CATCHES, so the failure was silent: `copy vs original :
+            # could not be compared` on a machine where the two files were
+            # byte-identical, printed two sections under a settings.json sha256
+            # this same file computed without trouble, because Get-Sha256 has
+            # always been .NET. bin\lwg-doctor.ps1 carries the whole measurement.
+            $a = Get-Sha256 -Bytes ([IO.File]::ReadAllBytes($d.installedStatusLine))
+            $b = Get-Sha256 -Bytes ([IO.File]::ReadAllBytes($d.repoStatusLine))
             $d.statusLineDrift = if ($a -eq $b) { 'identical' } else { 'DIFFERENT' }
         } catch { $d.statusLineDrift = 'could not be compared' }
     }

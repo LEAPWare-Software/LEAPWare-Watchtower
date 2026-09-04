@@ -3459,6 +3459,69 @@ try {
         ("this is #11's third done-condition and it had no case anywhere. The gate is armed at this point; the row must still be OK. Row:`n$wtRow4`nOutput:`n$($c.out)")
 
     # -------------------------------------------------------------------
+    # 26m. THE ROUTE THE README RECOMMENDS COULD ONLY EVER FAIL (#276).
+    #
+    #      README.md and docs\install.md tell a consumer to install from the
+    #      marketplace. On that route this command's checkout is the CLI's own
+    #      cache directory, which is not a git repository and never will be, and
+    #      the run ended:
+    #
+    #        [FAIL] repo   <root> is not inside a git repository, so there is
+    #                      nothing to pull                             exit 1
+    #
+    #      - a FAILURE for being installed the recommended way, with no mention
+    #      anywhere in the output of `claude plugin update`, which is the thing
+    #      that does update that route and which docs\install.md line 85 already
+    #      names. The [INFO] row above it half-knew: it said "a marketplace
+    #      install is a separate copy and is not updated by git" while looking
+    #      straight at one.
+    #
+    #      THREE ASSERTIONS, AND THE THIRD IS THE ONE THAT MATTERS. Exit code
+    #      and row status could both be satisfied by a run that said nothing
+    #      useful; naming the exact `<plugin>@<marketplace>` id is what makes
+    #      this a route the operator can act on, and that id is DERIVED from the
+    #      path rather than guessed - so the case plants the fixture marketplace
+    #      name and requires it back.
+    #
+    #      EXIT 2 AND NOT 0: nothing is wrong, but nothing was established
+    #      either. This run did not look for an update and must not be read as
+    #      saying there is none. bin\lwg-update.ps1 already reserves 2 for
+    #      "finished, with caveats - a check could not be made".
+    #
+    #      BASELINE 6aebcd6: '[FAIL] repo ... nothing to pull', exit 1, and no
+    #      occurrence of 'claude plugin update' anywhere in the output.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'update-marketplace' -Bytes $null
+    $mkRoot = New-MarketplaceRoot -ProfileDir $t.profile -PluginName $PluginName
+    $a = Invoke-Update -ProfileDir $t.profile -Arguments @('-Root', $mkRoot, '-Offline', '-SkipDoctor')
+    Add-Result 'update: a marketplace install is not reported as a FAILURE for having no repository' `
+        ($a.out -notmatch '\[FAIL\s*\]\s+repo' -and $a.out -notmatch 'nothing to pull') `
+        "the recommended install route still ends in a repo FAILURE. exit $($a.code). Output:`n$($a.out)"
+    Add-Result 'update: a marketplace install exits 2 - nothing wrong, nothing established' `
+        ($a.code -eq 2) `
+        "expected exit 2 ('a check could not be made'); got $($a.code). 1 would say something was wrong and 0 would claim the install is current, which this run did not look at. Output:`n$($a.out)"
+    Add-Result 'update: the marketplace row names the command that DOES update this route' `
+        ($a.out -match [regex]::Escape("claude plugin update $PluginName@lwg-fixture-marketplace")) `
+        "the output never named 'claude plugin update $PluginName@lwg-fixture-marketplace', so an operator on the documented route is told what is wrong and not what to do. Output:`n$($a.out)"
+
+    # -------------------------------------------------------------------
+    # 26n. CONTROL, and it passes at 6aebcd6 too. A DIRECTORY THAT IS NOT A
+    #      CHECKOUT AND NOT A MARKETPLACE INSTALL IS STILL A FAILURE.
+    #
+    #      Without this, the fix above could be "never fail for a missing
+    #      repository", which would turn the one case this command genuinely
+    #      cannot work in - a junction pointed at a directory nobody ever
+    #      cloned - into a quiet exit 2.
+    # -------------------------------------------------------------------
+    $t2 = New-CaseTree -Tag 'update-not-a-repo' -Bytes $null
+    $bare = Join-Path $t2.dir 'not-a-checkout'
+    [void][IO.Directory]::CreateDirectory($bare)
+    $b = Invoke-Update -ProfileDir $t2.profile -Arguments @('-Root', $bare, '-Offline', '-SkipDoctor')
+    Add-Result 'CONTROL update: a plain directory that is no checkout is still [FAIL] repo and exit 1' `
+        ($b.code -eq 1 -and $b.out -match '\[FAIL\s*\]\s+repo' -and $b.out -match 'nothing to pull') `
+        "expected the unchanged refusal for a directory that is neither a checkout nor a marketplace install; got exit $($b.code). Output:`n$($b.out)"
+
+    # -------------------------------------------------------------------
     # 27. THE STATUS LINE IS NOT THE ONLY THING THE OPERATOR SEES (#175).
     #
     #     New-StatusLinePlan's blurb is the paragraph an operator reads while

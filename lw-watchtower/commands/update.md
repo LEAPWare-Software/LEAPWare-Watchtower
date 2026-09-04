@@ -1,6 +1,7 @@
 ---
 description: "LW-WATCHTOWER update - fetch what is new, list what it would change and what needs re-approval afterwards, fast-forward only, then re-run the doctor"
 allowed-tools: "Bash(powershell:*)"
+disallowed-tools: "PowerShell"
 ---
 
 Run this and show the output **verbatim**:

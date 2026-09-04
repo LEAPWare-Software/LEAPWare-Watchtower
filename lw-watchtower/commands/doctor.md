@@ -1,6 +1,7 @@
 ---
 description: "LW-WATCHTOWER health check - reports what is NOT working: hook registration, state-dir resolution, status-line wiring, config drift and the last SessionStart self-check, then an informational roster of which modules and gates are switched on"
 allowed-tools: "Bash(powershell:*)"
+disallowed-tools: "PowerShell"
 ---
 
 Run this command and show the user its output **verbatim**:

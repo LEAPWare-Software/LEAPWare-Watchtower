@@ -1,6 +1,7 @@
 ---
 description: "LW-WATCHTOWER guided installer - detects what is already there, asks in plain language, then writes statusLine and hooks one section at a time, each behind its own diff and its own yes. It installs no permissions.deny rules and no protection"
 allowed-tools: "Bash(powershell:*), AskUserQuestion"
+disallowed-tools: "PowerShell"
 ---
 
 You are running an installer on someone else's machine. **You are the interface, not the
