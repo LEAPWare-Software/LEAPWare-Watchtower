@@ -109,9 +109,20 @@ lw-watchtower/lib/gate_delegate.ps1
                              they inspected. See docs/modules.md
 lw-watchtower/lib/gate_send.ps1
                              send_liveness_gate. PreToolUse on SendMessage;
-                             refuses a send whose recipient it can prove is dead
-                             mid-flight, abstains where the evidence cannot
-                             support a verdict. OFF by default; its switch is
+                             THREE outcomes, not two. It refuses a send whose
+                             recipient it can prove is dead mid-flight - the
+                             liveness verdict, and the only one of its FIVE
+                             refusals that is one. It also refuses a
+                             recipient that resolves to nothing at all: no
+                             readable `to`, no subagents directory for the
+                             session, no agent of that name, or no transcript
+                             for the agent the name resolved to. What is left
+                             to abstain on is an address it does not judge
+                             (main, or any name@team) and evidence it cannot
+                             use (a session health.jsonl never recorded, a
+                             transcript still inside the stale window). See
+                             docs/modules.md, which states the same split.
+                             OFF by default; its switch is
                              supervision.send_liveness
 lw-watchtower/lib/gate_stop.ps1
                              completion_audit. Registered on Stop AND on
@@ -309,7 +320,7 @@ mangles Windows paths. `${CLAUDE_PLUGIN_ROOT}` is substituted inside the `args` 
 | `PostToolUse` | `Write\|Edit\|NotebookEdit` | `lib/post_edit.ps1` | 5 s | records edited paths |
 | `PostToolUseFailure` | `Agent` | `lib/supervisor.ps1 -HookEvent PostToolUseFailure` | 15 s | `asyncRewake` |
 | `SubagentStart` | — | `lib/subagent_start.ps1` | 5 s | injects; cannot block |
-| `SubagentStop` | — | `lib/supervisor.ps1 -HookEvent SubagentStop` | 15 s | |
+| `SubagentStop` | — | `lib/supervisor.ps1 -HookEvent SubagentStop` | 15 s | `asyncRewake` |
 | `SubagentStop` | — | `lib/gate_stop.ps1 -HookEvent SubagentStop` | 10 s | `completion_audit`, **no** `asyncRewake`, so its exit 2 blocks |
 | `Stop` | — | `lib/supervisor.ps1 -HookEvent Stop` | 20 s | `asyncRewake` |
 | `Stop` | — | `lib/stop_advisories.ps1` | 10 s | three advisories, one process |
@@ -385,12 +396,19 @@ effect being measured.
 
 Where it came from, and what was measured rather than assumed:
 
-- **`git status` now overlaps the other modules.** It is launched before the four in-process modules
-  run and collected after them. Instrumented on this repo: git itself runs **93 ms**, about
-  **400 ms** of other module work now covers it, and the collection point waits **26 ms** instead of
-  the **140 ms** it blocked for before. `Process.Start` (~65 ms) is unavoidably synchronous and is
-  still paid. The child's timeout is measured from its launch, so it gets exactly the same leash —
-  the overlap shortens the hook, never the bound on the child.
+- **`git status` now overlaps the other modules.** Read the count off the registry rather than off
+  this sentence: `$LwgModuleRegistry` names `lib/stop_advisories.ps1` as the `impl` of exactly
+  `context_pressure`, `docs_coupling` and `git_hygiene`, and those are the file's only three
+  `Test-LwgModule` calls. One of the three, `git_hygiene`, **is** the git call being overlapped, so
+  the child is launched before the **two** in-process modules that can cover it and collected after
+  them. Instrumented on this repo: git itself runs **93 ms**, about **400 ms** of other module work
+  covers it, and the collection point waits **26 ms** instead of the **140 ms** it blocked for
+  before. **That 400 ms was measured when four modules, not two, sat between the launch and the
+  collection point** — see [Advisories](modules.md#advisories) for the two removals that took this
+  process down to its present three. It is left as the figure that was taken rather than rescaled to
+  a count nobody re-measured. `Process.Start` (~65 ms) is unavoidably synchronous and is still paid.
+  The child's timeout is measured from its launch, so it gets exactly the same leash — the overlap
+  shortens the hook, never the bound on the child.
 - **The repo slug is resolved only when it can change an answer** — when `config.repos` carries a
   real override, or when `git_hygiene` reaches its optional `gh` call. With the shipped empty
   `repos` block, `Test-LwgModule` behaves identically with a `$null` slug.
@@ -449,8 +467,9 @@ Measured on this repository on 3 August 2026, through the same `ProcessStartInfo
 **Read the ratio, not the absolutes.** The machine was running eight concurrent agent sessions, so
 both numbers are far above the 93 ms this page records for `git status` on an idle machine. What
 transfers is that the two children cost **about the same**, and that one of them is overlapped by
-~400 ms of in-process module work while the other is not. So on an upstream-less branch the module's
-critical-path cost is roughly the ~90 ms above **plus a whole `git status`-sized child**, and the
+the in-process module work while the other is not (the ~400 ms above, taken when four modules
+covered the child rather than two). So on an upstream-less branch the module's critical-path cost is
+roughly the ~90 ms above **plus a whole `git status`-sized child**, and the
 sentence *"the worst case remains the `gh` call"* is misleading in the way that matters: the `gh`
 call is once per branch head per session, and this is once per turn.
 
@@ -521,9 +540,26 @@ session — that exit code is the only channel that reaches the orchestrator mid
 
 Until wave 1 the health indicator was cleared by a marker record, written by a resolver command
 that has since been deleted along with its library half. **Nothing writes a clearing record now and
-nothing reads one**: the status line takes a peak of the recorded fault counts over the log tail it
-reads, and that peak is lowered by nothing. A log written before the deletion may still hold such
-records; they fall through every arm of the reader untouched and are inert.
+nothing reads one.** The number the status line prints after the `HH` glyph is three separate arms
+added together, and they do not behave the same way, so the difference is stated rather than
+averaged into one word:
+
+- **`supervisor_error` and non-interrupt `PostToolUseFailure` records are counted**, one fault each
+  ([`statusline/statusline.ps1`](../lw-watchtower/statusline/statusline.ps1), the two `$faults++` arms). No
+  later record lowers them; the only thing that removes one is the record itself leaving the tail
+  window the reader bounds itself to.
+- **`Stop.failed_tasks` is carried, newest wins** — the gauge, `$gauge = [int]$r.failed_tasks`,
+  added once below the loop. A turn end that records no failed task therefore *does* lower this arm,
+  to zero. The paragraph below is where that is argued; this is only where it is counted.
+- **The standing orphan count is a peak** over the same window (`$orphanPeak`, added beside the
+  gauge), and *that* is the arm nothing lowers.
+
+Driven against the shipped reader with seeded logs, one arm at a time: `failed_tasks` of `5` then
+`0` renders the **green** all-clear and `0, 3, 1` renders `HH1` rather than `HH3`, while one
+`PostToolUseFailure` followed by a clean `Stop` still renders `HH1` and `orphans_new` of `3` then
+`0` still renders `HH3`. So a red `HH` can clear itself and a red `HH` can be permanent, depending
+on which arm produced it. A log written before the deletion may still hold clearing records; they
+fall through every arm of the reader untouched and are inert.
 
 `Stop.failed_tasks` on those records is a **gauge**, not an event count: the supervisor writes the
 number of currently-failed background tasks at every turn end, so the newest record is the current
@@ -594,8 +630,17 @@ recreating the dead directory after it was cleaned up.
 `Get-LwgStateDir` in [`lib/common.ps1`](../lw-watchtower/lib/common.ps1) now **discovers** the directory instead:
 
 1. `$CLAUDE_PLUGIN_DATA` wins outright when set — it is what every live hook takes.
-2. Otherwise `~/.claude/plugins/data` is scanned for `<name>` and `<name>-*`, where `<name>` is read
-   from `.claude-plugin/plugin.json` rather than spelled out in code.
+2. Otherwise `<claude home>/plugins/data` is scanned for `<name>` and `<name>-*`, where `<name>` is
+   read from `.claude-plugin/plugin.json` rather than spelled out in code. **`<claude home>` is not
+   the literal `~/.claude`.** `Get-LwgClaudeHomeInfo` in
+   [`lib/common.ps1`](../lw-watchtower/lib/common.ps1) takes `$CLAUDE_CONFIG_DIR` when it is set and
+   falls back to `$env:USERPROFILE\.claude` when it is not, and the scan root is composed from
+   whichever it returned. Driven both ways: with `CLAUDE_CONFIG_DIR` pointed at a clean profile and
+   `CLAUDE_PLUGIN_DATA` unset the resolver reported `home_source: env` and discovered a candidate
+   under the relocated root; with both unset it reported `home_source: profile` and `~/.claude`.
+   That the variable was read by nothing is a fixed defect, and the precedence it sits in — an
+   explicit parameter, then `$CLAUDE_PLUGIN_DATA` for the data directory only, then
+   `$CLAUDE_CONFIG_DIR`, then `$env:USERPROFILE` — is written out above that function.
 3. **A suffixed candidate beats the bare name.** Claude Code names a data dir
    `<plugin-name>-<source-id>` and a plugin always has a source, so the live directory is always
    suffixed; the bare name can only ever have been created by this fallback itself.
@@ -624,9 +669,10 @@ one routinely carries the newer timestamp. Excluding it first is what makes time
 all — they now only ever choose between two real installs.
 
 Because three of this repo's shipped defects were things reporting success while doing nothing,
-`Get-LwgStateDirInfo` returns `@{ path; source; resolved; candidates }` alongside the plain path,
-where `source` is `env` | `discovered` | `bare` | `unresolved` and `resolved` is `$true` only for the
-first two. A caller can tell "this is the live directory" from "this is where I would have looked".
+`Get-LwgStateDirInfo` returns `@{ path; source; resolved; candidates; home; home_source }` alongside
+the plain path, where `source` is `env` | `discovered` | `bare` | `unresolved` and `resolved` is
+`$true` only for the first two. A caller can tell "this is the live directory" from "this is where I
+would have looked" — and, through the last two fields, which root step 2 searched and why.
 
 Resolution is memoised per process and costs, measured on this machine in a fresh PowerShell 5.1:
 **~32–42 ms cold on the `env` path a live hook takes**, ~75–105 ms cold when it has to discover
@@ -676,9 +722,11 @@ cannot write to both.
 | `edits-<sessionkey>.txt` | `lib/post_edit.ps1` | per session; capped at 256 KB |
 | `rule_stats.json` | **nothing, since 30 July 2026** — written by the Stop trip sweep | **cross-session**; per-rule false-positive counts. Historical; left in place |
 | `context_windows.json` | `context_pressure` | cross-session; observed window sizes |
+| `selfcheck.probe` | `lib/session_start.ps1` | cross-session; **29 bytes forever**. It is `self_health`'s state-writable probe, written with `-Replace` rather than appended, so every `SessionStart` — start, resume, clear and compact — overwrites the one line rather than adding to it. Nothing reads it. Absent entirely when `self_health` is off, which is what [configuration.md](configuration.md) means by "no probe runs" |
+| `alerted.json` | `lib/supervisor.ps1` | cross-session, **not** per session, and this is the row most likely to be misread: it is one flat list in the state directory, shared by every session that ever wrote there. It is the alert-dedupe set — failed background-task ids bare, orphaned agent ids under an `orphan:` prefix — so one dead task alerts once instead of at every turn end. Capped at its last 200 entries; both the `Stop` and `SubagentStop` branches write it |
 | `signals/ratelimit.json` | the **status line**, not a hook | cross-session; overwritten every render. The only on-disk copy of `rate_limits` and `context_window` — see [The signal bridge](#the-signal-bridge) |
 
-`trips-<sessionkey>.json` was a seventh row here — the per-session trip ledger, and the **state**
+`trips-<sessionkey>.json` had a row here — the per-session trip ledger, and the **state**
 behind the status line's `GM` segment. Both gates were removed on 30 July 2026 so nothing could write
 one, and later the same day the 12 remaining files were backed up to `trips-backup-20260730/` in the
 same directory and removed, along with every piece of code that read them. Nothing in the state
@@ -717,7 +765,7 @@ nonzero exit or empty stdout blanks the whole row.
 | Glyph | Meaning |
 | --- | --- |
 | green `HH` | the logs were read and this session is clean |
-| red `HH`*n* | *n* outstanding faults recorded for this session |
+| red `HH`*n* | *n* faults for this session. Whether a later clean turn end can lower it depends on which arm produced it — see [Health and healing](#health-and-healing) |
 | purple `HH?` | the supervisor or a healer agent is not installed, so nothing could be determined |
 | purple `HHx` | a log **exists** and could not be read |
 | dim `HH-` | nothing about this session was found to read — **not** an all-clear |
