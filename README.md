@@ -90,8 +90,8 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   advisory modules behind them; `tests/setup_merge.ps1` runs 202 against the installer's `statusline`
   and `hooks` merge and against the reporting surfaces that have no suite of their own;
   `tests/uninstall_footprint.ps1` runs 37 against the uninstaller's footprint, attribution and
-  state-data deletions; `tests/config_behaviour.ps1` runs 42 and `tests/toggle_behaviour.ps1` runs 28
-  against the two commands that write `config.override.json`; `tests/state_resolution.ps1` runs 33
+  state-data deletions; `tests/config_behaviour.ps1` runs 56 and `tests/toggle_behaviour.ps1` runs 28
+  against the two commands that write `config.override.json`; `tests/state_resolution.ps1` runs 37
   against the state-directory resolver; `tests/doctor_behaviour.ps1` runs 42 against the doctor's
   driven checks; `tests/subagent_scan.ps1` runs 13 against the `SubagentStart` fast path — the only
   coverage `context_injection` has — and `tests/payload_guard.ps1` runs 22 against what the shipped
