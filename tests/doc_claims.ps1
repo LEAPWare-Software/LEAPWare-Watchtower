@@ -358,22 +358,26 @@
   "the manifests declare 0.3.0" is invisible to it, on purpose, because the
   same pattern would flag `## [0.3.0]` in the changelog and every "UAT against
   v0.3.0" in the docs, which name the tag and are right forever. And
-  version-not-a-published-tag needs a visible tag ref, so it does not run on a
-  depth-1 CI checkout; that gap is printed on every run and stated again in
-  CONTRIBUTING.md.
+  version-not-a-published-tag needs a tag to compare against, so it reports NOT
+  CHECKED here: both workflows check out at fetch-depth 0 and tag refs ARE
+  visible, so the depth is no longer the obstacle - the obstacle is that this
+  repository has published no tag at all. It starts checking on the first tag
+  push with no change to any file. That gap is printed on every run and stated
+  again in CONTRIBUTING.md.
 
   ---------------------------------------------------------------------------
-  FOUR RULES IN THIS SECTION ARE NOT ABOUT QUANTITIES - AND THEY ARE NOT THE
-  ONLY NON-QUANTITY RULES IN THE FILE
+  THE RULES IN THIS SECTION THAT ARE NOT ABOUT QUANTITIES - AND THEY ARE NOT
+  THE ONLY NON-QUANTITY RULES IN THE FILE
   ---------------------------------------------------------------------------
-  Everything above matches a NUMBER out of prose. The four listed below do not,
+  Everything above matches a NUMBER out of prose. The ones listed below do not,
   and they are written out longhand rather than forced through Test-Claim for the
   same reason the two version rules are - see the note above those. The
   FRONT-DOOR RULES section in the body carries more of the same shape; this
   heading read FOUR with no qualification until 3 August 2026, when those landed
-  in the same change and it was not swept with them. Each one below is here
-  because the fact it checks is coupled to a number or a string this file
-  already derives, and there was nowhere else in the tree that could check it:
+  in the same change and it was not swept with them, and it states no count now
+  for exactly that reason. Each one below is here because the fact it checks is
+  coupled to a number or a string this file already derives, and there was
+  nowhere else in the tree that could check it:
 
     suite-output-contract        every sibling suite prints a RESULT: line and
                                  an EXIT: line, which CONTRIBUTING.md and the
@@ -382,6 +386,22 @@
                                  verbatim, because that string - not the YAML
                                  job id - is what a required status check on
                                  main matches
+    branch-protection-not-the-job-id
+                                 no OTHER page offers that job id as the
+                                 requirable context. It must quote the name or
+                                 send the reader to the page held to it
+    tag-citation-is-published    no page instructs a reader to check out a tag
+                                 this repository has not cut, and no Supported
+                                 versions row asserts one. TWO SHAPES ONLY - a
+                                 record of a tested tree is not read
+    command-exit-codes           each commands/*.md accounts for exactly the
+                                 exit codes the script it names can produce,
+                                 both directions
+    tests-file-enumeration       the PR template's list of invocations is the
+                                 set git ls-files -- tests/*.ps1 returns
+    ci-step-enumeration          a page enumerating the check steps lists as
+                                 many distinct items as ci.yml has steps. It
+                                 counts them; it does not match the names
     doc-claims-suite-budget      the sibling-suite wait this file is given in
                                  ci.yml is strictly inside the job's own
                                  timeout, so its exit-2 abort can actually fire
@@ -796,9 +816,94 @@ if (-not $SkipSuites) {
     $results = $done | Receive-Job
     $jobs | Remove-Job -Force -ErrorAction SilentlyContinue
 
+    # WHY THE FAILING SUITE'S OWN OUTPUT IS PRINTED HERE - #250. This ran each
+    # sibling in a child process, held its whole stdout, and then aborted naming
+    # only the file and the exit code. On a developer machine that is a small
+    # cost: run the suite again and read it. In CI it is not, because the
+    # Documentation claims step is where an intermittent failure in a sibling
+    # surfaces, and the log then says a suite exited 1 and nothing whatever about
+    # WHICH case, so the run has to be repeated to learn anything - and a flake
+    # that does not reproduce leaves no record at all.
+    #
+    # THE FAIL LINES AND THE TAIL, NOT THE WHOLE CAPTURE. A behavioural suite
+    # here prints hundreds of lines and several print thousands; pasting all of
+    # it into a step that has already failed buries the thing a reader came for.
+    # So: every line carrying a failure marker, plus the RESULT: and EXIT: lines,
+    # plus the whole `N FAILED:` block these suites close with, plus a stated
+    # count of what was left out. If a suite printed none of those - it died
+    # before it could - the last lines it managed are printed instead, because
+    # "exited 1 and said nothing recognisable" is itself the finding.
+    #
+    # THE MARKERS ARE THE ONES THE SUITES ACTUALLY PRINT, and this was got wrong
+    # on the first attempt in the way that matters: keying only on `[FAIL]` - the
+    # shape THIS file uses - showed a real stop_behaviour failure as two lines
+    # reading `RESULT: 116 of 117` and `EXIT: 1`, which is where the reader
+    # already was. The behavioural suites print `  FAIL  <case name>` and close
+    # with `N FAILED:` and one `  - name: detail` line per failure, and the
+    # detail line is the whole point: it carries what was seen. So the tail from
+    # the `N FAILED:` header is kept entire, bounded, rather than filtered
+    # line by line.
+    #
+    # THERE IS NO RETRY AND THERE WILL NOT BE ONE. A suite that fails
+    # intermittently is a defect in that suite; re-running it until it passes is
+    # the control this repository exists to refuse, and it would turn a flake
+    # into a permanently invisible one.
     foreach ($r in $results) {
         if ($r.Code -ne 0) {
-            Abort ("tests\{0}.ps1 exited {1}. Its tally cannot be trusted, so no claim about it was checked. Fix that suite first." -f $r.Base, $r.Code)
+            $outLines  = @([string]$r.Out -split "`r?`n")
+            # THE SIBLINGS ARE NOT ALL SUITES. Eleven tally CASES and print
+            # `N FAILED:` with a line per failure; the two scans - the
+            # portability scan and the workflow guard - tally VIOLATIONS and
+            # print `VIOLATIONS - <why> (N):` with a `file:line: token` row per
+            # hit. Keying only on the suite vocabulary showed a real portability
+            # failure as two lines saying `RESULT: 2 violation(s)` and nothing
+            # about WHICH two files, which is the same nothing this whole change
+            # exists to stop. Both headers open a block and both blocks are kept.
+            $markerPat = '(?i)^\s*(?:\[FAIL\]|FAIL\b|ABORT|ABORTED|RESULT:|EXIT:|\d+\s+FAILED)'
+            $tailFrom  = -1
+            for ($li = 0; $li -lt $outLines.Count; $li++) {
+                if ($outLines[$li] -match '(?i)^\s*(?:\d+\s+FAILED\b|VIOLATIONS?\b)') { $tailFrom = $li; break }
+            }
+            # THE DETAIL LINE IS THE POINT, AND IT IS THE LINE AFTER. Every suite
+            # here prints `  FAIL  <case name>` and then its detail indented
+            # underneath - what was expected, what was seen, the exit code, the
+            # first lines of the child's stdout. The name alone says which case;
+            # the detail is what stops the next person having to re-run anything.
+            # So a FAIL line drags the two lines under it along, bounded, and a
+            # RESULT:/EXIT:/ABORT line does not, because nothing useful follows
+            # those.
+            $failOnly = '(?i)^\s*(?:\[FAIL\]|FAIL\b|X\s)'
+            $keepIdx = New-Object System.Collections.Generic.List[int]
+            for ($li = 0; $li -lt $outLines.Count; $li++) {
+                if ($outLines[$li] -match $markerPat) {
+                    $null = $keepIdx.Add($li)
+                    if ($outLines[$li] -match $failOnly) {
+                        foreach ($d in 1, 2) {
+                            if (($li + $d) -lt $outLines.Count -and $outLines[$li + $d].Trim() -ne '') {
+                                $null = $keepIdx.Add($li + $d)
+                            }
+                        }
+                    }
+                    continue
+                }
+                if ($tailFrom -ge 0 -and $li -ge $tailFrom -and $li -le ($tailFrom + 60)) { $null = $keepIdx.Add($li) }
+            }
+            $keep = @($keepIdx | Sort-Object -Unique | ForEach-Object { $outLines[$_] } | Where-Object { $_.Trim() -ne '' })
+            Say ''
+            Say ("----- tests\{0}.ps1 said, before this run gave up on it -----" -f $r.Base)
+            if ($keep.Count -eq 0) {
+                Say '  it printed no [FAIL], ABORT, RESULT: or EXIT: line at all, which is itself'
+                Say '  the finding - here are the last lines it managed:'
+                $tail = @($outLines | Where-Object { $_ -ne '' })
+                $from = [Math]::Max(0, $tail.Count - 20)
+                for ($i = $from; $i -lt $tail.Count; $i++) { Say ("  | " + $tail[$i]) }
+                Say ("  ({0} line(s) of output in total)" -f $outLines.Count)
+            } else {
+                foreach ($k in $keep) { Say ("  | " + $k.TrimEnd()) }
+                Say ("  ({0} of {1} line(s) shown - the rest carried no [FAIL], ABORT, RESULT: or EXIT: marker)" -f $keep.Count, $outLines.Count)
+            }
+            Say '-----'
+            Abort ("tests\{0}.ps1 exited {1}. Its tally cannot be trusted, so no claim about it was checked. Fix that suite first - what it printed is above." -f $r.Base, $r.Code)
         }
         # The classifier. A behavioural suite tallies CASES; a scan tallies
         # violations. Neither is told which it is - it is read off what each
@@ -954,9 +1059,13 @@ function Get-Excerpt {
 
 function Add-Decline {
     <#
-      A claim a pattern matched and this guard then declined to check. Recorded
-      rather than dropped: see the header. Kind is 'no-quantity' or
-      'line-exempt', and both are printed with file:line beside the result.
+      A claim this guard looked at and did not check. Recorded rather than
+      dropped: see the header. Three kinds, all printed with file:line beside
+      the result - 'no-quantity' (a pattern matched and captured something that
+      is not a number), 'line-exempt' (doc-claims:ignore), and 'unread-window'
+      (a suite's name has a number beside it and no shape here matched it, #259).
+      The third is not a matched claim; it is the ABSENCE of one where a page
+      put a number, which is the thing that used to leave no trace at all.
     #>
     param([string]$Rule, [string]$Kind, [string]$File, [int]$Line, [string]$Token)
     $script:Declines += [pscustomobject]@{
@@ -1136,12 +1245,38 @@ if ($suitesRan) {
     # It also cannot race the branches above it whatever order they sit in -
     # every one of those starts at a digit and this one starts at a comma, so no
     # start position ever offers the engine both.
+    #
+    # THE `runs N` SHAPE, AND THE SENTENCE THAT PROVED IT WAS NEEDED - #259.
+    # README.md:93 read `tests/config_behaviour.ps1` runs 42 and
+    # `tests/toggle_behaviour.ps1` runs 28 against the two commands that write
+    # config.override.json` while the first suite ran 49. One sentence, two
+    # suites, identical grammar, and only the second was read: the window opened
+    # after config_behaviour.ps1 is TRUNCATED at the next suite's name, leaving
+    # ` runs 42 and \`tests/`, and none of the six branches above had a shape for
+    # a number whose following word is a conjunction. `toggle_behaviour`'s
+    # `28 against` hit the fourth branch, passed, and made the whole paragraph
+    # read as checked.
+    #
+    # It is anchored on `runs` rather than on what follows the number, which is
+    # the whole point: the six branches above all key on the NOUN after the
+    # quantity, and that is what a conjunction defeats. `\b(?<![\w.])` after
+    # `runs\s+` is the same guard the branches above carry, so `lwg-setup.ps1
+    # runs 1.2 seconds` cannot read the 1 out of a decimal.
+    #
+    # WHAT IT NEWLY READS WAS MEASURED, not reasoned about, in the way the
+    # trailing-comma note above insists on: the checked count moves by exactly
+    # the claims listed in the pull request, and every one of them is a per-suite
+    # case count. The branch to suspect if this rule ever flags something odd is
+    # this one together with `N against`, because "runs" is a common verb - a
+    # sentence saying a suite `runs 10 checks` inside its own 240-character
+    # window would be read here as a case count. None does today.
     $qtyPat  = '(?:\*\*(?<![\w.])(\d+)\s+of\s+\d+\*\*' +
                '|(?<![\w.])(\d+)\s+of\s+\d+\s+cases?\b' +
                '|(?<![\w.])(\d+)\s+cases?\b' +
                '|(?<![\w.])(\d+)\s+against\b' +
                '|,[ \t]*(?<![\w.])(\d+)[ \t]*(?=\n|$)' +
-               '|(?<![\w.])(\d+)\s+of\s+\d+\b)'
+               '|(?<![\w.])(\d+)\s+of\s+\d+\b' +
+               '|\bruns\s+(?<![\w.])(\d+)\b)'
 
     foreach ($base in ($suiteTallies.Keys | Sort-Object)) {
         $expected = $suiteTallies[$base]
@@ -1155,7 +1290,49 @@ if ($suitesRan) {
                 $stop = [regex]::Match($win, $anyName)
                 if ($stop.Success) { $win = $win.Substring(0, $stop.Index) }
                 $q = [regex]::Match($win, $qtyPat)
-                if (-not $q.Success) { continue }
+                # A WINDOW THAT MATCHED NOTHING USED TO LEAVE NO TRACE, AND THAT
+                # IS HOW #259 STAYED INVISIBLE THROUGH A DOCUMENT PASS, A NUMBERS
+                # PASS AND EVERY GREEN RUN OF THIS FILE. Add-Decline is called
+                # for no-quantity and for line-exempt, so a claim this guard
+                # looked at and declined is in the report; a window that simply
+                # failed to match was a bare `continue`, and a truncated window
+                # and an empty one were byte-indistinguishable in the output.
+                #
+                # WHAT IS RECORDED, AND THE THREE FILTERS, WHICH WERE MEASURED
+                # RATHER THAN GUESSED. The first draft recorded every window
+                # containing a digit and printed SEVENTY-SEVEN lines on a tree
+                # with one real defect in it. A report that long is a report
+                # nobody reads, which is the same failure as printing nothing,
+                # so the trace is narrowed to the shape the defect had:
+                #
+                #   * THE NUMBER IS NEXT TO THE SUITE'S NAME - inside the first
+                #     16 characters of the window. README.md's `runs 42` sat at
+                #     6. A number thirty words into a paragraph that happens to
+                #     mention a suite is not a claim about that suite's tally.
+                #   * IT IS NOT A TABLE CELL. A window opening with `|` is the
+                #     NEXT COLUMN of a table row, which is a different assertion
+                #     from the sentence naming the suite - the timing table in
+                #     docs\testing.md is eight rows of exactly that.
+                #   * IT IS NOT A DURATION. `262 s`, `10 s`, `4 min` are the
+                #     wall-clock figures ci.yml and docs\testing.md record beside
+                #     each suite. `s` is required at a word boundary, so `42
+                #     suites` is still read.
+                #
+                # WHAT THAT COSTS, stated rather than implied by a short report:
+                # a stale tally written more than 16 characters from the suite's
+                # name is still dropped silently. That is a narrower hole than
+                # the one this closes and it is the one to widen first if this
+                # ever misses something again.
+                if (-not $q.Success) {
+                    $bare = [regex]::Match($win, '(?<![\w.])\d+')
+                    if ($bare.Success -and $bare.Index -lt 16 -and
+                        $win -notmatch '^\s*`?\s*\|' -and
+                        -not [regex]::IsMatch($win.Substring($bare.Index), '^\d+\s*(?:m?s|min|sec|seconds?|minutes?|hours?)\b')) {
+                        Add-Decline -Rule "cases:$base" -Kind 'unread-window' -File $doc.Rel `
+                            -Line (Get-LineNumber $doc $from) -Token ($win.Trim() -replace '\s+', ' ')
+                    }
+                    continue
+                }
                 # ONE GROUP PER BRANCH OF $qtyPat, AND THE LIST HAS TO GROW WITH
                 # IT. This was got wrong while adding the bare `N of M` branch:
                 # the branch matched, its group 5 was never read, $tok came back
@@ -1167,7 +1344,8 @@ if ($suitesRan) {
                 # is ever added below, add its group here and check the CHECKED
                 # COUNT moves, not just that the failure list is empty.
                 $tok = @($q.Groups[1].Value, $q.Groups[2].Value, $q.Groups[3].Value,
-                         $q.Groups[4].Value, $q.Groups[5].Value, $q.Groups[6].Value) |
+                         $q.Groups[4].Value, $q.Groups[5].Value, $q.Groups[6].Value,
+                         $q.Groups[7].Value) |
                        Where-Object { $_ } | Select-Object -First 1
                 $qty = ConvertTo-Quantity $tok
                 $ln  = Get-LineNumber $doc ($from + $q.Index)
@@ -1577,6 +1755,388 @@ if ($bpText.Contains($ciJobName)) {
         -Expected "the check-run name verbatim: $ciJobName" `
         -Source "the name: key of job '$ciJobId' in .github/workflows/ci.yml" `
         -Excerpt "a required status check is matched by the check run's NAME, not by the YAML job id '$ciJobId'; a rule naming the id blocks every merge"
+}
+
+# --- rule: no OTHER page offers the job id as the requirable context --------
+# #151. The rule above holds ONE page - docs\testing.md - to the check-run name.
+# README.md and docs\limitations.md each carried a paragraph that warned
+# correctly about `gate-regression` and then, in the next breath, told the reader
+# that `fast-checks` was the string to require. `fast-checks` is the YAML job id;
+# requiring it blocks every merge for exactly the reason the first half of the
+# same paragraph gives. Both sentences appeared IMMEDIATELY AFTER a correct
+# warning, so a reader taking the first half as authoritative - and it was
+# correct - had no signal that the second half had switched from display names
+# to job ids.
+#
+# Both pages were fixed by the second route the issue offered: they stopped
+# naming a requirable string and pointed at docs\testing.md#branch-protection
+# instead. That is a good mitigation and both pages say WHY they do it. It is not
+# a guard, and the issue says so: it is exactly the kind of thing a THIRD page
+# can violate with nothing noticing.
+#
+# WHY THIS IS A COMPANION RULE AND NOT AN EXTENDED FILE LIST, which is what the
+# issue proposed as the cheap fix. branch-protection-context requires the page to
+# CONTAIN the check-run name. Adding README.md and docs\limitations.md to its
+# list would fail this tree, because neither page contains the string and both
+# deliberately do not - repeating it on a page nothing derives it for is how it
+# goes stale in a third place. So the obligation here is the weaker, correct one:
+# say the name, OR send the reader to the page that is held to it.
+#
+# WHAT IT READS. A blank-line paragraph that names `gate-regression` AND uses a
+# word from the `requir-` family: that combination is a branch-protection
+# INSTRUCTION rather than a mention of a deleted job, which is why the other
+# `gate-regression` sites in the tree - a deleted-suite paragraph in
+# CONTRIBUTING.md, a removal record in docs\modules.md, a coverage table row -
+# are not read here. docs\testing.md is excluded BY DERIVATION, not by name: it
+# is $bpRel, the page the rule above holds to the string over its whole Branch
+# protection section, which is the stronger check of the two.
+#
+# TWO OBLIGATIONS, and the second is what makes this more than a link check. The
+# paragraph must carry the name or the pointer; and it must not assert that the
+# job id is the requirable context. The negative patterns are the two sentences
+# this issue quoted plus the one near-miss between them, spelled with the id
+# DERIVED from ci.yml rather than typed, so renaming the job moves the rule with
+# it.
+$bpOtherPat  = 'testing\.md#branch-protection'
+$bpIdPat     = '`?' + [regex]::Escape($ciJobId) + '`?'
+$bpBadShapes = @(
+    ('(?i)only\s+' + $bpIdPat + '\s+(?:remains|is)\s+[^.\n]{0,24}requirab'),
+    ('(?i)' + $bpIdPat + '\s+is\s+the\s+only\s+requirable'),
+    ('(?i)' + $bpIdPat + '\s+is\s+the\s+(?:one\s+)?(?:replacement|context)\s+to\s+(?:put|use|require)')
+)
+$bpRead = 0
+foreach ($doc in $docs) {
+    if ($doc.Rel -eq $bpRel) { continue }
+    foreach ($para in [regex]::Matches($doc.Flat, '(?s)(?<=\n\r?\n|^).+?(?=\n\r?\n|$)')) {
+        $pt = $para.Value
+        if ($pt -notmatch 'gate-regression') { continue }
+        if ($pt -notmatch '(?i)requir')      { continue }
+        $bpRead++
+        $ln = Get-LineNumber $doc $para.Index
+        if (Test-LineExempt $doc $ln) {
+            Add-Decline -Rule 'branch-protection-not-the-job-id' -Kind 'line-exempt' -File $doc.Rel -Line $ln -Token 'branch-protection paragraph'
+            $bpRead--
+            continue
+        }
+        $bad = @($bpBadShapes | Where-Object { $pt -match $_ })
+        if ($bad.Count -gt 0) {
+            $script:Checked++
+            Add-LongFailure -Rule 'branch-protection-not-the-job-id' -File $doc.Rel -Line $ln `
+                -Said "offers the YAML job id '$ciJobId' as the requirable context" `
+                -Expected "the check-run name '$ciJobName', or a pointer to $bpRel's Branch protection section" `
+                -Source "the id and name: keys of the one job in .github/workflows/ci.yml" `
+                -Excerpt "a required status check is matched by the check run's NAME; requiring '$ciJobId' blocks every merge for the same reason requiring 'gate-regression' does, which this same paragraph says about the other id"
+        } elseif ($pt.Contains($ciJobName) -or $pt -match $bpOtherPat) {
+            Add-LongPass -Rule 'branch-protection-not-the-job-id' -File $doc.Rel -Line $ln `
+                -Said 'names the check-run name, or points at the page held to it'
+        } else {
+            $script:Checked++
+            Add-LongFailure -Rule 'branch-protection-not-the-job-id' -File $doc.Rel -Line $ln `
+                -Said 'tells a maintainer about the required context and neither quotes it nor links the page that does' `
+                -Expected "the check-run name '$ciJobName' verbatim, or a link to $bpRel#branch-protection" `
+                -Source "the name: key of job '$ciJobId' in .github/workflows/ci.yml" `
+                -Excerpt "this paragraph is branch-protection advice. Repeating the string on a page nothing derives it for is how it goes stale in a third place, so the other route is to send the reader to the page the guard holds to it"
+        }
+    }
+}
+if ($bpRead -eq 0) {
+    Say '  NOT CHECKED: branch-protection-not-the-job-id. No page outside docs/testing.md carries a'
+    Say '    paragraph that both names the deleted `gate-regression` context and talks about what is'
+    Say '    required, so this rule read nothing and established nothing this run.'
+}
+
+# --- rule: no page tells a reader to use a tag this repository has not cut ---
+# #181 done-condition 3. README.md gave two install routes and marked the
+# `git checkout v0.3.0` one as THE TESTED ONE. That tag does not exist here:
+# v0.3.0 was tagged on a PREDECESSOR repository whose history this one does not
+# carry, so the second command of the documented install failed for everybody who
+# followed it. SECURITY.md's supported-versions table compounded it with a row
+# asserting that version was a line this repository serves.
+#
+# THE TRAP IN THE OBVIOUS RULE, and it is why this one is narrow. "A page names a
+# tag git tag -l does not return" turns every correct RECORD into a build
+# failure: CHANGELOG.md's `## [0.3.0]` heading, `adversarial UAT against v0.3.0`,
+# a handoff titled by a date. Those are citations of a tree that WAS tested and
+# they are correct forever; CONTRIBUTING.md's release section already draws that
+# line and says that correcting a record falsifies it.
+#
+# So this fires on TWO SHAPES AND NOTHING ELSE, and it says so here rather than
+# carrying an allowlist of true sentences behind doc-claims:ignore:
+#
+#   IMPERATIVE  an instruction to check out a tag - `git checkout v0.3.0`,
+#               `git switch`, `git checkout tags/...`. A command a reader types.
+#   STATUS      a row of a table under a `Supported versions` heading whose FIRST
+#               CELL IS A BARE VERSION. That table's whole job is to say which
+#               versions this repository serves, and a bare version in its left
+#               column asserts that this one is a line it serves. A row that means
+#               "not served" says so in that cell - which is what SECURITY.md's
+#               row for the predecessor tag does today - and is not read here.
+#
+# It does NOT read prose. `the v0.4.0 release`, `from the v0.4.0 release`, `will
+# be the first tag this repository serves` are all forward-looking or historical
+# and none of them tells a reader to do anything.
+#
+# EMPTY IS "I DO NOT KNOW" UNLESS THE CLONE COULD HAVE KNOWN. The derivation at
+# the top of this file refuses to read an empty `git tag -l` as "nothing was
+# tagged", because a shallow checkout produces exactly that silence - and reading
+# it as an answer is the defect this whole file exists to refuse. This rule needs
+# the opposite direction (does THIS tag exist?), so it asks a second question
+# first: is the clone shallow? A full clone whose tag list is empty HAS an answer
+# - there are no tags - and CI checks out at fetch-depth 0, so this runs there. A
+# shallow clone declines, out loud, and the decline is not a pass.
+#
+# WHAT IT STILL CANNOT SEE: a full clone made with --no-tags, or one whose remote
+# has tags that were never fetched. `git tag -l` and this rule are equally blind
+# to that, and no probe here can tell it from a repository with no tags without
+# reaching the network, which a test suite does not do.
+$tagShallow = $null
+Push-Location -LiteralPath $script:RepoRoot
+try {
+    $tagShallow = & git rev-parse --is-shallow-repository 2>$null
+    $tagShallowExit = $LASTEXITCODE
+} finally { Pop-Location }
+$tagsEnumerable = ($tagExit -eq 0 -and $tagShallowExit -eq 0 -and "$tagShallow".Trim() -eq 'false')
+
+$tagCitations = @()
+foreach ($doc in $docs) {
+    foreach ($m in [regex]::Matches($doc.Flat, '(?i)\bgit\s+(?:checkout|switch)\s+(?:tags/)?(v?\d+\.\d+\.\d+)\b')) {
+        $tagCitations += [pscustomobject]@{
+            Doc = $doc; Index = $m.Index; Tag = $m.Groups[1].Value; Shape = 'imperative'
+            How = "an instruction to run ``git checkout $($m.Groups[1].Value)``"
+        }
+    }
+    $svHead = [regex]::Match($doc.Text, '(?im)^#{2,4}\s+Supported\s+versions\s*$')
+    if (-not $svHead.Success) { continue }
+    $svFrom = $svHead.Index + $svHead.Length
+    $svNext = [regex]::Match($doc.Text.Substring($svFrom), '(?m)^#{2,4}\s+\S')
+    $svText = if ($svNext.Success) { $doc.Text.Substring($svFrom, $svNext.Index) } else { $doc.Text.Substring($svFrom) }
+    foreach ($row in [regex]::Matches($svText, '(?m)^[ \t]*\|(?<cell>[^|]*)\|')) {
+        $cell = ($row.Groups['cell'].Value -replace '[`*]', '').Trim()
+        $cm   = [regex]::Match($cell, '^(v?\d+\.\d+\.\d+)$')
+        if (-not $cm.Success) { continue }
+        $tagCitations += [pscustomobject]@{
+            Doc = $doc; Index = ($svFrom + $row.Index); Tag = $cm.Groups[1].Value; Shape = 'status'
+            How = "a Supported versions row whose version cell is the bare version ``$($cm.Groups[1].Value)``"
+        }
+    }
+}
+
+if ($tagCitations.Count -eq 0) {
+    Say '  NOT CHECKED: tag-citation-is-published. No tracked page instructs a reader to check out a'
+    Say '    tag, and no Supported versions table carries a row whose version cell is a bare version.'
+    Say '    This rule read nothing this run, which is not the same as a pass.'
+} elseif (-not $tagsEnumerable) {
+    foreach ($c in $tagCitations) {
+        Add-Decline -Rule 'tag-citation-is-published' -Kind 'no-quantity' `
+            -File $c.Doc.Rel -Line (Get-LineNumber $c.Doc $c.Index) `
+            -Token "$($c.Tag) - this clone cannot enumerate tags, so the citation was not checked"
+    }
+} else {
+    foreach ($c in $tagCitations) {
+        $ln = Get-LineNumber $c.Doc $c.Index
+        if (Test-LineExempt $c.Doc $ln) {
+            Add-Decline -Rule 'tag-citation-is-published' -Kind 'line-exempt' -File $c.Doc.Rel -Line $ln -Token $c.Tag
+            continue
+        }
+        $bare = $c.Tag -replace '^v', ''
+        $hit  = @($publishedTags | Where-Object { $_ -eq $c.Tag -or $_ -eq $bare -or $_ -eq ('v' + $bare) })
+        if ($hit.Count -gt 0) {
+            Add-LongPass -Rule 'tag-citation-is-published' -File $c.Doc.Rel -Line $ln -Said "cites $($c.Tag), which is a tag here"
+        } else {
+            $script:Checked++
+            Add-LongFailure -Rule 'tag-citation-is-published' -File $c.Doc.Rel -Line $ln `
+                -Said $c.How `
+                -Expected "a tag this repository serves - git tag -l returned $(if ($publishedTags.Count -eq 0) { 'nothing at all' } else { ($publishedTags -join ', ') })" `
+                -Source 'git tag -l, on a clone that is not shallow' `
+                -Excerpt "$($c.Tag) cannot be checked out here. If it names a tree this repository never carried, retire the route rather than creating a tag that would point at something else; if the sentence is a RECORD of a tested tree, it is not one of the two shapes this rule reads and something else needs rewording"
+        }
+    }
+}
+
+# --- rule: a command page accounts for exactly its script's exit codes -------
+# #104 item 4. commands\config.md told the model that exit 1 is "most often"
+# caused by a refusal that fires for nothing, and documented NO MEANING AT ALL
+# for exit 3 - the code the script reserves for "I could not complete". A model
+# handed a 3 reports it under whatever language the page gave it, which is
+# "declined", which is the reading the script's own message exists to prevent.
+# The same shape ran the other way in three sibling pages, which stated an exit
+# the script could not produce.
+#
+# BOTH DIRECTIONS, because each one alone is half the defect: every code the
+# script can produce is named on the page, and every code the page names is one
+# the script can produce. The second half is what catches an invented code, and
+# it is the half that would have caught #27.
+#
+# THE PAGE-TO-SCRIPT MAPPING IS DERIVED FROM THE PAGE, not from its file name,
+# and that is load-bearing: commands\delegate.md documents bin\lwg-toggle.ps1.
+# Every page here opens with the invocation it tells the model to run, so the
+# first lwg-*.ps1 the page names IS the script it documents, and a page that
+# names none aborts rather than being skipped.
+#
+# THE SCRIPT'S CODES ARE ITS `exit` STATEMENTS, plus the literals assigned to
+# $script:Exit - three of these scripts exit through that variable rather than
+# through a literal, and reading only `exit <n>` would have derived {0,2,3} for a
+# script that also refuses with 1. A line whose text before `exit` contains a `#`
+# is a comment and is not read; that is the whole of the filter, and it is why
+# the header tables in those scripts - which are comments - do not feed this.
+#
+# WHAT IT DOES NOT CHECK: whether what the page SAYS a code means is right. It
+# checks that the page has language for it. A page can name all four codes and
+# describe them backwards, and this rule passes.
+$cmdPages = @($tracked | Where-Object { $_ -match ('^' + [regex]::Escape($script:PayloadRel) + '/commands/[^/]+\.md$') -and (Test-StillOnDisk $_) })
+if ($cmdPages.Count -eq 0) {
+    Abort 'no command page was found under the payload, so no exit-code account was checked. The enumeration is broken, not the docs.'
+}
+$cmdExitDocPats = @(
+    '(?im)^\s*\|\s*`(\d)`\s*\|',
+    '(?i)\bexit(?:s|ed|\s+code(?:\s+is)?)?\b[^.\n]{0,24}?`(\d)`',
+    '(?i)[:,]\s*`(\d)`\s+[a-z]'
+)
+foreach ($rel in $cmdPages) {
+    $cdoc = @($docs | Where-Object { $_.Rel -eq $rel })
+    if ($cdoc.Count -ne 1) { continue }   # exempted whole, and that is its own claim
+    $cdoc = $cdoc[0]
+    $sm = [regex]::Match($cdoc.Text, '(?i)\blwg-([a-z]+)\.ps1')
+    if (-not $sm.Success) {
+        Abort ("{0} names no lwg-*.ps1, so this rule could not tell which script it documents. A command page that does not name its script is the defect, not an exemption." -f $rel)
+    }
+    $scriptRel = "$($script:PayloadRel)/bin/lwg-$($sm.Groups[1].Value).ps1"
+    $scriptAbs = Join-Path $script:RepoRoot ($scriptRel -replace '/', '\')
+    if (-not (Test-Path -LiteralPath $scriptAbs -PathType Leaf)) {
+        Abort ("{0} names {1}, which is not in the tree, so its exit-code account was checked against nothing." -f $rel, $scriptRel)
+    }
+    $stext = (Get-Content -LiteralPath $scriptAbs) -join "`n"
+    $canProduce = New-Object System.Collections.Generic.HashSet[int]
+    foreach ($m in [regex]::Matches($stext, '(?m)^[^#\r\n]*?(?<![\w-])exit\s+(\d+)\b'))          { $null = $canProduce.Add([int]$m.Groups[1].Value) }
+    foreach ($m in [regex]::Matches($stext, '(?m)^[^#\r\n]*?\$script:Exit\s*=\s*(\d+)\b'))       { $null = $canProduce.Add([int]$m.Groups[1].Value) }
+    if ($canProduce.Count -eq 0) {
+        Abort ("no exit code was derived from {0}, so {1}'s account was compared against an empty set - which would pass whatever the page said." -f $scriptRel, $rel)
+    }
+    $documented = New-Object System.Collections.Generic.HashSet[int]
+    foreach ($pat in $cmdExitDocPats) {
+        foreach ($m in [regex]::Matches($cdoc.Text, $pat)) { $null = $documented.Add([int]$m.Groups[1].Value) }
+    }
+    $undoc = @($canProduce | Where-Object { -not $documented.Contains($_) } | Sort-Object)
+    $unreal = @($documented | Where-Object { -not $canProduce.Contains($_) } | Sort-Object)
+    $scriptLn = Get-LineOf @(Get-Content -LiteralPath $scriptAbs) '(?m)^[^#\r\n]*?(?<![\w-])exit\s+\d+\b'
+    if ($undoc.Count -eq 0 -and $unreal.Count -eq 0) {
+        Add-LongPass -Rule 'command-exit-codes' -File $rel -Line 0 `
+            -Said ("accounts for exactly {0}, the codes {1} can produce" -f (($canProduce | Sort-Object) -join '/'), $scriptRel)
+    }
+    if ($undoc.Count -gt 0) {
+        $script:Checked++
+        Add-LongFailure -Rule 'command-exit-codes' -File $rel -Line 0 `
+            -Said ("documents {0} and says nothing about {1}" -f (($documented | Sort-Object) -join '/'), ($undoc -join '/')) `
+            -Expected ("a meaning on the page for every code {0} can hand the model: {1}" -f $scriptRel, (($canProduce | Sort-Object) -join '/')) `
+            -Source ("the exit statements and `$script:Exit assignments in {0} (first at :{1})" -f $scriptRel, $scriptLn) `
+            -Excerpt "the model reports whatever the page gave it language for. An undocumented code is reported under the nearest documented one, which is how 'I could not complete' becomes 'it declined'"
+    }
+    if ($unreal.Count -gt 0) {
+        $script:Checked++
+        Add-LongFailure -Rule 'command-exit-codes' -File $rel -Line 0 `
+            -Said ("documents {0}, which {1} cannot produce" -f ($unreal -join '/'), $scriptRel) `
+            -Expected ("only the codes that script exits with: {0}" -f (($canProduce | Sort-Object) -join '/')) `
+            -Source ("the exit statements and `$script:Exit assignments in {0}" -f $scriptRel) `
+            -Excerpt "a documented exit nothing can produce is an instruction for a case that never arrives, and it reads as coverage of a path that does not exist"
+    }
+}
+
+# --- rule: the enumerated lists agree with what they enumerate ---------------
+# #188. Two lists in this tree are ENUMERATIONS rather than counts, and until now
+# only their totals were guarded.
+#
+# 1. .github\PULL_REQUEST_TEMPLATE.md's block of invocations. It named twelve
+#    files, one of which - tests\evidence_states.ps1 - had been DELETED, and
+#    omitted two that existed. A contributor following it runs a file that is not
+#    there, gets an error, and either pastes a failure or drops the row, which
+#    degrades the one control that makes the verification section mean anything.
+#    The block itself says "That list is `git ls-files -- tests/*.ps1`", which is
+#    exactly the derivation, so this rule holds it to the sentence it already
+#    makes about itself. Both directions: a name on the page that is not in the
+#    tree, and a file in the tree the page does not name.
+#
+# 2. docs\architecture.md's ci.yml row, which enumerates the check steps in prose
+#    and then states how many of them test behaviour. It said "Nine of the
+#    fourteen" over a list of fourteen that OMITTED `Supervision suite` - so the
+#    total was wrong by one and the derived figure was computed from a short list.
+#    ci-check-steps reads the total and cannot see the list.
+#
+# WHY THE SECOND HALF COUNTS THE ITEMS AND DOES NOT COMPARE THE NAMES. The page
+# writes lower-case paraphrases - "delegate gate suite" for `Delegate gate
+# regression suite`, "documentation claims" for `Documentation claims` - because
+# it is a prose sentence and not a YAML dump. Matching those to the `name:` keys
+# means a fuzzy matcher, and a fuzzy matcher inside a guard is a rule whose
+# failures are arguments. So this checks the two things that are not arguments:
+# the list holds as many items as ci.yml has check steps, and no item appears
+# twice. That is precisely the defect the issue recorded - a list one item short
+# reading as complete - and the limit is stated here rather than implied by a
+# green line.
+$prRel = '.github/PULL_REQUEST_TEMPLATE.md'
+$prDoc = @($docs | Where-Object { $_.Rel -eq $prRel })
+if ($prDoc.Count -ne 1) {
+    Abort "expected exactly one $prRel in the prose set, found $($prDoc.Count), so the enumerated test-file list was never read."
+}
+#    THE LIST IS THE INVOCATIONS, NOT EVERY MENTION OF A FILE UNDER tests\. The
+#    same page records, two paragraphs down, that tests\gate_regression.ps1 and
+#    tests\deny_parity.ps1 were deleted on 30 July 2026 - a tombstone, and the
+#    opposite of the defect. Reading every `tests\*.ps1` on the page would fail
+#    the tree over a correct sentence and teach the next editor to delete the
+#    record. So this reads only what a contributor is told to RUN: the argument
+#    of a `-File`.
+$prInvPat  = '(?i)-File\s+tests[\\/]([A-Za-z0-9_]+)\.ps1'
+$prNamed = @([regex]::Matches($prDoc[0].Text, $prInvPat) |
+             ForEach-Object { 'tests/' + $_.Groups[1].Value + '.ps1' } | Sort-Object -Unique)
+if ($prNamed.Count -eq 0) {
+    Abort "$prRel gives no `-File tests\...` invocation, so the enumeration this rule reads is gone rather than stale."
+}
+$prLine    = Get-LineNumber $prDoc[0] ([regex]::Match($prDoc[0].Text, $prInvPat).Index)
+$prGhost   = @($prNamed  | Where-Object { $testFiles -notcontains $_ })
+$prMissing = @($testFiles | Where-Object { $prNamed  -notcontains $_ })
+$script:Checked++
+if ($prGhost.Count -eq 0 -and $prMissing.Count -eq 0) {
+    $script:Passes++
+    if ($ShowPasses) { Say ("  [ok]   {0,-26} {1}:{2}  names all {3} file(s) in tests/ and no others" -f 'tests-file-enumeration', $prRel, $prLine, $testFiles.Count) }
+} else {
+    $bits = @()
+    if ($prGhost.Count -gt 0)   { $bits += ('names ' + ($prGhost -join ', ') + ', which the tree does not have') }
+    if ($prMissing.Count -gt 0) { $bits += ('does not name ' + ($prMissing -join ', ')) }
+    Add-LongFailure -Rule 'tests-file-enumeration' -File $prRel -Line $prLine `
+        -Said ($bits -join '; ') `
+        -Expected ("exactly the {0} file(s) git ls-files -- tests/*.ps1 returns" -f $testFiles.Count) `
+        -Source 'git ls-files -- tests/*.ps1, present on disk' `
+        -Excerpt 'this block tells a contributor it IS that list. A contributor running a file that is not there pastes a failure or drops the row, and the verification section stops meaning anything'
+}
+
+$ciEnum = $null
+$ciEnumDoc = $null
+foreach ($doc in $docs) {
+    $em = [regex]::Match($doc.Flat, '(?is)check\s+steps:\s*(?<list>.+?)\.\s')
+    if ($em.Success) { $ciEnum = $em; $ciEnumDoc = $doc; break }
+}
+if ($null -eq $ciEnum) {
+    Say '  NOT CHECKED: ci-step-enumeration. No tracked page enumerates the check steps after a'
+    Say '    `check steps:` colon, so there is no list here to hold to ci.yml. If the page that did'
+    Say '    was reworded, this rule has to be repointed rather than left reading nothing.'
+} else {
+    $enumLn    = Get-LineNumber $ciEnumDoc $ciEnum.Index
+    $enumItems = @(($ciEnum.Groups['list'].Value -split ',') |
+                   ForEach-Object { $_ -split '(?i)\s+and\s+' } |
+                   ForEach-Object { ($_ -replace '\s+', ' ').Trim() } |
+                   Where-Object { $_ })
+    $enumDupes = @($enumItems | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
+    $script:Checked++
+    if ($enumItems.Count -eq $ciSteps -and $enumDupes.Count -eq 0) {
+        $script:Passes++
+        if ($ShowPasses) { Say ("  [ok]   {0,-26} {1}:{2}  enumerates {3} distinct step(s)" -f 'ci-step-enumeration', $ciEnumDoc.Rel, $enumLn, $enumItems.Count) }
+    } else {
+        $why = if ($enumDupes.Count -gt 0) { 'names ' + ($enumDupes -join ', ') + ' more than once' }
+               else { "enumerates $($enumItems.Count) step(s)" }
+        Add-LongFailure -Rule 'ci-step-enumeration' -File $ciEnumDoc.Rel -Line $enumLn `
+            -Said $why `
+            -Expected ("{0} distinct items, one per check step in .github/workflows/ci.yml" -f $ciSteps) `
+            -Source 'named steps carrying a run: block in .github/workflows/ci.yml' `
+            -Excerpt ("the list read: " + (($enumItems | Select-Object -First 6) -join ', ') + " ... - a list one item short reads as complete, and the sentence after it derives a figure from the short list")
+    }
 }
 
 # --- rule: the sibling-suite wait fits inside the CI job's own budget -------
@@ -2480,10 +3040,16 @@ foreach ($s in $skippedWhole) { Say ("    exempt: {0}" -f $s) }
 # EVERY path including a green one, and named with file:line, because that
 # asymmetry - file exemptions announced, line exemptions silent - is what made
 # a silenced stale number byte-indistinguishable from a correct one.
-Say ("declined {0} matched claim(s) without checking them" -f $script:Declines.Count)
+$declMatched = @($script:Declines | Where-Object { $_.Kind -ne 'unread-window' })
+$declUnread  = @($script:Declines | Where-Object { $_.Kind -eq 'unread-window' })
+Say ("declined {0} matched claim(s) without checking them, and left {1} window(s) unread" -f $declMatched.Count, $declUnread.Count)
 foreach ($d in ($script:Declines | Sort-Object File, Line)) {
     if ($d.Kind -eq 'line-exempt') {
         Say ("    declined: {0}:{1}  {2}  doc-claims:ignore on or above this line (said {3})" -f $d.File, $d.Line, $d.Rule, $d.Token)
+    } elseif ($d.Kind -eq 'unread-window') {
+        $t = $d.Token
+        if ($t.Length -gt 96) { $t = $t.Substring(0, 93) + '...' }
+        Say ("    NOT READ: {0}:{1}  {2}  a number sits beside this suite's name and no shape here matched it: '{3}'" -f $d.File, $d.Line, $d.Rule, $t)
     } else {
         Say ("    declined: {0}:{1}  {2}  the pattern captured '{3}', which is not a quantity" -f $d.File, $d.Line, $d.Rule, $d.Token)
     }

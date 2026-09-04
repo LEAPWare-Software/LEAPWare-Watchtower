@@ -31,6 +31,9 @@ Rules for reporting it:
   current value, the value after, the file that carries the behaviour, and what stops or starts
   happening. That block is the point of the command; summarising it to "turning off X" throws
   away the part the user needs to decide.
+- **Exit `0` is the only code that means the run did what was asked** - a listing, a preview, or a
+  completed write that the read-back then confirmed. Say which of the three it was; "it worked" over
+  a preview is how an operator comes to believe a change was made.
 - **Do not paraphrase a refusal into a limitation of yours.** Exit `1` means the script declined
   and printed why, and nothing was written. What it actually refuses: a name that is not in the
   registry (it offers the near-miss when the name is only miscased); a module whose flag lives
@@ -39,8 +42,7 @@ Rules for reporting it:
   that is not the `owner/name` shape a hook produces, or that disagrees with `-ThisRepo`, or a
   `-ThisRepo` where no origin remote resolves to a slug at all; a `config.json` it cannot read,
   or one that does not parse (an override is merged over defaults, not over a file nobody could
-  parse); a module whose hook reads `config.json` directly rather than through the shared resolver,
-  where an override would be reported as applied and ignored; and a write stopped at the last moment - the member is missing, the
+  parse); and a write stopped at the last moment - the member is missing, the
   file changed underneath it, or the edited text would not have parsed as JSON. Give its reason
   in its words, and when it names another command, send the operator there. One further refusal -
   enabling a module that is declared with no code behind it - is defined but **fires for nothing

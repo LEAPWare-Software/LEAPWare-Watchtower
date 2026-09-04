@@ -21,13 +21,26 @@ contact_links:
       that all ship switched off — read modules.md before filing a report that something was not
       stopped, and read it especially if you armed one of those switches.
   # BOTH NUMBERS BELOW ARE PHRASED IN A SHAPE tests\doc_claims.ps1 READS, and the
-  # exact wording is load-bearing rather than stylistic. The quotation on the
-  # next line is an ILLUSTRATION of a phrasing, not a claim about this tree, and
-  # it is marked as such: from 4 September 2026 that guard reads a claim broken
-  # across a comment continuation (#258), and before that this sentence was
-  # invisible to it for exactly the reason ci.yml's stale suite count was.
-  # "five of them test                                       <!-- doc-claims:ignore -->
-  # behaviour" is a phrasing that guard's behavioural-suite-count rule matches;
+  # exact wording is load-bearing rather than stylistic. The quotation below is
+  # an ILLUSTRATION of a phrasing, not a claim about this tree, and it is marked
+  # as such: from 4 September 2026 that guard reads a claim broken across a
+  # comment continuation (#258), and before that this sentence was invisible to
+  # it for exactly the reason ci.yml's stale suite count was.
+  #
+  # THE MARKER IS ON ITS OWN LINE, DIRECTLY ABOVE THE QUOTATION, AND THE
+  # QUOTATION IS ON ONE LINE. Both halves of that are load-bearing and neither is
+  # tidiness - #284. The marker used to sit at the END of a line that split the
+  # quotation between `test` and `behaviour`, and the guard reads a line
+  # exemption only AFTER a pattern has matched. `<` is not whitespace, so the
+  # marker's own text stopped the pattern from spanning the wrap: the quotation
+  # was unread because it was BROKEN, not because it was exempt, and one reflow
+  # by somebody with no reason to think they had touched a claim would have
+  # turned it into a build failure. Keep it one line, keep the marker above it,
+  # and check the guard prints a `declined: ... line-exempt` row for this file -
+  # that row is the proof the exemption is the thing doing the work.
+  # <!-- doc-claims:ignore -->
+  # "five of them test behaviour" is a phrasing that guard's behavioural-suite-count
+  # rule matches;
   # "five of which test behaviour" is not, and would have been prose nothing
   # checks - which is how this block went wrong in the first place. It said "the
   # one check that remains" and "There is no test suite" until 3 August 2026;   <!-- doc-claims:ignore -->
