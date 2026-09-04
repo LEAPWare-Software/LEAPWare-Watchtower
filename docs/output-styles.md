@@ -21,9 +21,10 @@ model and the transcript to check. No hook fires with an assistant answer in han
 channel attached, and `Stop` sees `last_assistant_message` *after* it has been rendered.
 
 **So nothing on these pages should be read as a promise that this plugin controls what the
-assistant says to you.** It does not, and it never did. What it can refuse is a tool call, through
-the three gates in [Modules](modules.md#gates-and-what-counts-as-one) — all three of which ship
-switched off. See [Limitations](limitations.md).
+assistant says to you.** It does not, and it never did. What its three gates can refuse is a tool
+call, or a turn end that claims work a queued message did not do — never the words in an answer, and
+never anything at all as shipped, because all three of them ship switched off. See
+[Modules](modules.md#gates-and-what-counts-as-one) and [Limitations](limitations.md).
 
 ## Frontmatter, and what is verified
 
