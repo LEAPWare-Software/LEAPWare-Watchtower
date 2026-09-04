@@ -539,7 +539,7 @@ session — that exit code is the only channel that reaches the orchestrator mid
 
 Until wave 1 the health indicator was cleared by a marker record, written by a resolver command
 that has since been deleted along with its library half. **Nothing writes a clearing record now and
-nothing reads one.** What the status line puts in front of the `HH` glyph is three separate arms
+nothing reads one.** The number the status line prints after the `HH` glyph is three separate arms
 added together, and they do not behave the same way, so the difference is stated rather than
 averaged into one word:
 
@@ -668,9 +668,10 @@ one routinely carries the newer timestamp. Excluding it first is what makes time
 all — they now only ever choose between two real installs.
 
 Because three of this repo's shipped defects were things reporting success while doing nothing,
-`Get-LwgStateDirInfo` returns `@{ path; source; resolved; candidates }` alongside the plain path,
-where `source` is `env` | `discovered` | `bare` | `unresolved` and `resolved` is `$true` only for the
-first two. A caller can tell "this is the live directory" from "this is where I would have looked".
+`Get-LwgStateDirInfo` returns `@{ path; source; resolved; candidates; home; home_source }` alongside
+the plain path, where `source` is `env` | `discovered` | `bare` | `unresolved` and `resolved` is
+`$true` only for the first two. A caller can tell "this is the live directory" from "this is where I
+would have looked" — and, through the last two fields, which root step 2 searched and why.
 
 Resolution is memoised per process and costs, measured on this machine in a fresh PowerShell 5.1:
 **~32–42 ms cold on the `env` path a live hook takes**, ~75–105 ms cold when it has to discover
