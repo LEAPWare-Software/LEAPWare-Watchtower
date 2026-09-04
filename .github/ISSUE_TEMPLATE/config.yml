@@ -15,10 +15,10 @@ contact_links:
   - name: Documentation
     url: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/tree/main/docs
     about: >-
-      Install, configuration, modules, commands, architecture, testing and troubleshooting. Ten of
-      the thirteen modules observe and can block nothing; the other three are PreToolUse and Stop gates
+      Install, configuration, modules, commands, architecture, testing and troubleshooting. Eight of
+      the eleven modules observe and can block nothing; the other three are PreToolUse and Stop gates
       that all ship switched off — read modules.md before filing a report that something was not
-      stopped, and read it especially if you armed that switch.
+      stopped, and read it especially if you armed one of those switches.
   # BOTH NUMBERS BELOW ARE PHRASED IN A SHAPE tests\doc_claims.ps1 READS, and the
   # exact wording is load-bearing rather than stylistic. "five of them test
   # behaviour" is a phrasing that guard's behavioural-suite-count rule matches;
@@ -29,19 +29,38 @@ contact_links:
   # record of the wrong sentence survives, and the marker on that line says so.
   # Both were leftovers from 30 July 2026, when the two gates were deleted and
   # the portability scan was briefly the only thing left. Behavioural
-  # suites landed after that - five of them at first and nine today - while the pull request template in this same
+  # suites landed after that - five of them at first, and the count has moved
+  # several times since - while the pull request template in this same
   # directory went on requiring output from every file in tests\ - the chooser
   # page and the PR template are rendered to the same person minutes apart, and
-  # they disagreed.
+  # they disagreed. The live figure is in the Contributing guide entry below,
+  # which is the one doc_claims reads.
   #
   # This file was always inside doc_claims' scope: it enumerates every tracked
   # .md/.json/.yml/.yaml with no path restriction. A sentence stating no quantity
   # is simply invisible to a guard that matches quantities, so a future flat
   # denial with no number in it would still go unread. That hole is real and is
   # not closed here.
+  - name: Support and where to ask
+    url: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/SUPPORT.md
+    about: >-
+      Which route each kind of report takes, what to include so the first reply is a useful one, and
+      what you get back. A human replies within five working days; a reply is not a promise of a fix.
   - name: Contributing guide
     url: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/CONTRIBUTING.md
     about: >-
-      Dev setup, the fork-and-PR flow, the exit-code contract, and what a good PR looks like. There
-      are thirteen files in `tests/`, ten of them test behaviour, and a green run of all thirteen is a
-      narrower claim than it sounds — CONTRIBUTING.md says exactly how narrow.
+      Dev setup, the reports-yes, code-by-invitation posture and the invited contributor's flow, the
+      exit-code contract, and what a good PR looks like. There are fourteen files in `tests/`,
+      eleven of them test behaviour, and a green run of all fourteen is a narrower claim than it
+      sounds — CONTRIBUTING.md says exactly how narrow.
+  # WHY THIS REPOSITORY'S COMMUNITY PROFILE SCORE IS NOT 100, RECORDED HERE SO THE
+  # NEXT REVIEWER FINDS THE ANSWER BESIDE THE FORMS. GitHub's community profile
+  # check scores seven files and reports `issue_template: null` for this
+  # repository, which is what holds the number below 100 - it does not credit the
+  # five YAML issue forms in this directory. That is a property of GitHub's
+  # checklist, not of this product: a reader opening "New issue" meets five forms
+  # with required fields and a chooser that routes vulnerabilities away from
+  # public issues, which is strictly more than a legacy single-file template
+  # gives them. NOTHING WAS ADDED TO MOVE THE NUMBER. A legacy ISSUE_TEMPLATE.md
+  # added for the score would be a switch wired to nothing, in a .github
+  # directory, which is the founding defect of this project.

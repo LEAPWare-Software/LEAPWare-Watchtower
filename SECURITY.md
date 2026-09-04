@@ -33,7 +33,7 @@ No personal email address is published for security reports, and none should be 
 
 - What the issue is, in one or two sentences.
 - The exact command, path, file content or payload that triggers it — verbatim, not paraphrased.
-- Which module or file you believe is involved (`lib/common.ps1`, `lib/supervisor.ps1`, …).
+- Which module or file you believe is involved (`lw-watchtower/lib/common.ps1`, `lw-watchtower/lib/supervisor.ps1`, …).
 - Your Claude Code version, Windows version and `$PSVersionTable.PSVersion`.
 - What you expected to happen instead.
 
@@ -57,16 +57,22 @@ We will credit you in the advisory and the [CHANGELOG](CHANGELOG.md) unless you 
 
 ## Supported versions
 
-Pre-1.0. **`v0.3.0` is tagged** — the first and so far only tag this project has had — and
-**only the current `main` branch is supported.** Fixes land on `main`; there are no backports and no
-maintained release branches, so a tag is a marker of what was released and **not** a line that will
-receive a security fix. If you are running `v0.3.0`, move to `main` to get one.
+Pre-1.0, and this repository has no release tag yet. `v0.3.0` was tagged on a predecessor repository
+whose history this one does not carry; it is not served here and is not supported here. The first
+release from this repository is `v0.4.0`, and from the day it is tagged the **`0.4.x` line is the
+only supported line** — that is `main`, which is what the marketplace installs, and every `v0.4.*`
+tag. Fixes land on `main` and ship as the next `0.4.x` tag; there are no backports and no maintained
+release branches, so an older tag is a record of what was released and **not** a line that will
+receive a security fix.
 
 | Version | Supported |
 | --- | --- |
-| `main` | ✅ |
-| `v0.3.0` and any other tag | ❌ — released, not maintained |
+| `0.4.x` — `main` and every `v0.4.*` tag, from the `v0.4.0` release | ✅ |
+| `v0.3.0` (predecessor repository) and any earlier version | ❌ — not served by this repository |
 | anything else | ❌ |
+
+Until `v0.4.0` is tagged nothing is released: `main` is a pre-release tree, and a report against it
+is welcome under the response expectations above.
 
 ## Scope
 
@@ -80,13 +86,17 @@ history rewrite, a recursive delete, a `.git` write, a write to a credential fil
 carrying a live token. **None of that is a vulnerability here — it is a decision.** Please do not
 report any of it.
 
-**One `PreToolUse` gate does ship, and it is not a security control either.** `delegate_gate`
-refuses `Edit`, `Write`, `NotebookEdit`, `Bash` and `PowerShell` on the main conversation when
-`interaction.delegate` is on, and it **ships off**. It exists to keep the chat session for talking to
-the operator, not to defend a boundary: it reads no path, no command and no content — only the
-presence of `agent_id`, plus `tool_name` after the fact to word its refusal — and the operator
-it refuses can turn it off by editing one key. Getting a call past it is a **bug report**, not a
-vulnerability report — open a public issue. What remains in scope is narrower, and real.
+**Three gates do ship, all of them switched off, and not one of them is a security control.**
+`delegate_gate` refuses `Edit`, `Write`, `NotebookEdit`, `Bash` and `PowerShell` on the main
+conversation when `interaction.delegate` is on. `send_liveness_gate` refuses a `SendMessage` whose
+recipient it can prove is dead mid-flight. `completion_audit` refuses a turn end whose final message
+claims completed work while the turn's last action was a queued send. All three exist to hold a
+working discipline, not to defend a boundary: none reads a path, a command or a file's content, and
+the operator any of them refuses can turn it off by editing one key. Getting a call past one is a
+**bug report**, not a
+vulnerability report — use the **Bug report** form
+([`bug_report.yml`](.github/ISSUE_TEMPLATE/bug_report.yml)); blank issues are disabled here, so there
+is no bare public issue to open. What remains in scope is narrower, and real.
 
 ### In scope
 
@@ -94,9 +104,11 @@ vulnerability report — open a public issue. What remains in scope is narrower,
   receive. Any path by which a credential or token reaches `health.jsonl`, `lw-watchtower.jsonl`, the
   status line, a `systemMessage`, `advisory-<sessionkey>.json` in the state directory, or a
   subagent's injected context. That fourth destination was missing from this list until 3 August
-  2026, and it is the one a real defect used: `mission_drift` writes the anchors it derives from the
-  operator's prompt there, and quotes up to four of them back. `Get-LwgRedacted` in
-  `lib/common.ps1` is the only control standing between payload text and those destinations, and
+  2026, and it is the one a real defect used: `mission_drift` — a module removed since — wrote the
+  anchors it derived from the operator's prompt there, and quoted up to four of them back. The
+  destination stays on this list because it is still written to; the module that abused it is gone.
+  `Get-LwgRedacted` in
+  `lw-watchtower/lib/common.ps1` is the only control standing between payload text and those destinations, and
   **a shape it does not catch is a real finding**. The plugin reads transcripts, hook payloads and
   edited paths, so it handles material that may carry secrets even though it no longer scans for
   them.
@@ -104,7 +116,7 @@ vulnerability report — open a public issue. What remains in scope is narrower,
   **This page used to say that helper existed "so this cannot happen". That was an overstatement,
   and it was wrong in a way that had already shipped.** Until 3 August 2026 its generic rule
   required a key name to be followed *immediately* by a colon or an equals sign, so a single quote
-  defeated it — and `lib/supervisor.ps1` manufactured the quoted form itself, piping every
+  defeated it — and `lw-watchtower/lib/supervisor.ps1` manufactured the quoted form itself, piping every
   non-scalar payload field through `ConvertTo-Json -Compress` before handing the string to the
   redaction. `{"api_key":"…"}`, `{"token":"…"}`, `Authorization: Bearer …` and
   `export SECRET_VALUE=…` all went through untouched, into `health.jsonl` and — on the
@@ -114,17 +126,17 @@ vulnerability report — open a public issue. What remains in scope is narrower,
   helper, of which seven were confirmed to fail at the commit before the fix and two cannot fail
   there and say so in their own failure message** — one pins idempotency across the new shapes, the
   other is the blast-radius guard that an ordinary health record is left alone. The remaining two
-  (`C9`) drive `lib/supervisor.ps1` end to end in a child process and were both confirmed red. So:
+  (`C9`) drive `lw-watchtower/lib/supervisor.ps1` end to end in a child process and were both confirmed red. So:
   nine of eleven proven red, and the two that were not are marked as such in the suite rather than
   counted as proof.
 
   **Seven further cases landed on 3 August 2026** for the defects listed under *"That rewrite was not
   a one-way trade"* and in the two bullets about `Bearer` values and PEM bodies. Four are unit cases
-  in section A and three are `B19`, which drives `lib/stop_advisories.ps1` end to end. **Six of the
+  in section A and three are `B19`, which drives `lw-watchtower/lib/stop_advisories.ps1` end to end. **Six of the
   seven were confirmed red first**; the seventh is `B19`'s anti-vacuity guard and says so in its own
   failure message. Their baseline is stated per case and it is **not** uniform. All six were proven
   red against the working tree immediately before this fix. Against `fd8d023` they were **measured**,
-  not assumed, by putting the same specimens through all three copies of `lib/common.ps1`: the
+  not assumed, by putting the same specimens through all three copies of `lw-watchtower/lib/common.ps1`: the
   `Bearer`, array and PEM cases go red there as well, and **the newline case passes there** — the
   rule `fd8d023` shipped crossed a newline and the rule that replaced it stopped doing so, so that
   case is a regression against the 3 August rewrite alone. Calling it an `fd8d023` regression would
@@ -192,8 +204,8 @@ vulnerability report — open a public issue. What remains in scope is narrower,
   `GET /v1/x?api_key=…&page=2` loses every parameter after the credential; and a **numeric** JSON
   field becomes `{"tokens_used":[REDACTED]}`, which is not valid JSON. So masking does *not* always
   leave the record in the shape it arrived in, and the claim that it did has been removed from
-  `lib/common.ps1` rather than left standing.
-- **Damage to an operator's `settings.json`.** `bin/lwg-setup.ps1` and `bin/lwg-uninstall.ps1` are
+  `lw-watchtower/lib/common.ps1` rather than left standing.
+- **Damage to an operator's `settings.json`.** `lw-watchtower/bin/lwg-setup.ps1` and `lw-watchtower/bin/lwg-uninstall.ps1` are
   the only things here that write it. A merge that drops, reorders or corrupts a key the operator
   owns, a backup that does not hold the original bytes, a rollback that does not restore, or a
   `permissions.deny` rule mis-attributed to this plugin and removed when it was the operator's own —
@@ -203,9 +215,9 @@ vulnerability report — open a public issue. What remains in scope is narrower,
   `hooks` section is covered for what it **decides** — that an existing marketplace install is seen,
   and that a registration of the same script under another root is reported rather than duplicated —
   and only **inherits** the writer properties, since both go through the same `Save-Settings` path.
-  `bin/lwg-uninstall.ps1`'s `settings.json` edits have no case at all, and reports against any of
+  `lw-watchtower/bin/lwg-uninstall.ps1`'s `settings.json` edits have no case at all, and reports against any of
   that are especially valuable.
-- **Code execution through plugin data.** If a crafted `config.json`, `context/worker_facts.md`,
+- **Code execution through plugin data.** If a crafted `config.json`, `lw-watchtower/context/worker_facts.md`,
   transcript, or hook payload can cause a hook to execute attacker-controlled code, that is in scope
   even though those files are normally operator-controlled.
 - **A write outside the resolved state directory.** Anything that induces a hook to read or write a
@@ -238,26 +250,29 @@ These are not vulnerabilities in this project.
 - **Missing hardening with no demonstrated impact** — a scanner finding with no path to an effect.
 - **The advisory modules failing to warn.** They are advisory by construction and are documented as
   such; a missed warning is a bug report, not a security report.
-- **Output styles not being honoured.** They are system-prompt requests. Nothing can block assistant
-  text before you see it, and [we say so](docs/output-styles.md#what-these-cannot-do).
+- **Assistant text not being suppressed or reworded.** There is no hook between the model and the
+  transcript, so nothing here can block or alter assistant text before you see it. The five output
+  styles that once asked for a house voice were removed with the two commands that recorded the
+  preference, and they never enforced anything while they existed.
 
 ## Disclosure
 
 We prefer coordinated disclosure. Once a fix is on `main`, we will publish a GitHub Security
 Advisory describing the issue, the affected behaviour, and the commit that fixed it — including a
 check that **fails against the commit before the fix**. A finding without such a check is not
-considered closed. Nine suites in this repo establish a behaviour, and between them they reach the
-one gate (`tests/gate_delegate.ps1`), the installer's `statusline` merge and `hooks` decisions
-(`tests/setup_merge.ps1`),
-the two turn-end hooks (`tests/stop_behaviour.ps1`), the uninstaller's state-data deletions
-(`tests/uninstall_footprint.ps1`), the evidence engine (`tests/evidence_states.ps1`), two of the
-doctor's nine checks (`tests/doctor_behaviour.ps1`), the toggle's write to `config.json`
-(`tests/toggle_behaviour.ps1`), the `SubagentStart` fast path (`tests/subagent_scan.ps1`) and what
-the shipped payload discloses (`tests/payload_guard.ps1`). The 233-case
-gate suite went with `destructive_gate` and the `permissions.deny` parity harness went with
-`secret_scan`, and **nothing replaced what either covered** — nothing here inspects a command, a path
-or a credential to have a harness for. So unless your finding lands inside one of those five, closing
-a report means writing a check, not reusing one.
+considered closed. Eleven suites in this repository establish a behaviour, and between them they reach the
+delegate gate (`tests/gate_delegate.ps1`), the installer's `statusline` merge and `hooks` decisions
+(`tests/setup_merge.ps1`), the two turn-end hooks (`tests/stop_behaviour.ps1`), the uninstaller's
+state-data deletions (`tests/uninstall_footprint.ps1`), the state-directory resolver
+(`tests/state_resolution.ps1`), the supervision gates (`tests/supervision.ps1`), the doctor's driven
+checks (`tests/doctor_behaviour.ps1`), the toggle's and the config command's writes to
+`config.override.json` (`tests/toggle_behaviour.ps1`, `tests/config_behaviour.ps1`), the
+`SubagentStart` fast path (`tests/subagent_scan.ps1`) and what the shipped payload discloses
+(`tests/payload_guard.ps1`). The 233-case gate suite went with `destructive_gate` and the
+`permissions.deny` parity harness went with `secret_scan`, and **nothing replaced what either
+covered** — nothing here inspects a command, a path or a credential to have a harness for. So unless
+your finding lands inside one of those eleven, closing a report means writing a check, not reusing
+one.
 
 ## What this plugin does not protect
 
@@ -267,11 +282,12 @@ Stated here so a security reader does not have to infer it:
   setting. The logs are local JSONL files with no integrity protection.
 - It runs with your privileges. It cannot stop anything a process with your privileges is determined
   to do.
-- **It registers exactly one `PreToolUse` hook, and it makes no safety determination.** That is
-  `delegate_gate`, described in full above: it can express a denial to the CLI, and the only thing it
-  ever asks is whether the call came from a subagent. It ships off. **Every other hook here** runs at
-  session start, after a tool has already succeeded, or at turn end — by the time any of those sees
-  anything, the thing has happened. So there is still no hook on this machine that inspects a
-  command, a path or a file's content before it runs, which is the fact this bullet is for.
+- **It registers two `PreToolUse` hooks, and neither makes a safety determination.** They are
+  `delegate_gate` and `send_liveness_gate`, described above: each can express a denial to the CLI,
+  and the only things they ever ask are whether the call came from a subagent and whether a
+  `SendMessage` recipient is provably dead. Both ship off. **Every other hook here** runs at session
+  start, after a tool has already succeeded, or at turn end — by the time any of those sees anything,
+  the thing has happened. So there is still no hook on this machine that inspects a command, a path
+  or a file's content before it runs, which is the fact this bullet is for.
 - The one layer that could not fail open — `permissions.deny`, which the CLI evaluates itself before
   any hook runs — is no longer written by this plugin. If you want it, write it yourself.

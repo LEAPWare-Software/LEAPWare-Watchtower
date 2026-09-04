@@ -1,11 +1,22 @@
 # Contributing to LW-WATCHTOWER
 
+**Reports yes, code by invitation.** Bug reports, questions and feature requests are welcome, and
+every one gets a human reply within five working days — [SUPPORT.md](SUPPORT.md) says where each
+goes. A pull request from outside the collaborator list is different: **open an issue first and wait
+to be asked for the change.** That is not a closed door. Every change to this tree has to arrive with
+a regression case proven to fail before the fix, and there is one maintainer and nobody to coach that
+through review today; an unrequested pull request is closed with a pointer to this paragraph, not
+reviewed. An invited one follows the rest of this page exactly — fork, branch, suites, pull
+request — and gets the same checks a maintainer's does. Every rule below that says **[CI]** fails an
+invited contributor's build exactly as it fails ours.
+
 Thanks for looking. This project has three rules that matter more than the rest. Read them even if
 you skip everything else:
 
 1. [A regression test must fail before the fix](#a-regression-test-must-fail-before-the-fix).
-   **Nothing enforces this** — the only harness that could was deleted on 30 July 2026 — so it is
-   held by review, and held strictly.
+   **Only its bookkeeping is enforced** — `.github/scripts/redfirst_annotations.ps1` holds the shape
+   of a red-first annotation in CI and cannot re-run a baseline — so the rule itself is held by
+   review, and held strictly.
 2. [No local environment dependencies](#portability-no-local-environment-dependencies) — no account
    name, computer name, profile path or absolute interpreter path in a tracked file. **CI scans
    every tracked file and fails on a hit.** This one really will fail your build.
@@ -16,9 +27,9 @@ you skip everything else:
 
 ### How each rule on this page is held
 
-Rule 1 above says in bold that **nothing enforces it**. That was the only such note on this page for
-a long time, and singling one rule out that way tells a reader the others are enforced. Six were not.
-So every rule below now carries one of three tags, and the tag is the claim:
+Rule 1 above says in bold that only its bookkeeping is enforced. A note of that kind was the only one
+on this page for a long time, and singling one rule out that way tells a reader the others are
+enforced. Six were not. So every rule below now carries one of three tags, and the tag is the claim:
 
 | Tag | Means |
 | --- | --- |
@@ -27,15 +38,27 @@ So every rule below now carries one of three tags, and the tag is the claim:
 | **[CI, partly]** | something is checked and it is narrower than the rule. What exactly is checked is stated on the spot. |
 
 A tag is not a promise that the rule is a good one, and **[review]** is not a lesser rule — rule 1 is
-**[review]** and is the most important thing on this page. The tag answers one question only: if you
-get this wrong, does the build tell you, or does a person?
+**[CI, partly]** at best and is the most important thing on this page. The tag answers one question
+only: if you get this wrong, does the build tell you, or does a person?
+
+**What CI has learned to enforce since these tags were written**, because a stale **[review]** is the
+same overstatement in the other direction:
+
+| Rule | Now held by |
+| --- | --- |
+| A pull request body carries `Refs #N` | **[CI]** — `.github/scripts/pr_issue_ref.ps1` |
+| Every commit comes from an identity on the allowlist | **[CI]** — `.github/scripts/identity_scan.ps1` |
+| A red-first annotation names a commit and a case that exists | **[CI, partly]** — `.github/scripts/redfirst_annotations.ps1`; the shape only, never the baseline |
+| The five version-declaration sites agree with each other | **[CI]** — `.github/scripts/version_declarations.ps1`; the two tag-shaped rules report NOT CHECKED without a tag |
+| No workflow grants `permissions:` wider than read | **[CI]** — `tests/workflow_guard.ps1`'s tenth rule |
 
 By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 **Found a credential in a log, or an installer that damaged a `settings.json`?** Do not open a
-public issue. See [SECURITY.md](SECURITY.md). The one gate this plugin ships,
-`delegate_gate`, is **not a security control**: it refuses main-thread work as a discipline, a
-subagent can do everything it refuses by design, and a way past it is not a vulnerability.
+public issue. See [SECURITY.md](SECURITY.md). None of the three gates this plugin ships is a
+**security control**: `delegate_gate` refuses main-thread work as a discipline and a subagent can do
+everything it refuses by design, the two supervision gates hold a reporting discipline, and a way
+past any of them is not a vulnerability.
 
 ---
 
@@ -46,18 +69,22 @@ subagent can do everything it refuses by design, and a way past it is not a vuln
 | Requirement | Notes |
 | --- | --- |
 | Windows | Every hook is a Windows PowerShell script, the state directory is resolved against Windows paths, and the status line and installer both assume them. There is no portable path here and none is planned. |
-| **Windows PowerShell 5.1** (`powershell.exe`) | Not `pwsh`. PowerShell 7 is a different binary with different `NativeCommandError` behaviour, and `hooks/hooks.json` registers a binary literally named `powershell`. |
+| **Windows PowerShell 5.1** (`powershell.exe`) | Not `pwsh`. PowerShell 7 is a different binary with different `NativeCommandError` behaviour, and `lw-watchtower/hooks/hooks.json` registers a binary literally named `powershell`. |
 | `git` | For the repo, and for `git_hygiene`. |
 | `gh` | Optional. Only `git_hygiene`'s open-PR check uses it. |
 
 No Node, no npm, no Python.
 
-### Fork first, unless you have push access
+### The invited contributor's path starts with a fork
+
+This is the step after your issue has been answered and the change has been asked for. It is first on
+this page because of what it costs to discover last.
 
 **You cannot push a branch to this repository.** The collaborator list is one account, so a change
 cloned straight from upstream has nowhere to go and the pull request you are asked for at the end of
-this page cannot be opened. That is a cheap thing to find out first and an expensive one to find out
-last, so it is the first step here rather than the last.
+this page cannot be opened. An invitation does not change that — it is an invitation to open a pull
+request from your fork, not push access. That is a cheap thing to find out first and an expensive one
+to find out last, so it is the first step here rather than the last.
 
 ```powershell
 gh repo fork LEAPWare-Software/LEAPWare-Watchtower --clone=false
@@ -104,7 +131,7 @@ and you will spend an afternoon debugging a stale copy. Details in [docs/install
 Start a session and confirm the banner appears, then:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File bin\lwg-doctor.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File lw-watchtower\bin\lwg-doctor.ps1
 ```
 
 ### Line endings
@@ -122,7 +149,7 @@ endings *across files you did not otherwise change*: it turns a two-line diff in
 rewrite and makes review impossible. Configure your editor to preserve what it finds; there is an
 [`.editorconfig`](.editorconfig) that already says all of this.
 
-`statusline/statusline.ps1` is pinned to `eol=lf` on purpose, so a fresh clone reproduces the
+`lw-watchtower/statusline/statusline.ps1` is pinned to `eol=lf` on purpose, so a fresh clone reproduces the
 installed file byte for byte and a hash comparison against `~\.claude\statusline.ps1` keeps meaning
 something.
 
@@ -130,7 +157,7 @@ something.
 
 The product was renamed from `lw-gmhh` to `lw-watchtower` on 3 August 2026. **The internal `lwg` /
 `Lwg` / `LWG` prefix was deliberately not renamed with it**, and this is the record of that decision
-so nobody half-does it later. It is on twelve `bin/lwg-*.ps1` scripts, on every function and script
+so nobody half-does it later. It is on twelve `lw-watchtower/bin/lwg-*.ps1` scripts, on every function and script
 variable in `lib/` (`Get-LwgStateDirInfo`, `$script:LwgVersion`, `Write-LwgEvent`), and on two
 operator-visible strings.
 
@@ -140,93 +167,110 @@ the choice is nothing. Four reasons, in the order they matter:
 1. **It is not the product name.** `git grep -i gmhh` — the test the rename was held to — does not
    match `lwg` at all, so leaving it satisfies that criterion exactly as well as changing it would.
    What renaming it would buy is tidiness, against the costs below.
-2. **Two of these strings are in the operator's files, not ours.** [`bin/lwg-setup.ps1`](bin/lwg-setup.ps1)
+2. **Two of these strings are in the operator's files, not ours.** [`lw-watchtower/bin/lwg-setup.ps1`](lw-watchtower/bin/lwg-setup.ps1)
    writes its settings backups as `settings.json.lwg-<stamp>.bak` beside the target and enumerates
    `"<leaf>.lwg-*.bak"` to offer a rollback. Rename the prefix and every backup taken before the
    rename becomes invisible to the rollback that exists to restore it — a switch wired to nothing,
    on the one path an operator reaches for after a bad write.
 3. **`DELETE-MY-LWG-LOGS` is typed by a human.** It is the confirmation token
-   [`bin/lwg-uninstall.ps1`](bin/lwg-uninstall.ps1) requires before it will delete state. Changing a
+   [`lw-watchtower/bin/lwg-uninstall.ps1`](lw-watchtower/bin/lwg-uninstall.ps1) requires before it will delete state. Changing a
    token that already appears in this tree's documentation and in an operator's shell history buys
    nothing and breaks the copy-paste.
-4. **It is invisible from outside.** [`hooks/hooks.json`](hooks/hooks.json) registers
-   `${CLAUDE_PLUGIN_ROOT}/lib/*.ps1` and never names `bin/`; commands reach the scripts through
+4. **It is invisible from outside.** [`lw-watchtower/hooks/hooks.json`](lw-watchtower/hooks/hooks.json) registers
+   `${CLAUDE_PLUGIN_ROOT}/lib/*.ps1` and never names `lw-watchtower/bin/`; commands reach the scripts through
    `/lw-watchtower:<name>`. No operator types `lwg` except in the two cases above.
 
 **What it does NOT stand for, stated because a live acronym pointing at a dead name is worse than an
 opaque one:** nothing. It was a contraction of the old product name; the tree never expanded it and
 does not now. Read `lwg` as an arbitrary, stable prefix meaning "belongs to this plugin" — that is
-all it has to mean, and it is what the six `agents/lw-*.md` role files and the `lw-class` frontmatter
-key mean too.
+all it has to mean, and it is what the six `lw-watchtower/agents/lw-*.md` role files mean too. (Those
+files also carried an `lw-class` frontmatter key until 2 September 2026; the module that read it was
+removed, the reader went with it, and nothing in this release reads a role's class.)
 
 ### Testing a hook by hand
 
 A PowerShell pipe never reaches `[Console]::In`, so this does **not** work:
 
 ```powershell
-Get-Content payload.json | powershell -File lib\post_edit.ps1   # WRONG - stdin is empty
+Get-Content payload.json | powershell -File lw-watchtower\lib\post_edit.ps1   # WRONG - stdin is empty
 ```
 
 Use `cmd` to build the pipe:
 
 ```powershell
-cmd /c "type payload.json | powershell -NoProfile -ExecutionPolicy Bypass -File lib\post_edit.ps1"
+cmd /c "type payload.json | powershell -NoProfile -ExecutionPolicy Bypass -File lw-watchtower\lib\post_edit.ps1"
 echo $LASTEXITCODE
 ```
 
 That is the only way to exercise a hook the way Claude Code actually does. It is how the suites below
-drive `lib/gate_delegate.ps1`, `lib/stop_advisories.ps1` and `lib/supervisor.ps1`, and it is the only
-way to exercise `lib/post_edit.ps1`, `lib/session_start.ps1` or `lib/subagent_start.ps1` **at all**,
+drive `lw-watchtower/lib/gate_delegate.ps1`, `lw-watchtower/lib/stop_advisories.ps1` and `lw-watchtower/lib/supervisor.ps1`, and it is the only
+way to exercise `lw-watchtower/lib/post_edit.ps1`, `lw-watchtower/lib/session_start.ps1` or `lw-watchtower/lib/subagent_start.ps1` **at all**,
 because no suite reaches those three — see below.
 
 ---
 
 ## There is a test suite, and it is narrower than it sounds
 
-`tests/` holds **thirteen files, ten of which test behaviour**, and every one of them runs in the
-`fast-checks` CI job on every push and every PR:
+`tests/` holds **fourteen files, and eleven of them test behaviour**, and every one of them runs in
+the `fast-checks` CI job on every push and every PR:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1       # delegate_gate, 93 cases
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\setup_merge.ps1         # the installer's statusline + hooks merge, 124
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1      # the two turn-end hooks, 178
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\uninstall_footprint.ps1 # the uninstaller's footprint and deletions, 27
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\evidence_states.ps1     # the evidence engine, 47
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1    # two of the doctor's nine checks, 16
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\toggle_behaviour.ps1    # the toggle's write to config.json, 26
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1       # the SubagentStart fast path, 6
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1       # every tracked file, as shipped payload, 15
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1       # delegate_gate, 99 cases
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\supervision.ps1         # send_liveness_gate, completion_audit, orphan_watch, 64
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\setup_merge.ps1         # the installer's statusline + hooks merge, 185
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1      # the two turn-end hooks, 117
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\uninstall_footprint.ps1 # the uninstaller's footprint and deletions, 35
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\config_behaviour.ps1    # the config command's write to the override, 42
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\toggle_behaviour.ps1    # the toggle's write to the override, 28
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\state_resolution.ps1    # the state-directory resolver, 32
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1    # the doctor's driven checks, 32
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1       # the SubagentStart fast path, 8
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1       # every tracked file, as shipped payload, 22
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\workflow_guard.ps1      # every workflow file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\portability_scan.ps1    # every tracked file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doc_claims.ps1          # every tracked page's counts
 ```
 
-The last three assert **nothing about behaviour**: two check the contents of tracked files and the
-third checks that the documentation's numbers match the tree. All twelve share one exit contract:
-`0` passed, `1` a check failed, `2` the harness aborted and **nothing was checked**. There is no
-"passed with a caveat" code, and a suite that ran zero cases exits `2`, never `0`.
+Three guards live under `.github/scripts/` rather than in `tests/`, because they assert nothing about
+what this plugin does — they hold this repository's own process. CI runs each of them in its own
+step, and you can run them locally the same way:
 
-**"Nine of which test behaviour" is a classification, not a compliment, and one of the nine is a
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .github\scripts\redfirst_annotations.ps1         # the annotation shapes
+powershell -NoProfile -ExecutionPolicy Bypass -File .github\scripts\redfirst_annotations.ps1 -Live   # over tests\*.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .github\scripts\version_declarations.ps1 -Live   # the five declaration sites
+powershell -NoProfile -ExecutionPolicy Bypass -File .github\scripts\identity_scan.ps1                # the commit-identity allowlist
+```
+
+`.github\scripts\pr_issue_ref.ps1` is the fourth and takes a pull request body, so there is nothing
+useful to run locally against; CI is where it fires.
+
+The last three in that list assert **nothing about behaviour**: two check the contents of tracked
+files and the third checks that the documentation's numbers match the tree. They all share one exit
+contract: `0` passed, `1` a check failed, `2` the harness aborted and **nothing was checked**. There
+is no "passed with a caveat" code, and a suite that ran zero cases exits `2`, never `0`.
+
+**"Eleven of them test behaviour" is a classification, not a compliment, and one of the eleven is a
 borderline case worth naming.** `tests/doc_claims.ps1` decides which suites are behavioural by
 RUNNING each of them and reading what each says about itself: a suite that tallies `N of M case(s)`
 is counted behavioural, one that tallies violations is a scan. `tests/payload_guard.ps1` reads
 tracked files rather than running any of this plugin's code, but it reports cases, so the derived
 count includes it. That is the guard observing the tree instead of being told about it — which is the
-property the whole file exists for — and the honest reading of "nine" is "nine suites tally cases",
-of which eight drive this plugin's code in a real process and one scans the payload.
+property the whole file exists for — and the honest reading of "eleven" is "eleven suites tally
+cases", of which ten drive this plugin's code in a real process and one scans the payload.
 
 **Two suites were deleted on 30 July 2026 and neither is coming back.**
 `tests/gate_regression.ps1` — 233 cases over both `PreToolUse` gates — went with the
 `destructive_gate` module it mostly covered, the `lw-watchtower:verify` command that ran it, and the
 `gate-regression` CI job. `tests/deny_parity.ps1`, with `tests/fixtures/deny_canonical.txt` and
 `tests/fixtures/settings_merge_input.json`, went the same day with `secret_scan` — the last gate — at
-the owner's explicit instruction. `bin/lwg-setup.ps1` writes no `permissions.deny` rules any more, so
-there is no table left for a parity test to compare against, and nothing here inspects a shell
-command or a credential for a gate suite to cover.
+the owner's explicit instruction. `lw-watchtower/bin/lwg-setup.ps1` writes no `permissions.deny` rules
+any more, so there is no table left for a parity test to compare against, and nothing here inspects a
+shell command or a credential for a gate suite to cover.
 
-**So for anything outside those five, nothing will catch you.** Say in the PR exactly what you
-exercised and how, using the `cmd /c` recipe above, and do not describe a green CI run as evidence
-about behaviour beyond what those five establish.
+**So for anything outside what those suites reach, nothing will catch you.** Say in the PR exactly
+what you exercised and how, using the `cmd /c` recipe above, and do not describe a green CI run as
+evidence about behaviour beyond what they establish.
 
 ### What went with `deny_parity.ps1`, and what came back
 
@@ -251,9 +295,10 @@ purpose. They do not share one baseline: four pass at `fd8d023`, and the relocat
 only against the working tree as it stood immediately before its own fix, because neither file read
 `CLAUDE_CODE_PLUGIN_CACHE_DIR` at `fd8d023`.
 
-**The deny half is genuinely gone and is not outstanding work**: `Get-DenyGroups` returns an empty
-table, so a test asserting that an empty table is still empty would report a pass on every run, which
-is the false assurance this repo exists to refuse.
+**The deny half is genuinely gone and is not outstanding work**: `Get-DenyGroups` no longer exists at
+all — not as a function returning an empty table, which is what this page said until 3 September
+2026 — so a test asserting that an empty table is still empty would have nothing to call, and would
+report a pass on every run if it did. That is the false assurance this repo exists to refuse.
 
 **What is still outstanding**, and matters if you touch the writer: the backup-collision suffix and
 the post-write auto-restore are named as uncovered in the suite's own header, and no case anywhere
@@ -278,12 +323,31 @@ So, for every bug fix:
 3. Apply the fix. Run it again. It must **pass**.
 4. Say both results in the PR, with the case ID.
 
-**If your fix is inside what one of the ten behavioural suites covers, add the case to that suite**
-— the gate, the installer's `statusline` merge, either turn-end hook, the uninstaller's state-data
-deletions, the evidence engine, either of the two doctor checks that are driven, the toggle's write
-to `config.json`, the `SubagentStart` fast path, or what the shipped payload discloses. Each already
-runs its cases through a real pipe into a real child
-process, and each has a `Add-Result` shape to follow.
+**A worked example, because "prove it red" is the step people skip.** Suppose the defect is that
+`delegate_gate` allows a `PowerShell` call from the main thread. You add a case to
+`tests/gate_delegate.ps1` — the suite that owns that behaviour — then, from a throwaway clone rather
+than your working tree, so nothing of your fix leaks into the baseline:
+
+```powershell
+git clone --no-hardlinks . ..\proof
+git -C ..\proof checkout <parent sha>
+copy tests\gate_delegate.ps1 ..\proof\tests\gate_delegate.ps1   # ONLY the test change
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\proof\tests\gate_delegate.ps1
+```
+
+That run must print your case's `[FAIL]` line and a non-zero `EXIT:`. Then run the same suite on your
+branch and it must print `[ok]` for the same case id and `EXIT: 0`. Paste **both** whole, not a
+summary of them, and name the parent sha you used. A case that cannot be made to fail at the parent —
+because the code it tests did not exist there — is still a legitimate case, but say so in the PR
+rather than implying a red run you did not get; `.github/scripts/redfirst_annotations.ps1` holds the
+annotation's shape, and it cannot tell those two apart for you.
+
+**If your fix is inside what one of the eleven behavioural suites covers, add the case to that
+suite** — `delegate_gate`, the two supervision gates, the installer's `statusline` and `hooks` merge,
+either turn-end hook, the uninstaller's state-data deletions, the state-directory resolver, the
+doctor's driven checks, either command's write to `config.override.json`, the `SubagentStart` fast
+path, or what the shipped payload discloses. Each already runs its cases through a real pipe into a
+real child process, and each has a `Add-Result` shape to follow.
 
 **If it is anywhere else, there is no harness to hang the case on**, and that is the honest state of
 this repo rather than an exemption. The case then has to be a script you write and include, driven
@@ -348,8 +412,9 @@ alternatives: [docs/portability.md](docs/portability.md).
 The third rule that will fail your build, and the only one whose failure mode is not confined to this
 repository.
 
-**No workflow file may reach a runner GitHub does not host, use the `pull_request_target` trigger, or
-use a secret.** Run it before you push — under a second:
+**No workflow file may reach a runner GitHub does not host, use the `pull_request_target` trigger,
+use a secret, or grant itself `permissions:` wider than read.** Run it before you push — under a
+second:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\workflow_guard.ps1
@@ -368,11 +433,21 @@ build. Full rule table, and what it does *not* cover:
 | `on: pull_request_target` | it runs the base branch's workflow with a read-write token and this repository's secrets while an untrusted author controls the head |
 | `${{ secrets.* }}`, or `secrets: inherit` | nothing here needs a credential. The checks parse files and run local scripts. |
 | a job-level `uses:` calling a workflow in another repository | it picks its own runners and its own steps, in a file nothing here can read |
+| a `permissions:` grant wider than read, at workflow level or at job level, including the `write-all` scalar shorthand | a token that can write is a token that can push, tag or publish from a workflow an outside contributor can trigger |
 
 **The guard parses; it does not grep**, so reformatting does not get you past it, and a construct it
-cannot parse is reported as a violation rather than skipped. If it fires, **fix the workflow.** The
-allowlist is empty on purpose and `secrets.GITHUB_TOKEN` is not pre-approved; adding an entry means
+cannot parse is reported as a violation rather than skipped. If it fires, **fix the workflow.** Its
+allowlist holds **two entries**, both belonging to `release.yml`: `release-publish-token` for the
+`${{ secrets.GITHUB_TOKEN }}` its publish step reads, and `release-publish-grant` for the job-level
+`contents: write` that token runs under. They are separate entries so that dropping either does not
+quietly widen the other, and `secrets.GITHUB_TOKEN` is still not pre-approved anywhere else: an entry
+written before a concrete step needs it is an entry written without a reason. Adding one means
 stating the specific need, on the entry, in the PR.
+
+**What the permissions rule does not cover: the absence of a `permissions:` block.** The rule holds a
+block that exists to read-scoped values; a workflow declaring none at all inherits the repository's
+default workflow permissions, which is repository configuration this scan cannot read. Requiring the
+block is a policy preference, and the exit-1 contract is reserved for real violations.
 
 This is enforced rather than written down because the check that came before it was a rule requiring
 `ci.yml` to *contain the string* `self-hosted` — which **a comment satisfied**, and which would have
@@ -396,8 +471,9 @@ because a comment is only read by somebody already editing the line it sits on.
   **name**, so renaming it silently stops satisfying the requirement — the build goes green and the
   protection stops applying. The display name is already narrower than what the job does; that is
   known and is not a reason to change it. Rename it only together with the branch-protection setting.
-- **One broken suite produces two red steps.** `tests/doc_claims.ps1` re-runs the seven sibling
-  suites to read the tallies they print about themselves, and exits `2` if any of them exits nonzero.
+- **One broken suite produces two red steps.** `tests/doc_claims.ps1` re-runs every sibling suite in
+  `tests/` to read the tallies they print about themselves — it prints how many it ran, so no count
+  is transcribed here to go stale — and exits `2` if any of them exits nonzero.
   So breaking any one of them fails that suite's own step *and* the documentation-claim step, and the
   second failure is not a second defect. Read the first one.
 
@@ -422,12 +498,12 @@ That applies to your PR description and to any documentation you touch:
 - **Never document a command, flag or behaviour that does not exist.** If you are unsure, check, and
   if it does not exist, leave it out.
 - **Every number in the docs must come from a file you read or a measurement you took.** Say which.
-- **Do not claim coverage you do not have.** Exactly ten behavioural suites exist in this repo, and
-  between them they reach one gate, two writers, one deleter, one reporting engine, two of the
-  doctor's nine checks, one hook's fast path, the shipped payload, and eight of the ten
-  observing modules — so unless your change lands inside one of those, "tested" means an assertion
-  you wrote and included. "Verified by inspection" is a legitimate and welcome statement — write that
-  instead, exactly as the existing docs do.
+- **Do not claim coverage you do not have.** Exactly eleven behavioural suites exist in this
+  repository, and between them they reach three gates, three writers, one deleter, one resolver, the
+  doctor's driven checks, one hook's fast path, the shipped payload, and some but not all of what
+  observes — so unless your change lands inside one of those, "tested" means an assertion you wrote
+  and included. "Verified by inspection" is a legitimate and welcome statement — write that instead,
+  exactly as the existing docs do.
 - **A count you write down is checked by a machine.** `tests/doc_claims.ps1` derives the real number
   of test files, behavioural suites, per-suite cases, CI check steps, doctor checks, commands and
   modules from the tree at run time, and fails the build when a tracked page disagrees. If a sentence
@@ -447,11 +523,15 @@ Before you open the PR:
       is not a pass.
 - [ ] For a bug fix, a check that **fails** against the parent commit and passes here, with both
       results stated — including what you had to write to make that demonstrable.
-- [ ] `powershell -File bin\lwg-doctor.ps1` exits `0` or `2` with the warnings explained.
+- [ ] `powershell -File lw-watchtower\bin\lwg-doctor.ps1` exits `0` or `2` with the warnings explained.
 - [ ] If this is the first commit on `main` after a tag, the declared version has moved off that tag
       — all five sites — and `CHANGELOG.md` has a section to put your entry in. See
-      [Versions and releases](#versions-and-releases). CI cannot check this for you: it checks out
-      without tags, so the rule that would catch it reports NOT CHECKED there.
+      [Versions and releases](#versions-and-releases). CI checks that the five sites agree with each
+      other on every push and pull request; it **cannot** check them against a tag, because it checks
+      out without tag refs, so that half reports NOT CHECKED there.
+- [ ] `powershell -File .github\scripts\redfirst_annotations.ps1 -Live` exits `0`, and
+      `powershell -File .github\scripts\version_declarations.ps1 -Live` exits `0`. CI runs both, each
+      after its own fixture pass, and a fixture failure fails the step before the tree is read.
 - [ ] Every `.json` you touched still parses. CI checks every tracked `.json` with `git ls-files`, so
       a new one is covered the moment it is tracked.
 - [ ] Every `.ps1` you touched parses:
@@ -467,15 +547,19 @@ Before you open the PR:
       [Workflows](#workflows-no-self-hosted-runner-no-pull_request_target-no-secrets). CI runs this
       and a hit fails the build. An allowlist entry needs its reason stated in the PR, and
       `secrets.GITHUB_TOKEN` is not exempt by default.
+- [ ] The pull request body carries `Refs #N` for every issue it touches, and **never** `Closes #N` —
+      `.github\scripts\pr_issue_ref.ps1` runs in CI and refuses a body without a reference.
 
 ### Adding or changing a module
 
 Modules are declared in **two** places and they must agree:
 
-1. `$LwgModuleRegistry` in [`lib/common.ps1`](lib/common.ps1) — the **source of truth**. It records
+1. `$LwgModuleRegistry` in [`lw-watchtower/lib/common.ps1`](lw-watchtower/lib/common.ps1) — the **source of truth**. It records
    kind (`gate` or `observe`), status (`implemented` or `planned`), the file carrying the behaviour,
    and the caveats.
-2. `modules` in [`config.json`](config.json) — the flag, plus an entry in the `$status` block.
+2. `modules` in [`lw-watchtower/config.json`](lw-watchtower/config.json) — the flag. There is no
+   second list in `$status` to keep in step with it any more; `$LwgModuleRegistry` is the
+   authoritative one and `config-registry` holds the two together.
 
 `/lw-watchtower:doctor`'s `config-registry` check fails when they disagree: a flag with no registry entry
 is a switch wired to nothing, and a registry entry with no flag is a module nobody can turn off.
@@ -497,21 +581,24 @@ Three further requirements:
 - **`gate` means it can block.** If it warns, it is `observe`, however important it is. Calling an
   advisory a gate inflates the gate count, which is the same overstatement as counting an unbuilt
   module as coverage. **Exactly three modules in the registry are `kind = 'gate'` today —
-  `delegate_gate`, registered on `PreToolUse` in `hooks/hooks.json` and shipping switched off** — so
-  a new `gate` is the **second** one, not the first, and needs the hook registration to go with it,
-  not just the word. `$status.gates_live` in `config.json` reads `0` because that number counts
-  gates that are switched **on**, which is a different question from how many ship. Read
+  `delegate_gate` and `send_liveness_gate`, both registered on `PreToolUse` in
+  `lw-watchtower/hooks/hooks.json`, and `completion_audit` on `Stop` and `SubagentStop`; all three
+  ship switched off** — so a new `gate` is the **fourth** one, and needs the hook registration to go
+  with it, not just the word. `config.json` records no live-gate count at all —
+  `Get-LwgActiveGates` answers that from the registry and the switches — so a new gate needs no
+  number updated anywhere, only its registry entry and its switch. Read
   [Gates were removed deliberately](docs/gates-removed.md) before you write one: it records what the
   four failed fix attempts on the last gate taught, and what a new attempt has to do differently.
-  `verification_gate` keeps "gate" in its name and is **not** one: it is `kind = 'observe'`, an
-  advisory on `Stop`. The name is historical and the registry entry is the truth.
+  A gate's switch also lives outside the `modules` block, in `interaction` or `supervision`, and
+  deliberately so: `Get-LwgConfig` fails **open**, and a corrupt config must never arm something that
+  blocks.
 
 ### Adding a hook
 
-- Register it in [`hooks/hooks.json`](hooks/hooks.json) in **exec form** (`command` + `args`), never
+- Register it in [`lw-watchtower/hooks/hooks.json`](lw-watchtower/hooks/hooks.json) in **exec form** (`command` + `args`), never
   `shell: "powershell"` — `pwsh` may be absent and the shell form mangles Windows paths.
-  **[CI, partly]**: exec form is asserted for **two specific registrations only** —
-  `tests/gate_delegate.ps1` and `tests/stop_behaviour.ps1` each pin the one they drive. A new
+  **[CI, partly]**: exec form is asserted for a **few specific registrations only** — each suite
+  that drives a hook pins the registration it drives, and no rule reads the file as a whole. A new
   registration in shell form is caught by nobody.
 - **Every hook exits 0 — with one deliberate exception, and getting it the wrong way round is how
   you ship a gate that blocks nothing.** A broken governance layer must never break a session, so
@@ -519,10 +606,10 @@ Three further requirements:
   reason goes to **stderr** and the hook **exits 2**. Only exit 2 blocks a `PreToolUse` call.
   **Exit 1 is a non-blocking error and the tool runs anyway**, so a gate that computes a correct
   denial and exits 1 — or 0 — has silently failed open while every reporting surface still counts it
-  as a live gate. `lib/gate_delegate.ps1` writes a stdout envelope as well, first, and its header
+  as a live gate. `lw-watchtower/lib/gate_delegate.ps1` writes a stdout envelope as well, first, and its header
   records that the envelope is redundant on this CLI build because a nonzero exit makes stdout be
   dropped; the exit code is the load-bearing channel because an exit code cannot be malformed. Read
-  `lib/gate_delegate.ps1`'s header before writing a `PreToolUse` hook — it is the only one in this
+  `lw-watchtower/lib/gate_delegate.ps1`'s header before writing a `PreToolUse` hook — it is the only one in this
   tree and it is the worked example.
 - Budget for it. **[review]** — no check here measures a hook, and CI's job timeout is not
   one: a hook costing an extra half-second per event fails nothing. (That timeout was ten minutes
@@ -537,9 +624,12 @@ Three further requirements:
 
 ### Commits
 
-All three are **[review]**. There is no commit-message hook, no `commitlint`, and no CI step that
-reads a commit at all — the history complies because people have been careful, which is a fact about
-discipline and not about enforcement.
+All three below are **[review]**. There is no commit-message hook and no `commitlint`, and nothing
+reads a commit *message* — the history complies because people have been careful, which is a fact
+about discipline and not about enforcement. One commit property **is** enforced:
+`.github/scripts/identity_scan.ps1` runs in CI and fails the build on a commit whose author or
+committer identity is not on the allowlist. **[CI]**, and it says nothing about what the message
+contains.
 
 - Write the *why* in the body, not just the *what*. The existing history is the model: state the
   defect, the evidence, and what was measured rather than assumed.
@@ -576,15 +666,15 @@ A **declaration** is a field a machine reads. There are five, and they move toge
 
 | Site | What reads it |
 | --- | --- |
-| `.claude-plugin/plugin.json` | Claude Code's plugin loader |
-| `.claude-plugin/marketplace.json` | the marketplace entry for `lw-watchtower` |
-| `config.json` | the config's own `version` key |
-| `lib/common.ps1` — `$script:LwgVersion` | the banner and every command that prints a version |
-| `lib/session_start.ps1` — `$version` | the pre-`common.ps1` fallback banner, used when startup fails before the config loads |
+| `lw-watchtower/.claude-plugin/plugin.json` | Claude Code's plugin loader |
+| `.claude-plugin/marketplace.json` | the marketplace entry for `lw-watchtower`; this one stays at the repository root, because it is the file the CLI reads to add the marketplace at all |
+| `lw-watchtower/config.json` | the config's own `version` key |
+| `lw-watchtower/lib/common.ps1` — `$script:LwgVersion` | the banner and every command that prints a version |
+| `lw-watchtower/lib/session_start.ps1` — `$version` | the pre-`common.ps1` fallback banner, used when startup fails before the config loads |
 
 Everything else that mentions a version is a **citation of a tag**, and citations do not move.
-`adversarial UAT against v0.3.0`, `## [0.3.0] — 2026-07-31`, `bin/lwg-setup.ps1`'s note about what
-changed in a release — all of those name the tested tree and are correct at `0.3.0` forever.
+`adversarial UAT against v0.3.0`, `## [0.3.0] — 2026-07-31`, `lw-watchtower/bin/lwg-setup.ps1`'s note
+about what changed in a release — all of those name the tested tree and are correct at `0.3.0` forever.
 Rewriting one would be falsifying a record. **Getting this distinction wrong in either direction is
 the failure mode**: bump a citation and you have destroyed history; leave a declaration and you have
 shipped two trees under one name.
@@ -606,10 +696,15 @@ rules:
 
 Two holes, both real, both stated rather than left to be discovered:
 
-- **It does not run in CI.** `actions/checkout@v4` checks out at depth 1 with no tag refs, and
-  `git tag -l` printing nothing is not evidence that nothing was tagged — so the guard reports
-  `version-not-a-published-tag` as **NOT CHECKED** on every CI run rather than passing it vacuously.
-  It runs for you, on an ordinary clone, which includes the release pass. Run it there.
+- **The tag-shaped half cannot run in CI.** `actions/checkout@v4` checks out at depth 1 with no tag
+  refs, and `git tag -l` printing nothing is not evidence that nothing was tagged — so
+  `version-not-a-published-tag` reports **NOT CHECKED** on every CI run rather than passing it
+  vacuously. The agreement half does run: since 3 September 2026 a `Version declarations` step
+  invokes `.github/scripts/version_declarations.ps1 -Live` on every push and pull request and fails
+  the build when the five sites disagree with each other, and `release.yml` invokes the same guard
+  with `-Tag` on a tag, which is the only caller that has one to ask with. Both callers run the
+  guard's fixtures first and refuse to trust a live answer from a guard whose own rules did not fire.
+  Run it on an ordinary clone, which includes the release pass, for the half CI declines.
 - **It reads declarations, not prose.** A page saying "the manifests declare `0.3.0`" is invisible to
   it, deliberately — a pattern loose enough to catch that also catches every tag citation above, and
   no machine here can tell those apart. The `0.4.0` pass swept `README.md`, `docs/faq.md` and
@@ -618,11 +713,12 @@ Two holes, both real, both stated rather than left to be discovered:
 
   | Where | What it says | Why it is still there |
   | --- | --- | --- |
-  | `HANDOFF.md` | "the version string reads `0.3.0` everywhere that declares it" | The page is titled *Handoff — 31 July 2026 (v0.3.0 release)*. That sentence is a **record** of the day, and correcting a record falsifies it. |
+  | `.github/notes/HANDOFF.md` | "the version string reads `0.3.0` everywhere that declares it" | The page is titled *Handoff — 31 July 2026 (v0.3.0 release)*. That sentence is a **record** of the day, and correcting a record falsifies it. Everything under `.github/notes/` is that kind of page. |
 
   **Decide record-or-claim for every one of these before you edit it**, because getting it wrong
-  destroys history as easily as leaving it ships a lie. `SECURITY.md` needs no change either: it
-  says `v0.3.0` is the only tag and receives no fixes, which stays true until the next tag.
+  destroys history as easily as leaving it ships a lie. `SECURITY.md`'s *Supported versions* section
+  was rewritten on 3 September 2026 for the same reason in reverse: it said `v0.3.0` was this
+  repository's only tag, and this repository has never carried that tag at all.
 
 ### Cutting a release
 
@@ -637,10 +733,16 @@ Two holes, both real, both stated rather than left to be discovered:
 4. The documented marketplace install route resolves the **default branch**, not the tag. It always
    will; there is no ref key in play. Do not write release notes that imply otherwise, and see
    [docs/install.md](docs/install.md) for the wording that tells a consumer the truth.
+5. `v0.4.0` will be the **first tag this repository serves**. `v0.3.0` was tagged on a predecessor
+   repository whose history this one does not carry, so step 2 has nothing to compare against until
+   `v0.4.0` exists, and no page here should offer a reader an earlier tree to check out.
 
 ---
 
 ## Reporting issues
+
+[SUPPORT.md](SUPPORT.md) is the front door and says which route each kind of report takes; what
+follows is what this page adds for someone who has read it.
 
 - **Bugs and false positives:** use the bug template. Include the exact command or path, your Claude
   Code version, Windows version and `$PSVersionTable.PSVersion`, and the relevant lines from the

@@ -10,16 +10,16 @@ body:
         [SECURITY.md](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/SECURITY.md),
         not here.
 
-        **Stop if it is a documented limitation.** Ten of the thirteen modules observe and report and
+        **Stop if it is a documented limitation.** Eight of the eleven modules observe and report and
         can block nothing at all: `destructive_gate` and `secret_scan` were removed on 30 July 2026
         at the owner's instruction, nothing inspects a command, a path or a credential, and "it did
-        not stop X" about any of those nine is the documented state rather than a bug.
+        not stop X" about any observing module is the documented state rather than a bug.
 
-        **One `PreToolUse` gate does ship, and a call it should have refused IS a bug.**
+        **Three gates do ship, and a call one of them should have refused IS a bug.**
         `delegate_gate` is registered on `PreToolUse` for `Edit`, `Write`, `NotebookEdit`, `Bash`
-        and `PowerShell`; it is **off by default**, and when `interaction.delegate` is on it refuses
-        those tools for any call that did not come from a subagent. If you armed it and something
-        reached the main thread anyway, that is exactly the kind of report this form is for. See
+        and `PowerShell`; `send_liveness_gate` on `PreToolUse` for `SendMessage`; `completion_audit`
+        on `Stop` and `SubagentStop`. All three are **off by default**. If you armed one and it let
+        through what it says it refuses, that is exactly the kind of report this form is for. See
         [docs/modules.md](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/docs/modules.md).
 
   - type: checkboxes
@@ -37,10 +37,11 @@ body:
     attributes:
       label: What is affected
       options:
-        - An end-of-turn advisory (context_pressure, verification_gate, docs_coupling, git_hygiene, mission_drift)
+        - An end-of-turn advisory (context_pressure, docs_coupling, git_hygiene)
         - An advisory fired when it should not have, or said something wrong
         - failure_capture / log_rotation / self_health
         - context_injection (what a subagent is told at dispatch)
+        - orphan_watch (an agent reported dead, or an orphan never reported)
         - A hook that does not fire at all
         - The SessionStart banner (module counts, mode word)
         - The status line (HH / ORC segments)
@@ -48,6 +49,7 @@ body:
         - Setup or uninstall writing settings.json
         - delegate_gate (a call reached the main thread that the armed gate should have refused)
         - delegate_gate (it refused something it should not have, or the switch does not take)
+        - send_liveness_gate or completion_audit (it allowed or refused what it says it would not)
         - A test or the CI workflow
         - Install / discovery
         - Documentation

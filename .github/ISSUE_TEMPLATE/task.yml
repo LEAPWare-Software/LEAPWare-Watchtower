@@ -38,7 +38,8 @@ body:
       label: What changes
       description: The change itself, in the smallest honest scope. If it needs two pull requests, it is two issues.
       placeholder: |
-        e.g. bin/lwg-doctor.ps1 loses the agent-roles check, taking the doctor from nine checks to eight.
+        e.g. lw-watchtower/bin/lwg-doctor.ps1 loses a check, which moves the doctor's check count and
+        every page that states it.
     validations:
       required: true
 
