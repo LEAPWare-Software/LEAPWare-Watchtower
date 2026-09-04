@@ -1087,8 +1087,29 @@ try {
                   -Action $(if ($ok) { 'DELETE - confirmed' } elseif ($RemoveData) { 'REFUSED - wrong or missing -ConfirmToken' } else { 'kept - this is evidence' }) `
                   -Detail ((@($dataDirs | ForEach-Object { "$($_.Path) [$($_.Why)]" }) -join '; ') + $extra)
         if (-not $ok) {
+            # KEPT BY THIS SCRIPT IS NOT THE SAME AS KEPT (#280). This paragraph
+            # promised the operator that the two log files survive, and eleven
+            # lines further down the same report named `claude plugin uninstall`
+            # as the command that removes a marketplace install. Measured on CLI
+            # 2.1.260: the plain form of that command deletes the plugin's whole
+            # data directory - every file in it, including files this plugin
+            # never wrote - without warning, and `--keep-data` is the only form
+            # that keeps it. So on the marketplace route the report told the
+            # operator their evidence was safe and then handed them the command
+            # that destroys it, and nobody copies logs out before a step
+            # described as removing "the load path itself".
+            #
+            # ROUTE-CONDITIONAL, because on the junction route the original
+            # sentence is simply true: no CLI uninstall owns that data directory
+            # and there is nothing to warn about. Saying it on both routes would
+            # be the same mistake in the other direction - a warning about a
+            # command the operator is not going to run.
+            $dataWhy = 'health.jsonl and lw-watchtower.jsonl are the record of every fault, gate trip and advisory this plugin saw, including whatever prompted the uninstall. Deleting them needs -RemoveData -ConfirmToken DELETE-MY-LWG-LOGS.'
+            if ($route.isCache) {
+                $dataWhy += " KEPT HERE IS NOT KEPT AFTERWARDS: this is a marketplace install, and 'claude plugin uninstall $($route.id)' - the CLI command named further down this report, and the one the install page sends you to - deletes this directory whole, every file in it, without asking and without a confirmation token. Its '--keep-data' form is the one that keeps it. Whichever route you are on, copying health.jsonl and lw-watchtower.jsonl somewhere outside the plugins\data tree first is the answer that does not depend on a flag."
+            }
             Add-Left -What "$($dataDirs.Count) data directories ($(Format-LwgBytes $totalBytes))" `
-                     -Why 'health.jsonl and lw-watchtower.jsonl are the record of every fault, gate trip and advisory this plugin saw, including whatever prompted the uninstall. Deleting them needs -RemoveData -ConfirmToken DELETE-MY-LWG-LOGS.'
+                     -Why $dataWhy
         }
     }
     elseif ($dataRefused.Count -gt 0) {
@@ -1141,7 +1162,7 @@ try {
     Add-PlanRow -Id 'plugin-clone' -State 'PRESENT' -Action 'REPORT ONLY - never removed' -Detail "$pluginRoot ($gitReport)"
     if ($route.isCache) {
         Add-Left -What "the marketplace install at $pluginRoot" `
-                 -Why  "it is the CLI's own copy of this plugin, not a checkout: nothing of yours is in it and nothing here removes it. 'claude plugin uninstall $($route.id)' is what removes it, and 'claude plugin marketplace remove $($route.marketplace)' removes the marketplace clone beside it. Both are the CLI's, not this script's."
+                 -Why  "it is the CLI's own copy of this plugin, not a checkout: nothing of yours is in it and nothing here removes it. 'claude plugin uninstall $($route.id) --keep-data' is what removes it without taking the state data listed above with it - the same command WITHOUT --keep-data deletes that directory whole and unwarned (#280) - and 'claude plugin marketplace remove $($route.marketplace)' removes the marketplace clone beside it. Both are the CLI's, not this script's."
     } else {
         Add-Left -What "the clone at $pluginRoot" -Why 'it is source code and possibly unpushed work. Removing the junction unloads the plugin; deleting the clone is a separate decision that is yours.'
     }
@@ -1701,9 +1722,45 @@ try {
     Write-Output ''
     Write-Output '  AND WHAT THIS SCRIPT CANNOT SEE'
     Write-Output ''
-    Write-Output '    ~/.claude.json holds a pluginUsage counter naming this plugin. It is a 46 KB telemetry'
-    Write-Output '    blob, not a registry, and editing it to remove a counter risks a file the CLI depends on'
-    Write-Output '    for far more than this. Left alone deliberately.'
+    # THE SIZE IS MEASURED OR IT IS NOT STATED (#299). This sentence read "It is
+    # a 46 KB telemetry blob" as a string literal: true of one machine on the day
+    # it was written and of nobody else's - a fresh profile's file is under 2 KB -
+    # and printed at every operator as a fact about theirs. A block headed AND
+    # WHAT THIS SCRIPT CANNOT SEE is the last place in this report allowed to
+    # guess a number, and this is a command whose whole design is "print what was
+    # measured".
+    #
+    # BOTH LOCATIONS ARE TRIED because the CLI puts .claude.json INSIDE the
+    # configuration directory when CLAUDE_CONFIG_DIR names one, and beside
+    # ~/.claude when it does not. $ClaudeHome is whichever root the rows above
+    # describe, so the sibling is its parent. If neither is there the sentence
+    # says so and states no size, rather than falling back to the literal that
+    # caused this.
+    $cjCandidates = @((Join-Path $ClaudeHome '.claude.json'))
+    $cjParent = Split-Path -Parent $ClaudeHome
+    if (-not [string]::IsNullOrWhiteSpace($cjParent)) { $cjCandidates += (Join-Path $cjParent '.claude.json') }
+    $cjSize = ''
+    $cjFound = ''
+    foreach ($cj in $cjCandidates) {
+        try {
+            if ([IO.File]::Exists($cj)) {
+                $cjSize  = Format-LwgBytes ([long](New-Object IO.FileInfo $cj).Length)
+                $cjFound = $cj
+                break
+            }
+        } catch { }
+    }
+    if ($cjFound) {
+        Write-Output "    ~/.claude.json holds a pluginUsage counter naming this plugin. The copy this run measured,"
+        Write-Output "    at $cjFound, is $cjSize of telemetry, not a registry, and editing"
+        Write-Output '    it to remove a counter risks a file the CLI depends on for far more than this. Left alone'
+        Write-Output '    deliberately.'
+    } else {
+        Write-Output '    ~/.claude.json holds a pluginUsage counter naming this plugin. It is a telemetry blob, not a'
+        Write-Output '    registry, and editing it to remove a counter risks a file the CLI depends on for far more than'
+        Write-Output '    this. Left alone deliberately. No size is given because this run found no .claude.json to'
+        Write-Output ("    measure, at " + ($cjCandidates -join ' or ') + '.')
+    }
     # WHICH OF THESE TWO IS PRINTED IS DECIDED BY THE ROUTE THIS RUN IS ON
     # (#276). The junction-route sentence was printed on both, three lines under
     # a header that had already named the CLI cache as the plugin root - so on
@@ -1712,18 +1769,31 @@ try {
     if ($route.isCache) {
         Write-Output ("    THIS IS THAT MARKETPLACE INSTALL. The plugin root named at the top is the CLI's own copy,")
         Write-Output ("    at plugins\cache\<marketplace>\<plugin>\<version>. This script removes the settings and the")
-        Write-Output ("    state it lists above and NEVER the copy itself: 'claude plugin uninstall " + $route.id + "' is what")
-        Write-Output ("    removes it, and 'claude plugin marketplace remove " + $route.marketplace + "' removes the")
+        Write-Output ("    state it lists above and NEVER the copy itself: 'claude plugin uninstall " + $route.id + " --keep-data'")
+        Write-Output ("    is what removes it, and 'claude plugin marketplace remove " + $route.marketplace + "' removes the")
         Write-Output ('    marketplace clone beside it, which is a whole checkout of the repository and is not listed above.')
+        # THE FLAG IS NOT DECORATION AND IS NOT OPTIONAL (#280). Measured on CLI
+        # 2.1.260 against a clean profile: the plain form of that uninstall
+        # deletes plugins\data\<id>\ whole - health.jsonl, lw-watchtower.jsonl
+        # and anything else in there, including a file this plugin never wrote -
+        # with no prompt and no token. The rows above say those files are kept,
+        # and they are kept BY THIS SCRIPT; naming the CLI command without the
+        # flag three lines under that promise is what #280 was filed for.
+        Write-Output ('    THE FLAG IS THE POINT. Without --keep-data that uninstall also deletes the state-data')
+        Write-Output ('    directory listed above - all of it, no prompt, no confirmation token - which is the opposite')
+        Write-Output ('    of what the LEFT BEHIND rows above promise about it. Copy those two files out first if the')
+        Write-Output ('    record matters to you; that answer does not depend on remembering a flag.')
         Write-Output ('    A JUNCTION install, if this machine also has one, is a different copy with its own data dir and')
         Write-Output ('    is not visible from here.')
     } else {
         Write-Output '    A MARKETPLACE install (lw-watchtower@<marketplace>) is a separate copy in the CLI cache with its'
-        Write-Output '    own data dir. This script only knows about the junction and the data dirs listed above;'
-        Write-Output '    use /plugin uninstall for that one.'
+        Write-Output '    own data dir. This script only knows about the junction and the data dirs listed above.'
+        Write-Output '    Removing that one is the CLI''s job, and the form to use is'
+        Write-Output '    "claude plugin uninstall lw-watchtower@<marketplace> --keep-data": the plain form deletes that'
+        Write-Output '    copy''s data directory with it, unwarned (#280).'
     }
     Write-Output '    Other machines, other clones, and any settings.json outside the path printed at the top.'
-    Write-Output '    ~/.claude/health/ is the operator own health supervisor, not part of this plugin, and is'
+    Write-Output '    ~/.claude/health/ is the operator''s own health supervisor, not part of this plugin, and is'
     Write-Output '    never touched here - even though the status line merges its log with this one.'
     # THIS BLIND SPOT WAS RETIRED ON 3 SEPTEMBER 2026 AND ITS ENTRY IS KEPT.
     #

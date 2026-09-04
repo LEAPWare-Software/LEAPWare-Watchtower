@@ -189,7 +189,7 @@ tests/config_behaviour.ps1   bin/lwg-config.ps1's read/validate/write path,
                              invariant that the plugin root's config.json is not
                              moved by a byte
 tests/uninstall_footprint.ps1
-                             38 cases driving bin/lwg-uninstall.ps1 against
+                             40 cases driving bin/lwg-uninstall.ps1 against
                              throwaway data directories and throwaway
                              settings.json files, asserting on the FILESYSTEM as
                              well as on the report: what the footprint says it
@@ -212,7 +212,7 @@ tests/subagent_scan.ps1      14 cases piping payloads into lib/subagent_start.ps
                              The only coverage context_injection has. It asserts
                              on answers, not on the milliseconds the fast path
                              exists to save
-tests/payload_guard.ps1      22 cases over every file git ls-files reports under
+tests/payload_guard.ps1      23 cases over every file git ls-files reports under
                              lw-watchtower/, which is the whole shipped payload
                              because marketplace.json declares
                              "source": "./lw-watchtower". The only
