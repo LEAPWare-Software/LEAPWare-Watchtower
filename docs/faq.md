@@ -185,8 +185,8 @@ Then, on the new machine:
    doctor's `state-dir` check can legitimately report UNRESOLVED.
 2. **Run `/lw-watchtower:doctor`.** Sub-second wiring checks — it prints how many it ran — and a non-zero
    exit is a real finding, not a glitch.
-3. **Install the status line separately if you want it.** It is *not* part of the plugin — `statusLine`
-   is a top-level `settings.json` key and a plugin has no manifest field for it. You copy
+3. **Install the status line — the doctor FAILs without it.** It is *not* part of the plugin —
+   `statusLine` is a top-level `settings.json` key and a plugin has no manifest field for it. You copy
    [`statusline/statusline.ps1`](../lw-watchtower/statusline/statusline.ps1) into your profile and wire the key by
    hand. See [Install § status line](install.md#installing-the-status-line-part-of-the-install-and-a-separate-step).
 
@@ -288,11 +288,18 @@ into — and **names everything it cannot remove**.
 
 By hand:
 
-- Marketplace install: `/plugin uninstall lw-watchtower@leapware-watchtower`.
+- Marketplace install: `/plugin uninstall lw-watchtower@leapware-watchtower`. **That deletes this
+  plugin's data directory with it**, measured on CLI 2.1.260;
+  `claude plugin uninstall lw-watchtower@leapware-watchtower --keep-data` is the form that keeps it.
+- The marketplace itself: `claude plugin marketplace remove leapware-watchtower`. Adding the
+  marketplace clones this whole repository to `~\.claude\plugins\marketplaces\leapware-watchtower\`;
+  uninstalling the plugin does not remove it and this does.
 - Junction install: delete the junction under your skills directory. Removing the link does not
   remove the clone.
 - Status line: remove the `statusLine` key from your `settings.json`, and delete the copied script.
-- State: it lives in `$CLAUDE_PLUGIN_DATA`, never in the repo. Nothing here deletes it for you.
+- State: it lives in `$CLAUDE_PLUGIN_DATA`, never in the repo. *This plugin* never deletes it for
+  you — the CLI's own uninstall does, unless you pass `--keep-data`. See
+  [Install § removing the load path itself](install.md#removing-the-load-path-itself).
 - **`permissions.deny` rules from an install before 30 July 2026** stay in your `settings.json`.
   `/lw-watchtower:uninstall` is the only code left that knows what those 181 rules looked like well enough
   to attribute them.
