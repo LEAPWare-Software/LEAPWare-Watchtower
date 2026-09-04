@@ -38,7 +38,7 @@ lw-watchtower/commands/*.md  six slash commands - prose only; every one of
 lw-watchtower/agents/lw-*.md the six agent roles the plugin ships. Discovered
                              from this directory name - see docs/roles.md
 lw-watchtower/bin/lwg-doctor.ps1
-                             nine checks for what is NOT working. Exits 0/1/2/3
+                             ten checks for what is NOT working. Exits 0/1/2/3
                              and is meant to be able to exit non-zero
 lw-watchtower/bin/lwg-setup.ps1
                              the guided installer: detects, asks, then writes
@@ -148,18 +148,18 @@ lw-watchtower/statusline/statusline.ps1
                              NOT loaded by the plugin. statusLine is a settings.json
                              key, so this must be COPIED to ~\.claude\statusline.ps1;
                              the two can drift - see docs/install.md
-tests/gate_delegate.ps1      93 cases against lib/gate_delegate.ps1, each run
+tests/gate_delegate.ps1      99 cases against lib/gate_delegate.ps1, each run
                              through a real pipe into a real child process. One
-                             of TEN behavioural suites, and the only one that
+                             of ELEVEN behavioural suites, and the only one that
                              covers a PreToolUse gate - see docs/testing.md
-tests/stop_behaviour.ps1     178 cases against the Stop-hook handlers:
+tests/stop_behaviour.ps1     117 cases against the Stop-hook handlers:
                              helpers in process, lib/stop_advisories.ps1 and
                              lib/supervisor.ps1 in real child processes. The
                              suite that reaches the most OBSERVING modules
 tests/supervision.ps1        the three supervision modules - send_liveness_gate,
                              completion_audit and orphan_watch - against seeded
                              transcripts and seeded health logs
-tests/setup_merge.ps1        124 cases driving bin/lwg-setup.ps1 against throwaway
+tests/setup_merge.ps1        198 cases driving bin/lwg-setup.ps1 against throwaway
                              settings files. The only suite that tests a WRITE.
                              The writer properties are established on the
                              statusline section and, since section 31, on the
@@ -178,7 +178,7 @@ tests/config_behaviour.ps1   bin/lwg-config.ps1's read/validate/write path,
                              invariant that the plugin root's config.json is not
                              moved by a byte
 tests/uninstall_footprint.ps1
-                             27 cases driving bin/lwg-uninstall.ps1 against
+                             35 cases driving bin/lwg-uninstall.ps1 against
                              throwaway data directories and throwaway
                              settings.json files, asserting on the FILESYSTEM as
                              well as on the report: what the footprint says it
@@ -186,22 +186,22 @@ tests/uninstall_footprint.ps1
                              to this plugin really is this plugin's, and what it
                              refuses to touch it names. The only suite that
                              tests a DELETION
-tests/doctor_behaviour.ps1   16 cases driving bin/lwg-doctor.ps1 from a scratch
+tests/doctor_behaviour.ps1   37 cases driving bin/lwg-doctor.ps1 from a scratch
                              copy of the whole plugin tree, against seeded
                              configs and seeded settings.json files. It drives
-                             TWO of the doctor's nine checks - config-registry
-                             and statusline - and no others. Seven of its cases
+                             TWO of the doctor's ten checks - config-registry
+                             and statusline - and no others. Fourteen of its cases
                              are labelled CONTROL and pass before the fix too
-tests/toggle_behaviour.ps1   26 cases driving bin/lwg-toggle.ps1's WRITE to
+tests/toggle_behaviour.ps1   28 cases driving bin/lwg-toggle.ps1's WRITE to
                              the override file, against a byte copy of bin/ and
                              lib/ under a scratch plugin root
-tests/subagent_scan.ps1      6 cases piping payloads into lib/subagent_start.ps1,
+tests/subagent_scan.ps1      13 cases piping payloads into lib/subagent_start.ps1,
                              holding its raw-text fast path to the GLOBAL modules
                              block whatever order the top-level keys appear in.
                              The only coverage context_injection has. It asserts
                              on answers, not on the milliseconds the fast path
                              exists to save
-tests/payload_guard.ps1      15 cases over every file git ls-files reports under
+tests/payload_guard.ps1      22 cases over every file git ls-files reports under
                              lw-watchtower/, which is the whole shipped payload
                              because marketplace.json declares
                              "source": "./lw-watchtower". The only
@@ -221,7 +221,7 @@ tests/doc_claims.ps1         every tracked .md/.json/.yml, against counts DERIVE
                              suites, per-suite cases, CI check steps, doctor
                              checks, commands, modules. Asserts nothing about
                              behaviour either; it checks the pages, not the code
-.github/workflows/ci.yml     CI - one job, SEVENTEEN check steps: JSON validity,
+.github/workflows/ci.yml     CI - one job, TWENTY check steps: JSON validity,
                              PowerShell parse, workflow guard, delegate gate
                              suite, installer merge suite, stop-hook behaviour
                              suite, supervision suite, uninstaller footprint
@@ -231,8 +231,8 @@ tests/doc_claims.ps1         every tracked .md/.json/.yml, against counts DERIVE
                              disclosure guard, portability scan, documentation
                              claims, pull-request issue reference,
                              commit identity, version declarations and red-first
-                             annotations. Nine
-                             of the fourteen test BEHAVIOUR; the other five ask
+                             annotations. Eleven
+                             of the twenty test BEHAVIOUR; the other nine ask
                              whether files are well formed or whether the docs
                              agree with the tree. The job's DISPLAY
                              NAME is deliberately unchanged and now understates

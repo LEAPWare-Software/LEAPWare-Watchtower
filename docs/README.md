@@ -8,10 +8,10 @@
 | [Configuration](configuration.md) | `config.json` in full — the switchboard, per-repo overrides, thresholds, per-module tuning |
 | [Modules](modules.md) | Every declared module: what each does, its blind spots, **the three gates, all of which ship off**, the two placeholders removed because they cannot be built, and the removal of the two original gates |
 | [Gates were removed deliberately](gates-removed.md) | The rules a gate has to follow here, **what the trip ledger's removal means a new gate must rebuild**, what the four failed fix attempts taught, and what a future attempt must do differently |
-| [Commands](commands.md) | All twelve slash commands, their exit codes, and what each one writes |
+| [Commands](commands.md) | All six slash commands, their exit codes, and what each one writes |
 | [Roles](roles.md) | The six agent roles the plugin ships, and when each is dispatched |
 | [Architecture](architecture.md) | File layout, hook registrations, measured costs, state directory, status line, failure policy |
-| [Testing and CI](testing.md) | **Thirteen files in `tests/`, ten of which test behaviour** — what each one establishes, the exit-code contract they share, the fourteen CI check steps, and what is therefore uncovered |
+| [Testing and CI](testing.md) | **Fourteen files in `tests/`, eleven of which test behaviour** — what each one establishes, the exit-code contract they share, the twenty CI check steps, and what is therefore uncovered |
 | [Portability](portability.md) | The no-local-environment-dependencies mandate, the scan that enforces it, and the allowlist rules |
 | [Output styles](output-styles.md) | **Removed.** A tombstone for the deleted feature, kept because pages still link to it |
 | [Troubleshooting](troubleshooting.md) | Symptom-first index |
