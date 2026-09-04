@@ -107,6 +107,62 @@ function Get-LwgFileSha256 {
     return [BitConverter]::ToString($bytes).Replace('-', '')
 }
 
+function Get-LwgCacheRouteInfo {
+    <#
+      Is this directory the plugin root of a MARKETPLACE install - the copy the
+      CLI unpacks for itself - and if so, what is the `<plugin>@<marketplace>`
+      id that names it to `claude plugin`? Returns
+      @{ isCache; marketplace; plugin; id }.
+
+      WHY THIS EXISTS (#276). On the route README.md and docs\install.md
+      recommend to consumers, this command could only ever end
+
+          [FAIL] repo   <root> is not inside a git repository, so there is
+                        nothing to pull                                exit 1
+
+      which is a FAILURE ROW FOR BEING INSTALLED THE RECOMMENDED WAY, and it
+      never named the command that does update that route. A marketplace copy
+      is not a checkout and never will be; there is nothing wrong with it and
+      nothing here to fix.
+
+      IT IS DERIVED FROM THE PATH, AND EVERY LINE THAT PRINTS IT SAYS SO. The
+      CLI writes exactly one layout for an installed marketplace plugin, which
+      lib\common.ps1's resolver, bin\lwg-setup.ps1's detection probe and
+      statusline\statusline.ps1's LwgPluginRoots all already spell:
+
+          <config root>\plugins\cache\<marketplace>\<plugin>\<version>
+
+      The version directory is optional - lib\common.ps1 takes the plugin
+      directory itself when there is none - so both depths are accepted and
+      nothing deeper is: a path with more tail than that is inside an install
+      rather than being one, and a wrong id printed with confidence is worse
+      than no id.
+
+      WHY NOT ASK lib\common.ps1's Get-LwgMarketplaceInfo INSTEAD: it answers
+      "is there a marketplace install on this machine", which is a different
+      question and is TRUE on a junction-route machine that also has one. This
+      asks whether THIS root is one, which is what decides what to print. It
+      also records no `<plugin>@<marketplace>` id, and the id is the whole point
+      of the row.
+    #>
+    param([string]$Path)
+
+    $r = @{ isCache = $false; marketplace = ''; plugin = ''; id = '' }
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $r }
+    $segs = @(($Path -replace '[\\/]+$', '') -split '[\\/]+' | Where-Object { $_ -ne '' })
+    for ($i = 0; $i -lt $segs.Count - 3; $i++) {
+        if ($segs[$i] -ne 'plugins' -or $segs[$i + 1] -ne 'cache') { continue }
+        $tail = $segs.Count - ($i + 4)
+        if ($tail -ne 0 -and $tail -ne 1) { continue }
+        $r.isCache     = $true
+        $r.marketplace = $segs[$i + 2]
+        $r.plugin      = $segs[$i + 3]
+        $r.id          = "$($r.plugin)@$($r.marketplace)"
+        return $r
+    }
+    return $r
+}
+
 function Add-Row {
     param(
         [Parameter(Mandatory = $true)][string]$Id,
@@ -283,7 +339,19 @@ try {
     # check must not make. That case now reports what it could not establish
     # instead of asserting the checkout is wrong.
     $viaLink = (-not [string]::IsNullOrWhiteSpace($link)) -and (Test-LwgPathUnder -Path $Root -Root $link)
-    if ($viaLink) {
+    # THE MARKETPLACE ROUTE IS TESTED BEFORE THE JUNCTION ONES (#276), because
+    # every junction branch below describes a CHECKOUT and this root is not
+    # one. What used to print here was "no junction at <link> - this checkout
+    # may or may not be what Claude Code loads; a marketplace install is a
+    # separate copy and is not updated by git": true in general, and read on the
+    # marketplace route as if the copy in front of it were something else.
+    # $viaLink still wins, because a junction pointing INTO a cache directory is
+    # a checkout somebody wired up by hand and the junction row is the one that
+    # describes it.
+    $route = Get-LwgCacheRouteInfo -Path $Root
+    if ($route.isCache -and -not $viaLink) {
+        Add-Row -Id 'loaded-copy' -Status 'INFO' -Detail "$Root IS a marketplace install - the copy the CLI unpacks and loads, and not a checkout. Read off the plugins\cache\<marketplace>\<plugin>\<version> shape of the path, which is how the rest of this plugin recognises one. git does not update this copy; 'claude plugin update $($route.id)' does"
+    } elseif ($viaLink) {
         Add-Row -Id 'loaded-copy' -Status 'OK' -Detail "this checkout was invoked through $link, which is the path Claude Code loads$(if ($linkTarget) { " (it points at $linkTarget)" } else { '' })"
     } elseif ([string]::IsNullOrWhiteSpace($link)) {
         Add-Row -Id 'loaded-copy' -Status 'INFO' -Detail 'no configuration directory could be resolved - neither CLAUDE_CONFIG_DIR nor USERPROFILE holds a value - so whether a skills junction exists was not established. This is not evidence that there is none.'
@@ -313,6 +381,26 @@ try {
 
     $info = Get-LwgRepoInfo -Path $Root
     if (-not $info.gitdir) {
+        # NOT BEING A CHECKOUT IS NOT A FAULT ON THE MARKETPLACE ROUTE (#276).
+        # A marketplace install is the route README.md and docs\install.md
+        # recommend to consumers, and it is a copy the CLI unpacks - there is no
+        # repository in it and there never will be one. Failing it for that, and
+        # then not naming the command that DOES update it, made this command
+        # unusable-by-design for every consumer who followed the instructions.
+        #
+        # EXIT 2, NOT 0, AND NOT 1. 1 is REFUSED - "nothing was changed" because
+        # something was wrong - and nothing is wrong here. 0 is "up to date",
+        # which this run has NOT established and cannot: it did not look. 2 is
+        # the code this file already reserves for "finished, with caveats - a
+        # check could not be made", which is exactly what happened.
+        if ($route.isCache) {
+            Add-Row -Id 'repo' -Status 'INFO' -Detail "$Root is a marketplace install, so there is no repository here to pull and nothing is wrong. THIS COMMAND CANNOT TELL YOU WHETHER AN UPDATE EXISTS on this route - it did not look. Run 'claude plugin update $($route.id)', which is what updates a marketplace install, then start a new session so the new hook registrations are read"
+            Write-Output ''
+            foreach ($r in $script:Rows) { Write-Output ("  [{0}] {1}  {2}" -f $r.Status, $r.Id.PadRight(12), $r.Detail) }
+            Write-Output ''
+            Write-Output 'Nothing was fetched, compared or updated, and nothing here says this install is current.'
+            exit 2
+        }
         Add-Row -Id 'repo' -Status 'FAIL' -Detail "$Root is not inside a git repository, so there is nothing to pull"
         Write-Output ''
         foreach ($r in $script:Rows) { Write-Output ("  [{0}] {1}  {2}" -f $r.Status, $r.Id.PadRight(12), $r.Detail) }

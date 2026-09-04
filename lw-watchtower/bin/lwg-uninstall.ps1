@@ -120,6 +120,51 @@ function Get-LwgFileSha256 {
     return [BitConverter]::ToString($bytes).Replace('-', '')
 }
 
+function Get-LwgCacheRouteInfo {
+    <#
+      Is this directory the plugin root of a MARKETPLACE install - the copy the
+      CLI unpacks for itself - and if so, what is the `<plugin>@<marketplace>`
+      id that names it to `claude plugin`? Returns
+      @{ isCache; marketplace; plugin; id }.
+
+      WHY THIS SCRIPT NEEDS IT (#276). Two sentences below were written for the
+      junction route and printed on both. On a marketplace install the run
+      already names the CLI cache as the plugin root on its first line, and then
+      says the cache directory "is source code and possibly unpushed work" and
+      that "this script only knows about the junction and the data dirs listed
+      above" - contradicting its own header three lines up, and pointing an
+      operator at /plugin uninstall as if it were for some OTHER install.
+
+      DERIVED FROM THE PATH, and every line that prints it says so. The CLI
+      writes one layout for an installed marketplace plugin, the same one
+      lib\common.ps1's resolver, bin\lwg-setup.ps1's detection probe and
+      statusline\statusline.ps1's LwgPluginRoots already spell:
+
+          <config root>\plugins\cache\<marketplace>\<plugin>\<version>
+
+      The version directory is optional - lib\common.ps1 takes the plugin
+      directory itself when there is none - so both depths are accepted and
+      nothing deeper is. The body is identical to bin\lwg-update.ps1's, which
+      carries the same reasoning for the same reason the SHA256 helper does.
+    #>
+    param([string]$Path)
+
+    $r = @{ isCache = $false; marketplace = ''; plugin = ''; id = '' }
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $r }
+    $segs = @(($Path -replace '[\\/]+$', '') -split '[\\/]+' | Where-Object { $_ -ne '' })
+    for ($i = 0; $i -lt $segs.Count - 3; $i++) {
+        if ($segs[$i] -ne 'plugins' -or $segs[$i + 1] -ne 'cache') { continue }
+        $tail = $segs.Count - ($i + 4)
+        if ($tail -ne 0 -and $tail -ne 1) { continue }
+        $r.isCache     = $true
+        $r.marketplace = $segs[$i + 2]
+        $r.plugin      = $segs[$i + 3]
+        $r.id          = "$($r.plugin)@$($r.marketplace)"
+        return $r
+    }
+    return $r
+}
+
 function Add-PlanRow {
     <#
       One row of the plan. `action` is what -Apply would do; 'report only' means
@@ -503,6 +548,13 @@ try {
     $pluginRoot = Split-Path -Parent $PSScriptRoot
     . (Join-Path $pluginRoot 'lib\common.ps1')
     . (Join-Path $PSScriptRoot 'lwg-cmdlib.ps1')
+
+    # WHICH INSTALL ROUTE THIS RUN IS ON, decided ONCE and here (#276) rather
+    # than where each sentence is written: two of the paths below can exit
+    # before section 6, and a route flag that is only set in section 6 would be
+    # undefined in the blind-spot block at the foot - which reads as "not the
+    # marketplace route" and is the exact wrong answer to default to.
+    $route = Get-LwgCacheRouteInfo -Path $pluginRoot
 
     if ($All) { $RemoveStatusLine = $true; $RemovePermissions = $true }
     # THE DEFAULT IS NOW RESOLVED, NOT COMPOSED. -ClaudeHome still beats it -
@@ -1065,7 +1117,14 @@ try {
     # Never removed. It is a git working tree that may hold unpushed work, so the
     # only useful thing to do is say whether it does - and if git cannot answer,
     # say that rather than imply the tree is clean.
-    $gitReport = 'not a git repo'
+    #
+    # AND WHICH ROUTE THIS IS DECIDES WHAT THE ROW IS ALLOWED TO SAY (#276). On
+    # a marketplace install the directory named here is the CLI's own cache: it
+    # is not a working tree, it holds nobody's unpushed work, and there is no
+    # junction whose removal unloads anything. Both halves of the sentence that
+    # printed here were the junction route's. $route is resolved at the top of
+    # this script, not here.
+    $gitReport = if ($route.isCache) { 'a marketplace install - the copy the CLI unpacks, not a checkout' } else { 'not a git repo' }
     $repoInfo = Get-LwgRepoInfo -Path $pluginRoot
     if ($repoInfo.gitdir) {
         $g = Invoke-LwgCmdProcess -File 'git' -ProcArgs @('status', '--porcelain=v2', '--branch') -WorkDir $pluginRoot -TimeoutMs 4000
@@ -1080,7 +1139,12 @@ try {
         }
     }
     Add-PlanRow -Id 'plugin-clone' -State 'PRESENT' -Action 'REPORT ONLY - never removed' -Detail "$pluginRoot ($gitReport)"
-    Add-Left -What "the clone at $pluginRoot" -Why 'it is source code and possibly unpushed work. Removing the junction unloads the plugin; deleting the clone is a separate decision that is yours.'
+    if ($route.isCache) {
+        Add-Left -What "the marketplace install at $pluginRoot" `
+                 -Why  "it is the CLI's own copy of this plugin, not a checkout: nothing of yours is in it and nothing here removes it. 'claude plugin uninstall $($route.id)' is what removes it, and 'claude plugin marketplace remove $($route.marketplace)' removes the marketplace clone beside it. Both are the CLI's, not this script's."
+    } else {
+        Add-Left -What "the clone at $pluginRoot" -Why 'it is source code and possibly unpushed work. Removing the junction unloads the plugin; deleting the clone is a separate decision that is yours.'
+    }
 
     # ---------------------------------------------------------------------
     # 7. backups available for a restore
@@ -1640,9 +1704,24 @@ try {
     Write-Output '    ~/.claude.json holds a pluginUsage counter naming this plugin. It is a 46 KB telemetry'
     Write-Output '    blob, not a registry, and editing it to remove a counter risks a file the CLI depends on'
     Write-Output '    for far more than this. Left alone deliberately.'
-    Write-Output '    A MARKETPLACE install (lw-watchtower@<marketplace>) is a separate copy in the CLI cache with its'
-    Write-Output '    own data dir. This script only knows about the junction and the data dirs listed above;'
-    Write-Output '    use /plugin uninstall for that one.'
+    # WHICH OF THESE TWO IS PRINTED IS DECIDED BY THE ROUTE THIS RUN IS ON
+    # (#276). The junction-route sentence was printed on both, three lines under
+    # a header that had already named the CLI cache as the plugin root - so on
+    # the route the README recommends it contradicted its own first line and
+    # sent the operator to /plugin uninstall as if for some other install.
+    if ($route.isCache) {
+        Write-Output ("    THIS IS THAT MARKETPLACE INSTALL. The plugin root named at the top is the CLI's own copy,")
+        Write-Output ("    at plugins\cache\<marketplace>\<plugin>\<version>. This script removes the settings and the")
+        Write-Output ("    state it lists above and NEVER the copy itself: 'claude plugin uninstall " + $route.id + "' is what")
+        Write-Output ("    removes it, and 'claude plugin marketplace remove " + $route.marketplace + "' removes the")
+        Write-Output ('    marketplace clone beside it, which is a whole checkout of the repository and is not listed above.')
+        Write-Output ('    A JUNCTION install, if this machine also has one, is a different copy with its own data dir and')
+        Write-Output ('    is not visible from here.')
+    } else {
+        Write-Output '    A MARKETPLACE install (lw-watchtower@<marketplace>) is a separate copy in the CLI cache with its'
+        Write-Output '    own data dir. This script only knows about the junction and the data dirs listed above;'
+        Write-Output '    use /plugin uninstall for that one.'
+    }
     Write-Output '    Other machines, other clones, and any settings.json outside the path printed at the top.'
     Write-Output '    ~/.claude/health/ is the operator own health supervisor, not part of this plugin, and is'
     Write-Output '    never touched here - even though the status line merges its log with this one.'

@@ -334,10 +334,11 @@ function Invoke-Uninstall {
       is decided by the environment, which is not a thing to do casually to a
       script that deletes: the case that uses it passes no removal flag.
 
-      PSModulePath IS INHERITED BY DEFAULT AND SET BY EXACTLY ONE CASE (#273).
-      The child is Windows PowerShell 5.1 and what it can resolve depends on
-      this variable; the one case that cares passes -ModulePath, and it is saved
-      and restored like every other.
+      -ScriptPath NAMES A DIFFERENT FILE TO LAUNCH and defaults to the script
+      under test. Exactly one case passes it - the #273 case, whose launcher
+      runs that same script with Get-FileHash removed - and it is a parameter
+      rather than a reassignment of $UninstallPath so that a case which forgot
+      to put it back could not silently move every case after it.
 
       Returns @{ code; out } where `out` is the whole stdout as one string.
     #>
@@ -346,25 +347,24 @@ function Invoke-Uninstall {
         [string]$DataEnv,
         [string[]]$ScriptArgs = @(),
         [string]$ConfigDir = '',
-        [string]$ModulePath,
+        [string]$ScriptPath,
         [switch]$NoClaudeHome
     )
 
+    if ([string]::IsNullOrWhiteSpace($ScriptPath)) { $ScriptPath = $UninstallPath }
     $saveProfile = $env:USERPROFILE
     $saveData    = $env:CLAUDE_PLUGIN_DATA
     $saveCfg     = $env:CLAUDE_CONFIG_DIR
-    $saveMods    = $env:PSModulePath
     try {
         $env:USERPROFILE       = $Tree.profile
         $env:CLAUDE_CONFIG_DIR = $ConfigDir
-        if ($PSBoundParameters.ContainsKey('ModulePath')) { $env:PSModulePath = $ModulePath }
         if ([string]::IsNullOrWhiteSpace($DataEnv)) {
             Remove-Item -LiteralPath 'Env:\CLAUDE_PLUGIN_DATA' -ErrorAction SilentlyContinue
         } else {
             $env:CLAUDE_PLUGIN_DATA = $DataEnv
         }
 
-        $all = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $UninstallPath) +
+        $all = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ScriptPath) +
                $(if ($NoClaudeHome) { @() } else { @('-ClaudeHome', $Tree.claudeHome) }) + $ScriptArgs
         $lines = & powershell.exe @all
         $code  = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
@@ -372,7 +372,6 @@ function Invoke-Uninstall {
     } finally {
         $env:USERPROFILE       = $saveProfile
         $env:CLAUDE_CONFIG_DIR = $saveCfg
-        $env:PSModulePath      = $saveMods
         if ($null -eq $saveData) {
             Remove-Item -LiteralPath 'Env:\CLAUDE_PLUGIN_DATA' -ErrorAction SilentlyContinue
         } else {
@@ -381,51 +380,62 @@ function Invoke-Uninstall {
     }
 }
 
-function New-ShadowUtilityModule {
+function New-NoFileHashRunner {
     <#
-      A directory that, PREFIXED to PSModulePath, makes a Windows PowerShell 5.1
-      child resolve `Microsoft.PowerShell.Utility` to a PowerShell 7 manifest
-      instead of its own - the state a child launched from a pwsh 7 terminal
-      inherits, and the state in which Get-FileHash does not resolve (#273).
-      Returns the directory to prefix.
+      A launcher script that runs $Target in a real Windows PowerShell 5.1 child
+      with one difference: `Get-FileHash` does not resolve, and any call to it
+      throws the CommandNotFoundException a 5.1 child throws when a PowerShell 7
+      PSModulePath has shadowed Microsoft.PowerShell.Utility - message verbatim
+      (#273). Returns the launcher's path, to be passed as -ScriptPath.
 
-      WHY A SYNTHETIC MANIFEST RATHER THAN THE REAL PS7 ONE: the real file only
-      exists on a machine with PowerShell 7 installed, at a path that moves with
-      the install method, so a case reading it would pass by being skipped.
-      This one reproduces the fault with no PowerShell 7 on the machine at all -
-      verified on 2026-09-04: with it prefixed, `powershell -NoProfile -Command
-      "Get-FileHash ..."` fails with "The term 'Get-FileHash' is not recognized".
+      WHY THE NAME IS SHADOWED RATHER THAN THE MODULE, and this is the honest
+      limit of the case. The fault is a PSModulePath state: 5.1 resolves
+      Microsoft.PowerShell.Utility to PS7's 7.0.0.0 manifest ahead of its own
+      3.1.0.0 and loses every FUNCTION it exports, Get-FileHash among them. A
+      SYNTHETIC module does not reproduce it, and that was measured rather than
+      assumed: four manifests were tried - PS7's copied verbatim, the same
+      without its NestedModules line, one with an empty .psm1, and one exporting
+      a Get-FileHash function - and under every one 5.1 fell through to the real
+      3.1.0.0 and Get-FileHash resolved. Only the REAL PowerShell 7 module
+      directory shadows, because 5.1 stops searching only when the shadowing
+      module imports for real with its own assembly - which a test cannot
+      fabricate and must not require to be installed on the runner.
 
-      WHAT MAKES IT SHADOW: the module NAME and ModuleVersion 7.0.0.0 ahead of
-      5.1's own 3.1.0.0. It exports Get-FileHash as a CMDLET and exports no
-      FUNCTIONS, which is the shape of PS7's real manifest and the reason 5.1 -
-      where Get-FileHash IS a function in that module - can no longer find it.
+      So the case reproduces the CONSEQUENCE deterministically instead. That a
+      PowerShell 7 launch is what produces it was measured by hand on
+      2026-09-04, with both runs, and is recorded on #273; nothing here
+      establishes that half.
 
-      The value is PREFIXED to the inherited path rather than replacing it, so
-      the child still finds everything else, and so the case behaves the same
-      whether this suite was launched from a 5.1 console or from pwsh 7.
+      WHY AN ALIAS AND NOT A FUNCTION: a function - even `function global:` -
+      loses. It is found while the module is still unloaded, but the CALL
+      triggers the auto-load and the module's own Get-FileHash replaces it
+      before the call binds. An alias is looked up ahead of both and survives
+      the import.
+
+      It still discriminates on exactly the right thing: red for any code that
+      calls Get-FileHash on the path under test, green only for code that does
+      not - and a "fix" that merely caught the throw would not reach green
+      either, because the assertions below are on what the run REPORTED.
     #>
-    param([Parameter(Mandatory = $true)][string]$Root)
+    param([Parameter(Mandatory = $true)][string]$Path,
+          [Parameter(Mandatory = $true)][string]$Target)
 
-    $dir = [IO.Path]::Combine($Root, 'Microsoft.PowerShell.Utility')
+    $dir = Split-Path -Parent $Path
     [void][IO.Directory]::CreateDirectory($dir)
-    $psd1 = @(
-        '@{'
-        'GUID = "1DA87E53-152B-403E-98DC-74D7B4D63D59"'
-        'Author = "PowerShell"'
-        'CompanyName = "Microsoft Corporation"'
-        'ModuleVersion = "7.0.0.0"'
-        'CompatiblePSEditions = @("Core")'
-        'PowerShellVersion = "3.0"'
-        "CmdletsToExport = @('Get-FileHash', 'ConvertFrom-Json', 'ConvertTo-Json', 'Out-String', 'Select-Object', 'Write-Output', 'Format-Table', 'Format-List', 'Get-Date', 'Write-Host')"
-        'FunctionsToExport = @()'
-        'AliasesToExport = @()'
-        'NestedModules = @("Microsoft.PowerShell.Commands.Utility.dll")'
-        '}'
+    $thrower = Join-Path $dir 'lwg-no-filehash.ps1'
+    [IO.File]::WriteAllText($thrower, (
+        'throw (New-Object System.Management.Automation.CommandNotFoundException(' +
+        '"The term ''Get-FileHash'' is not recognized as the name of a cmdlet, function, script file, ' +
+        'or operable program. Check the spelling of the name, or if a path was included, verify that ' +
+        'the path is correct and try again."))' + "`r`n"), [Text.UTF8Encoding]::new($false))
+    $text = @(
+        'param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest)'
+        ''
+        ('Set-Alias -Name Get-FileHash -Value ' + "'" + $thrower.Replace("'", "''") + "'" + ' -Scope Global -Force')
+        ('& ' + "'" + $Target.Replace("'", "''") + "'" + ' @Rest')
     ) -join "`r`n"
-    [IO.File]::WriteAllText([IO.Path]::Combine($dir, 'Microsoft.PowerShell.Utility.psd1'),
-                            $psd1, [Text.UTF8Encoding]::new($false))
-    return $Root
+    [IO.File]::WriteAllText($Path, $text + "`r`n", [Text.UTF8Encoding]::new($false))
+    return $Path
 }
 
 function Invoke-UninstallWithConcurrentWrite {
@@ -1580,7 +1590,7 @@ function Test-StatusLineFileKeptWhenKeyHalfCannotRun {
                -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
 }
 
-function Test-Ps7ModulePathStillProducesAFootprint {
+function Test-NoFileHashStillProducesAFootprint {
     <#
       THE TERMINAL THE OPERATOR HAPPENED TO LAUNCH FROM MUST NOT DECIDE WHETHER
       THIS SCRIPT RUNS AT ALL (#273).
@@ -1600,8 +1610,8 @@ function Test-Ps7ModulePathStillProducesAFootprint {
       printed no footprint at all - and the run could not even say whether it
       had changed anything, which is the one thing its closing lines promise.
 
-      BASELINE 6aebcd6, measured by hand on 2026-09-04 with a stack trace
-      exposed in the outer catch:
+      BASELINE 6aebcd6, measured by hand on 2026-09-04 under a real PowerShell 7
+      module path, with a stack trace exposed in the outer catch:
 
           LW-WATCHTOWER uninstall could not complete: The term 'Get-FileHash'
           is not recognized as the name of a cmdlet, function, script file, or
@@ -1616,26 +1626,134 @@ function Test-Ps7ModulePathStillProducesAFootprint {
       invented content, so a hash comparison that actually HAPPENS must report
       it as DIFFERING from the repo copy. That sentence cannot be printed
       without the hash.
+
+      WHAT IS STILL BROKEN AND IS ASSERTED AS SUCH RATHER THAN HIDDEN. This
+      script dot-sources bin\lwg-cmdlib.ps1, whose Read-LwgTextFile still calls
+      Get-FileHash and CATCHES the failure. So with the command gone the run
+      completes and reports the whole footprint, but settings.json is not read,
+      and three rows say so:
+
+          hooks             ... settings.json could not be read or parsed
+                                (The term 'Get-FileHash' is not recognized...)
+          statusline-key    UNKNOWN  CANNOT REPORT - settings.json was not read
+          permissions-deny  UNKNOWN  CANNOT REPORT - settings.json was not read
+
+      That is a correct report of a real limit, and it is a better outcome than
+      exit 3 with no footprint - but it is not the finished state. bin\lwg-cmdlib.ps1
+      belongs to another lane this wave and the hunk for it is on #273. The
+      assertion below is therefore NOT "the word never appears": it is that
+      every appearance is one of those reader sentences. A Get-FileHash reached
+      from anywhere else in this script goes red, and so does the loss of the
+      drift comparison - and when cmdlib is fixed this case passes with no
+      appearances at all.
+
+      New-NoFileHashRunner's header carries what this reproduces and what it
+      does not.
     #>
-    $t  = New-CaseTree 'ps7-modulepath'
+    $t  = New-CaseTree 'no-filehash'
     $sl = New-CaseStatusLine (Join-Path $t.claudeHome 'statusline.ps1')
     $cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $sl.Replace('\', '/') + '"'
     [void](Set-CaseSettings -Tree $t -Text ("{`r`n  `"statusLine`": {`r`n    `"type`": `"command`",`r`n    `"command`": `"" + $cmd.Replace('\', '\\').Replace('"', '\"') + "`"`r`n  }`r`n}`r`n"))
-    $shadow = New-ShadowUtilityModule -Root (Join-Path $t.dir 'shadow-modules')
+    $runner = New-NoFileHashRunner -Path (Join-Path $t.dir 'run-uninstall.ps1') -Target $UninstallPath
 
-    $r = Invoke-Uninstall -Tree $t -ModulePath "$shadow;$($env:PSModulePath)"
+    $r = Invoke-Uninstall -Tree $t -ScriptPath $runner
 
     $bad = @()
     if ($r.code -ne 0)                          { $bad += "exit $($r.code) - the dry run did not complete" }
     if ($r.out -match '(?i)could not complete') { $bad += 'the run ended in "could not complete"' }
-    if ($r.out -match 'Get-FileHash')           { $bad += 'the run named Get-FileHash, so it is still resolving one' }
     if ($r.out -notmatch '(?i)statusline-file\s+PRESENT') { $bad += 'no statusline-file row was planned for a status line that is present' }
     if ($r.out -notmatch '(?i)DIFFERS from statusline/statusline\.ps1') {
         $bad += 'the statusline-file row did not report the drift, so no hash was computed'
     }
+    # Every surviving mention must be bin\lwg-cmdlib.ps1's settings reader
+    # reporting that it could not read the file - see the header.
+    $stray = @($r.out -split "`r?`n" |
+               Where-Object { $_ -match 'Get-FileHash' -and $_ -notmatch '(?i)settings\.json could not be read' })
+    if ($stray.Count -gt 0) {
+        $bad += ('Get-FileHash reached a line that is not the settings reader: ' + (($stray | ForEach-Object { $_.Trim() }) -join ' // '))
+    }
 
-    Add-Result -Name 'a PowerShell 7 PSModulePath does not stop the dry run producing a footprint' `
+    Add-Result -Name 'an unresolvable Get-FileHash does not stop the dry run producing a footprint' `
                -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
+}
+
+function New-CachedPluginCopy {
+    <#
+      A copy of the whole payload planted where the CLI puts a marketplace
+      install:
+
+          <ClaudeHome>\plugins\cache\lwg-fixture-marketplace\<plugin>\0.0.0-fixture
+
+      Returns that root. The uninstaller derives its plugin root from
+      $PSScriptRoot and takes no -Root override, so the only way to run it ON
+      the marketplace route is to run a copy that IS on it. The whole payload is
+      copied rather than the four files it dot-sources, so the run reaches the
+      same rows it reaches anywhere else - a partial tree would degrade the
+      hooks and status-line rows and the case would be asserting on a cripple.
+
+      The marketplace segment is a fixture name with no meaning to anything; the
+      PLUGIN segment is the real declared name, because the id the run prints is
+      derived from these two path segments and the case requires it back.
+    #>
+    param([Parameter(Mandatory = $true)][hashtable]$Tree)
+
+    $dest = Join-Path $Tree.claudeHome ("plugins\cache\lwg-fixture-marketplace\$PluginName\0.0.0-fixture")
+    [void][IO.Directory]::CreateDirectory($dest)
+    Copy-Item -Path (Join-Path $Root '*') -Destination $dest -Recurse -Force
+    return $dest
+}
+
+function Test-MarketplaceRouteDoesNotPrintJunctionSentences {
+    <#
+      TWO SENTENCES WRITTEN FOR THE JUNCTION ROUTE WERE PRINTED ON BOTH (#276).
+
+      On a marketplace install this script's own first line names the CLI cache
+      as the plugin root. It then said, of that same directory, that it "is
+      source code and possibly unpushed work" and that "Removing the junction
+      unloads the plugin" - there is no junction - and three lines under the
+      header it said "This script only knows about the junction and the data
+      dirs listed above; use /plugin uninstall for that one", pointing the
+      operator at another install as if the one in front of it were not the one.
+      A blind-spot list that contradicts the report's own first line is worse
+      than no blind-spot list.
+
+      WHAT THE ROUTE-AWARE TEXT HAS TO DO INSTEAD, and this is what the
+      assertions are: name the two CLI commands that actually remove a
+      marketplace install and its marketplace clone, with the
+      `<plugin>@<marketplace>` id filled in from the path - and stop claiming
+      the cache holds work of the operator's.
+
+      THE CONTROL IS IN THIS CASE, not beside it. The junction-route sentences
+      must still print on the junction route, or the fix is "delete the
+      paragraph", which loses a true statement to fix a misplaced one.
+
+      BASELINE 6aebcd6: the marketplace run printed 'possibly unpushed work' and
+      'only knows about the junction', word for word, and named no CLI command.
+    #>
+    $t   = New-CaseTree 'marketplace-route'
+    $mk  = New-CachedPluginCopy -Tree $t
+    $r   = Invoke-Uninstall -Tree $t -ScriptPath (Join-Path $mk 'bin\lwg-uninstall.ps1')
+
+    # The control: the same script, run from the repository payload, which is
+    # not on the marketplace route.
+    $t2  = New-CaseTree 'junction-route-control'
+    $ctl = Invoke-Uninstall -Tree $t2
+
+    $id = "$PluginName@lwg-fixture-marketplace"
+    $bad = @()
+    if ($r.code -ne 0)                              { $bad += "the marketplace run exited $($r.code)" }
+    if ($r.out -match '(?i)possibly unpushed work') { $bad += 'the CLI cache is described as source code that may hold unpushed work' }
+    if ($r.out -match '(?i)only knows about the junction') { $bad += 'the blind-spot list says the script only knows about a junction, under a header naming the cache as the plugin root' }
+    if ($r.out -notmatch [regex]::Escape("claude plugin uninstall $id")) { $bad += "the run never named 'claude plugin uninstall $id'" }
+    if ($r.out -notmatch [regex]::Escape('claude plugin marketplace remove lwg-fixture-marketplace')) { $bad += 'the run never named the marketplace removal, so the whole repository clone beside the install goes unmentioned' }
+    if ($r.out -notmatch '(?i)a marketplace install - the copy the CLI unpacks') { $bad += 'the plugin-clone row does not say what this directory is' }
+    # CONTROL - the junction-route sentences are not deleted, only conditioned.
+    if ($ctl.out -notmatch '(?i)possibly unpushed work')       { $bad += 'CONTROL: the junction route lost the sentence about unpushed work' }
+    if ($ctl.out -notmatch '(?i)only knows about the junction'){ $bad += 'CONTROL: the junction route lost its blind-spot sentence' }
+    if ($ctl.out -match [regex]::Escape("claude plugin uninstall $id")) { $bad += 'CONTROL: the junction route printed a marketplace id' }
+
+    Add-Result -Name 'a marketplace install is described as one, and the junction route keeps its own wording' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | marketplace exit $($r.code), control exit $($ctl.code)")
 }
 
 function Test-ReparseStateDirIsRefused {
@@ -2170,7 +2288,8 @@ try {
     Test-HookRegistrationReachesLeftBehind
     Test-ThirdPartyStatusLineIsNotOurs
     Test-StatusLineFileKeptWhenKeyHalfCannotRun
-    Test-Ps7ModulePathStillProducesAFootprint
+    Test-NoFileHashStillProducesAFootprint
+    Test-MarketplaceRouteDoesNotPrintJunctionSentences
     Test-ReparseStateDirIsRefused
     Test-PartialDeletionNamesWhatWent
     Test-EnvPathWithNoOwnershipSignalIsRefused
