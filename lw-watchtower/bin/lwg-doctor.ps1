@@ -218,11 +218,20 @@ function Get-LwgFileSha256 {
 # on the 'discovered' branch: the 'env' branch chose nothing, so a hook and a
 # command handed CLAUDE_PLUGIN_DATA are never told they are ambiguous.
 #
-# THIS DUPLICATES Get-LwgStateDirSplit, which lane F4-B added to lib/common.ps1
-# for bin/lwg-toggle.ps1 and bin/lwg-config.ps1 in the same wave. It is written
-# here instead of called because that function is not on this PR's base and a
-# call into it would be red until the other PR merged. Once both are on main
-# this should collapse into the one in lib/common.ps1 - noted on #270.
+# COLLAPSED ONTO Get-LwgStateDirInfo's OWN ANSWER - #270. This function was
+# written in this file, by lane F4-D, with a second filesystem scan of its own,
+# because lane F4-B's `ranked` key and Get-LwgStateDirSplit were not on that
+# PR's base and a call into them would have been red until the other merged.
+# Both are on main now, so the duplicated SCAN is gone: the candidate list comes
+# from the resolver that actually made the choice, which is the only thing that
+# can say what it chose between.
+#
+# The PRESENTATION stays here rather than moving to lib/common.ps1's
+# Get-LwgStateDirSplit, and that is deliberate: this file's lines are indented
+# and worded to sit inside a doctor row, and the two commands' lines are worded
+# to sit inside a refusal. One shared list of facts, two renderings of it, is
+# the right split - a shared renderer would have to be told which caller it was
+# serving, which is a parameter standing in for a difference that is real.
 function Get-DoctorStateSplit {
     <#
       Returns @{ ambiguous; ranked; lines }. `lines` are ready to print: one per
@@ -233,16 +242,13 @@ function Get-DoctorStateSplit {
 
     $r = @{ ambiguous = $false; ranked = @(); lines = @() }
     if ($null -eq $Info -or "$($Info.source)" -ne 'discovered') { return $r }
-    $home_ = "$($Info.home)"
-    if ([string]::IsNullOrWhiteSpace($home_)) { return $r }
 
-    $name = ''
-    try { $name = Get-LwgPluginName } catch { }
-    if ([string]::IsNullOrWhiteSpace($name)) { $name = 'lw-watchtower' }
-
-    $cands = @()
-    try { $cands = @([IO.Directory]::GetDirectories([IO.Path]::Combine($home_, 'plugins\data'), ($name + '*'))) } catch { }
-    $ranked = @($cands | Where-Object { [IO.Path]::GetFileName($_) -ne $name })
+    # .ranked is the SUFFIXED candidates Get-LwgStateDirInfo had to choose
+    # between - empty on the env branch, which chooses nothing, and empty when
+    # there was no ranking to do. Reading it here rather than re-globbing means
+    # the row cannot disagree with the resolution it is reporting on, which a
+    # second scan of a directory that may have changed in between could.
+    $ranked = @($Info.ranked)
     if ($ranked.Count -lt 2) { return $r }
 
     $r.ambiguous = $true
