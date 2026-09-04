@@ -845,6 +845,62 @@ Say ''
 $proseFiles = @($tracked | Where-Object { $_ -match '\.(md|json|yml|yaml)$' })
 if ($proseFiles.Count -eq 0) { Abort 'no tracked prose files found - the enumeration is broken.' }
 
+
+# A CLAIM THAT WRAPS ACROSS A COMMENT CONTINUATION WAS UNREADABLE, AND IN A
+# WORKFLOW FILE THAT IS THE COMMON CASE - #258. Every pattern here joins its
+# words with `\s+`, which spans a newline and an indent perfectly well because
+# $text is the file joined with `n. What it cannot span is the `#` that starts
+# the next line of a hard-wrapped YAML comment. So
+#
+#     # ... it stays one job now that NINE behavioural
+#     # suites are in it: a second job would buy parallelism ...
+#
+# held a live claim, matched by a live pattern, and the two never met: the
+# behavioural-suite count in ci.yml sat at NINE against eleven in the tree
+# through a document pass, a numbers pass and every green run of this guard.
+# ci.yml carries hundreds of lines of prose hard-wrapped at ~78 columns, so any
+# claim in it is one wrap away from invisible.
+#
+# THE FIX IS A MASK, NOT A JOIN, and the distinction is what keeps every line
+# number in this file's output correct. The obvious spelling - collapse
+# `\n\s*#\s*` to one space - changes the length of the text, and Get-LineNumber
+# counts newlines in a Substring of it, so every file:line this guard printed
+# would move. Instead each continuation marker is REPLACED BY THE SAME NUMBER
+# OF SPACES: same length, same newlines, same indices, and `\s+` now runs
+# straight through.
+#
+# ONLY A CONTINUATION IS MASKED - a `#` or `>` whose PREVIOUS line opens with
+# the same marker. That is the whole of the difference between a wrapped
+# comment and a markdown heading: `## What is not covered` is preceded by prose
+# or a blank line, and is left alone, so this does not weld a heading onto the
+# paragraph above it and invent a claim spanning both. What it does not fix is
+# a claim wrapped across anything else - a table cell, a list item's hanging
+# indent - and that is the honest limit of masking rather than parsing.
+function Get-ContinuationMasked {
+    <#
+      The file's text with every comment/blockquote continuation marker turned
+      into spaces. Same length as the original, so an index into one is an
+      index into the other.
+    #>
+    param([string[]]$Lines)
+    $lead = '^(\s*)([#>]+)(?=\s|$)'
+    $out  = New-Object System.Collections.Generic.List[string]
+    for ($i = 0; $i -lt $Lines.Count; $i++) {
+        $line = [string]$Lines[$i]
+        $m    = [regex]::Match($line, $lead)
+        if ($m.Success -and $i -gt 0) {
+            $prev = [regex]::Match([string]$Lines[$i - 1], $lead)
+            if ($prev.Success -and $prev.Groups[2].Value[0] -eq $m.Groups[2].Value[0]) {
+                $g = $m.Groups[2]
+                $out.Add($line.Substring(0, $g.Index) + (' ' * $g.Length) + $line.Substring($g.Index + $g.Length))
+                continue
+            }
+        }
+        $out.Add($line)
+    }
+    return ($out -join "`n")
+}
+
 $docs = @()
 $skippedWhole = @()
 foreach ($rel in $proseFiles) {
@@ -853,7 +909,14 @@ foreach ($rel in $proseFiles) {
     $lines = @(Get-Content -LiteralPath $full)
     $text  = ($lines -join "`n")
     if ($text -match '<!--[^>]*doc-claims:ignore-file') { $skippedWhole += $rel; continue }
-    $docs += [pscustomobject]@{ Rel = $rel; Lines = $lines; Text = $text }
+    $flat  = Get-ContinuationMasked -Lines $lines
+    # The mask is length-preserving or the line numbers below are wrong, and a
+    # guard printing the wrong file:line is worse than one printing none. It is
+    # checked rather than trusted to the regex.
+    if ($flat.Length -ne $text.Length) {
+        Abort ("the continuation mask changed the length of {0} ({1} -> {2}); every file:line this run printed would be wrong" -f $rel, $text.Length, $flat.Length)
+    }
+    $docs += [pscustomobject]@{ Rel = $rel; Lines = $lines; Text = $text; Flat = $flat }
 }
 if ($docs.Count -eq 0) { Abort 'every prose file was exempted - that is not a pass.' }
 
@@ -932,7 +995,12 @@ function Test-Claim {
         $pat = $Patterns[$pi]
         $patHits = 0
         foreach ($doc in $docs) {
-            foreach ($m in [regex]::Matches($doc.Text, $pat)) {
+            # MATCHED AGAINST .Flat, REPORTED AGAINST .Text - #258. The two are
+            # the same string except that a wrapped comment's continuation
+            # marker is spaces in one of them, so they are the same length and
+            # an index into one is an index into the other. Matching on .Text
+            # is what let a claim broken across a `#` go unread.
+            foreach ($m in [regex]::Matches($doc.Flat, $pat)) {
                 $ln  = Get-LineNumber $doc $m.Index
                 $qty = ConvertTo-Quantity $m.Groups[1].Value
                 if ($null -eq $qty) {
