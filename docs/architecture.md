@@ -197,7 +197,7 @@ tests/uninstall_footprint.ps1
                              to this plugin really is this plugin's, and what it
                              refuses to touch it names. The only suite that
                              tests a DELETION
-tests/doctor_behaviour.ps1   42 cases driving bin/lwg-doctor.ps1 from a scratch
+tests/doctor_behaviour.ps1   43 cases driving bin/lwg-doctor.ps1 from a scratch
                              copy of the whole plugin tree, against seeded
                              configs and seeded settings.json files. It drives
                              TWO of the doctor's ten checks - config-registry

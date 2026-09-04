@@ -1190,6 +1190,63 @@ try {
         ("exit was {0}; the output named {1} slash command(s) [{2}] and {3} of them have no commands\<name>.md: [{4}]. Three of the four NOT SWITCHABLE HERE lines used to read 'use /lw-watchtower:send_liveness instead' and its two siblings, built at run time from the registry's switch key - and the plugin ships six commands, none of them those. bin\lwg-doctor.ps1's commands check scans FILES for these references, so a reference assembled at run time is invisible to it and this is the only place that can see it." -f `
             $f8.code, $f8slash.Count, ($f8slash -join ', '), $f8missing.Count, $(if ($f8missing.Count) { $f8missing -join ', ' } else { 'none' }))
 
+    # -----------------------------------------------------------------------
+    # F9. #300. A DIRECTORY AT config.override.json IS AN OVERRIDE THIS COMMAND
+    #     CANNOT READ, AND IT SAYS SO ON BOTH PATHS.
+    #
+    #     F5-F7 pin the shapes of the SHIPPED file this command refuses to write
+    #     over. This pins a shape of the OPERATOR'S file, and it is here rather
+    #     than in tests\doctor_behaviour.ps1 alone because the defect is in the
+    #     shared resolver: Get-LwgConfig gated its whole override read on
+    #     [IO.File]::Exists, which answers $false for a directory, so
+    #     _override_error stayed empty and every surface that renders it - this
+    #     command's `source:` line, this command's write refusal,
+    #     /lw-watchtower:doctor's config-registry row and roster,
+    #     /lw-watchtower:delegate's state block - reported NO OVERRIDE over a
+    #     config.override.json sitting at the path each of them names.
+    #
+    #     THE WRITE HALF IS THE REASON THIS IS NOT COSMETIC. Before the fix the
+    #     listing said 'override: none', the write path then read $ovPath as
+    #     absent, seeded it with [IO.File]::WriteAllText and took an unhandled
+    #     UnauthorizedAccessException out of the middle of a run that had
+    #     already printed a plan. Now the same state is a stated REFUSAL that
+    #     names the file and tells the operator to delete it - the same refusal
+    #     the four other unreadable shapes already get.
+    #
+    #     ONE CASE, BOTH PATHS. The override file this section left is SAVED and
+    #     PUT BACK afterwards, bytes for bytes: section G asserts that the file
+    #     every applied write landed in still exists under the state directory,
+    #     and a case that swapped it for a directory and then deleted the
+    #     directory would fail that invariant on a fixture rather than on a
+    #     defect.
+    #
+    #     BASELINE 1baf6d4: the listing read 'override: none - these are the
+    #     shipped defaults' and the -Apply run walked past its own refusal into
+    #     [IO.File]::WriteAllText on the directory - neither of which says a
+    #     config.override.json is there.
+    # -----------------------------------------------------------------------
+    $f9saved = Get-Bytes -Path $sand.ov
+    if (Test-Path -LiteralPath $sand.ov) { Remove-Item -LiteralPath $sand.ov -Recurse -Force }
+    [void][IO.Directory]::CreateDirectory($sand.ov)
+    $f9a = Invoke-Config -Sand $sand -ScriptArgs '' -Tag 'f9a'
+    $f9b = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -Off -Apply' -Tag 'f9b'
+    $f9dirStill = [IO.Directory]::Exists($sand.ov)
+    if ([IO.Directory]::Exists($sand.ov)) { Remove-Item -LiteralPath $sand.ov -Recurse -Force }
+    if ($null -ne $f9saved) { [IO.File]::WriteAllBytes($sand.ov, $f9saved) }
+
+    Add-Result 'F9 an override that is a DIRECTORY is named as IGNORED and refused, not read as absent (#300)' `
+        ($f9a.code -eq 0 -and ($f9a.out -like "*override: IGNORED - $($sand.ov) it is not a file*") -and
+         ($f9a.out -notlike '*override: none*') -and
+         $f9b.code -eq 1 -and ($f9b.out -like '*it is not a file*') -and
+         $f9dirStill) `
+        (("the listing exited {0} and the -Apply run exited {1}; the directory {2} after the write attempt. " +
+          "[IO.File]::Exists is `$false for a directory, so the whole override read was skipped and " +
+          "'override: none - these are the shipped defaults' was printed over a config.override.json that IS " +
+          "at that path - then the write path, believing there was no file, tried to seed one on top of the " +
+          "directory. listing: {3} || apply: {4}") -f `
+            $f9a.code, $f9b.code, $(if ($f9dirStill) { 'was still there' } else { 'WAS REMOVED BY THE RUN' }),
+            (Get-FirstLines $f9a.out 4), (Get-FirstLines $f9b.out 8))
+
     # =======================================================================
     # SECTION G - the invariants, over every run this suite made
     # Evaluated LAST, so $script:Runs holds sections A to F.
