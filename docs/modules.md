@@ -144,8 +144,9 @@ What that leaves, stated plainly rather than left to be discovered:
 - **The installer has no deny table left to be empty.** `/lw-watchtower:setup` writes **zero**
   `permissions.deny` rules, and since 2 September 2026 it has no code that could write one:
   `Get-DenyGroups` was deleted from [`bin/lwg-setup.ps1`](../lw-watchtower/bin/lwg-setup.ps1), and
-  so were `-SecretGate` and `-DestructiveGate`. This page said until that date that the function
-  returned an empty table and the two parameters were *"still accepted and select nothing"* — both
+  so were `-SecretGate` and `-DestructiveGate`. This page went on saying for a day afterwards that
+  the function returned an empty table and the two parameters were *"still accepted and
+  select nothing"* — both
   halves are now wrong, and the second is the one that matters: the parameters are not accepted, so
   passing either is a PowerShell binding error before any script code runs rather than a question
   whose answer selects nothing. Setup no longer asks. The only mentions of the three names left in
