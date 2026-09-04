@@ -1140,15 +1140,18 @@ Write-Output ("RESULT: {0} passed, {1} warning(s), {2} failure(s), {3} informati
 # WHY "EVERY ONE of the EIGHT" RATHER THAN "ALL EIGHT", and what that does NOT
 # buy. `of the <N> observing` is the shape doc_claims's observing-module-count
 # rule reads, so the wording matches a live rule rather than evading one - but
-# NOTHING CHECKS THIS LINE. tests\doc_claims.ps1 builds its corpus from tracked
-# .md, .json, .yml and .yaml only ("Prose files only. A .ps1 is checked by the
-# parse step and by its own suite"), so no rule in that file has ever read a
-# word of this script. The two sites it does read are docs\testing.md and
-# .github\notes\HANDOFF.md. The phrasing is kept in the family the guard knows
-# so that a reader grepping for the claim finds this line beside the pages, and
-# so that the day this paragraph is moved onto a page it is already checkable.
-# What holds it today is the case in tests\doctor_behaviour.ps1 (#253) and
-# review, and saying otherwise would be this paragraph's own defect one turn on.
+# NO QUANTITY RULE CHECKS THIS LINE. tests\doc_claims.ps1 runs its counting
+# rules over prose only - tracked .md, .json, .yml and .yaml, "A .ps1 is checked
+# by the parse step and by its own suite" - so the number below is not among
+# the ones it derives. (Its WIDE set does read .ps1, this file included, but
+# those rules are the forbidden-phrasing and GM-promise ones, and none of them
+# counts anything.) The two sites the observing count is actually read at are
+# docs\testing.md and .github\notes\HANDOFF.md. The phrasing is kept in the
+# family the guard knows so a reader grepping for the claim finds this line
+# beside the pages, and so the day this paragraph moves onto a page it is
+# already checkable. What holds it today is the case in
+# tests\doctor_behaviour.ps1 (#253) and review, and saying otherwise would be
+# this paragraph's own defect one turn on.
 Write-Output ''
 Write-Output "NOT checked here: whether the advisories actually fire, and whether Claude Code has"
 Write-Output "this plugin ENABLED in the current session - a hook can be perfectly configured and"
