@@ -2129,9 +2129,18 @@ try {
     #      word. What it can see is the fast path stopping ENTIRELY - the thing
     #      the header says would otherwise "not be caught by this file at all" -
     #      and it can now say so with a margin that noise has been measured
-    #      unable to reach. No run on a CI runner has been measured, here or
-    #      anywhere. If this fails on windows-latest with both legs still
-    #      allowing, re-measure both legs there before reading it as a
+    #      unable to reach.
+    #
+    #      AND IT HAS NOW BEEN MEASURED ON A CI RUNNER ONCE, which is a sentence
+    #      this comment could not carry until the line below started printing.
+    #      windows-latest, run 33834555561 - the run that landed this change:
+    #      provable-off 280 ms (spread 29), forced-through 608 ms (spread 31),
+    #      gap 328 ms. The hosted runner was QUIETER than the development
+    #      machine, spreads of about 30 ms against 300+, and the gap came back
+    #      larger rather than smaller, so the margin has better than three times
+    #      its headroom on the only sample that machine has ever given. ONE
+    #      SAMPLE IS ONE SAMPLE: if this fails on windows-latest with both legs
+    #      still allowing, re-measure both legs there before reading it as a
     #      regression.
     #
     #      THE NUMBERS ARE PRINTED ON EVERY RUN, NOT ONLY WHEN THE CASE FAILS,
@@ -2185,7 +2194,7 @@ try {
         $j10FastMs, $j10FastSpread, $j10SlowMs, $j10SlowSpread, $j10Gap, $j10MarginMs)
     Add-Result 'J10 an off switch the fast path can prove still exits 0, and quicker than one it cannot' `
         ($j10Bad -eq '' -and $j10Gap -ge $j10MarginMs) `
-        ("$j10Bad  --  best of 9 interleaved: provable-off $j10FastMs ms (spread $j10FastSpread over its 9 samples), forced-through $j10SlowMs ms (spread $j10SlowSpread), gap $j10Gap ms, required >= $j10MarginMs ms. The margin is five times the largest gap measured between two IDENTICAL legs at this sample count (-20, 7 and 11 ms over three whole runs at c39e782), so noise has been measured unable to reach it; the real gap measured 207, 205 and 216 ms over the same three runs. READ THE SPREADS BEFORE READING THIS AS A REGRESSION: a spread of a few hundred milliseconds says the host was disturbed, and the minimum is the statistic least disturbed by that - a gap that collapsed while both spreads stayed small is the fast path no longer running, which is the one thing this case exists to see, and the only other thing that would notice is the cost going back to what docs/modules.md says it used to be. Nothing has ever been measured on a CI runner: measure both legs by hand there first")
+        ("$j10Bad  --  best of 9 interleaved: provable-off $j10FastMs ms (spread $j10FastSpread over its 9 samples), forced-through $j10SlowMs ms (spread $j10SlowSpread), gap $j10Gap ms, required >= $j10MarginMs ms. The margin is five times the largest gap measured between two IDENTICAL legs at this sample count (-20, 7 and 11 ms over three whole runs at c39e782), so noise has been measured unable to reach it; the real gap measured 207, 205 and 216 ms over the same three runs. READ THE SPREADS BEFORE READING THIS AS A REGRESSION: a spread of a few hundred milliseconds says the host was disturbed, and the minimum is the statistic least disturbed by that - a gap that collapsed while both spreads stayed small is the fast path no longer running, which is the one thing this case exists to see, and the only other thing that would notice is the cost going back to what docs/modules.md says it used to be. The one measurement from a CI runner - windows-latest, run 33834555561 - read 280 and 608 ms with spreads of 29 and 31, a gap of 328: quieter than the development machine, not noisier. Measure both legs by hand there before reading a red as a regression")
 
     # -------------------------------------------------------------------
     # K. THE REPORTER AND THE READER, ON THE SAME CONFIG.
