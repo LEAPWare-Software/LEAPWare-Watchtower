@@ -115,21 +115,26 @@ function Get-LwgSwitchRoute {
       WHY THIS IS DERIVED AND NOT SPELLED OUT. Both texts used to be built as
       "use /lw-watchtower:<key> instead" from the registry's switch KEY, which is
       right for exactly one of the four switches. `interaction.delegate` has a
-      command called `delegate` by coincidence of naming; `supervision.
-      send_liveness`, `supervision.completion_audit` and `supervision.
-      orphan_watch` have no command at all, and this plugin ships six -
+      command called `delegate` by coincidence of naming; the three
+      `supervision.*` switches have no command at all, and this plugin ships six -
       config, delegate, doctor, setup, uninstall, update. So the operator who
       wanted to arm send_liveness_gate - one of the two gates that can refuse
-      something - was sent to /lw-watchtower:send_liveness, which does not exist,
-      and no page tells them the real route either (#251, #274).
+      something - was sent to a command named after the switch key, which does
+      not exist, and no page tells them the real route either (#251, #274).
 
       The existence test reads commands\<key>.md under the plugin root rather
       than a list held here, so a command added later is picked up with no edit
       and a command removed stops being advertised the same day. It is also the
       only form the doctor's `commands` check can agree with: that check scans
-      files for /lw-watchtower:<name> references, and a reference assembled at
-      run time is invisible to it, which is how this survived every check in
-      the tree.
+      files for slash-command references, and a reference assembled at run time
+      is invisible to it, which is how this survived every check in the tree.
+
+      NOTHING HERE MAY SPELL A COMMAND THAT DOES NOT EXIST, comments included.
+      The first draft of this block quoted the three bad routes verbatim to
+      explain them, and the doctor's `commands` check failed the whole payload
+      over the comment - correctly: it reads text, and a text reference to an
+      absent command is what it exists to catch. The names are described rather
+      than written for that reason.
     #>
     param(
         [Parameter(Mandatory = $true)]$Switch,
