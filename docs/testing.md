@@ -33,7 +33,7 @@ and the model-visible `additionalContext` envelope.
 and `tests/config_behaviour.ps1` does the same for `bin/lwg-config.ps1`, each closing with an
 invariant that the plugin root's tracked `config.json` was not moved by a byte. They are the only
 suites besides the merge suite that cover a **write to a file an operator owns**.
-`tests/subagent_scan.ps1` pipes payloads into `lib/subagent_start.ps1` with 13 cases, and is the only
+`tests/subagent_scan.ps1` pipes payloads into `lib/subagent_start.ps1` with 14 cases, and is the only
 coverage of any kind that `context_injection` has.
 `tests/payload_guard.ps1` reads every file `git ls-files` reports under `lw-watchtower/` — which is
 the whole shipped payload — with 22 cases, and is the only one that asks what a **stranger

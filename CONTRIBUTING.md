@@ -233,7 +233,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\config_behaviour.ps1  
 powershell -NoProfile -ExecutionPolicy Bypass -File tests	oggle_behaviour.ps1    # the toggle's write to the override, 28
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\state_resolution.ps1    # the state-directory resolver, 37
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1    # the doctor's driven checks, 42
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1       # the SubagentStart fast path, 13
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1       # the SubagentStart fast path, 14
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1       # every tracked file, as shipped payload, 22
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\workflow_guard.ps1      # every workflow file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\portability_scan.ps1    # every tracked file
