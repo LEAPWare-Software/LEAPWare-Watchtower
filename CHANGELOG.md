@@ -36,6 +36,29 @@ project exists to refuse.
 
 ### Breaking
 
+- **The shipped payload became a subdirectory, and every path that pointed at it moved in the same
+  commit (2026-09-03, #236).** `.claude-plugin/marketplace.json` declared `"source": "./"`, a form
+  with no exclusion mechanism, so **every tracked file in this repository was the payload**: a
+  consumer installing this plugin received `docs/`, `tests/`, `.github/` and `CHANGELOG.md` along
+  with the code. Nine `git mv` operations put `agents/`, `bin/`, `commands/`, `context/`, `hooks/`,
+  `lib/`, `statusline/`, `config.json` and `.claude-plugin/plugin.json` under `lw-watchtower/`, and
+  the `source` now names that subtree. **Measured on a real install: 35 files reach a consumer
+  instead of 94, and `Compare-Object` between the cache and the payload subtree is empty.**
+  `.claude-plugin/marketplace.json` stays at the repository root, because it is the file the CLI
+  reads to add the marketplace at all.
+
+  **What this changes for you.** Nothing an operator has to do: the plugin id, the command surface
+  and the state directory are all unchanged, and an existing install updates in place. What changes
+  is every path in a bug report, a script or a note of your own — `bin\lwg-doctor.ps1` is now
+  `lw-watchtower\bin\lwg-doctor.ps1` in a clone, and the marketplace cache holds the subtree rather
+  than the repository. The move had to be one commit because a payload that moved while a pin did
+  not is not a build failure but a silent one: `.gitattributes`' `eol=lf` pin on the status line,
+  `.gitignore`'s entry for the worker-facts scratch file, and nine repo-relative literals in
+  `bin/lwg-update.ps1` are each anchored to the repository root, and each fails quietly when left
+  behind. `HANDOFF.md` and four working papers moved to `.github/notes/` in the same commit, for the
+  same reason: they are not documentation for a consumer and they were being shipped as if they
+  were.
+
 - **The product is renamed from `lw-gmhh` to `lw-watchtower` (2026-08-03). This is the one entry in
   this file that names the old product in the present tense, and it is the canonical statement of
   what the rename does to an install that already exists.** Everywhere else the old name survives
@@ -135,7 +158,82 @@ project exists to refuse.
   that should have denied, allowed. If you have relied on a capitalised key being inert, it is not
   inert any more; it now means what it reads as.
 
+### Removed
+
+- **Six slash commands, and everything that only existed to serve them (2026-09-02, #199).**
+  `/lw-watchtower:status` folded into `/lw-watchtower:doctor`, which already printed the same roster
+  off the same registry; `/lw-watchtower:checklist` and `/lw-watchtower:sitrep`, which reported the
+  maintainer's own project on a consumer's machine; `/lw-watchtower:resolve`, which hand-cleared a
+  fault count it could not clear in the case that mattered; and `/lw-watchtower:verbosity` and
+  `/lw-watchtower:plain`, which recorded an output-style preference **nothing applied** — a switch
+  wired to nothing, which is the defect this plugin exists to catch, shipped inside it. Their
+  scripts went with them: `bin/lwg-checklist.ps1`, `bin/lwg-sitrep.ps1`, `bin/lwg-resolve.ps1`,
+  `bin/lwg-evidence.ps1` and `lib/resolve.ps1`, plus `checklist.json` and the five
+  `output-styles/*.md` files. `tests/evidence_states.ps1` went with the evidence engine it drove.
+  **Six commands are left**, and `/lw-watchtower:doctor` fails on a live-looking reference to a
+  command with no file behind it, which is what forced the references out of the tree as well as
+  the code.
+
+  **If you set `outputStyle` to one of the five**, that key now names a file that does not exist and
+  nothing here will tell you: no command reads or writes it any more. Re-pick it under `/config`.
+
+- **`verification_gate` and `mission_drift`, and the `lw-class` classifier that only
+  `verification_gate` read (2026-09-02, completed by #201).** `mission_drift` had been on by default
+  on every install with its trigger never validated against a real session — the only module here
+  that both fired unasked and rested on a judgement no case could establish. `verification_gate` kept
+  "gate" in a name that was never one. Both are gone from `$LwgModuleRegistry` rather than switched
+  off, because a name on the banner that means nothing is the thing this project refuses.
+  **`lw-class` is now a dead key: its only reader went with `verification_gate`, and nothing in this
+  release reads a role's class.** The five shipped role files still carry the frontmatter line and it
+  does nothing; a copy of `lw-class: verify` in a role of your own is ignored by the loader and can
+  stay or go.
+
+  **The registry is now eleven modules — eight observing, three gates** — and the banner reads
+  `7/11 modules enabled (4 off)` on a shipped config.
+
 ### Added
+
+- **`tests/config_behaviour.ps1` and `tests/state_resolution.ps1`** — two behavioural suites for
+  surfaces that had none: the config command's write path, and the state-directory resolver whose
+  precedence rules every other component depends on and no case had ever exercised.
+  `state_resolution` landed with #210 and `config_behaviour` in the wave's first commit, which
+  carried no pull request of its own. **Both reached CI only through a sibling suite's helper until
+  #215**, which gave each its own named step — a suite that runs but reports under another suite's
+  name is a suite whose failure is attributed to the wrong thing.
+- **The state directory honours `CLAUDE_CONFIG_DIR`** (#146, #210, #220). Every path in `bin/` and in
+  the status line now resolves through one resolver with a stated precedence — an explicit
+  `-ClaudeHome`/`-SettingsPath`/`-DataRoot` parameter, then `$env:CLAUDE_PLUGIN_DATA` for the data
+  directory only, then `$env:CLAUDE_CONFIG_DIR`, then `$env:USERPROFILE\.claude`. A relative value is
+  made absolute against the working directory, a trailing separator is trimmed, and **a directory
+  that does not exist is returned as given with `exists = $false` rather than silently falling back
+  to the profile**, because a fallback that is not announced is how one machine's layout becomes
+  everybody's.
+- **A version-declaration guard that runs on a tag and on every pull request** (#209, #219, #224).
+  `.github/scripts/version_declarations.ps1` holds the five declaration sites to each other, and —
+  when a tag is passed — to the tag and to `CHANGELOG.md`'s heading for it. `release.yml` calls it
+  with the tag and **can refuse to publish**; `ci.yml` calls it without one on every push and pull
+  request, where the two tag-shaped rules report NOT CHECKED rather than passing vacuously. Both
+  callers run the guard's own fixtures first and refuse to trust a live answer from a guard whose
+  rules did not fire. This closes the gap where a drifted declaration was only ever noticed on
+  release day, in the one workflow where stopping costs most.
+- **A red-first annotation guard** (#226, landed in #230). `.github/scripts/redfirst_annotations.ps1` reads every
+  `tests/*.ps1` and holds the **shape** of its red-first annotations: a line claiming a baseline must
+  name a commit, and a case id an annotation names must be a case that suite declares. It states its
+  own limit in its header rather than in a footnote — it **cannot** re-run a baseline, so an
+  annotation citing a real commit against a case that could never have failed there passes it — and
+  a rule that matched nothing anywhere exits 2 rather than reporting a clean run.
+- **A tenth rule in `tests/workflow_guard.ps1`: `permissions-write`** (#225, landed in #230). Until 3 September 2026
+  nothing here read a `permissions:` block, so a workflow granting `contents: write`, `pages: write`
+  or `id-token: write` parsed clean and exited 0. The rule is structural rather than a grep, because
+  two forms defeat one: the block sits at workflow level **or** at job level where it overrides, and
+  the `write-all` shorthand is a scalar carrying no `": write"` to search for. Its allowlist holds
+  two entries, both `release.yml`'s, kept separate so dropping either does not quietly widen the
+  other.
+- **A `claude-version` check in `/lw-watchtower:doctor`** (#218, #224), reporting the Claude Code
+  build against the one the hook events were read out of. It has three states and only one warns, and
+  **a build that could not be read at all is a PASS with a detail saying so in words** — that is the
+  normal state, because the CLI exports no version variable, and it is a limit on what can be
+  observed from here rather than a fault in the tree.
 
 - **`tests/doc_claims.ps1` — the check that asks whether the PROSE is right.** Every other check in
   this repository asks whether the code is. It fails the build when a tracked page states a
@@ -192,6 +290,26 @@ project exists to refuse.
 
 ### Changed
 
+- **Operator settings leave the git working tree (#11, #229).** `/lw-watchtower:config` and
+  `/lw-watchtower:delegate` used to rewrite the tracked `config.json` in the plugin root. Arming the
+  gate therefore dirtied the plugin's own checkout, and `/lw-watchtower:update` then refused to pull
+  — permanently, because the thing making the tree dirty was the plugin. Both commands now write
+  **`config.override.json` in the state directory**, and every reader merges the override over the
+  shipped defaults with the override winning. Both print both paths on every run.
+
+  **What to check in your own config.** If you edited `config.json` by hand before 3 September 2026,
+  that edit is still honoured wherever no override overrides it — but a hand edit there now changes
+  nothing while an override says otherwise, and the pages that told you to make it have been
+  corrected. Deleting the override is safe and returns every setting to the shipped default;
+  deleting `config.json` is not, and both commands refuse to write when it cannot be read, because
+  an override is merged over defaults and not over a file nobody could parse. **One carve-out:**
+  `context_injection` is the module `/lw-watchtower:config` will not switch, because
+  `lib/subagent_start.ps1` reads `config.json` directly on its fast path and an override for it
+  would be reported as applied and ignored by the hook it switches. The command refuses and says so.
+
+- **The doctor reads the settings file the CLI actually reads** (#224), and an unread Claude Code
+  build stopped being reported as a fault.
+
 - **The declared version is `0.4.0`.** Five sites moved together — `.claude-plugin/plugin.json`,
   `.claude-plugin/marketplace.json`, `config.json`, `lib/common.ps1`'s `$script:LwgVersion`, and the
   pre-`common.ps1` fallback in `lib/session_start.ps1`. The six sample banners that transcribe it —
@@ -222,6 +340,45 @@ project exists to refuse.
   was already false of Q2 and is now false of two of six.
 
 ### Fixed
+
+- **`git_hygiene`'s timeout killed the child and left its helpers running** (#98, #207). Every child
+  got a hard timeout and the child was killed on expiry — a helper it had spawned was not, so a slow
+  `gh` call could outlive the turn that started it. The kill is now `taskkill /T /F`, so the child
+  **and the helpers it spawned** go together. Turn end is still never blocked, and the residual
+  window is a pid reissued in the microseconds after the `HasExited` check, which the old `Kill()`
+  fallback always carried too.
+
+- **`/lw-watchtower:config` refused a module name it should have accepted, and accepted one it
+  should have refused** (#91, #92, #206). The case-sensitivity check was written with an operator
+  that is case-insensitive in PowerShell, so the refusal whose own hint read *"Module names are
+  case-sensitive"* was unreachable for the only input it described. The command also now says when a
+  `-Repo` slug is being taken on trust rather than verified.
+
+- **The doctor reported a log it could not read as a dead hook** (#42, #203), reported an untracked
+  tree as tracked, and carried a check-id set that no longer matched what it ran (#204, #205, #217).
+  Each of those makes an unrun check read as a passed one, which is the failure class this whole
+  repository is organised against.
+
+- **The deleted resolver was still named as live in shipped code and in the guards' own headers**
+  (#192, #231, #235). `lib/resolve.ps1` and `bin/lwg-resolve.ps1` went with the `/resolve` command;
+  the references to them did not, so scripts still pointed a reader at files that were not there.
+  The two temporary allowlist entries #231 landed with were retired in the same pass rather than
+  left to become permanent.
+
+- **Two CI guards were being skipped by a sibling step's failure** (#209), so a red build could hide
+  whether either had run at all. Both now run on `!cancelled()` and report their own verdict.
+
+- **`-SecretGate` and `-DestructiveGate` are binding errors rather than accepted-and-inert
+  parameters** (#173, #208, #212). Both gates were deleted on 30 July 2026 and the installer went on
+  accepting their switches, selecting nothing whichever way they were answered — a switch wired to
+  nothing, on the installer. Passing either now fails PowerShell's own parameter binding before any
+  script code runs, so nothing is written and there is no longer a question whose answer means
+  nothing. If a script of yours passes one, it will stop working, loudly, which is the point.
+
+- **Two committed cases could not fail** (#136, #137, #144, #177, #216, #232). They asserted
+  something true of any tree, so they had been green since the day they were written and would have
+  stayed green through the defect they were named for. A case that cannot fail is worse than no case,
+  because it occupies the slot where a real one would be noticed missing.
 
 - **A non-repository identity was published on `main`, and the probe that existed to prevent it
   could not see the field it was in — PARTIALLY resolved, and the residual is named below.** Three
@@ -419,12 +576,20 @@ project exists to refuse.
 ### Not fixed in this release, and named so it is not discovered instead
 
 - **`version-not-a-published-tag` cannot run in CI**, for the reason given above. The rule is stated
-  for people in `CONTRIBUTING.md`; the machine catches it only on a clone with tag refs.
+  for people in `CONTRIBUTING.md`; the machine catches it only on a clone with tag refs. Since
+  3 September 2026 the *agreement* half does run on every push and pull request — see the
+  version-declaration guard under Added — so what is left unenforced in CI is the comparison against
+  a tag, and only that.
+- **The red-first rule itself is still held by a person.** The guard added above holds the shape of
+  an annotation and cannot re-run a baseline, so an annotation citing a real commit against a case
+  that could never have failed there passes. That is stated in the guard's own header, in
+  `CONTRIBUTING.md`, and here, because the gap between "the bookkeeping is checked" and "the rule is
+  enforced" is exactly the kind of overstatement this file exists to refuse.
 - **The version-identity guard reads declarations, not prose.** Pages that state the current version
   in a sentence or a sample banner are swept by hand; this pass swept `README.md`, `docs/faq.md` and
-  `docs/modules.md`. `HANDOFF.md` still says `0.3.0` in that form and is **left alone on purpose** —
-  it is titled *Handoff — 31 July 2026 (v0.3.0 release)* and that sentence is a record of the day,
-  not a claim about today.
+  `docs/modules.md`. `.github/notes/HANDOFF.md` still says `0.3.0` in that form and is **left alone
+  on purpose** — it is titled *Handoff — 31 July 2026 (v0.3.0 release)* and that sentence is a record
+  of the day, not a claim about today.
 - **The identity exposure this list carried as unresolved was resolved on 2026-08-28**, before this
   section was released, by deleting the predecessor repository that served the ref. The bullet is
   restated rather than deleted so the list does not silently lose an item it once carried; the
@@ -1851,11 +2016,20 @@ Loader only. No governance module had behaviour yet.
   the banner and the model-visible context block. Always exits 0.
 - Apache-2.0 `LICENSE`, `.gitignore`.
 
-[0.4.0]: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/compare/v0.3.0...main
-[0.3.0]: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/releases/tag/v0.3.0
+[0.4.0]: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/tree/main
 
-<!-- The 0.4.0 link is a COMPARE against `main`, not a release tag, because there is no tag to point
-     at: `main` declares 0.4.0 and nothing has published it. It becomes a `releases/tag/v0.4.0` link
-     on the day it is cut, and the declaration sites move off 0.4.0 in the commit after that — see
+<!-- The 0.4.0 link points at `main` rather than a tag, because there is no tag to point at: `main`
+     declares 0.4.0 and nothing has published it. It becomes a `releases/tag/v0.4.0` link on the day
+     it is cut, and the declaration sites move off 0.4.0 in the commit after that — see
      CONTRIBUTING.md, "Versions and releases". The former `[Unreleased]` heading is gone rather than
-     left empty above this one: an empty [Unreleased] is what twelve unrecorded commits sat behind. -->
+     left empty above this one: an empty [Unreleased] is what twelve unrecorded commits sat behind.
+
+     THE 0.3.0 LINK DEFINITION WAS DELETED ON 3 SEPTEMBER 2026 AND THE HEADING IS DELIBERATELY LEFT
+     UNLINKED. It pointed at `releases/tag/v0.3.0` on THIS repository, which 404s: `git tag -l` here
+     returns nothing and the GitHub tags API returns an empty list. `v0.3.0` was tagged on a
+     predecessor repository whose history this one does not carry, and that repository was deleted on
+     2026-08-28. A link to a release that does not exist is a citation a reader cannot resolve, which
+     is worse than no link; the `## [0.3.0] — 2026-07-31` heading and every entry under it stay
+     exactly as they were, because they are a record of what was released and a record is never
+     corrected. It was also the last COMPARE base the 0.4.0 link used, and a compare against a ref
+     this repository does not have was broken in the same way. -->

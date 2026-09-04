@@ -56,7 +56,7 @@ body:
         - any route by which a credential reaches this plugin's log, its state files, the status
           line, a `systemMessage` or an injected context block — a case `Get-LwgRedacted` does not
           redact is exactly this;
-        - `bin/lwg-setup.ps1` or `bin/lwg-uninstall.ps1` corrupting, truncating or losing content
+        - `lw-watchtower/bin/lwg-setup.ps1` or `lw-watchtower/bin/lwg-uninstall.ps1` corrupting, truncating or losing content
           from a user's `settings.json`, or the uninstaller attributing and removing a rule that was
           not this plugin's;
         - code execution through `config.json`, `worker_facts.md`, a transcript or a hook payload;
