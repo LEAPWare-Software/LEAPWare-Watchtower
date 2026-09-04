@@ -2,6 +2,7 @@
 description: "Reserve the chat session for talking to the operator and send all work to subagents. Off by default. ENFORCED by a PreToolUse gate that refuses Edit, Write, NotebookEdit, Bash and PowerShell on the main thread"
 argument-hint: "[on|off] [repo]"
 allowed-tools: "Bash(powershell:*)"
+disallowed-tools: "PowerShell"
 ---
 
 Run this command and show the user its output **verbatim**:

@@ -1,6 +1,7 @@
 ---
 description: "LW-WATCHTOWER removal - report this plugin's whole footprint and what removing it would take, as a dry run by default, and name everything it cannot remove"
 allowed-tools: "Bash(powershell:*)"
+disallowed-tools: "PowerShell"
 ---
 
 Run this and show the output **verbatim**:

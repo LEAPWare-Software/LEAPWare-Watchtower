@@ -1,6 +1,7 @@
 ---
 description: "LW-WATCHTOWER module switchboard - turn a governance module on or off, globally or for one repo, after being told exactly what the change does"
 allowed-tools: "Bash(powershell:*)"
+disallowed-tools: "PowerShell"
 ---
 
 To show the operator what is currently on, run this and show the output **verbatim**:
