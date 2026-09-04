@@ -311,12 +311,12 @@ count transcribed here.
 
 **A green CI run therefore says that tracked files parse, that no tracked file names a machine, that
 no tracked page states a count the tree contradicts, and that the suites in the table above still
-behave as their cases declare. It is not evidence that this plugin is sound**, and for most of the
-observing modules it is evidence about one or two properties and nothing wider.
+behave as their cases declare. It is not evidence that this plugin is sound**, and for most modules
+that only observe it is evidence about one or two properties and nothing wider.
 
 Uncovered, item by item, because an absence nobody writes down reads as coverage:
 
-- **Thin coverage of most of the observing modules.** Five are reached by
+- **Thin coverage across the modules that only observe.** Five are reached by
   `tests/stop_behaviour.ps1`, in the cases somebody thought to write: `failure_capture` since
   31 July 2026, and `context_pressure`, `docs_coupling`, `git_hygiene` and `log_rotation` since
   3 August 2026. `context_injection` is reached by `tests/subagent_scan.ps1`, `orphan_watch` by
