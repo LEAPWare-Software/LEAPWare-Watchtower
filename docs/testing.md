@@ -1003,10 +1003,11 @@ reached by at least one suite**, and that paragraph is explicit that being reach
 tested. Two numbers cannot both be right, and the map is the one derived from the tree.
 
 What the eleven behavioural suites do cover, read off that map rather than restated from memory: the
-delegate gate's refusals and the two supervision gates', the five advisories the turn-end hooks
-raise, `self_health`'s self-check, the `SubagentStart` fast path's answer to the global `modules`
-flag, two sections of the installer's merge, one command's deletions, two of the doctor's ten
-checks, the toggle's write to `config.json`, and what the shipped payload discloses. It named *the
+delegate gate's refusals and the two supervision gates', `orphan_watch` beside them in the same
+suite, the five advisories the turn-end hooks raise, `self_health`'s self-check, the `SubagentStart`
+fast path's answer to the global `modules` flag, two sections of the installer's merge, one
+command's deletions, two of the doctor's ten checks, the toggle's write to `config.json`, and what
+the shipped payload discloses. It named *the
 evidence engine the two reporting commands share* until the same date; `bin/lwg-evidence.ps1` and the
 `checklist` and `sitrep` commands were deleted in wave 1 and that clause described nothing.
 

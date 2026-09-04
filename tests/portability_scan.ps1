@@ -141,8 +141,8 @@
 
   THE STRICTNESS OBJECTION IS ANSWERED BY DECLARATION RATHER THAN BY TOLERANCE.
   A glob may legitimately name a directory that is empty today - a defensive
-  allowlist entry is allowed to name a file that does not exist yet, and this
-  file carries two such entries. Those write
+  allowlist entry is allowed to name a file that does not exist yet. Such a glob
+  writes
 
       @{ glob = 'docs/whatever.md'; may_be_empty = 'why it is legitimately empty' }
 
@@ -153,6 +153,13 @@
   its subject - and a silent narrowing loud. A `may_be_empty` glob that DOES
   reach files is printed as such and not failed: going red on a correct addition
   would be the same trap the other way round.
+
+  NO GLOB IN THIS FILE CARRIES ONE TODAY, and that sentence is not prose anybody
+  has to keep true: every glob in every scope and in every entry's `files`
+  reaches at least one tracked file, and the moment one stops doing so this scan
+  exits 2 and names it. So the mechanism ships unused, which is the right state
+  for it - a declaration is a thing to write when a real subject is missing, not
+  a thing to keep one of on hand.
 
   THIS REVERSES WHAT THIS FILE SAID UNTIL 4 SEPTEMBER 2026, and the argument it
   reverses is worth keeping because it is right about everything except its
