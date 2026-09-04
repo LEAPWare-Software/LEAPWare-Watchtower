@@ -397,13 +397,8 @@ function Invoke-Doctor {
       statusline cases would report on somebody's live settings.json. Cleared by
       default, and -ConfigDir is how the one case that wants it set gets it.
 
-      PSModulePath IS A SIXTH SANDBOX VARIABLE, AND IT IS THE ONLY ONE LEFT
-      ALONE BY DEFAULT (#273). The child is Windows PowerShell 5.1 and it
-      inherits this process's value; overwriting it for every case would change
-      what half of them exercise. -ModulePath is passed by the one case that
-      needs a specific value, and it is saved and restored with the rest.
     #>
-    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun, [string]$DoctorPath, [string]$Build, [string]$ConfigDir, [string]$ModulePath)
+    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun, [string]$DoctorPath, [string]$Build, [string]$ConfigDir)
 
     if ([string]::IsNullOrWhiteSpace($DoctorPath)) { $DoctorPath = $script:DoctorPath }
     $seedBuild = if ($PSBoundParameters.ContainsKey('Build')) { $Build } else { $script:VerifiedBuild }
@@ -414,7 +409,6 @@ function Invoke-Doctor {
     $prevR = $env:CLAUDE_PLUGIN_ROOT
     $prevC = $env:CLAUDE_CODE_PLUGIN_CACHE_DIR
     $prevH = $env:CLAUDE_CONFIG_DIR
-    $prevM = $env:PSModulePath
     $out  = ''
     $code = 255
     try {
@@ -424,7 +418,6 @@ function Invoke-Doctor {
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = ''
         $env:CLAUDE_CONFIG_DIR            = $ConfigDir
         $env:CLAUDE_CODE_VERSION          = $seedBuild
-        if ($PSBoundParameters.ContainsKey('ModulePath')) { $env:PSModulePath = $ModulePath }
         # -Quiet is passed as a real switch on the child's command line rather
         # than spliced into a string: the only case that uses it asserts what
         # the shipped switch does, and a hand-built argument list is a second
@@ -443,62 +436,68 @@ function Invoke-Doctor {
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $prevC
         $env:CLAUDE_CONFIG_DIR            = $prevH
         $env:CLAUDE_CODE_VERSION          = $prevV
-        $env:PSModulePath                 = $prevM
     }
     return @{ code = $code; out = $out }
 }
 
-function New-ShadowUtilityModule {
+function New-NoFileHashRunner {
     <#
-      Build a directory that, when PREFIXED to PSModulePath, makes a Windows
-      PowerShell 5.1 child resolve `Microsoft.PowerShell.Utility` to a
-      PowerShell 7 manifest instead of its own - which is exactly what a child
-      launched from a pwsh 7 terminal inherits, and which removes Get-FileHash
-      from that child (#273). Returns the directory to prefix.
+      A one-line launcher script that runs $Target in a real Windows PowerShell
+      5.1 child with ONE difference: `Get-FileHash` does not resolve. Any call
+      to it throws the CommandNotFoundException a 5.1 child throws when a
+      PowerShell 7 PSModulePath has shadowed Microsoft.PowerShell.Utility,
+      message included, verbatim (#273). Returns the launcher's path, to be
+      passed wherever the script under test would have been.
 
-      WHY A SYNTHETIC MANIFEST AND NOT THE REAL PS7 ONE. The real file only
-      exists on a machine that has PowerShell 7 installed, at a path that moves
-      with the install method (Store package, MSI, winget), so a case that read
-      it would pass by being skipped on the runner. This one is written into the
-      case's own scratch tree and reproduces the fault with no PowerShell 7 on
-      the machine at all. Verified on 2026-09-04: with this directory prefixed,
-      `powershell -NoProfile -Command "Get-FileHash ..."` fails with "The term
-      'Get-FileHash' is not recognized", exactly as it does under the real one.
+      WHY THE NAME IS SHADOWED RATHER THAN THE MODULE, and this is the honest
+      limit of the case. The fault itself is a PSModulePath state: 5.1 resolves
+      `Microsoft.PowerShell.Utility` to PS7's 7.0.0.0 manifest ahead of its own
+      3.1.0.0 and loses every FUNCTION that module exports, Get-FileHash among
+      them. A SYNTHETIC module does not reproduce it, and that was measured
+      before this was written rather than assumed: four manifests were tried -
+      PS7's copied verbatim, the same without its NestedModules line, one with
+      an empty .psm1, and one exporting a Get-FileHash function - and under
+      every one 5.1 fell through to the real 3.1.0.0 module and Get-FileHash
+      resolved. Only the REAL PowerShell 7 module directory shadows, because 5.1
+      stops searching only when the shadowing module imports for real with its
+      own assembly - which a test cannot fabricate, and must not require to be
+      installed on the runner.
 
-      WHAT MAKES IT SHADOW: the name and the location are what 5.1 matches on,
-      and ModuleVersion 7.0.0.0 beats its own 3.1.0.0. The manifest exports
-      Get-FileHash as a CMDLET and exports no FUNCTIONS, which is the shape of
-      PS7's own manifest and the reason 5.1 - where Get-FileHash IS a function
-      in the module - cannot find it any more. CompatiblePSEditions Core is
-      copied from the real manifest for the same reason: this is a portrait of
-      that file, not an invention.
+      So the case reproduces the CONSEQUENCE deterministically instead: the
+      command is gone and the error is the measured one, exception type
+      included. That a PowerShell 7 launch is what produces that state was
+      measured by hand on 2026-09-04, with both runs, and is recorded on #273.
+      Nothing here establishes that half.
 
-      The prefix is added to the INHERITED PSModulePath rather than replacing
-      it, so the child still finds every other module it needs, and so the case
-      behaves the same whether this suite was launched from a 5.1 console (where
-      nothing shadows yet) or from pwsh 7 (where something already does).
+      WHY AN ALIAS AND NOT A FUNCTION, since a function is the obvious tool and
+      was tried first: a function - even `function global:` - loses. It is found
+      by Get-Command while the module is still unloaded, but the CALL triggers
+      the module auto-load, and the module's own Get-FileHash function replaces
+      it before the call binds. An alias is looked up ahead of both, and a
+      global alias survives the import.
+
+      The launcher passes its own arguments through, so a caller that adds a
+      switch keeps it.
     #>
-    param([Parameter(Mandatory = $true)][string]$Root)
+    param([Parameter(Mandatory = $true)][string]$Path,
+          [Parameter(Mandatory = $true)][string]$Target)
 
-    $dir = [IO.Path]::Combine($Root, 'Microsoft.PowerShell.Utility')
+    $dir = Split-Path -Parent $Path
     [void][IO.Directory]::CreateDirectory($dir)
-    $psd1 = @(
-        '@{'
-        'GUID = "1DA87E53-152B-403E-98DC-74D7B4D63D59"'
-        'Author = "PowerShell"'
-        'CompanyName = "Microsoft Corporation"'
-        'ModuleVersion = "7.0.0.0"'
-        'CompatiblePSEditions = @("Core")'
-        'PowerShellVersion = "3.0"'
-        "CmdletsToExport = @('Get-FileHash', 'ConvertFrom-Json', 'ConvertTo-Json', 'Out-String', 'Select-Object', 'Write-Output', 'Format-Table', 'Format-List', 'Get-Date', 'Write-Host')"
-        'FunctionsToExport = @()'
-        'AliasesToExport = @()'
-        'NestedModules = @("Microsoft.PowerShell.Commands.Utility.dll")'
-        '}'
+    $thrower = Join-Path $dir 'lwg-no-filehash.ps1'
+    [IO.File]::WriteAllText($thrower, (
+        'throw (New-Object System.Management.Automation.CommandNotFoundException(' +
+        '"The term ''Get-FileHash'' is not recognized as the name of a cmdlet, function, script file, ' +
+        'or operable program. Check the spelling of the name, or if a path was included, verify that ' +
+        'the path is correct and try again."))' + "`r`n"), (New-Object Text.UTF8Encoding($false)))
+    $text = @(
+        'param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest)'
+        ''
+        ('Set-Alias -Name Get-FileHash -Value ' + "'" + $thrower.Replace("'", "''") + "'" + ' -Scope Global -Force')
+        ('& ' + "'" + $Target.Replace("'", "''") + "'" + ' @Rest')
     ) -join "`r`n"
-    [IO.File]::WriteAllText([IO.Path]::Combine($dir, 'Microsoft.PowerShell.Utility.psd1'),
-                            $psd1, (New-Object Text.UTF8Encoding($false)))
-    return $Root
+    [IO.File]::WriteAllText($Path, $text + "`r`n", (New-Object Text.UTF8Encoding($false)))
+    return $Path
 }
 
 function Get-DoctorRow {
@@ -1427,29 +1426,30 @@ try {
     #      in this file notices.
     #
     #      This case is the sl-real-install control (case 12) run once more with
-    #      that one variable changed, so the two together say the terminal is
-    #      the only difference. The tree is a CORRECT install: the repo copy,
-    #      byte for byte, wired as the status line.
+    #      Get-FileHash removed, so the two together say that one command is the
+    #      only difference. The tree is a CORRECT install: the repo copy, byte
+    #      for byte, wired as the status line.
     #
     #      BASELINE 6aebcd6: '[FAIL] statusline  check threw: The term
     #      'Get-FileHash' is not recognized as the name of a cmdlet, function,
     #      script file, or operable program...' and the report's own
     #      VERDICT: NOT healthy. A correct install, called broken, because of
-    #      the terminal. Measured by hand on the same day through the real
-    #      slash command as well: the model reported "NOT healthy" to the
-    #      operator, correctly following commands\doctor.md.
+    #      the terminal. Measured by hand on the same day under a REAL
+    #      PowerShell 7 module path - and through the real slash command, where
+    #      the model reported "NOT healthy" to the operator, correctly following
+    #      commands\doctor.md.
     #
-    #      WHAT THIS CASE DOES NOT ESTABLISH: nothing here runs PowerShell 7.
-    #      It reproduces the STATE a PS7 launch leaves the 5.1 child in, which
-    #      is where the fault lives; that this is the state pwsh 7 actually
-    #      produces was measured by hand and is recorded on #273.
+    #      WHAT THIS CASE DOES NOT ESTABLISH: nothing here runs PowerShell 7 or
+    #      reproduces its PSModulePath. New-NoFileHashRunner's header records
+    #      why - four synthetic module shapes were tried and none of them
+    #      shadowed - and records that the causation was measured by hand.
     # -------------------------------------------------------------------
-    $t = New-CaseTree -Tag 'sl-ps7-modulepath'
+    $t = New-CaseTree -Tag 'sl-no-filehash'
     $installed = Join-Path $t.profile '.claude\statusline.ps1'
     [IO.File]::Copy($PlugStatusLine, $installed, $true)
     [void](Set-CaseSettings -ProfileDir $t.profile -Command (New-StatusLineCommand $installed))
-    $shadow = New-ShadowUtilityModule -Root (Join-Path $t.dir 'shadow-modules')
-    $r   = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -ModulePath "$shadow;$($env:PSModulePath)"
+    $runner = New-NoFileHashRunner -Path (Join-Path $t.dir 'run-doctor.ps1') -Target $script:DoctorPath
+    $r   = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -DoctorPath $runner
     $row = Get-DoctorRow -Text $r.out -Id 'statusline'
     Add-Result 'a correct install still attests a match when Get-FileHash cannot be resolved' `
         ($row.found -and $row.status -eq 'PASS' -and $row.detail -match 'matches the repo copy' -and
