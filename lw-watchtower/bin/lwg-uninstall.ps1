@@ -1722,9 +1722,45 @@ try {
     Write-Output ''
     Write-Output '  AND WHAT THIS SCRIPT CANNOT SEE'
     Write-Output ''
-    Write-Output '    ~/.claude.json holds a pluginUsage counter naming this plugin. It is a 46 KB telemetry'
-    Write-Output '    blob, not a registry, and editing it to remove a counter risks a file the CLI depends on'
-    Write-Output '    for far more than this. Left alone deliberately.'
+    # THE SIZE IS MEASURED OR IT IS NOT STATED (#299). This sentence read "It is
+    # a 46 KB telemetry blob" as a string literal: true of one machine on the day
+    # it was written and of nobody else's - a fresh profile's file is under 2 KB -
+    # and printed at every operator as a fact about theirs. A block headed AND
+    # WHAT THIS SCRIPT CANNOT SEE is the last place in this report allowed to
+    # guess a number, and this is a command whose whole design is "print what was
+    # measured".
+    #
+    # BOTH LOCATIONS ARE TRIED because the CLI puts .claude.json INSIDE the
+    # configuration directory when CLAUDE_CONFIG_DIR names one, and beside
+    # ~/.claude when it does not. $ClaudeHome is whichever root the rows above
+    # describe, so the sibling is its parent. If neither is there the sentence
+    # says so and states no size, rather than falling back to the literal that
+    # caused this.
+    $cjCandidates = @((Join-Path $ClaudeHome '.claude.json'))
+    $cjParent = Split-Path -Parent $ClaudeHome
+    if (-not [string]::IsNullOrWhiteSpace($cjParent)) { $cjCandidates += (Join-Path $cjParent '.claude.json') }
+    $cjSize = ''
+    $cjFound = ''
+    foreach ($cj in $cjCandidates) {
+        try {
+            if ([IO.File]::Exists($cj)) {
+                $cjSize  = Format-LwgBytes ([long](New-Object IO.FileInfo $cj).Length)
+                $cjFound = $cj
+                break
+            }
+        } catch { }
+    }
+    if ($cjFound) {
+        Write-Output "    ~/.claude.json holds a pluginUsage counter naming this plugin. The copy this run measured,"
+        Write-Output "    at $cjFound, is $cjSize of telemetry, not a registry, and editing"
+        Write-Output '    it to remove a counter risks a file the CLI depends on for far more than this. Left alone'
+        Write-Output '    deliberately.'
+    } else {
+        Write-Output '    ~/.claude.json holds a pluginUsage counter naming this plugin. It is a telemetry blob, not a'
+        Write-Output '    registry, and editing it to remove a counter risks a file the CLI depends on for far more than'
+        Write-Output '    this. Left alone deliberately. No size is given because this run found no .claude.json to'
+        Write-Output ("    measure, at " + ($cjCandidates -join ' or ') + '.')
+    }
     # WHICH OF THESE TWO IS PRINTED IS DECIDED BY THE ROUTE THIS RUN IS ON
     # (#276). The junction-route sentence was printed on both, three lines under
     # a header that had already named the CLI cache as the plugin root - so on
@@ -1757,7 +1793,7 @@ try {
         Write-Output '    copy''s data directory with it, unwarned (#280).'
     }
     Write-Output '    Other machines, other clones, and any settings.json outside the path printed at the top.'
-    Write-Output '    ~/.claude/health/ is the operator own health supervisor, not part of this plugin, and is'
+    Write-Output '    ~/.claude/health/ is the operator''s own health supervisor, not part of this plugin, and is'
     Write-Output '    never touched here - even though the status line merges its log with this one.'
     # THIS BLIND SPOT WAS RETIRED ON 3 SEPTEMBER 2026 AND ITS ENTRY IS KEPT.
     #

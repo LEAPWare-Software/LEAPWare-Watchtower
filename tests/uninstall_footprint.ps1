@@ -1899,6 +1899,68 @@ function Test-MarketplaceRouteSaysTheCliUninstallTakesTheData {
                -Detail (($bad -join '; ') + " | marketplace exit $($r.code), control exit $($ctl.code) | paragraph: $($para.Trim())")
 }
 
+function Test-ClaudeJsonSizeIsMeasuredAndNotAsserted {
+    <#
+      A HARD-CODED NUMBER IN THE BLOCK HEADED "AND WHAT THIS SCRIPT CANNOT SEE"
+      (#299).
+
+      Every run told every operator that their ~/.claude.json "is a 46 KB
+      telemetry blob". It was a string literal - true of the maintainer's machine
+      on the day it was written and of nobody else's; the profile that filed the
+      issue measured 1,495 bytes. This is a command whose whole design is "print
+      what was measured", and a block whose header says what it could not see is
+      the last place in the report allowed to state a number it did not read.
+
+      TWO FIXTURES, BECAUSE THE CASE IS ABOUT MEASUREMENT AND NOT ABOUT ONE
+      STRING. A planted .claude.json of a size no literal in this tree has ever
+      carried proves the number now comes off the disk: 7,168 bytes, which
+      Format-LwgBytes renders `7 KB`. A tree with no .claude.json at all proves
+      the other branch does not quietly fall back to a number - it has to say a
+      size was not stated, and why.
+
+      NOT A BARE NEGATIVE. Asserting only that '46 KB' is gone would pass on a
+      run that deleted the sentence, so the positive is asserted first: the
+      measured size, the path it was measured at, and the sentence still doing
+      its job in both fixtures.
+
+      The grammar slip two sentences down - "the operator own health supervisor"
+      - is asserted here too rather than in a case of its own: it is one word in
+      the same block, printed on the same run, and a second case would be a
+      second run of the same script for one apostrophe.
+
+      BASELINE 1baf6d4: both fixtures printed '46 KB' regardless of what was on
+      disk, and both printed 'the operator own health supervisor'.
+    #>
+    $t    = New-CaseTree 'claude-json-measured'
+    $data = New-SeededDataDir (Join-Path $t.elsewhere 'redirected-state')
+    $cj   = Join-Path $t.claudeHome '.claude.json'
+    [void][IO.Directory]::CreateDirectory($t.claudeHome)
+    [IO.File]::WriteAllBytes($cj, (New-Object byte[] 7168))
+    $r = Invoke-Uninstall -Tree $t -DataEnv $data
+
+    # The second fixture: same shape, no .claude.json anywhere the script looks.
+    $t2    = New-CaseTree 'claude-json-absent'
+    $data2 = New-SeededDataDir (Join-Path $t2.elsewhere 'redirected-state')
+    $r2    = Invoke-Uninstall -Tree $t2 -DataEnv $data2
+
+    $bad = @()
+    if ($r.code -ne 0)  { $bad += "the measured run exited $($r.code), expected 0" }
+    if ($r2.code -ne 0) { $bad += "the absent-file run exited $($r2.code), expected 0" }
+    if ($r.out -notmatch '(?i)pluginUsage counter') { $bad += 'the measured run does not print the .claude.json blind spot at all, so nothing about it was established' }
+    if ($r.out -notmatch [regex]::Escape('7 KB of telemetry')) { $bad += "the run does not report the planted 7,168-byte .claude.json as '7 KB of telemetry', so the size is still not coming off the disk" }
+    if ($r.out -notmatch [regex]::Escape($cj)) { $bad += "the run does not name $cj, so it does not say which file the size belongs to" }
+    if ($r.out -match '46 KB')  { $bad += 'THE HARD-CODED SIZE IS STILL PRINTED: the run states 46 KB on a profile whose .claude.json is 7,168 bytes' }
+    if ($r2.out -notmatch '(?i)pluginUsage counter') { $bad += 'the absent-file run does not print the blind spot at all - the sentence was deleted rather than made true' }
+    if ($r2.out -match '46 KB') { $bad += 'the absent-file run states 46 KB for a file that is not there' }
+    if ($r2.out -notmatch '(?i)no size is given') { $bad += 'the absent-file run states no size and does not say that it does not, which reads as a sentence with a number missing rather than as a measurement that could not be taken' }
+    if ($r.out  -notmatch [regex]::Escape("the operator's own health supervisor")) { $bad += "the ~/.claude/health/ sentence does not read 'the operator's own health supervisor'" }
+    if ($r.out  -match [regex]::Escape('the operator own')) { $bad += "the grammar slip 'the operator own' is still printed" }
+
+    Add-Result -Name "~/.claude.json's size is measured on the run or not stated, and the health sentence reads 'the operator''s own' (#299)" `
+               -Ok ($bad.Count -eq 0) `
+               -Detail (($bad -join '; ') + " | measured exit $($r.code), absent exit $($r2.code)")
+}
+
 function Test-ReparseStateDirIsRefused {
     <#
       A JUNCTION UNDER THE DATA ROOT, POINTING AT A CANARY TREE.
@@ -2434,6 +2496,7 @@ try {
     Test-NoFileHashStillProducesAFootprint
     Test-MarketplaceRouteDoesNotPrintJunctionSentences
     Test-MarketplaceRouteSaysTheCliUninstallTakesTheData
+    Test-ClaudeJsonSizeIsMeasuredAndNotAsserted
     Test-ReparseStateDirIsRefused
     Test-PartialDeletionNamesWhatWent
     Test-EnvPathWithNoOwnershipSignalIsRefused
