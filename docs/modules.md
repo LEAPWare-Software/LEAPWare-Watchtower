@@ -794,8 +794,8 @@ written when both read it. Two bounds apply and both cost something:
   every file edited after it was invisible to both modules while both went on being reported active.
   Nothing prunes the `.1` archives.
 - **A recorded path is capped at 1 024 characters.** A longer one is truncated, which removes the
-  extension, so it classifies as *neither* and neither module counts it. `MAX_PATH` is 260, so this
-  bites only on a value that was not a real path — which is the case it exists for: one
+  extension, so it classifies as *neither* and `docs_coupling` does not count it. `MAX_PATH` is 260,
+  so this bites only on a value that was not a real path — which is the case it exists for: one
   payload-supplied `tool_input.file_path` of 200 000 characters used to land whole, occupy most of
   the window the `Stop` half reads, and reach the operator's advisory intact, because
   `Split-Path -Leaf` returns the entire string when there is no separator in it.
