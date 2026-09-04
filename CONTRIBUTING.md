@@ -229,7 +229,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\supervision.ps1       
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\setup_merge.ps1         # the installer's statusline + hooks merge, 185
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1      # the two turn-end hooks, 117
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\uninstall_footprint.ps1 # the uninstaller's footprint and deletions, 35
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\config_behaviour.ps1    # the config command's write to the override, 42
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\config_behaviour.ps1    # the config command's write to the override, 49
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\toggle_behaviour.ps1    # the toggle's write to the override, 28
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\state_resolution.ps1    # the state-directory resolver, 32
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1    # the doctor's driven checks, 32
