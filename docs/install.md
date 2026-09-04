@@ -103,7 +103,26 @@ consequences, stated because none of them is obvious from the two commands above
   nothing narrower.
 
 There is no honest way to pin this route from inside the repository, so **this page does not claim
-one**. If you need to know which commit you are on, use Option B and read it there.
+one**.
+
+**Knowing which commit you got is a different question, and the CLI answers it.** `claude plugin
+install` records the commit it copied, and the marketplace clone it copied from is checked out at
+the same one:
+
+```powershell
+# what the CLI recorded for this install
+(Get-Content "$env:USERPROFILE\.claude\plugins\installed_plugins.json" -Raw | ConvertFrom-Json).plugins.'lw-watchtower@leapware-watchtower'[0].gitCommitSha
+
+# the clone the marketplace made, which is a git repository
+git -C "$env:USERPROFILE\.claude\plugins\marketplaces\leapware-watchtower" rev-parse HEAD
+```
+
+Measured on CLI 2.1.260 against a clean profile: the two agree, and both equalled the sha
+`refs/heads/main` pointed at on the public remote at the moment of the install. Read
+`$env:CLAUDE_CONFIG_DIR` in place of `$env:USERPROFILE\.claude` if you have set one; both paths are
+the CLI's to change, and `CLAUDE_CODE_PLUGIN_CACHE_DIR` relocates them, so treat a failure to find
+them as "the layout moved", not as "the commit is unknowable". Neither file is a *pin*: they tell
+you which commit you are running, not which commit you will get next time.
 
 `main` is nonetheless the *maintained* line: it is where fixes land (see
 [SECURITY.md](../SECURITY.md)), and CI gates every push to it. Tracking `main` is a reasonable
@@ -172,7 +191,9 @@ branch, the same tree Option A would have given you.
 This repository has no release tag yet — `v0.3.0` was tagged on a predecessor repository whose
 history this one does not carry — so there is no earlier tree to check out. A junction install
 gives you the commit you cloned, which is the one advantage it has over the marketplace route: you
-can read which commit you are on.
+**choose** the commit and it stays chosen until you move it. Being able to *read* which commit you
+are on is not that advantage — a marketplace install records it too, see
+[Which tree this actually gives you](#which-tree-this-actually-gives-you).
 
 The only answer to "which tree am I running" is the commit:
 
