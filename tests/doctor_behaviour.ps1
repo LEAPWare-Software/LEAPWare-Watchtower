@@ -142,11 +142,15 @@
   THE THREE FIGURES BELOW ARE A RECORD OF THE DAY THE BASELINE WAS TAKEN, NOT A
   COUNT OF WHAT THIS FILE RUNS NOW. This file held THIRTY cases when the fd8d023
   proof was taken, and every sub-count in this section is over those thirty.
-  They are left as they were because they are the arithmetic of a red-first
-  proof against a tree NO CLONE OF THIS REPOSITORY REACHES - fd8d023 is not an
-  ancestor of anything here - so re-deriving them is not available, and moving
-  the total alone would leave three figures in one section contradicting each
-  other (#240 item 3).
+  They are left as they were: the arithmetic of a red-first proof at fd8d023, a
+  tree NO CLONE OF THIS REPOSITORY REACHES - it is not an ancestor of anything
+  here - so re-deriving them is not available, and moving the total alone would
+  leave three figures in one section contradicting each
+  other (#240 item 3). The SHA sits on the line that names the proof, and that
+  is deliberate: .github\scripts\redfirst_annotations.ps1 groups consecutive
+  hash-comment lines into a block, and inside a block-comment header like this
+  one every line is its own block - so a baseline claim whose commit sits on the
+  NEXT line reads to that guard as a claim naming no commit at all.
 
   IT HAS GROWN SINCE, AND THIS HEADER DELIBERATELY DOES NOT SAY BY HOW MUCH. The
   live total is the `RESULT: N of N case(s) passed` line this file prints, which
