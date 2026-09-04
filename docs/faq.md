@@ -47,9 +47,10 @@ If you are here to find out what this plugin **cannot** do, the consolidated ans
 
 ## What does this actually do?
 
-It runs ten governance modules over every Claude Code session on the machine, in every repo, with no
-per-project setup. **Nine of them observe** — they record, count or warn — and **one, `delegate_gate`,
-can refuse a tool call, and ships switched off.**
+It runs 11 governance modules over every Claude Code session on the machine, in every repo, with no
+per-project setup. **Eight of them observe** — they record, count or warn — and **three are gates that
+can refuse or hold an action: `delegate_gate`, `send_liveness_gate` and `completion_audit`. All three
+ship switched off**, and so does the eighth observing module, `orphan_watch`.
 
 Concretely, as shipped:
 
@@ -62,13 +63,13 @@ Concretely, as shipped:
   Code snapshots `CLAUDE.md` at *parent-session* start, so an instruction added mid-session never
   reaches a worker dispatched later.
 - **On every `Write`/`Edit`/`NotebookEdit`** it records the path, for two turn-end advisories.
-- **At every turn end** it runs five advisories in one process: context-window pressure, whether work
-  was shipped without an independent verifier, whether source changed without docs, git branch/commit/push
-  hygiene, and whether the session has wandered off the task. All five warn; none blocks.
+- **At every turn end** it runs three advisories in one process — context-window pressure, whether
+  source changed without docs, and git branch/commit/push hygiene — and rotates two logs beside them.
+  Every one of them warns; none blocks.
 - **On five hook events** it records failures to `health.jsonl`, and on a genuine failure it exits 2,
   which injects a task notification into the live session. That exit code is the only channel that
   reaches an orchestrator mid-turn.
-- **Twelve slash commands** report on governance, report on the plan, or manage the install. Four of
+- **Six slash commands** report on the install or manage it. Four of
   the lifecycle ones dry-run by default.
 
 What it does **not** do is a longer and more important list: [Limitations](limitations.md).
