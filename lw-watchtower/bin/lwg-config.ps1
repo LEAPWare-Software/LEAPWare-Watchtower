@@ -104,6 +104,62 @@ function Write-Refusal {
     $script:Exit = 1
 }
 
+function Get-LwgSwitchRoute {
+    <#
+      How an operator actually changes a switch that lives OUTSIDE the `modules`
+      block, as one sentence fragment. Returns a HASHTABLE
+      @{ command; short; long } - `command` is the slash command's name when one
+      exists and '' when none does; `short` is the clause for the table's
+      NOT SWITCHABLE HERE list; `long` is the sentence for the refusal path.
+
+      WHY THIS IS DERIVED AND NOT SPELLED OUT. Both texts used to be built as
+      "use /lw-watchtower:<key> instead" from the registry's switch KEY, which is
+      right for exactly one of the four switches. `interaction.delegate` has a
+      command called `delegate` by coincidence of naming; `supervision.
+      send_liveness`, `supervision.completion_audit` and `supervision.
+      orphan_watch` have no command at all, and this plugin ships six -
+      config, delegate, doctor, setup, uninstall, update. So the operator who
+      wanted to arm send_liveness_gate - one of the two gates that can refuse
+      something - was sent to /lw-watchtower:send_liveness, which does not exist,
+      and no page tells them the real route either (#251, #274).
+
+      The existence test reads commands\<key>.md under the plugin root rather
+      than a list held here, so a command added later is picked up with no edit
+      and a command removed stops being advertised the same day. It is also the
+      only form the doctor's `commands` check can agree with: that check scans
+      files for /lw-watchtower:<name> references, and a reference assembled at
+      run time is invisible to it, which is how this survived every check in
+      the tree.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]$Switch,
+        [Parameter(Mandatory = $true)][string]$PluginRoot,
+        [string]$OverridePath
+    )
+
+    $key  = [string]$Switch.key
+    $dotted = "$($Switch.block).$key"
+    $md   = [IO.Path]::Combine($PluginRoot, 'commands', "$key.md")
+    if ([IO.File]::Exists($md)) {
+        return @{
+            command = $key
+            short   = "use /lw-watchtower:$key instead"
+            long    = "Use /lw-watchtower:$key instead - it writes the key that is actually read, and states what the change does."
+        }
+    }
+
+    $where = if ([string]::IsNullOrWhiteSpace($OverridePath)) {
+        'config.override.json under the state directory ($CLAUDE_PLUGIN_DATA, or ~/.claude/plugins/data/lw-watchtower*/)'
+    } else {
+        $OverridePath
+    }
+    return @{
+        command = ''
+        short   = "no command writes it - set $dotted by hand in $where"
+        long    = "No command writes $dotted. Set it by hand in $where - the same file this command writes for ``modules`` keys, merged over the shipped defaults by Get-LwgConfig."
+    }
+}
+
 function Get-LwgConfigRepoShape {
     <#
       -Repo, reduced to the shape a hook actually produces - or the reason it
@@ -410,7 +466,8 @@ try {
             Write-Output '  ours to make.'
             foreach ($m in $ownSwitch) {
                 $sw = $script:LwgModuleRegistry[$m].switch
-                Write-Output ("    {0} - switch is {1}.{2}; use /lw-watchtower:{2} instead" -f $m, $sw.block, $sw.key)
+                $route = Get-LwgSwitchRoute -Switch $sw -PluginRoot $pluginRoot -OverridePath $ovPath
+                Write-Output ("    {0} - switch is {1}.{2}; {3}" -f $m, $sw.block, $sw.key, $route.short)
             }
         }
         if ($planned.Count -gt 0) {
@@ -461,7 +518,7 @@ try {
             'Test-LwgModule never reads: the module would carry two switches, one of them dead, and turning the dead',
             'one would look like it worked and change nothing.',
             '',
-            "Use /lw-watchtower:$($sw.key) instead - it writes the key that is actually read, and states what the change does.",
+            (Get-LwgSwitchRoute -Switch $sw -PluginRoot $pluginRoot -OverridePath $ovPath).long,
             "Its current effective state is shown in the table printed by this command with no -Module argument."
         )
         exit $script:Exit
