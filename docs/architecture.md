@@ -320,7 +320,7 @@ mangles Windows paths. `${CLAUDE_PLUGIN_ROOT}` is substituted inside the `args` 
 | `PostToolUse` | `Write\|Edit\|NotebookEdit` | `lib/post_edit.ps1` | 5 s | records edited paths |
 | `PostToolUseFailure` | `Agent` | `lib/supervisor.ps1 -HookEvent PostToolUseFailure` | 15 s | `asyncRewake` |
 | `SubagentStart` | — | `lib/subagent_start.ps1` | 5 s | injects; cannot block |
-| `SubagentStop` | — | `lib/supervisor.ps1 -HookEvent SubagentStop` | 15 s | |
+| `SubagentStop` | — | `lib/supervisor.ps1 -HookEvent SubagentStop` | 15 s | `asyncRewake` |
 | `SubagentStop` | — | `lib/gate_stop.ps1 -HookEvent SubagentStop` | 10 s | `completion_audit`, **no** `asyncRewake`, so its exit 2 blocks |
 | `Stop` | — | `lib/supervisor.ps1 -HookEvent Stop` | 20 s | `asyncRewake` |
 | `Stop` | — | `lib/stop_advisories.ps1` | 10 s | three advisories, one process |
@@ -396,12 +396,18 @@ effect being measured.
 
 Where it came from, and what was measured rather than assumed:
 
-- **`git status` now overlaps the other modules.** It is launched before the four in-process modules
-  run and collected after them. Instrumented on this repo: git itself runs **93 ms**, about
-  **400 ms** of other module work now covers it, and the collection point waits **26 ms** instead of
-  the **140 ms** it blocked for before. `Process.Start` (~65 ms) is unavoidably synchronous and is
-  still paid. The child's timeout is measured from its launch, so it gets exactly the same leash —
-  the overlap shortens the hook, never the bound on the child.
+- **`git status` now overlaps the other modules.** Read the count off the registry rather than off
+  this sentence: `$LwgModuleRegistry` names `lib/stop_advisories.ps1` as the `impl` of exactly
+  `context_pressure`, `docs_coupling` and `git_hygiene`, and those are the file's only three
+  `Test-LwgModule` calls. One of the three, `git_hygiene`, **is** the git call being overlapped, so
+  the child is launched before the **two** in-process modules that can cover it and collected after
+  them. Instrumented on this repo: git itself runs **93 ms**, about **400 ms** of other module work
+  covers it, and the collection point waits **26 ms** instead of the **140 ms** it blocked for
+  before. **That 400 ms was measured when there were four modules in the process**, before
+  `verification_gate` and `mission_drift` were removed; it is left as the figure that was taken
+  rather than rescaled to a count nobody re-measured. `Process.Start` (~65 ms) is unavoidably
+  synchronous and is still paid. The child's timeout is measured from its launch, so it gets exactly
+  the same leash — the overlap shortens the hook, never the bound on the child.
 - **The repo slug is resolved only when it can change an answer** — when `config.repos` carries a
   real override, or when `git_hygiene` reaches its optional `gh` call. With the shipped empty
   `repos` block, `Test-LwgModule` behaves identically with a `$null` slug.
@@ -460,8 +466,9 @@ Measured on this repository on 3 August 2026, through the same `ProcessStartInfo
 **Read the ratio, not the absolutes.** The machine was running eight concurrent agent sessions, so
 both numbers are far above the 93 ms this page records for `git status` on an idle machine. What
 transfers is that the two children cost **about the same**, and that one of them is overlapped by
-~400 ms of in-process module work while the other is not. So on an upstream-less branch the module's
-critical-path cost is roughly the ~90 ms above **plus a whole `git status`-sized child**, and the
+the in-process module work while the other is not (the ~400 ms above, measured at four modules). So
+on an upstream-less branch the module's critical-path cost is roughly the ~90 ms above **plus a
+whole `git status`-sized child**, and the
 sentence *"the worst case remains the `gh` call"* is misleading in the way that matters: the `gh`
 call is once per branch head per session, and this is once per turn.
 
@@ -622,8 +629,17 @@ recreating the dead directory after it was cleaned up.
 `Get-LwgStateDir` in [`lib/common.ps1`](../lw-watchtower/lib/common.ps1) now **discovers** the directory instead:
 
 1. `$CLAUDE_PLUGIN_DATA` wins outright when set — it is what every live hook takes.
-2. Otherwise `~/.claude/plugins/data` is scanned for `<name>` and `<name>-*`, where `<name>` is read
-   from `.claude-plugin/plugin.json` rather than spelled out in code.
+2. Otherwise `<claude home>/plugins/data` is scanned for `<name>` and `<name>-*`, where `<name>` is
+   read from `.claude-plugin/plugin.json` rather than spelled out in code. **`<claude home>` is not
+   the literal `~/.claude`.** `Get-LwgClaudeHomeInfo` in
+   [`lib/common.ps1`](../lw-watchtower/lib/common.ps1) takes `$CLAUDE_CONFIG_DIR` when it is set and
+   falls back to `$env:USERPROFILE\.claude` when it is not, and the scan root is composed from
+   whichever it returned. Driven both ways: with `CLAUDE_CONFIG_DIR` pointed at a clean profile and
+   `CLAUDE_PLUGIN_DATA` unset the resolver reported `home_source: env` and discovered a candidate
+   under the relocated root; with both unset it reported `home_source: profile` and `~/.claude`.
+   That the variable was read by nothing is a fixed defect, and the precedence it sits in — an
+   explicit parameter, then `$CLAUDE_PLUGIN_DATA` for the data directory only, then
+   `$CLAUDE_CONFIG_DIR`, then `$env:USERPROFILE` — is written out above that function.
 3. **A suffixed candidate beats the bare name.** Claude Code names a data dir
    `<plugin-name>-<source-id>` and a plugin always has a source, so the live directory is always
    suffixed; the bare name can only ever have been created by this fallback itself.
