@@ -96,7 +96,7 @@
   looking for the flag with a substring search.
 
   ---------------------------------------------------------------------------
-  100 CASES, WHY NONE OF THEM MAY BE SKIPPED, AND WHAT SECTION I CANNOT SEE
+  100 CASES, THE ONE THAT MAY BE SKIPPED AND WHERE, AND WHAT SECTION I CANNOT SEE
   ---------------------------------------------------------------------------
   Sections A-H are 58 cases about the gate's rule. Section I is 12 more about
   the FAST PATH in lib/gate_delegate.ps1 - the scan that proves the switch off
@@ -175,10 +175,25 @@
 
   THE COUNT ABOVE IS NOW A CONSTANT THIS FILE CHECKS, not only a sentence.
   $script:ExpectedCases is declared once below and a completed run whose tally
-  does not match it ABORTS with exit 2 instead of printing a number. 58 + 7 + 11
-  + 8 + 3 + 2 + 4 + 1 is the arithmetic; if you add a case, that constant, this
-  paragraph, the heading above and the tracked documents quoting the number all
-  move in the same edit, which is the point of it.
+  does not match it ABORTS with exit 2 instead of printing a number.
+  58 + 12 + 11 + 8 + 3 + 2 + 4 + 1 + 1 is the arithmetic - sections A-H, I, J, K,
+  M, P, N, L and Q, in the order this header introduces them; if you add a case,
+  that constant, this paragraph, the heading above and the tracked documents
+  quoting the number all move in the same edit, which is the point of it. (The
+  second term read 7 until 4 September 2026 and had done since section I grew to
+  twelve: the sum came to 94 against a constant of 99, and nothing checks the
+  arithmetic - only the constant. Re-derived here rather than incremented.)
+
+  EXACTLY ONE CASE MAY BE SKIPPED, IN EXACTLY ONE PLACE, AND IT IS STILL COUNTED
+  WHEN IT IS. J10 is the only case in this file whose verdict is a wall-clock
+  difference, and it does not run under tests\doc_claims.ps1's sibling phase,
+  which starts thirteen suites at once (#250). It is not subtracted: Add-Result
+  is still called, the tally is still 100, and the run prints a line saying it
+  skipped and why - so a run that skipped it cannot be read as a run that passed
+  it. It is enforced on every other run, which is its own CI step and every local
+  run of this file. The reasoning sits at J10 itself; this is the pointer to it,
+  because the heading above would otherwise be read as promising more than the
+  file does.
 
   A CASE THAT CANNOT RUN IS AN ABORT OR A FAILURE, NEVER A QUIET SUBTRACTION,
   and this file learned that the hard way rather than on principle. Section H -
