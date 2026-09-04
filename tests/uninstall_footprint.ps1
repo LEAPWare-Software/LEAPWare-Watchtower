@@ -1893,6 +1893,15 @@ function Test-MarketplaceRouteSaysTheCliUninstallTakesTheData {
     if ($cpara -notmatch 'DELETE-MY-LWG-LOGS') { $bad += 'CONTROL: the junction route lost the confirmation-token sentence' }
     if ($cpara -match [regex]::Escape('--keep-data')) { $bad += 'CONTROL: the junction route warns about a CLI uninstall that owns none of its data, so the new sentence is unconditional rather than route-aware' }
     if ($ctl.out -match [regex]::Escape("claude plugin uninstall $id")) { $bad += 'CONTROL: the junction route printed a marketplace id' }
+    # AND THE THIRD SITE, WHICH IS ON THE JUNCTION ROUTE. The junction run's
+    # blind-spot list describes a marketplace install this machine might also
+    # have, and until now it sent the operator to `/plugin uninstall` for it -
+    # the in-session form, which is the instruction that destroys that copy's
+    # data and which `--keep-data` was never measured on. Without these two the
+    # sentence could go back to `/plugin uninstall` and both suites would stay
+    # green, which is how a fix in three places decays into a fix in two.
+    if ($ctl.out -notmatch [regex]::Escape('lw-watchtower@<marketplace> --keep-data')) { $bad += 'CONTROL: the junction route no longer names the CLI form with the flag for the marketplace install it cannot see' }
+    if ($ctl.out -match '(?i)/plugin uninstall') { $bad += 'CONTROL: the junction route still sends the operator to /plugin uninstall, the in-session form the flag was never measured on' }
 
     Add-Result -Name 'the marketplace route names --keep-data and stops promising the logs survive the CLI uninstall (#280)' `
                -Ok ($bad.Count -eq 0) `
