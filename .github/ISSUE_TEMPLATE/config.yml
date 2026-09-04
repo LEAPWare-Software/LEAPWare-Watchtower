@@ -7,8 +7,9 @@ contact_links:
       installer or uninstaller damaging your settings.json, is a SECURITY report, not a public
       issue. Use private vulnerability reporting. Read SECURITY.md first for what is in and out of
       scope — this plugin ships no security gate and no permissions.deny table, so there is nothing
-      here to bypass. The one gate it does ship, delegate_gate, is off by default and is not a
-      security control; report a way past it as a normal bug.
+      here to bypass. The three gates it does ship - delegate_gate, send_liveness_gate and
+      completion_audit - are all off by default and none is a security control; report a way past one
+      as a normal bug.
   - name: Security policy (SECURITY.md)
     url: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/SECURITY.md
     about: Scope, response times, and how to report privately.

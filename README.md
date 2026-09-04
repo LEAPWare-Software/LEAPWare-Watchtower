@@ -24,8 +24,8 @@ the same day as the first gate that could be built honestly and completely, and 
 gates followed it. See [Both gates were removed](#both-gates-were-removed) and
 [The three gates](#the-three-gates).
 
-That the banner reads `0 gates` and `observe-only` until you turn that switch on, rather than
-counting a gate that is shipped but disabled, is the point. This project exists because a monitor
+That the banner reads `0 gates` and `observe-only` until you arm one of the three, rather than
+counting gates that are shipped but disabled, is the point. This project exists because a monitor
 that reports healthy while doing nothing is worse than no monitor, and most of its own history is
 finding that defect inside itself.
 
@@ -44,9 +44,10 @@ You, if you run Claude Code on Windows and you want a layer that reports honestl
 is doing — and that will tell you plainly when it has stopped being able to see anything.
 
 **It will not stop `git push --force`, and it will not stop a credential being written to disk.** It
-used to do both. See [Both gates were removed](#both-gates-were-removed). The one thing it will stop,
-once you ask it to, is *you* doing work on the main thread instead of delegating it — which is a
-discipline, not a safety net.
+used to do both. See [Both gates were removed](#both-gates-were-removed). What it will stop, once you
+ask it to, is *you* doing work on the main thread instead of delegating it, a send to an agent it can
+prove is dead, and a turn ending on a completion claim nothing verified — three disciplines, not a
+safety net.
 
 Not for you if you need cross-platform support, a linter, or a security boundary. See the next
 section.

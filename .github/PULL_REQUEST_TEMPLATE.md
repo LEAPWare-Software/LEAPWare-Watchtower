@@ -123,8 +123,8 @@ against the parent commit.
 ```
 
 This repo's old suite was 67/67 green while five gate bypasses were open. Those gates and that suite
-are gone; `tests/gate_delegate.ps1` covers the one gate that replaced neither of them, and every case
-in it was confirmed to fail against a deliberately broken gate before it was kept. The reason this
+are gone; `tests/gate_delegate.ps1` covers the gate that replaced neither of them, and every case in
+it was confirmed to fail against a deliberately broken gate before it was kept. The reason this
 section exists has not changed.
 
 ### Doctor
