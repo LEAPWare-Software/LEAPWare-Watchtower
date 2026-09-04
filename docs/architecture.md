@@ -704,9 +704,11 @@ cannot write to both.
 | `edits-<sessionkey>.txt` | `lib/post_edit.ps1` | per session; capped at 256 KB |
 | `rule_stats.json` | **nothing, since 30 July 2026** — written by the Stop trip sweep | **cross-session**; per-rule false-positive counts. Historical; left in place |
 | `context_windows.json` | `context_pressure` | cross-session; observed window sizes |
+| `selfcheck.probe` | `lib/session_start.ps1` | cross-session; **29 bytes forever**. It is `self_health`'s state-writable probe, written with `-Replace` rather than appended, so every `SessionStart` — start, resume, clear and compact — overwrites the one line rather than adding to it. Nothing reads it. Absent entirely when `self_health` is off, which is what [configuration.md](configuration.md) means by "no probe runs" |
+| `alerted.json` | `lib/supervisor.ps1` | cross-session, **not** per session, and this is the row most likely to be misread: it is one flat list in the state directory, shared by every session that ever wrote there. It is the alert-dedupe set — failed background-task ids bare, orphaned agent ids under an `orphan:` prefix — so one dead task alerts once instead of at every turn end. Capped at its last 200 entries; both the `Stop` and `SubagentStop` branches write it |
 | `signals/ratelimit.json` | the **status line**, not a hook | cross-session; overwritten every render. The only on-disk copy of `rate_limits` and `context_window` — see [The signal bridge](#the-signal-bridge) |
 
-`trips-<sessionkey>.json` was a seventh row here — the per-session trip ledger, and the **state**
+`trips-<sessionkey>.json` had a row here — the per-session trip ledger, and the **state**
 behind the status line's `GM` segment. Both gates were removed on 30 July 2026 so nothing could write
 one, and later the same day the 12 remaining files were backed up to `trips-backup-20260730/` in the
 same directory and removed, along with every piece of code that read them. Nothing in the state
