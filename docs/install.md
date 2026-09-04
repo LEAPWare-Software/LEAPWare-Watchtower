@@ -115,10 +115,12 @@ Any folder under a skills directory that contains `.claude-plugin/plugin.json` i
 as a plugin on the next session. There is no `enabledPlugins` entry to add and no install step to
 run. A junction needs no administrator rights.
 
-**The junction points at `lw-watchtower/` inside the clone, not at the clone.** The shipped payload is
-that subdirectory and `.claude-plugin/plugin.json` lives in it; the repository root holds only
-`.claude-plugin/marketplace.json`, which is not a plugin manifest. A junction aimed at the clone root
-is discovered as nothing at all.
+**The junction points at `lw-watchtower/` inside the clone, not at the clone.** That subdirectory is
+the shipped payload: `.claude-plugin/plugin.json`, `lib/`, `bin/`, `hooks/` and the rest all live in
+it, while the repository root holds only `.claude-plugin/marketplace.json`, which is not a plugin
+manifest. **A junction to the clone root gives you a working-looking install of nothing** — the link
+is there, `mklink` reported success, and no `SessionStart` hook resolves, so no banner, no command
+and no module ever appears.
 
 ```powershell
 # Wherever you keep your clones. Nothing here depends on this particular path;
