@@ -56,10 +56,12 @@ section.
 Read this before anything else. The full list, consolidated in one place and kept there deliberately,
 is **[docs/limitations.md](docs/limitations.md)** — this section is the headline of it.
 
-- **It inspects nothing about what a tool would do.** The one `PreToolUse` hook it registers decides
-  on exactly one thing: whether the call came from a subagent. No path, no command, no file content
-  and no argument is ever examined **in order to decide anything** — it reads the tool's name only to
-  word its refusal, once the refusal is already settled. Every other module observes, logs or warns
+- **It inspects nothing about what a tool would do.** Two `PreToolUse` hooks are registered and
+  neither reads the call's intent. `delegate_gate` decides on exactly one thing — whether the call
+  came from a subagent — and reads the tool's name only to word its refusal, once the refusal is
+  already settled. `send_liveness_gate` reads a `SendMessage`'s recipient, and only to look it up in
+  this session's own liveness records; it never reads the message. **No path, no command and no file
+  content is ever examined in order to decide anything.** Every other module observes, logs or warns
   after or alongside the fact, and the action happens regardless; one of them,
   [`lw-watchtower/lib/post_edit.ps1`](lw-watchtower/lib/post_edit.ps1), does record the path of a file that was **already**
   edited, so that two turn-end advisories have something to read.

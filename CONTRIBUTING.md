@@ -157,7 +157,7 @@ something.
 
 The product was renamed from `lw-gmhh` to `lw-watchtower` on 3 August 2026. **The internal `lwg` /
 `Lwg` / `LWG` prefix was deliberately not renamed with it**, and this is the record of that decision
-so nobody half-does it later. It is on twelve `lw-watchtower/bin/lwg-*.ps1` scripts, on every function and script
+so nobody half-does it later. It is on seven `lw-watchtower/bin/lwg-*.ps1` scripts, on every function and script
 variable in `lib/` (`Get-LwgStateDirInfo`, `$script:LwgVersion`, `Write-LwgEvent`), and on two
 operator-visible strings.
 
@@ -275,7 +275,7 @@ evidence about behaviour beyond what they establish.
 ### What went with `deny_parity.ps1`, and what came back
 
 `tests/setup_merge.ps1` put the merge coverage back on **31 July 2026**, aimed at the `statusline`
-section — the one section the installer still writes. It checks that `bin/lwg-setup.ps1`:
+section — the one section the installer still writes. It checks that `lw-watchtower/bin/lwg-setup.ps1`:
 
 - leaves unrelated top-level keys in `settings.json` byte-identical, **and in their original order**;
 - takes exactly one backup, holding the original bytes;
