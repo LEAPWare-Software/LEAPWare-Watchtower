@@ -159,7 +159,7 @@ lw-watchtower/statusline/statusline.ps1
                              NOT loaded by the plugin. statusLine is a settings.json
                              key, so this must be COPIED to ~\.claude\statusline.ps1;
                              the two can drift - see docs/install.md
-tests/gate_delegate.ps1      99 cases against lib/gate_delegate.ps1, each run
+tests/gate_delegate.ps1      100 cases against lib/gate_delegate.ps1, each run
                              through a real pipe into a real child process. One
                              of ELEVEN behavioural suites, and the only one that
                              covers a PreToolUse gate - see docs/testing.md

@@ -113,7 +113,7 @@ Summarised honestly, without softening:
 - The standing conclusion drawn from that, in `gates-removed.md`:
   **a gate with a green suite and no independent break-attempt should be assumed broken.**
 
-That conclusion applies to `tests/gate_delegate.ps1` too. It is 99 of 99 green, and that fact is
+That conclusion applies to `tests/gate_delegate.ps1` too. It is 100 of 100 green, and that fact is
 worth exactly what the paragraph above says it is worth.
 
 What a future gate now has to **rebuild from nothing**, because it was removed rather than kept, is
@@ -340,7 +340,7 @@ one hook's fast path, the shipped payload, and all eight observing modules.**
 
 | Suite | What it establishes |
 | --- | --- |
-| `tests/gate_delegate.ps1` | 99 cases through a real pipe into a real child process: that `delegate_gate` refuses what it declares, and that the gate and the command that reports it give the same answer for the same config. |
+| `tests/gate_delegate.ps1` | 100 cases through a real pipe into a real child process: that `delegate_gate` refuses what it declares, and that the gate and the command that reports it give the same answer for the same config. |
 | `tests/stop_behaviour.ps1` | 120 cases, the helpers in process and the hooks in real child processes: pinned behaviours of `failure_capture`, `context_pressure`, `docs_coupling`, `git_hygiene` and `log_rotation`, including two supervisor bugs that had already shipped, and the redaction helper every module's error text passes through — asserted to keep no part of a credential pasted into a prompt out of a state file or an advisory. |
 | `tests/uninstall_footprint.ps1` | 38 cases against `bin/lwg-uninstall.ps1`, asserting on the filesystem as well as on the report: that the state-data footprint names what it deletes, deletes what it named, and exits non-zero rather than calling a no-op deletion a success; that what it attributes to this plugin really is this plugin's, including all 181 `permissions.deny` rules the pre-30-July installer wrote; and that what it refuses — a reparse point, a directory holding none of this plugin's files, a `settings.json` it could not parse — it names and counts as un-removed. The only suite that tests a **deletion**. |
 | `tests/setup_merge.ps1` | 203 cases. Against `bin/lwg-setup.ps1`: that the installer's merge preserves settings it was not asked to touch, takes one backup, is idempotent and rolls back; that it recognises a marketplace install and a registration of its own scripts under another root. The only suite that tests a **write**. Its last sections are not about the installer — they are the only coverage the **reporting surfaces that survive it** have: `statusline/statusline.ps1` (payload decoding, the three states a number can be in, the `HH` fault gauge, the reset clock, the paths and the config it reads) and `bin/lwg-update.ps1` (`-Offline` with `-Apply`, a diverged branch, the exit-4 attribution, the junction route). Nothing exercised `bin/lwg-update.ps1` in any form before that. |

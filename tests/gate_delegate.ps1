@@ -96,7 +96,7 @@
   looking for the flag with a substring search.
 
   ---------------------------------------------------------------------------
-  99 CASES, WHY NONE OF THEM MAY BE SKIPPED, AND WHAT SECTION I CANNOT SEE
+  100 CASES, WHY NONE OF THEM MAY BE SKIPPED, AND WHAT SECTION I CANNOT SEE
   ---------------------------------------------------------------------------
   Sections A-H are 58 cases about the gate's rule. Section I is 12 more about
   the FAST PATH in lib/gate_delegate.ps1 - the scan that proves the switch off
@@ -148,6 +148,16 @@
   writing a hook. Each case derives the fact from the tree first and only then
   asserts that no file contradicts it. Read the section's own header for the
   three things the sweep cannot see; it is a phrase list, not a proof.
+
+  Section Q is 1 more, and it is the only case in this file that spawns the gate
+  with a console of its own. It is #269's fourth reader: this file's own stdin
+  drain, which runs before lib/common.ps1 exists and therefore cannot call the
+  shared reader. It asserts on the GateDeny record ON DISK and not on the gate's
+  stdout, because a CP437 decode followed by a CP437 encode cancels out on that
+  channel and a case written the obvious way is green over the defect. Its three
+  siblings - Read-LwgStdin, lib/gate_send.ps1 and lib/subagent_start.ps1 - are
+  pinned in tests/state_resolution.ps1, tests/supervision.ps1 and
+  tests/subagent_scan.ps1.
 
   Section L is 1 more, and it is the only case in this file that asserts on THIS
   SUITE instead of on something the suite tests: that the operator's live event
@@ -379,7 +389,7 @@ $script:Aborted = ''
 # that reaches a verdict with the wrong number of cases behind it. A case
 # added on purpose has to move this number, the header, and the documents
 # quoting it in the same edit, which is the coupling that keeps them true.
-$script:ExpectedCases = 99
+$script:ExpectedCases = 100
 
 # The matcher string, as hooks.json actually spells it. Filled in by section A
 # from the one entry that names the gate, and read by section M.
@@ -569,6 +579,93 @@ function Invoke-Gate {
     try { $out = [IO.File]::ReadAllText($of) } catch { }
     try { $err = [IO.File]::ReadAllText($ef) } catch { }
     return @{ code = $code; out = $out; err = $err }
+}
+
+function Invoke-GateOwnConsole {
+    <#
+      Run the gate the way CLAUDE CODE runs it - a child process with stdin,
+      stdout and stderr as redirected pipes, the payload written to the pipe as
+      raw UTF-8 bytes with no BOM and no trailing newline, and CreateNoWindow
+      set. Returns @{ code; out; err }, the same shape Invoke-Gate returns.
+
+      WHY IT EXISTS BESIDE Invoke-Gate, WHICH IS OTHERWISE THE RIGHT HARNESS.
+      That one runs `type payload.json | powershell` through cmd, and a cmd
+      launched from this process INHERITS THIS PROCESS'S CONSOLE. Nothing in the
+      tree depended on that until an encoding case existed: a hook's
+      [Console]::InputEncoding is the console's INPUT code page, so the child
+      would decode its payload at whatever code page the terminal running this
+      suite happens to sit at. Measured: a terminal at 65001 makes the payload
+      arrive correctly and #269 is invisible - a vacuous pass read as coverage.
+
+      CreateNoWindow is what Node's `windowsHide: true` does - CREATE_NO_WINDOW,
+      so the child gets its OWN console at the system OEM code page instead of
+      this one's - which is the spawn shape Claude Code actually uses and the one
+      the defect appears under. It also leaves this suite's console untouched,
+      which a `chcp` inside the .cmd would not.
+
+      Same helper, same reasoning and same wording as tests\supervision.ps1's
+      Invoke-LwgHookOwnConsole, which #269's other three readers use. Only the
+      encoding case needs it; every other case in this file is ASCII end to end
+      and stays on the cmd pipe, which is what the rest of this file's reasoning
+      is written against.
+    #>
+    param([string]$FakeRoot, [string]$Payload)
+
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName  = 'powershell'
+    $psi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $GatePath + '"'
+    $psi.UseShellExecute        = $false
+    $psi.RedirectStandardInput  = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.StandardOutputEncoding = New-Object Text.UTF8Encoding($false)
+    $psi.StandardErrorEncoding  = New-Object Text.UTF8Encoding($false)
+    $psi.CreateNoWindow         = $true
+    $psi.EnvironmentVariables['CLAUDE_PLUGIN_ROOT'] = $FakeRoot
+    $psi.EnvironmentVariables['CLAUDE_PLUGIN_DATA'] = (Join-Path $FakeRoot 'data')
+
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($Payload)
+    $out = ''; $err = ''; $code = 255
+    $p = [Diagnostics.Process]::Start($psi)
+    try {
+        $p.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+        $p.StandardInput.BaseStream.Flush()
+        $p.StandardInput.Close()
+        $out = $p.StandardOutput.ReadToEnd()
+        $err = $p.StandardError.ReadToEnd()
+        $p.WaitForExit()
+        $code = $p.ExitCode
+    } finally { $p.Dispose() }
+    return @{ code = $code; out = $out; err = $err }
+}
+
+function Get-LwgGateDenyCwd {
+    <#
+      The `cwd` of the newest GateDeny record written for $SessionId, or '' when
+      there is none.
+
+      READ AS UTF-8 EXPLICITLY. lib/common.ps1's Add-LwgLine writes that file
+      through [IO.File]::AppendAllText with a UTF8Encoding($false), and Windows
+      PowerShell 5.1's Get-Content reads a BOM-less file at the system ANSI code
+      page - so a reader written the obvious way mojibakes the record on the way
+      IN and reports the product as broken while the product is correct. That is
+      #269 one layer out, and tests\state_resolution.ps1 hit it while fixing the
+      same defect.
+    #>
+    param([string]$Path, [string]$SessionId)
+
+    if (-not [IO.File]::Exists($Path)) { return '' }
+    $text = [IO.File]::ReadAllText($Path, [Text.UTF8Encoding]::new($false))
+    $found = ''
+    foreach ($line in ($text -split "`r?`n")) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $o = $null
+        try { $o = $line | ConvertFrom-Json } catch { continue }
+        if ("$($o.event)" -ne 'GateDeny') { continue }
+        if ("$($o.session)" -ne $SessionId) { continue }
+        $found = "$($o.cwd)"
+    }
+    return $found
 }
 
 function Test-LwgMatcherSelects {
@@ -2755,6 +2852,112 @@ try {
           elseif ([string]::IsNullOrWhiteSpace($n4Row)) { 'docs\gates-removed.md has no "**Does not**" row mentioning tool_name, so this case could not find the claim it is about - the table was restructured and this assertion needs re-pointing, not deleting' }
           elseif (-not $n4Reads) { 'lib/gate_delegate.ps1 no longer reads $payload.tool_name at all, so the flat claim would now be true and this case is what needs changing' }
           else { "lib/gate_delegate.ps1 reads `$payload.tool_name - after the decision, to name the refused tool - so the flat claim is not true of the code. The row must say it does not read it TO DECIDE. It reads:`n    $($n4Row.Trim())" })
+
+    # -------------------------------------------------------------------
+    # Q. THE FOURTH READER OF A PAYLOAD, AND THE ONE THAT WAS LEFT UNPINNED
+    #    (#269).
+    #
+    #    Every hook used to read its stdin through [Console]::In, whose encoding
+    #    is the CONSOLE's input code page - IBM437 in a child spawned with no
+    #    console, which is what Node's `windowsHide: true` produces - while
+    #    Claude Code writes the payload as UTF-8. Read that way, every non-ASCII
+    #    byte arrives mojibaked: cwd names a directory that does not exist,
+    #    Get-LwgRepoInfo finds no .git, and the audit trail records a wrong path
+    #    and "repo":null, silently, on every record, for the life of the install.
+    #
+    #    FOUR READERS HAD TO MOVE, not one: lib/common.ps1's Read-LwgStdin, which
+    #    six hooks inherit, and the three scripts that must drain the pipe before
+    #    common.ps1 exists. #292 fixed all four and pinned three - the fourth,
+    #    THIS file's gate, was left unpinned for a stated reason: its case moves
+    #    this suite's count, and that count was quoted in files two other lanes
+    #    owned in the same wave. Both have landed. This is that case.
+    #
+    #    IT ASSERTS ON THE LEDGER, NOT ON THE GATE'S STDOUT, and that is
+    #    load-bearing. The child writes stdout through [Console]::Out at the same
+    #    code page it read stdin at, so a CP437 decode followed by a CP437 encode
+    #    CANCELS OUT and the mojibake is invisible on that channel - measured on
+    #    the sibling case, where the run whose ledger record read `hello w<mojibake>rld`
+    #    returned the correct text on stdout. A case asserting on stdout would
+    #    have been green at the baseline.
+    #
+    #    IT SPAWNS WITH CreateNoWindow, which is the other load-bearing half. On
+    #    a developer terminal sitting at 65001 the payload arrives correctly
+    #    through the ordinary cmd pipe and the defect is invisible; the child
+    #    needs its OWN console at the system OEM code page, which is what Claude
+    #    Code's spawn produces. See Invoke-GateOwnConsole's header.
+    #
+    #    THE CHARACTERS ARE BUILT FROM CODE POINTS rather than typed, so this
+    #    file stays ASCII and the case cannot be quietly disarmed by a tool that
+    #    rewrites the file's encoding: U+00F6 (o-umlaut) and U+65E5 U+672C
+    #    (the two CJK characters in the reported reproduction).
+    #
+    #    RED AT 192176b - main immediately before #292 - where this gate still
+    #    drained through [Console]::In. Green at this branch's base and here,
+    #    which is where a case for a landed fix belongs.
+    #
+    #    WHAT THE BASELINE ACTUALLY DOES IS WORSE THAN #269 DESCRIBED, and it was
+    #    measured rather than assumed. #269 reports MOJIBAKE - a CP437 decode of
+    #    the UTF-8 bytes, U+00F6 arriving as U+251C U+2562 - which is what a
+    #    console-inheriting child produces. Under CreateNoWindow with stdin on a
+    #    redirected pipe, [Console]::In.ReadToEnd() at 192176b returns NOTHING AT
+    #    ALL and the record is:
+    #
+    #        {"event":"GateDeny","session":null,"cwd":null,"repo":null,
+    #         "rule":"main-thread-mutation","tool":"this tool"}
+    #
+    #    against the same payload that produces a full cwd and tool "Edit" here.
+    #    So the whole payload is lost, not one field of it, and the deny message
+    #    names "this tool" rather than the tool. THE GATE STILL DENIES, correctly
+    #    and by design - an unreadable payload carries no agent_id and a call with
+    #    no agent_id is the main thread - which is exactly why this case cannot
+    #    assert on the verdict. The assertion is the RECORD, and it goes red
+    #    either way: an empty cwd and a mojibaked one both fail a byte-for-byte
+    #    comparison.
+    # -------------------------------------------------------------------
+    Write-Output ''
+    Write-Output 'Q. a non-ASCII cwd survives this gate''s own stdin drain (#269)'
+
+    $qOdd  = 'hello w' + [char]0x00F6 + 'rld ' + [char]0x65E5 + [char]0x672C
+    $qCwd  = 'C:/nowhere/' + $qOdd
+    $qSess = 'lwg-test-269'
+    $qRoot = New-LwgRawRoot -Base $work -Name 'q-nonascii' -Json (
+        '{"version":"0.3.0","modules":{"failure_capture":true},' +
+        '"interaction":{"delegate":true},' +
+        '"repos":{"$comment":"nothing here"}}')
+    $qPayload = '{' + (@(
+        ('"session_id":"' + $qSess + '"')
+        '"transcript_path":"C:/nowhere/transcript.jsonl"'
+        ('"cwd":"' + $qCwd + '"')
+        '"hook_event_name":"PreToolUse"'
+        '"tool_name":"Edit"'
+        ('"tool_input":{"file_path":"' + $qCwd + '/notes.md"}')
+    ) -join ',') + '}'
+
+    $qr      = Invoke-GateOwnConsole -FakeRoot $qRoot -Payload $qPayload
+    $qLog    = Join-Path $qRoot 'data\lw-watchtower.jsonl'
+    $qRecord = Get-LwgGateDenyCwd -Path $qLog -SessionId $qSess
+    $qDeny   = Test-IsDeny $qr
+
+    # Hex of both, because "they differ" is not a finding a reader can act on and
+    # the difference is invisible in a terminal that renders neither correctly.
+    $qHex = {
+        param($s)
+        if ([string]::IsNullOrEmpty($s)) { return '(empty)' }
+        (($s.ToCharArray() | Select-Object -Last 12 | ForEach-Object { '{0:X4}' -f [int]$_ }) -join ' ')
+    }
+
+    Add-Result 'Q1 a cwd carrying non-ASCII characters reaches the GateDeny record byte for byte (#269)' `
+        ($qDeny.ok -and $qRecord -eq $qCwd) `
+        (("the gate {0}; the GateDeny record's cwd was [{1}] and the payload's was [{2}]. " -f `
+            $(if ($qDeny.ok) { 'denied, correctly' } else { 'did not deny: ' + $qDeny.why }), $qRecord, $qCwd) +
+         ("Last 12 chars, recorded: {0} | expected: {1}. " -f (& $qHex $qRecord), (& $qHex $qCwd)) +
+         'TWO SHAPES OF FAILURE, both red here and both this gate reading its payload through ' +
+         '[Console]::In, whose encoding is the console''s and not the payload''s: an EMPTY cwd means ' +
+         'the drain returned nothing and the whole payload was lost (measured at 192176b under ' +
+         'CreateNoWindow - session, cwd and tool all absent from the record), and a cwd whose U+00F6 ' +
+         'reads U+251C U+2562 means a CP437 decode of the UTF-8 bytes. Asserted on the ledger and not ' +
+         'on stdout: a CP437 decode followed by a CP437 encode cancels out on that channel, and the ' +
+         'deny itself is correct at the baseline too, so neither would have shown anything.')
 
     # -------------------------------------------------------------------
     # L. ONE CLAUSE OF THE HEADER'S OWN PROMISE, ASSERTED INSTEAD OF STATED.

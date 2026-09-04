@@ -4,7 +4,7 @@
 
 Read this before anything else on this page.
 
-`tests/gate_delegate.ps1` exercises `delegate_gate` with 99 cases,
+`tests/gate_delegate.ps1` exercises `delegate_gate` with 100 cases,
 each run through a real pipe into a real child process. `tests/supervision.ps1` does the same job for
 the other two gates and for `orphan_watch`, against seeded transcripts and seeded health logs, and
 carries the measured failure all three were built from as its anchor cases.
