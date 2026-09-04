@@ -156,12 +156,13 @@ function Get-JsonStrings {
 # and update but NOT by this file or by setup, so it is not the shared place
 # either.
 #
-# TWO CALL SITES ARE STILL Get-FileHash AND ARE NOT FIXED HERE:
-# bin\lwg-cmdlib.ps1:356,389,402 (Read-LwgTextFile, Save-LwgTextFile - both
-# CATCH, so they degrade to "could not be read" rather than throwing, which is
-# why bin\lwg-toggle.ps1 exits 3 with "config.json could not be read" on the
-# same machine) and bin\lwg-toggle.ps1:955. Those two files belong to another
-# lane this wave; the hunk for them is written on #273.
+# NO CALL SITE IS LEFT ANYWHERE IN THE PAYLOAD. This block used to end "two
+# call sites are still Get-FileHash and are not fixed here" - bin\lwg-cmdlib.ps1
+# (Read-LwgTextFile and Save-LwgTextFile, all three inside a try/catch, so they
+# DEGRADED to "config.json could not be read" instead of throwing) and
+# bin\lwg-toggle.ps1's read-back report. Both files belonged to another lane
+# when this was written; they carry a copy of this function now, so
+# `git grep Get-FileHash -- lw-watchtower/` returns comments only.
 function Get-LwgFileSha256 {
     <#
       SHA256 of one file as uppercase hex, with no PowerShell module behind it.

@@ -338,7 +338,7 @@ specific reasons written up in the file: `config.json`'s comments contain the li
 `\"delegate\": true`, and a decoy `interaction` block one level down would otherwise read as the
 setting.
 
-**Tested.** [`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) — 99 cases through a real pipe
+**Tested.** [`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) — 100 cases through a real pipe
 into a real child process, run by CI on every push and PR. Read the header before treating a green
 run as assurance: the last gate's suite was 67/67 green while five bypasses were open, and the
 seven fast-path cases in section I carry a limit of their own that the header spells out. It was 62

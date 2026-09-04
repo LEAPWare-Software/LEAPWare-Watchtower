@@ -128,7 +128,7 @@ What the evidence *does* say, and it is kept in full at
   hole in the record was found by somebody deliberately trying to break the gate.
 
 The conclusion written down at the time — *a gate with a green suite and no independent break-attempt
-should be assumed broken* — is why `tests/gate_delegate.ps1` being 99 of 99 green is stated carefully
+should be assumed broken* — is why `tests/gate_delegate.ps1` being 100 of 100 green is stated carefully
 everywhere rather than shrugged at.
 
 A gate *can* come back; the owner intends blocking capability to be re-addable. What a new one has to
@@ -235,6 +235,12 @@ copy. Compare them first:
 Get-FileHash "$env:USERPROFILE\.claude\statusline.ps1", ".\lw-watchtower\statusline\statusline.ps1" |
     Select-Object Hash, Path
 ```
+
+If that line answers *"The term 'Get-FileHash' is not recognized"*, your terminal is PowerShell 7 and
+the Windows PowerShell 5.1 it started has inherited PowerShell 7's `PSModulePath`, which hides the
+cmdlet. Nothing is wrong with the install. Run the same line from Git Bash or from a Windows
+PowerShell 5.1 console, or compare the two files with `fc /b` instead. `/lw-watchtower:doctor`
+compares them for you and does not use the cmdlet.
 
 The other `statusline` outcomes mean different things, and the split matters because **the row a
 fresh install gets is a FAIL, not this warning**. It **FAILS** in four cases: no Claude Code

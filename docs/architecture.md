@@ -159,7 +159,7 @@ lw-watchtower/statusline/statusline.ps1
                              NOT loaded by the plugin. statusLine is a settings.json
                              key, so this must be COPIED to ~\.claude\statusline.ps1;
                              the two can drift - see docs/install.md
-tests/gate_delegate.ps1      99 cases against lib/gate_delegate.ps1, each run
+tests/gate_delegate.ps1      100 cases against lib/gate_delegate.ps1, each run
                              through a real pipe into a real child process. One
                              of ELEVEN behavioural suites, and the only one that
                              covers a PreToolUse gate - see docs/testing.md
@@ -170,7 +170,7 @@ tests/stop_behaviour.ps1     120 cases against the Stop-hook handlers:
 tests/supervision.ps1        the three supervision modules - send_liveness_gate,
                              completion_audit and orphan_watch - against seeded
                              transcripts and seeded health logs
-tests/setup_merge.ps1        202 cases driving bin/lwg-setup.ps1 against throwaway
+tests/setup_merge.ps1        203 cases driving bin/lwg-setup.ps1 against throwaway
                              settings files. The only suite that tests a WRITE.
                              The writer properties are established on the
                              statusline section and, since section 31, on the
@@ -189,7 +189,7 @@ tests/config_behaviour.ps1   bin/lwg-config.ps1's read/validate/write path,
                              invariant that the plugin root's config.json is not
                              moved by a byte
 tests/uninstall_footprint.ps1
-                             37 cases driving bin/lwg-uninstall.ps1 against
+                             38 cases driving bin/lwg-uninstall.ps1 against
                              throwaway data directories and throwaway
                              settings.json files, asserting on the FILESYSTEM as
                              well as on the report: what the footprint says it
@@ -203,7 +203,7 @@ tests/doctor_behaviour.ps1   42 cases driving bin/lwg-doctor.ps1 from a scratch
                              TWO of the doctor's ten checks - config-registry
                              and statusline - and no others. Fourteen of its cases
                              are labelled CONTROL and pass before the fix too
-tests/toggle_behaviour.ps1   28 cases driving bin/lwg-toggle.ps1's WRITE to
+tests/toggle_behaviour.ps1   32 cases driving bin/lwg-toggle.ps1's WRITE to
                              the override file, against a byte copy of bin/ and
                              lib/ under a scratch plugin root
 tests/subagent_scan.ps1      14 cases piping payloads into lib/subagent_start.ps1,
@@ -668,11 +668,28 @@ the bug it would be fixing: out-of-harness runs keep appending to the *bare* dir
 one routinely carries the newer timestamp. Excluding it first is what makes timestamps safe to use at
 all — they now only ever choose between two real installs.
 
+**The ladder above is what a COMMAND runs, and what a HOOK never does.** Claude Code hands a plugin
+hook `$CLAUDE_PLUGIN_DATA`, so step 1 ends the matter and no hook ever ranks anything; a slash
+command runs through `Bash(powershell:*)` and is never handed that variable, so it walks the whole
+ladder. One resolver, two branches, and on a machine with two `lw-watchtower*` directories they can
+land on different files — which is the whole of #270 and is why the configuring commands refuse to
+write over an ambiguous resolution rather than reporting a write nothing reads.
+
 Because three of this repo's shipped defects were things reporting success while doing nothing,
-`Get-LwgStateDirInfo` returns `@{ path; source; resolved; candidates; home; home_source }` alongside
-the plain path, where `source` is `env` | `discovered` | `bare` | `unresolved` and `resolved` is
-`$true` only for the first two. A caller can tell "this is the live directory" from "this is where I
-would have looked" — and, through the last two fields, which root step 2 searched and why.
+`Get-LwgStateDirInfo` returns `@{ path; source; resolved; candidates; ranked; home; home_source }`
+alongside the plain path, where `source` is `env` | `discovered` | `bare` | `unresolved` and
+`resolved` is `$true` only for the first two. A caller can tell "this is the live directory" from
+"this is where I would have looked" — and, through the last two fields, which root step 2 searched
+and why.
+
+`ranked` — the suffixed candidates this call had to **choose between**, as full paths. Empty on the
+`env` branch, which chooses nothing, and empty when there is no suffixed sibling. **More than one
+entry means the answer came out of the mtime ranking and could have gone the other way**, and it is a
+different question from `candidates`: a bare directory beside one suffixed sibling counts two
+candidates and ranks nothing, which is not ambiguous. The configuring commands read it because they
+are the callers that have to tell an operator that the file they are about to write may not be the
+file a hook reads. Like `home` and `home_source` it is an added key: every existing reader takes
+`path`, `source`, `resolved` and `candidates` by name.
 
 Resolution is memoised per process and costs, measured on this machine in a fresh PowerShell 5.1:
 **~32–42 ms cold on the `env` path a live hook takes**, ~75–105 ms cold when it has to discover

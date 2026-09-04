@@ -34,6 +34,61 @@
   written.
 #>
 
+# --- a file hash that does not need Get-FileHash (#273) ----------------------
+# THE LAST THREE CALL SITES IN THE PAYLOAD. The reasoning for this function is
+# written once, in bin\lwg-doctor.ps1 beside its copy, and is not repeated here:
+# Get-FileHash is a FUNCTION exported by Microsoft.PowerShell.Utility, not a
+# compiled cmdlet, and Windows PowerShell 5.1 loses it whenever it inherits a
+# PowerShell 7 PSModulePath - which is every script this plugin spawns for an
+# operator who launched Claude Code from a pwsh terminal.
+#
+# WHY THIS FILE'S THREE SITES WERE THE WORST OF THE SEVEN, and why they were
+# found last: all three sit inside a try/catch, so they never threw. They
+# DEGRADED. Read-LwgTextFile returned ok = $false with the CommandNotFound
+# message in .error, and every caller reported that as "config.json could not be
+# read" - so /lw-watchtower:delegate and /lw-watchtower:config exited 3 on a
+# correct install, and bin\lwg-uninstall.ps1 (which dot-sources this file)
+# completed but reported `hooks`, `statusline-key` and `permissions-deny` as
+# UNKNOWN because settings.json was never read. A loud failure gets traced; a
+# quiet one gets recorded as a different bug, which is exactly what happened.
+#
+# ONE COPY SERVES THE TWO COMMANDS THAT HAD NOWHERE ELSE TO GET IT:
+# bin\lwg-config.ps1 and bin\lwg-toggle.ps1 dot-source this file and had no
+# helper of their own, and bin\lwg-toggle.ps1's read-back hash now resolves to
+# this function. bin\lwg-uninstall.ps1 and bin\lwg-update.ps1 dot-source this
+# file too and ALSO carry their own identical copy, defined earlier in the file
+# than the dot-source - so this definition is the one in scope by the time
+# either of them runs, with the same body and the same return. That duplication
+# is left rather than tidied: removing it edits two scripts this change has no
+# other reason to touch, and an identical function defined twice costs a reader
+# a moment while deleting one costs a re-measurement. The doctor and setup load
+# neither this file nor each other's - the note in bin\lwg-doctor.ps1 explains
+# why there is no one home for all of them.
+function Get-LwgFileSha256 {
+    <#
+      SHA256 of one file as uppercase hex, with no PowerShell module behind it.
+      Throws what the file system throws, exactly as Get-FileHash did, so every
+      caller's try/catch keeps its meaning - and the return is byte for byte
+      what (Get-FileHash -Algorithm SHA256).Hash returned, so every comparison
+      and every printed value is unchanged.
+    #>
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # ABSOLUTE, ALWAYS. Every .NET call resolves a relative path against the
+    # PROCESS working directory, which is wherever the operator ran this from
+    # and not this tree.
+    $full = [IO.Path]::GetFullPath($Path)
+    $sha  = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        # FileShare::ReadWrite because settings.json is rewritten by the CLI
+        # underneath whatever is reading it. Get-FileHash opens the same way;
+        # a narrower share would fail on files that used to hash fine.
+        $fs = [IO.File]::Open($full, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try { $bytes = $sha.ComputeHash($fs) } finally { $fs.Dispose() }
+    } finally { $sha.Dispose() }
+    return [BitConverter]::ToString($bytes).Replace('-', '')
+}
+
 # --- JSON structural scanner ------------------------------------------------
 # Enough JSON to LOCATE a member. Not a parser: it never builds a value, it only
 # answers "where in this text does that member live". String state and nesting
@@ -353,7 +408,7 @@ function Read-LwgTextFile {
         $off = 0
         if ($raw.Length -ge 3 -and $raw[0] -eq 0xEF -and $raw[1] -eq 0xBB -and $raw[2] -eq 0xBF) { $r.bom = $true; $off = 3 }
         $r.text = [Text.UTF8Encoding]::new($false).GetString($raw, $off, $raw.Length - $off)
-        $r.sha = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+        $r.sha = Get-LwgFileSha256 -Path $Path
         $r.ok = $true
     } catch { $r.error = $_.Exception.Message }
     return $r
@@ -386,7 +441,7 @@ function Save-LwgTextFile {
     $r = @{ ok = $false; reason = ''; backup = ''; sha = '' }
     try {
         if (-not (Test-Path -LiteralPath $Path)) { $r.reason = "gone: $Path no longer exists"; return $r }
-        $now = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+        $now = Get-LwgFileSha256 -Path $Path
         if ($now -ne $ExpectedSha) {
             $r.reason = "CHANGED UNDER US: $Path was modified between the plan and the write (expected SHA256 $($ExpectedSha.Substring(0,12))..., found $($now.Substring(0,12))...). Nothing was written."
             return $r
@@ -399,7 +454,7 @@ function Save-LwgTextFile {
 
         $enc = [Text.UTF8Encoding]::new($Bom)
         [IO.File]::WriteAllText($Path, $Text, $enc)
-        $r.sha = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+        $r.sha = Get-LwgFileSha256 -Path $Path
         $r.ok = $true
     } catch { $r.reason = $_.Exception.Message }
     return $r

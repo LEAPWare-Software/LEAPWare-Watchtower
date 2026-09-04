@@ -1638,14 +1638,21 @@ function Test-NoFileHashStillProducesAFootprint {
           statusline-key    UNKNOWN  CANNOT REPORT - settings.json was not read
           permissions-deny  UNKNOWN  CANNOT REPORT - settings.json was not read
 
-      That is a correct report of a real limit, and it is a better outcome than
-      exit 3 with no footprint - but it is not the finished state. bin\lwg-cmdlib.ps1
-      belongs to another lane this wave and the hunk for it is on #273. The
-      assertion below is therefore NOT "the word never appears": it is that
-      every appearance is one of those reader sentences. A Get-FileHash reached
-      from anywhere else in this script goes red, and so does the loss of the
-      drift comparison - and when cmdlib is fixed this case passes with no
-      appearances at all.
+      That was a correct report of a real limit, and a better outcome than exit 3
+      with no footprint - but it was not the finished state. bin\lwg-cmdlib.ps1
+      belonged to another lane when this case was written and its hunk was on
+      #273; it has landed, so the run now reads settings.json and no appearance
+      is left at all. THIS ASSERTION IS DELIBERATELY UNCHANGED: it is not "the
+      word never appears", it is that every appearance is one of those reader
+      sentences. Written that way it was green before the cmdlib fix and is green
+      after it, and it still goes red if a Get-FileHash is ever reached from
+      anywhere else in this script, or if the drift comparison is lost.
+
+      THE CASE UNDER THIS ONE IS THE STRICTER HALF, and it is separate on
+      purpose: it asserts the three rows that degraded are not degraded. That is
+      the statement this one cannot make without changing what it was written to
+      say, and it is the one that was red until bin\lwg-cmdlib.ps1's three call
+      sites moved to Get-LwgFileSha256.
 
       New-NoFileHashRunner's header carries what this reproduces and what it
       does not.
@@ -1675,6 +1682,39 @@ function Test-NoFileHashStillProducesAFootprint {
 
     Add-Result -Name 'an unresolvable Get-FileHash does not stop the dry run producing a footprint' `
                -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
+
+    # THE THREE ROWS THAT USED TO DEGRADE - #273's last three call sites.
+    # The same run, no second spawn: bin\lwg-uninstall.ps1 dot-sources
+    # bin\lwg-cmdlib.ps1, whose Read-LwgTextFile hashed settings.json inside a
+    # try/catch. With Get-FileHash gone that read returned ok = $false and the
+    # script reported three rows off the absence rather than off the file:
+    #
+    #     hooks             ... settings.json could not be read or parsed (...)
+    #     statusline-key    UNKNOWN  CANNOT REPORT - settings.json was not read
+    #     permissions-deny  UNKNOWN  CANNOT REPORT - settings.json was not read
+    #
+    # ASSERTED POSITIVELY AS WELL AS NEGATIVELY. "No CANNOT REPORT anywhere"
+    # would also pass a run that printed no rows at all, and this fixture's
+    # settings.json really does declare a statusLine.command and really does
+    # declare no permissions.deny - so the file having been READ is provable
+    # from what the two rows say, not only from what they no longer say.
+    $deg = @()
+    if ($r.out -match '(?i)settings\.json (?:could not be read|was not read)') {
+        $deg += 'a row still reports settings.json as unread'
+    }
+    if ($r.out -match '(?im)^\s+statusline-key\s+UNKNOWN') { $deg += 'statusline-key is UNKNOWN' }
+    if ($r.out -match '(?im)^\s+permissions-deny\s+UNKNOWN') { $deg += 'permissions-deny is UNKNOWN' }
+    if ($r.out -notmatch '(?im)^\s+statusline-key\s+PRESENT') {
+        $deg += 'statusline-key does not report the statusLine.command this fixture wrote, so settings.json was not actually read'
+    }
+    if ($r.out -notmatch '(?im)^\s+permissions-deny\s+absent') {
+        $deg += 'permissions-deny does not report the absence this fixture arranged'
+    }
+    Add-Result -Name 'and the three rows that read settings.json still report it, rather than saying they could not (#273)' `
+               -Ok ($deg.Count -eq 0) `
+               -Detail (($deg -join '; ') + " | exit $($r.code) | rows:`n" +
+                        ((@($r.out -split "`r?`n" |
+                            Where-Object { $_ -match '(?im)^\s+(hooks|statusline-key|permissions-deny)\s' }) -join "`n")))
 }
 
 function New-CachedPluginCopy {

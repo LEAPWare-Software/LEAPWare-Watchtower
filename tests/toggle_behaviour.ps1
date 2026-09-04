@@ -440,6 +440,56 @@ function New-Sandbox {
     return $sand
 }
 
+function New-NoFileHashRunner {
+    <#
+      A launcher that runs $Target in a real Windows PowerShell 5.1 child with
+      one difference: `Get-FileHash` does not resolve, and any call to it throws
+      the CommandNotFoundException a 5.1 child throws once a PowerShell 7
+      PSModulePath has shadowed Microsoft.PowerShell.Utility - message verbatim
+      (#273). Returns the launcher's path, for Invoke-Toggle -ScriptPath.
+
+      A SECOND COPY, DELIBERATELY. tests\uninstall_footprint.ps1 carries the
+      original and its full reasoning - why the NAME is shadowed rather than the
+      module (a synthetic module does not reproduce it; four were measured), why
+      an ALIAS rather than a function (a function is replaced by the module's own
+      when the call triggers the auto-load), and what the fixture therefore does
+      and does not establish. That reasoning is not repeated here. It is copied
+      rather than shared because the two suites share no harness file and the
+      standing rule is that no new file appears under tests\ - fifteen lines
+      duplicated is the cheaper of the two.
+
+      IT DISCRIMINATES ON THE RIGHT THING: red for any code that calls
+      Get-FileHash on the path under test, green only for code that does not.
+    #>
+    param([Parameter(Mandatory = $true)][string]$Path,
+          [Parameter(Mandatory = $true)][string]$Target)
+
+    $dir = Split-Path -Parent $Path
+    [void][IO.Directory]::CreateDirectory($dir)
+    $thrower = Join-Path $dir 'lwg-no-filehash.ps1'
+    [IO.File]::WriteAllText($thrower, (
+        'throw (New-Object System.Management.Automation.CommandNotFoundException(' +
+        '"The term ''Get-FileHash'' is not recognized as the name of a cmdlet, function, script file, ' +
+        'or operable program. Check the spelling of the name, or if a path was included, verify that ' +
+        'the path is correct and try again."))' + "`r`n"), [Text.UTF8Encoding]::new($false))
+    # NO param BLOCK, and that is the one line where this copy differs from
+    # tests\uninstall_footprint.ps1's - measured, not preferred. That one
+    # forwards through `[Parameter(ValueFromRemainingArguments)]$Rest`, which is
+    # enough for the switches the uninstaller takes. This suite's arguments are
+    # `-Flag delegate on`, and the binder consumes `-Flag` as a parameter name
+    # attempt on the LAUNCHER before $Rest ever sees it: the child then received
+    # `delegate on` positionally and answered "A positional parameter cannot be
+    # found that accepts argument 'delegate'". A script with no param block gets
+    # every argument in $args verbatim, and `@args` re-splats them as the named
+    # arguments they were written as.
+    $text = @(
+        ('Set-Alias -Name Get-FileHash -Value ' + "'" + $thrower.Replace("'", "''") + "'" + ' -Scope Global -Force')
+        ('& ' + "'" + $Target.Replace("'", "''") + "'" + ' @args')
+    ) -join "`r`n"
+    [IO.File]::WriteAllText($Path, $text + "`r`n", [Text.UTF8Encoding]::new($false))
+    return $Path
+}
+
 function Push-ChildEnv {
     <#
       Returns the previous values so the caller can restore them in a finally.
@@ -449,8 +499,17 @@ function Push-ChildEnv {
       settings path out of that variable, and an unset one was the state that
       made a written file exit 3; what is left asserts that no surviving path
       reads it.
+
+      -NoPluginData CLEARS CLAUDE_PLUGIN_DATA and points CLAUDE_CONFIG_DIR at
+      the sandbox profile, which is how this command is ACTUALLY spawned. Claude
+      Code hands $CLAUDE_PLUGIN_DATA to plugin HOOKS; a slash command runs
+      through Bash(powershell:*) and is never handed it, so it falls through to
+      Get-LwgStateDirInfo's discovery. Every case here before section I ran with
+      the variable set, which is a hook's environment and not this command's -
+      convenient, and it is the one branch on which #270 cannot happen. Same
+      switch, same wording and same reason as tests\config_behaviour.ps1's.
     #>
-    param([hashtable]$Sand, [switch]$NoUserProfile)
+    param([hashtable]$Sand, [switch]$NoUserProfile, [switch]$NoPluginData)
     $prev = @{
         up  = $env:USERPROFILE
         dat = $env:CLAUDE_PLUGIN_DATA
@@ -459,7 +518,7 @@ function Push-ChildEnv {
         cfg = $env:CLAUDE_CONFIG_DIR
     }
     $env:USERPROFILE                  = $(if ($NoUserProfile) { $null } else { $Sand.profile })
-    $env:CLAUDE_PLUGIN_DATA           = $Sand.data
+    $env:CLAUDE_PLUGIN_DATA           = $(if ($NoPluginData) { $null } else { $Sand.data })
     $env:CLAUDE_PLUGIN_ROOT           = $null
     $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $null
     # CLAUDE_CONFIG_DIR JOINED THE SANDBOX ON 3 SEPTEMBER 2026. No path in
@@ -470,7 +529,12 @@ function Push-ChildEnv {
     # CLAUDE_PLUGIN_DATA is not set. A runner carrying the variable would point
     # that fallback at the real machine while USERPROFILE pointed harmlessly at
     # the sandbox. Cleared, so the sandbox is the whole sandbox.
-    $env:CLAUDE_CONFIG_DIR            = $null
+    #
+    # -NoPluginData is the one exception, and it points the variable at the
+    # SANDBOX profile rather than clearing it: that is what makes the fallback
+    # scan look under the sandbox's plugins\data, which is where section I
+    # plants its two candidates.
+    $env:CLAUDE_CONFIG_DIR            = $(if ($NoPluginData) { $Sand.profile } else { $null })
     return $prev
 }
 
@@ -509,16 +573,25 @@ function Invoke-Toggle {
         # writes since #11.
         [string]$CfgPath,
         # Run the child with USERPROFILE unset - see Push-ChildEnv.
-        [switch]$NoUserProfile
+        [switch]$NoUserProfile,
+        # The script the child actually runs. Defaults to the copied
+        # bin\lwg-toggle.ps1, which is what every case but one wants. The #273
+        # case passes New-NoFileHashRunner's launcher, which runs that same
+        # script with Get-FileHash unresolvable.
+        [string]$ScriptPath,
+        # Run the child the way Bash(powershell:*) runs it, with no
+        # CLAUDE_PLUGIN_DATA - see Push-ChildEnv. Section I uses it.
+        [switch]$NoPluginData
     )
 
     if ([string]::IsNullOrWhiteSpace($CfgPath)) { $CfgPath = $Sand.ov }
+    if ([string]::IsNullOrWhiteSpace($ScriptPath)) { $ScriptPath = $Sand.toggle }
 
     $of  = Join-Path $Sand.work "$Tag.out"
     $ef  = Join-Path $Sand.work "$Tag.err"
     $bat = Join-Path $Sand.work "$Tag.cmd"
 
-    $cmd = ('powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" {1} 1>"{2}" 2>"{3}"' -f $Sand.toggle, $ScriptArgs, $of, $ef)
+    $cmd = ('powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" {1} 1>"{2}" 2>"{3}"' -f $ScriptPath, $ScriptArgs, $of, $ef)
     [IO.File]::WriteAllLines($bat, @('@echo off', ('cd /d "{0}"' -f $Sand.work), $cmd, 'exit /b %ERRORLEVEL%'), [Text.ASCIIEncoding]::new())
 
     $before = Get-Bytes -Path $CfgPath
@@ -527,7 +600,7 @@ function Invoke-Toggle {
     # of this command, on any path, for any reason, moves a byte of the file
     # that is inside the plugin's git working tree.
     $baseBefore = Get-Bytes -Path $Sand.cfg
-    $prev = Push-ChildEnv -Sand $Sand -NoUserProfile:$NoUserProfile
+    $prev = Push-ChildEnv -Sand $Sand -NoUserProfile:$NoUserProfile -NoPluginData:$NoPluginData
     try {
         & $env:ComSpec /c $bat | Out-Null
         $code = $LASTEXITCODE
@@ -1037,8 +1110,143 @@ try {
             $l.code, $(if ($l.changed) { 'CHANGED - correctly' } else { 'was NOT changed' }))
 
     # =======================================================================
+    # SECTION H - THE TERMINAL THE OPERATOR LAUNCHED FROM (#273)
+    #
+    # Claude Code hands every command the environment the terminal was started
+    # with. Started from a PowerShell 7 prompt - the Windows Terminal default
+    # wherever pwsh is installed - every `powershell` this plugin spawns is a
+    # Windows PowerShell 5.1 child carrying PS7's PSModulePath, 5.1 resolves
+    # Microsoft.PowerShell.Utility to PS7's 7.0.0.0 manifest ahead of its own
+    # 3.1.0.0, and Get-FileHash - a FUNCTION in 5.1's module, not a compiled
+    # cmdlet - is gone.
+    #
+    # THIS COMMAND FAILED QUIETLY, WHICH IS WHY IT WAS FOUND LAST. The doctor
+    # printed "check threw" and the uninstaller exited 3 before a single row, so
+    # both were traced. Here the three call sites were bin\lwg-cmdlib.ps1's, all
+    # inside a try/catch: Read-LwgTextFile returned ok = $false and the toggle
+    # reported "config.json could not be read" and exited 3 - a REFUSAL that
+    # blames the operator's file, on a correct install, for a reason that has
+    # nothing to do with the file. An operator locked out of Bash by the gate
+    # runs this command to get out, and is told their config is broken.
+    #
+    # RED AT 3e36d79 with this hunk alone: exit 3, nothing written, the refusal
+    # naming config.json. The fixture is New-NoFileHashRunner's, whose header
+    # in tests\uninstall_footprint.ps1 states what it reproduces and what it
+    # does not - it makes the CONSEQUENCE deterministic on any runner; that a
+    # PowerShell 7 launch produces that state was measured by hand and recorded
+    # on #273, and by nothing in these suites.
+    #
+    # bin\lwg-toggle.ps1's OWN call site moved with them and has NO case here,
+    # stated rather than implied: it sits in the read-back-disagrees branch,
+    # which is reachable only when something rewrites config.override.json
+    # between this command's write and its re-read. Nothing in this harness can
+    # arrange that, and a case that could would be racing itself.
+    # =======================================================================
+    Write-Output ''
+    Write-Output 'H. a child that cannot resolve Get-FileHash still writes (#273)'
+
+    Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
+    $noFh = New-NoFileHashRunner -Path (Join-Path $sand.work 'run-toggle-nofh.ps1') -Target $sand.toggle
+    $h1 = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate on' -Tag 'h1' -ScriptPath $noFh
+    $h1Text = [Text.UTF8Encoding]::new($false).GetString($h1.after)
+    $h1Bad = @()
+    if ($h1.code -ne 0) { $h1Bad += "exit $($h1.code) rather than 0" }
+    if (-not $h1.changed) { $h1Bad += 'the override was NOT written' }
+    if ($h1Text -notmatch '"delegate"\s*:\s*true') { $h1Bad += 'the override does not hold the value that was asked for' }
+    if ($h1.out -match '(?i)could not be read' -or $h1.err -match '(?i)could not be read') {
+        $h1Bad += 'the run still refuses with "could not be read"'
+    }
+    if (($h1.out + $h1.err) -match 'Get-FileHash') { $h1Bad += 'Get-FileHash reached the output' }
+    Add-Result 'a run whose child cannot resolve Get-FileHash still writes the override and exits 0 (#273)' `
+        ($h1Bad.Count -eq 0) `
+        (($h1Bad -join '; ') + " | exit $($h1.code), override $(if ($h1.changed) { 'CHANGED' } else { 'NOT changed' }). " +
+         "Until bin\lwg-cmdlib.ps1's three Get-FileHash call sites moved to Get-LwgFileSha256 this exited 3 with " +
+         "'config.json could not be read', which reads as a broken config file and is nothing of the kind. Output:`n$($h1.out)`n$($h1.err)")
+
+    # =======================================================================
+    # SECTION I - #270, two state directories and a command that cannot tell
+    # which one a hook reads
+    #
+    # A hook is handed $CLAUDE_PLUGIN_DATA by Claude Code. This command runs
+    # through Bash(powershell:*) and is never handed it, so it falls through to
+    # Get-LwgStateDirInfo's discovery and RANKS the lw-watchtower* siblings by
+    # most recent write. An operator who has run this plugin from a marketplace
+    # install AND from a checkout has two of them, and the two readers then land
+    # on different files. THIS COMMAND IS WHERE THAT WAS MEASURED:
+    # /lw-watchtower:delegate off exited 0 and printed "delegate is OFF" with
+    # "[merged over the defaults; this is what a hook reads]" beside the file it
+    # had written, and the very next main-thread Bash call was refused exit 2 by
+    # a gate reading the override in the OTHER directory. Seconds later the same
+    # command reported ON, from the other file, with no operator action between.
+    #
+    # THE CODE FIX FOR THIS LANDED IN #292 AND THIS CASE DID NOT, and the reason
+    # is worth keeping: the case moves this suite's count, that count was quoted
+    # in files two other lanes owned in the same wave, and moving it would have
+    # failed Documentation claims on a number that lane could not fix. The
+    # deferral is the whole of why it is here now.
+    #
+    # SO THE RED IS AT 192176b, NOT AT THIS BRANCH'S BASE, and that is stated
+    # rather than glossed: at 3e36d79 the refusal is already in
+    # bin/lwg-toggle.ps1, so these three cases are green there with the test hunk
+    # alone. 192176b is main immediately before #292, and I1 and I2 fail there.
+    #
+    # EVERY CASE ABOVE THIS SECTION RAN WITH CLAUDE_PLUGIN_DATA SET, which is a
+    # hook's environment and not this command's. -NoPluginData puts it back on
+    # its own spawn.
+    # =======================================================================
+    Write-Output ''
+    Write-Output 'I. two state directories, and which file a hook reads (#270)'
+
+    # Two suffixed candidates under the profile's plugins\data, which is where
+    # discovery looks when CLAUDE_PLUGIN_DATA is unset. The marketplace-shaped
+    # one holds the operator's real choice; the checkout-shaped one is newer, so
+    # the mtime ranking prefers it - which is exactly the measured failure.
+    $iData   = Join-Path $sand.profile 'plugins\data'
+    $iMarket = Join-Path $iData 'lw-watchtower-leapware-watchtower'
+    $iInline = Join-Path $iData 'lw-watchtower-inline'
+    foreach ($d in @($iMarket, $iInline)) { [void](New-Item -ItemType Directory -Path $d -Force) }
+    $iOv = Join-Path $iMarket 'config.override.json'
+    [IO.File]::WriteAllText($iOv, '{"interaction":{"delegate":true}}', [Text.UTF8Encoding]::new($false))
+    Start-Sleep -Milliseconds 1100
+    [IO.File]::WriteAllText((Join-Path $iInline 'marker.txt'), 'newer', [Text.ASCIIEncoding]::new())
+
+    Write-ConfigFile -Path $sand.cfg -Text $good
+    $i1 = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate off' -Tag 'i1' -CfgPath $iOv -NoPluginData
+    $i1wrote = @(Get-ChildItem -LiteralPath $iData -Recurse -Filter 'config.override.json' -File -ErrorAction SilentlyContinue)
+
+    Add-Result 'I1 a write is REFUSED when two state directories are candidates (#270)' `
+        ($i1.code -eq 3 -and $i1wrote.Count -eq 1 -and -not $i1.changed -and ($i1.out -like '*AMBIGUOUS*')) `
+        ("exit was {0}, the seeded override was {1}, and {2} config.override.json file(s) exist under plugins\data (expected the 1 that was seeded). This command IS the documented escape hatch from an armed gate: an operator locked out of Bash runs it, and reporting 'delegate is OFF' over a write nothing reads leaves them locked out having done the one thing they were told to do. stdout: {3}" -f `
+            $i1.code, $(if ($i1.changed) { 'CHANGED' } else { 'untouched - correctly' }), $i1wrote.Count,
+            (($i1.out -split "`r?`n" | Select-Object -First 8) -join ' | '))
+
+    $i2 = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate' -Tag 'i2' -CfgPath $iOv -NoPluginData
+
+    Add-Result 'I2 the REPORT names both candidates instead of claiming the file it picked is what a hook reads (#270)' `
+        ($i2.code -eq 0 -and ($i2.out -like '*AMBIGUOUS*') -and `
+         ($i2.out -like '*lw-watchtower-inline*') -and ($i2.out -like '*lw-watchtower-leapware-watchtower*')) `
+        ("exit was {0}. A report is allowed to run here - nothing is written - but it is not allowed to label one of two files '[merged over the defaults; this is what a hook reads]' when it cannot know that, which is the sentence an operator read while the gate went on refusing them. stdout: {1}" -f `
+            $i2.code, (($i2.out -split "`r?`n" | Select-Object -First 8) -join ' | '))
+
+    # THE CONTROL, and it is what makes I1 a statement about ambiguity rather
+    # than about the environment: remove the second candidate and the identical
+    # command writes and exits 0. Without it a "fix" that simply refused whenever
+    # CLAUDE_PLUGIN_DATA is unset would pass I1 and I2 and break every
+    # marketplace install, where the variable is never set for a command.
+    Remove-Item -LiteralPath $iInline -Recurse -Force
+    $i3 = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate off' -Tag 'i3' -CfgPath $iOv -NoPluginData
+    $i3text = ''
+    try { $i3text = [IO.File]::ReadAllText($iOv) } catch { }
+
+    Add-Result 'I3 CONTROL: one candidate and the same command writes, into the directory that already had the override (#270)' `
+        ($i3.code -eq 0 -and ($i3text -match '"delegate"\s*:\s*false') -and ($i3.out -notlike '*AMBIGUOUS*')) `
+        ("exit was {0} and the override now reads [{1}]. The refusal above must be about not knowing WHICH file, not about the variable being unset - a command that refused whenever CLAUDE_PLUGIN_DATA is absent would refuse on every ordinary install. stdout: {2}" -f `
+            $i3.code, $i3text.Trim(), (($i3.out -split "`r?`n" | Select-Object -First 6) -join ' | '))
+
+    # =======================================================================
     # SECTION G - the invariant, over every run this suite made
-    # Evaluated LAST, so $script:Runs holds sections A to F rather than A to C.
+    # Evaluated LAST, so $script:Runs holds sections A to I rather than A to C.
     # =======================================================================
     Write-Output ''
     Write-Output 'G. the exit-3 invariant over every run above'

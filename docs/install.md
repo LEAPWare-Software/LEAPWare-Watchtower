@@ -326,7 +326,7 @@ What it will not do, by construction — these still govern the sections it does
 
 **All four of those properties are tested again, on the `statusline` section only.**
 `tests/setup_merge.ps1` drives the real script in a real child process against throwaway settings
-files, 202 cases, and CI runs it on every push and every PR. The `permissions.deny` parity test that
+files, 203 cases, and CI runs it on every push and every PR. The `permissions.deny` parity test that
 used to cover the merge end to end was deleted on 30 July 2026 with the deny table it also guarded;
 this suite is the half that was never about deny rules, re-aimed at the sections the installer still
 writes.
@@ -459,6 +459,12 @@ over it. Re-copy after every edit, in whichever direction it was made, and check
 Get-FileHash "$env:USERPROFILE\.claude\statusline.ps1",
              ".\lw-watchtower\statusline\statusline.ps1" | Select-Object Hash, Path
 ```
+
+If that line answers *"The term 'Get-FileHash' is not recognized"*, your terminal is PowerShell 7 and
+the Windows PowerShell 5.1 it started has inherited PowerShell 7's `PSModulePath`, which hides the
+cmdlet. Nothing is wrong with the install. Run the same line from Git Bash or from a Windows
+PowerShell 5.1 console, or compare the two files with `fc /b` instead. `/lw-watchtower:doctor`
+compares them for you and does not use the cmdlet.
 
 That second path is relative to the **clone root**, which is the Option B case. On a marketplace
 install compare against the copy in the plugin cache instead — the doctor's `statusline` row does

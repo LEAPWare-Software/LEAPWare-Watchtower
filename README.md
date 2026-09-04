@@ -84,13 +84,13 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   the reasoning kept. See
   [Attempted and blocked](docs/modules.md#attempted-and-blocked-ratelimit_escalation-and-cost_tracking).
 - **Eleven suites test behaviour, and a green run of all of them is a narrower claim than the
-  totals suggest.** `tests/gate_delegate.ps1` runs 99 cases against `delegate_gate`;
+  totals suggest.** `tests/gate_delegate.ps1` runs 100 cases against `delegate_gate`;
   `tests/supervision.ps1` runs 66 against `send_liveness_gate`, `completion_audit` and
   `orphan_watch`; `tests/stop_behaviour.ps1` runs 120 against the two turn-end hooks and the
-  advisory modules behind them; `tests/setup_merge.ps1` runs 202 against the installer's `statusline`
+  advisory modules behind them; `tests/setup_merge.ps1` runs 203 against the installer's `statusline`
   and `hooks` merge and against the reporting surfaces that have no suite of their own;
-  `tests/uninstall_footprint.ps1` runs 37 against the uninstaller's footprint, attribution and
-  state-data deletions; `tests/config_behaviour.ps1` runs 56 and `tests/toggle_behaviour.ps1` runs 28
+  `tests/uninstall_footprint.ps1` runs 38 against the uninstaller's footprint, attribution and
+  state-data deletions; `tests/config_behaviour.ps1` runs 56 and `tests/toggle_behaviour.ps1` runs 32
   against the two commands that write `config.override.json`; `tests/state_resolution.ps1` runs 37
   against the state-directory resolver; `tests/doctor_behaviour.ps1` runs 42 against the doctor's
   driven checks; `tests/subagent_scan.ps1` runs 14 against the `SubagentStart` fast path — the only
@@ -336,7 +336,7 @@ prefix **cannot be suppressed**, so they are `/lw-watchtower:…` and nothing sh
 | --- | --- |
 | `/lw-watchtower:setup` | Guided installer. Detects what is already there, asks in plain language, then writes `statusLine`, hooks and agent roles one section at a time — each behind its own diff and its own yes. Its `permissions.deny` section now writes **nothing**: the rule table is empty. |
 | `/lw-watchtower:config` | Module switchboard: turn a governance module on or off, globally or for one repo, after being told exactly what the change does. Needs `-Apply` to write. |
-| `/lw-watchtower:update` | Fetches and reports what is new and what would need re-approval. Fast-forward only; merges nothing without `-Apply`. |
+| `/lw-watchtower:update` | Fetches and reports what is new and what would need re-approval. Fast-forward only; merges nothing without `-Apply`. On a **marketplace** install there is nothing to fetch — it says so, names `claude plugin update lw-watchtower@<marketplace>` and exits 2, because it did not look and must not be read as saying the install is current. |
 | `/lw-watchtower:uninstall` | Reports this plugin's whole footprint and what removing it would take, and names everything it **cannot** remove. Dry run by default. |
 
 **Preferences** — one command, and it is the only one that arms anything. Read
