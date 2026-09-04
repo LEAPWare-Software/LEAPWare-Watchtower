@@ -3394,9 +3394,21 @@ function Get-LwgContextWindow {
         config    an explicit entry in module_config.context_pressure.window_tokens
         1m-tag    the model id carries the [1m] suffix, which the CLI itself
                   reads as one million
-        observed  this model has previously been seen holding more than 200k
-                  tokens in a real turn, which is proof its window is the larger
-                  of the two - self-correcting, and evidence rather than a guess
+        observed  this model has been seen holding more than 200k tokens on TWO
+                  separate turns, which is proof its window is the larger of the
+                  two - evidence rather than a guess, and deliberately not
+                  settled on one sample. lib/stop_advisories.ps1 parks the first
+                  such reading under a <model>#pending key (:674) that THIS
+                  FUNCTION CANNOT SEE - it looks up the exact model id, so a
+                  pending key is invisible here - and promotes it to the real
+                  entry only when a later turn corroborates it (:670-672). The
+                  promoted entry corrects the assumption UPWARD, once: both
+                  write branches are guarded on the stored figure still being at
+                  or below the 200k default, so nothing rewrites it, nothing
+                  clears it and there is no expiry (:645-647). It is not
+                  self-correcting, and a wrong pin is not recoverable from here -
+                  an explicit window_tokens entry outranks it, and that is the
+                  way back.
         default   none of the above; 200k, and treated as UNTRUSTED by the caller
     #>
     param([string]$Model, $Config, [hashtable]$Observed)
