@@ -55,13 +55,21 @@ contact_links:
       eleven of them test behaviour, and a green run of all fourteen is a narrower claim than it
       sounds — CONTRIBUTING.md says exactly how narrow.
   # WHY THIS REPOSITORY'S COMMUNITY PROFILE SCORE IS NOT 100, RECORDED HERE SO THE
-  # NEXT REVIEWER FINDS THE ANSWER BESIDE THE FORMS. GitHub's community profile
-  # check scores seven files and reports `issue_template: null` for this
-  # repository, which is what holds the number below 100 - it does not credit the
-  # five YAML issue forms in this directory. That is a property of GitHub's
-  # checklist, not of this product: a reader opening "New issue" meets five forms
-  # with required fields and a chooser that routes vulnerabilities away from
-  # public issues, which is strictly more than a legacy single-file template
-  # gives them. NOTHING WAS ADDED TO MOVE THE NUMBER. A legacy ISSUE_TEMPLATE.md
-  # added for the score would be a switch wired to nothing, in a .github
-  # directory, which is the founding defect of this project.
+  # NEXT REVIEWER FINDS THE ANSWER BESIDE THE FORMS. Measured 2026-09-03 with
+  # `gh api repos/LEAPWare-Software/LEAPWare-Watchtower/community/profile`:
+  #
+  #   health_percentage: 87
+  #   files: code_of_conduct present, code_of_conduct_file present,
+  #          contributing present, license present, pull_request_template
+  #          present, readme present, ISSUE_TEMPLATE NULL
+  #
+  # That one null is what holds the number below 100, and it is wrong about this
+  # repository: five YAML issue forms sit in this directory and the check does
+  # not credit them. It is a property of GitHub's checklist rather than of this
+  # product - a reader opening "New issue" meets five forms with required fields
+  # and a chooser that routes vulnerabilities away from public issues, which is
+  # strictly more than a legacy single-file template gives them.
+  # NOTHING WAS ADDED TO MOVE THE NUMBER. A legacy ISSUE_TEMPLATE.md added for
+  # the score would be a switch wired to nothing, in a .github directory, which
+  # is the founding defect of this project. Re-run the command above rather than
+  # trusting this block if the number matters to you.
