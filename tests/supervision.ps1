@@ -213,6 +213,105 @@ function Invoke-LwgScript {
     return @{ code = $code; out = $out; err = $err }
 }
 
+function Invoke-LwgHookOwnConsole {
+    <#
+      Run one hook script the way CLAUDE CODE runs it - a child process with
+      stdin, stdout and stderr as redirected pipes, the payload written to the
+      pipe as raw UTF-8 bytes with no BOM and no trailing newline, and
+      CreateNoWindow set. Returns @{ code; out; err }, the same shape
+      Invoke-LwgScript returns, so Test-IsAllow and Test-IsDeny read it.
+
+      WHY IT EXISTS BESIDE Invoke-LwgScript, WHICH IS OTHERWISE THE RIGHT
+      HARNESS. That one runs `type payload.json | powershell` through cmd, and a
+      cmd launched from this process INHERITS THIS PROCESS'S CONSOLE. Nothing in
+      the tree depended on that until an encoding case existed: a hook's
+      [Console]::InputEncoding is the console's INPUT CODE PAGE, so the child
+      would decode its payload at whatever code page the terminal running this
+      suite happens to sit at. Measured on this machine: a terminal at 65001
+      makes the payload arrive correctly, and #269 is invisible.
+
+      CreateNoWindow is what Node's `windowsHide: true` does - CREATE_NO_WINDOW,
+      so the child gets its OWN console at the system OEM code page instead of
+      this one's - which is the spawn shape Claude Code actually uses and the
+      one the defect appears under. It also leaves this suite's console
+      untouched, which `chcp` inside the .cmd would not.
+
+      Only the encoding cases need it. Every other case here is ASCII end to end
+      and stays on the cmd pipe, which is the shape the rest of this file's
+      reasoning is written against.
+    #>
+    param([string]$ScriptPath, [string]$FakeRoot, [string]$Payload, [string]$ScriptArgs)
+
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName  = 'powershell'
+    $psi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $ScriptPath + '"' +
+                     $(if ([string]::IsNullOrWhiteSpace($ScriptArgs)) { '' } else { ' ' + $ScriptArgs })
+    $psi.UseShellExecute        = $false
+    $psi.RedirectStandardInput  = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.StandardOutputEncoding = New-Object Text.UTF8Encoding($false)
+    $psi.StandardErrorEncoding  = New-Object Text.UTF8Encoding($false)
+    $psi.CreateNoWindow         = $true
+    $psi.EnvironmentVariables['CLAUDE_PLUGIN_ROOT'] = $FakeRoot
+    $psi.EnvironmentVariables['CLAUDE_PLUGIN_DATA'] = (Join-Path $FakeRoot 'data')
+
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($Payload)
+    $out = ''; $err = ''; $code = 255
+    $p = [Diagnostics.Process]::Start($psi)
+    try {
+        $p.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+        $p.StandardInput.BaseStream.Flush()
+        $p.StandardInput.Close()
+        $out = $p.StandardOutput.ReadToEnd()
+        $err = $p.StandardError.ReadToEnd()
+        $p.WaitForExit()
+        $code = $p.ExitCode
+    } finally { $p.Dispose() }
+    return @{ code = $code; out = $out; err = $err }
+}
+
+function Get-LwgSendGateWhy {
+    <#
+      The `why` field of the newest event-log record for $SessionId that carries
+      one, or '' when there is none.
+
+      SCOPED TO THE SESSION, AND IT WAS NOT AT FIRST. The first draft took the
+      newest record whose event name began 'SendGate' - which reads the ABSTAIN
+      path only: lib/gate_send.ps1 logs an abstain as `SendGateAbstain` and a
+      DENY as `GateDeny`, the same event name delegate_gate uses. So it walked
+      past every deny in the file and returned an abstain from a case eleven
+      cases earlier, and the failure it printed described a defect that was not
+      there. A reader that silently answers about the wrong record is worth more
+      care than the case it serves.
+
+      READ AS UTF-8 EXPLICITLY. lib/common.ps1's Add-LwgLine writes that file
+      through [IO.File]::AppendAllText with a UTF8Encoding($false), and Windows
+      PowerShell 5.1's Get-Content reads a BOM-less file at the system ANSI code
+      page - so a reader that used it would mis-decode the very records an
+      encoding case exists to read, and report the product as broken while the
+      product was right. The sibling suite hit exactly that.
+
+      THE VERDICT IS NOT THE WHOLE ANSWER, which is why this exists. A deny for
+      "this recipient does not resolve" and a deny for "this recipient is dead"
+      are the same exit code and different findings, and #269 turns the second
+      into the first without changing a single exit code.
+    #>
+    param([string]$RootDir, [string]$SessionId)
+
+    $p = Join-Path (Join-Path $RootDir 'data') 'lw-watchtower.jsonl'
+    if (-not [IO.File]::Exists($p)) { return '' }
+    $why = ''
+    foreach ($l in ([IO.File]::ReadAllLines($p, [Text.UTF8Encoding]::new($false)))) {
+        if ([string]::IsNullOrWhiteSpace($l)) { continue }
+        $rec = $null
+        try { $rec = $l | ConvertFrom-Json } catch { continue }
+        if ("$($rec.session)" -ne $SessionId) { continue }
+        if (-not [string]::IsNullOrWhiteSpace("$($rec.why)")) { $why = "$($rec.why)" }
+    }
+    return $why
+}
+
 function New-LwgSendPayload {
     param([hashtable]$Sess, [string]$To)
     $tp = $Sess.main -replace '\\', '/'
@@ -562,6 +661,62 @@ try {
              -Payload (New-LwgSendPayload -Sess $s1 -To 'a726326973cfd6913')
     $v = Test-IsAllow $r
     Add-Result 'C12 stale_minutes raised to 60 -> the 28-minute silence is ALLOWED' $v.ok $v.why
+
+    # -------------------------------------------------------------------
+    # C13, C14 - #269. A RECIPIENT WHOSE NAME IS NOT ASCII.
+    #
+    # lib/gate_send.ps1 drains its own stdin before common.ps1 is loaded, and it
+    # read that pipe through [Console]::In - whose encoding is the CONSOLE's
+    # input code page, IBM437 in a child spawned the way Claude Code spawns a
+    # hook, never the UTF-8 the payload is written in. So `tool_input.to`
+    # arrived mojibaked, matched no `name` in any agent-*.meta.json, and the
+    # gate DENIED for "this recipient does not resolve".
+    #
+    # THIS IS THE ONE PLACE IN #269's BLAST RADIUS WHERE THE COST IS A BLOCK
+    # RATHER THAN A WRONG RECORD. Everywhere else a mojibaked field makes the
+    # plugin write a path that never existed; here it refuses a tool call to a
+    # worker that is alive and reachable, and tells the operator the recipient
+    # does not exist.
+    #
+    # Both cases go through Invoke-LwgHookOwnConsole rather than the cmd pipe
+    # every other case here uses - see that function for why, and it is the
+    # difference between this case and a vacuous one.
+    #
+    # RED-FIRST: both FAIL at 6aebcd6. C13 denies (exit 2) where it must allow;
+    # C14 denies for the wrong reason, which is what makes it more than a
+    # control - a right verdict reached through a wrong finding is exactly what
+    # an exit-code-only assertion cannot see.
+    # -------------------------------------------------------------------
+    # Built from code points rather than typed, so this cannot be defeated by
+    # the file being saved in the wrong encoding one day - the class of defect
+    # under test.
+    $nonAscii = 'R' + [char]0x00FC + 'diger-' + [char]0x65E5 + [char]0x672C
+
+    $s13 = New-LwgSession -Base $work -Tag 'c13'
+    [void](Add-LwgAgent -Sess $s13 -AgentId 'a6666666666666666' -AgeMinutes 0.5 -Name $nonAscii)
+    [void](Write-LwgHealth -RootDir $rootOn -Records @(
+        @{ ts = '2026-08-01T12:00:00.0000000Z'; event = 'SessionStart'; session = $s13.id }
+    ))
+    $r = Invoke-LwgHookOwnConsole -ScriptPath $SendGatePath -FakeRoot $rootOn `
+             -Payload (New-LwgSendPayload -Sess $s13 -To $nonAscii)
+    $v = Test-IsAllow $r
+    Add-Result 'C13 a LIVE recipient whose name is not ASCII -> ALLOW (#269)' $v.ok `
+        ($v.why + '. The name round-trips as UTF-8 or it does not resolve at all, and an unresolvable recipient is DENIED - so reading this payload at the console code page turns a live worker into a blocked send.')
+
+    $s14 = New-LwgSession -Base $work -Tag 'c14'
+    [void](Add-LwgAgent -Sess $s14 -AgentId 'a7777777777777777' -AgeMinutes 45 -Name $nonAscii)
+    [void](Write-LwgHealth -RootDir $rootOn -Records @(
+        @{ ts = '2026-08-01T12:00:00.0000000Z'; event = 'SessionStart'; session = $s14.id }
+    ))
+    $r = Invoke-LwgHookOwnConsole -ScriptPath $SendGatePath -FakeRoot $rootOn `
+             -Payload (New-LwgSendPayload -Sess $s14 -To $nonAscii)
+    $v = Test-IsDeny $r
+    $why14 = Get-LwgSendGateWhy -RootDir $rootOn -SessionId $s14.id
+    Add-Result 'C14 a DEAD recipient whose name is not ASCII -> DENY, and for the death (#269)' `
+        ($v.ok -and $why14 -eq 'dead-mid-flight') `
+        ("verdict: $($v.why); the event log's newest SendGate record says why='$why14', expected 'dead-mid-flight'. " +
+         "A recipient the gate could not decode denies as 'unreadable-recipient' - the same exit code, a different finding, " +
+         "and the operator is told the agent does not exist rather than that it died.")
 
     # -------------------------------------------------------------------
     # D. completion_audit BEHAVIOUR.

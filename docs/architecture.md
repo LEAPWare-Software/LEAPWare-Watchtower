@@ -163,7 +163,7 @@ tests/gate_delegate.ps1      99 cases against lib/gate_delegate.ps1, each run
                              through a real pipe into a real child process. One
                              of ELEVEN behavioural suites, and the only one that
                              covers a PreToolUse gate - see docs/testing.md
-tests/stop_behaviour.ps1     117 cases against the Stop-hook handlers:
+tests/stop_behaviour.ps1     120 cases against the Stop-hook handlers:
                              helpers in process, lib/stop_advisories.ps1 and
                              lib/supervisor.ps1 in real child processes. The
                              suite that reaches the most OBSERVING modules
@@ -206,7 +206,7 @@ tests/doctor_behaviour.ps1   42 cases driving bin/lwg-doctor.ps1 from a scratch
 tests/toggle_behaviour.ps1   28 cases driving bin/lwg-toggle.ps1's WRITE to
                              the override file, against a byte copy of bin/ and
                              lib/ under a scratch plugin root
-tests/subagent_scan.ps1      13 cases piping payloads into lib/subagent_start.ps1,
+tests/subagent_scan.ps1      14 cases piping payloads into lib/subagent_start.ps1,
                              holding its raw-text fast path to the GLOBAL modules
                              block whatever order the top-level keys appear in.
                              The only coverage context_injection has. It asserts

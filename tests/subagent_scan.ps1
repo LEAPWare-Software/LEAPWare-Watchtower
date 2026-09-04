@@ -53,14 +53,21 @@
   green run, and written down 3 August 2026 after review found the distinction
   was being carried by nothing
   ---------------------------------------------------------------------------
-  Two of the thirteen cases below FAIL on the depth-blind scanner and are the
+  Two of the fourteen cases below FAIL on the depth-blind scanner and are the
   regression cases for it:
 
       Test-ReposBeforeModulesReadsTheGlobalFlag
       Test-DecoyModulesUnderANonReposKeyIsIgnored
 
-  The other eleven are green on the defect as well, and each is here for its own
-  reason rather than as evidence about depth:
+  The other twelve are green on the depth defect as well, and each is here for
+  its own reason rather than as evidence about depth - with one exception, added
+  4 September 2026, which is a regression case for a DIFFERENT defect:
+
+      Test-ANonAsciiCwdStillResolvesThePerRepoOverride   Red on #269. The hook
+          read its stdin through [Console]::In, so a cwd carrying one non-ASCII
+          character named a directory that does not exist, no slug resolved, and
+          every `repos` entry fell through to the global default. It is also the
+          case that closes the blind spot the entry below names.
 
       Test-ShippedOrderReadsTheGlobalFlag   A CONTROL. It is what says a depth
           rule did not break the key order that always worked. It cannot detect
@@ -115,11 +122,16 @@
   ---------------------------------------------------------------------------
   WHAT IS DELIBERATELY NOT COVERED, so a green run is not read as more
   ---------------------------------------------------------------------------
-  * THE ESCALATION'S SLUG RESOLUTION. Case
-    Test-PerRepoOverrideStillEscalates proves the escalation still runs and
-    still lands on the right answer for a dispatch with no repo in its payload.
-    WHICH repo a real payload resolves to is Get-LwgRepo's job and is not
-    re-tested here.
+  * THE ESCALATION'S SLUG RESOLUTION - NARROWED 4 September 2026, not removed.
+    Case Test-PerRepoOverrideStillEscalates proves the escalation still runs and
+    still lands on the right answer for a dispatch with no repo in its payload,
+    and it says in its own docstring that it cannot tell escalation-taken from
+    escalation-skipped. Test-ANonAsciiCwdStillResolvesThePerRepoOverride now
+    builds the checkout that case said this sandbox does not build, so ONE slug
+    resolution is pinned end to end: a hand-built .git naming acme/example-repo,
+    a payload whose cwd is its work tree, and a per-repo override that must win
+    over the global flag. What is still not re-tested here is Get-LwgRepo's
+    behaviour in general - the walk limit, worktrees, multiple remotes.
   * THE CONTENT AND FORMATTING OF worker_facts.md. Every fixture uses an
     invented one-line file; the comment-stripping and the 2000-character ceiling
     are lib\subagent_start.ps1's and have no case here.
@@ -283,6 +295,97 @@ function Invoke-SubagentStart {
             Remove-Item -LiteralPath 'Env:\CLAUDE_PLUGIN_DATA' -ErrorAction SilentlyContinue
         } else { $env:CLAUDE_PLUGIN_DATA = $saveData }
     }
+}
+
+function Invoke-SubagentStartWithPayload {
+    <#
+      One real child run of lib\subagent_start.ps1 with a PAYLOAD THAT REACHES
+      IT, spawned the way Claude Code spawns a hook.
+
+      WHY THIS EXISTS BESIDE Invoke-SubagentStart, WHICH IS OTHERWISE THE RIGHT
+      HARNESS. That one runs `'{}' | & powershell.exe -File <hook>`, and a
+      PowerShell OBJECT PIPE does not reach the child's standard input at all -
+      this repository says so in three places. It has never mattered, because
+      every case above answers the GLOBAL flag and the fast path never looks at
+      the payload. The moment a case is about what the payload CONTAINS, that
+      harness cannot express it.
+
+      Two things are therefore different, and both are load-bearing:
+
+        * the payload is written to StandardInput.BaseStream as raw UTF-8 bytes,
+          no BOM and no trailing newline, which is what Claude Code writes;
+        * CreateNoWindow is set - what Node's `windowsHide: true` does - so the
+          child gets its OWN console at the system OEM code page rather than
+          inheriting the terminal this suite was started from. A hook's
+          [Console]::InputEncoding IS the console's input code page, so without
+          this the case would test whatever code page the developer's terminal
+          happens to sit at, and on one at 65001 it would pass at the baseline
+          having proved nothing.
+
+      Returns @{ code; out }, the shape Invoke-SubagentStart returns.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Tree,
+        [Parameter(Mandatory = $true)][string]$Config,
+        [Parameter(Mandatory = $true)][string]$Payload
+    )
+
+    [IO.File]::WriteAllText((Join-Path $Tree.root 'config.json'), $Config, [Text.UTF8Encoding]::new($false))
+    $ovPath = Join-Path $Tree.data 'config.override.json'
+    if ([IO.File]::Exists($ovPath)) { [IO.File]::Delete($ovPath) }
+
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName  = 'powershell'
+    $psi.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $HookPath + '"'
+    $psi.UseShellExecute        = $false
+    $psi.RedirectStandardInput  = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.StandardOutputEncoding = New-Object Text.UTF8Encoding($false)
+    $psi.StandardErrorEncoding  = New-Object Text.UTF8Encoding($false)
+    $psi.CreateNoWindow         = $true
+    $psi.EnvironmentVariables['CLAUDE_PLUGIN_ROOT'] = $Tree.root
+    $psi.EnvironmentVariables['CLAUDE_PLUGIN_DATA'] = $Tree.data
+
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($Payload)
+    $out = ''; $code = 255
+    $p = [Diagnostics.Process]::Start($psi)
+    try {
+        $p.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+        $p.StandardInput.BaseStream.Flush()
+        $p.StandardInput.Close()
+        $out = $p.StandardOutput.ReadToEnd()
+        [void]$p.StandardError.ReadToEnd()
+        $p.WaitForExit()
+        $code = $p.ExitCode
+    } finally { $p.Dispose() }
+    return @{ code = $code; out = $out }
+}
+
+function New-FixtureWorkTree {
+    <#
+      A directory Get-LwgRepoInfo resolves to $Slug: a .git holding one `config`
+      with one [remote "origin"] url, and nothing else. That is the entire input
+      that function takes - walk up for .git, parse the remote urls out of
+      `config` - so a fabricated tree is the same evidence a real clone gives
+      it, with no network and no git binary. Returns the work-tree path.
+
+      $LeafName is a parameter because one caller needs a leaf carrying
+      characters that are not ASCII, and that is the whole subject of the case
+      that asks for it.
+    #>
+    param([string]$Base, [string]$LeafName, [string]$Slug)
+
+    $wt = Join-Path $Base $LeafName
+    $gd = Join-Path $wt '.git'
+    [void][IO.Directory]::CreateDirectory($gd)
+    [IO.File]::WriteAllLines((Join-Path $gd 'config'), @(
+        '[core]',
+        '    repositoryformatversion = 0',
+        '[remote "origin"]',
+        "    url = https://github.com/$Slug.git",
+        '    fetch = +refs/heads/*:refs/remotes/origin/*'), [Text.ASCIIEncoding]::new())
+    return $wt
 }
 
 function Test-Injected {
@@ -474,6 +577,92 @@ function Test-PerRepoOverrideStillEscalates {
                -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | off exit $($off.code), on exit $($on.code)")
 }
 
+function Test-ANonAsciiCwdStillResolvesThePerRepoOverride {
+    <#
+      #269, AND THE BLIND SPOT THE CASE ABOVE NAMES.
+
+      That case ends by saying what it cannot see: it "cannot tell
+      escalation-TAKEN from escalation-SKIPPED", because for a dispatch that
+      resolves no repo the escalation lands on the same global answer the fast
+      scan gives, and "distinguishing them needs a payload that resolves to a
+      real slug, which needs a checkout with a matching remote, which is not
+      something this sandbox builds". It builds one now, and the two questions
+      turn out to be the same question.
+
+      THE DEFECT. lib\subagent_start.ps1 drains its own stdin before common.ps1
+      exists, and it read that pipe through [Console]::In - whose encoding is
+      the CONSOLE's input code page, IBM437 in a child spawned the way Claude
+      Code spawns a hook, never the UTF-8 the payload is written in. The one
+      payload field this hook uses is `cwd`, and it uses it for exactly one
+      thing: resolving the repo slug that selects a per-repo override. So on any
+      machine whose project path holds one non-ASCII character, cwd named a
+      directory that does not exist, the walk for .git found nothing, no slug
+      resolved, and EVERY `repos` entry in config.json fell through to the
+      global default - silently, with the hook still exiting 0 and still
+      injecting. docs/configuration.md says of that block, about an earlier and
+      different cause, that it "was wrong once in a way that made this entire
+      block apply to nothing".
+
+      THE FIXTURE. A real work tree with a hand-built .git naming
+      acme/example-repo, at a leaf carrying a Latin-1 umlaut and two CJK
+      characters. config.json turns context_injection ON globally and OFF for
+      that slug. So:
+
+        slug resolves      -> per-repo OFF wins -> NO injection
+        slug does not      -> global ON wins    -> injection
+
+      and the assertion is the absence, which is why the ASCII control beside it
+      is not optional: a bare negative is satisfied by a hook that crashed, and
+      this file's header makes that rule explicit. The control is the identical
+      config against an identical repo at an ASCII path, and it must also NOT
+      inject - proving the per-repo mechanism itself works and that the only
+      thing separating the two runs is the encoding of one payload field.
+
+      RED-FIRST: the non-ASCII half FAILS at 6aebcd6 and at 8f1b0c0 - it injects,
+      because the override applies to nothing. The ASCII control is green at
+      both, which is what makes it a control.
+    #>
+    $t = New-CaseRoot 'nonascii-cwd'
+
+    $tmpl = @'
+{
+  "repos": { "acme/example-repo": { "modules": { "__MOD__": false } } },
+  "modules": { "__MOD__": true }
+}
+'@
+    $cfg = $tmpl.Replace('__MOD__', $ModuleName)
+
+    # Built from code points rather than typed, so this cannot be defeated by
+    # the file being saved in the wrong encoding one day - the class of defect
+    # under test.
+    $leaf   = 'w' + [char]0x00F6 + 'rk-' + [char]0x65E5 + [char]0x672C
+    $wtWide = New-FixtureWorkTree -Base $t.dir -LeafName $leaf         -Slug 'acme/example-repo'
+    $wtAscii= New-FixtureWorkTree -Base $t.dir -LeafName 'work-ascii'  -Slug 'acme/example-repo'
+
+    $mk = { param($cwd) '{"session_id":"lwg-nonascii","cwd":"' + ($cwd -replace '\\', '\\\\') + '","agent_type":"lwg-fixture"}' }
+
+    $wide  = Invoke-SubagentStartWithPayload -Tree $t -Config $cfg -Payload (& $mk $wtWide)
+    $ascii = Invoke-SubagentStartWithPayload -Tree $t -Config $cfg -Payload (& $mk $wtAscii)
+
+    $bad = @()
+    if ($ascii.code -ne 0) { $bad += "the ASCII control exited $($ascii.code); this hook must always exit 0" }
+    if ($wide.code  -ne 0) { $bad += "the non-ASCII run exited $($wide.code); this hook must always exit 0" }
+    if (Test-Injected $ascii.out) {
+        $bad += ('CONTROL FAILED: the per-repo override did not apply even at an ASCII path, so the non-ASCII half ' +
+                 'below establishes nothing - the fixture, not the encoding, is what needs fixing')
+    }
+    if (Test-Injected $wide.out) {
+        $bad += ('REGRESSION (#269): the per-repo override applied at an ASCII path and NOT at a path carrying one ' +
+                 'non-ASCII character. cwd is read at the console code page instead of as UTF-8, so it names a ' +
+                 'directory that does not exist, no .git is found, no slug resolves, and every repos entry in ' +
+                 'config.json falls through to the global default - silently, exit 0, still injecting')
+    }
+
+    Add-Result -Name 'a cwd that is not ASCII still resolves its per-repo override (#269)' `
+               -Ok ($bad.Count -eq 0) `
+               -Detail (($bad -join '; ') + " | non-ASCII exit $($wide.code) injected $(Test-Injected $wide.out); ASCII control exit $($ascii.code) injected $(Test-Injected $ascii.out)")
+}
+
 function Test-NoConfigFailsOpen {
     <#
       NO config.json AT ALL. The file's header states the rule it shares with
@@ -504,7 +693,13 @@ function Test-NoConfigFailsOpen {
 
 function Test-TheOperatorOverrideSwitchesTheModuleOff {
     <#
-      #11, AND THE ONE MODULE /lw-watchtower:config STILL WILL NOT WRITE.
+      #11, AND THE MODULE /lw-watchtower:config USED TO REFUSE TO WRITE.
+
+      The heading said "THE ONE MODULE ... STILL WILL NOT WRITE" until
+      4 September 2026 (#267). That refusal was lifted with #261 once this
+      hook began reading the override, so the sentence had outlived the state
+      it described - everything below it is a correct record of why this case
+      exists and stays as written.
 
       Since 3 September 2026 config.json is the SHIPPED DEFAULTS and nothing
       writes it: the operator's own ON/OFF choices go to config.override.json
@@ -515,7 +710,8 @@ function Test-TheOperatorOverrideSwitchesTheModuleOff {
       read-back all reported as off - while the hook went on injecting into
       every dispatch. bin\lwg-config.ps1 refused to write this one module
       rather than ship that, which made it the only module of seven that could
-      not be switched at all.
+      not be switched at all - a refusal #261 removed once the hook read the
+      override, so this paragraph is history rather than current behaviour.
 
       THE OVERRIDE IS THE ONLY DIFFERENCE BETWEEN THE TWO RUNS. Both carry the
       same config.json, with the global flag TRUE, so a silent off-run is
@@ -830,6 +1026,7 @@ try {
     Test-DecoyModulesUnderANonReposKeyIsIgnored
     Test-ShippedOrderReadsTheGlobalFlag
     Test-PerRepoOverrideStillEscalates
+    Test-ANonAsciiCwdStillResolvesThePerRepoOverride
     Test-NoConfigFailsOpen
     Test-TheOperatorOverrideSwitchesTheModuleOff
     Test-TheOperatorOverrideSwitchesTheModuleOn

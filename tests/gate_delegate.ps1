@@ -5,19 +5,25 @@
       powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1
       powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1 -Verbose
 
-  This is the only test of a GATE in this repository, and one of the five tests
-  of behaviour here - tests\setup_merge.ps1 covers the installer's merge,
+  This is the only test of a GATE in this repository, and one of the eleven
+  tests of behaviour here - tests\setup_merge.ps1 covers the installer's merge,
   tests\stop_behaviour.ps1 the two hooks that run at turn end,
   tests\uninstall_footprint.ps1 the only thing here that deletes, and
-  tests\evidence_states.ps1 the checklist's evidence engine. Everything else
-  that runs - the JSON and PowerShell parse steps,
+  tests\state_resolution.ps1 the SessionStart hook every session sees.
+  Everything else that runs - the JSON and PowerShell parse steps,
   tests\portability_scan.ps1, tests\workflow_guard.ps1, tests\doc_claims.ps1 -
   asks whether files are well formed or whether the pages state true numbers.
   This one asks whether the gate refuses what it says it refuses, which is the
   only question a gate has to answer.
 
   This paragraph said THREE and named only two siblings until 3 August 2026,
-  omitting the uninstaller and evidence-state suites by name. It is not read by
+  omitting the uninstaller and evidence-state suites by name; it went on naming
+  tests\evidence_states.ps1 - deleted in wave 1 with the evidence engine it held
+  - until 4 September 2026, and said FIVE while eleven suites test behaviour.
+  Nothing in the tree could have caught it. The annotation guard under
+  .github\scripts\ checks that a case an annotation names still exists, which is
+  the same class of staleness one step over, but it reads annotations rather
+  than sibling file names. It is not read by
   tests\doc_claims.ps1 and still is not: that guard's $proseFiles set is
   tracked .md/.json/.yml/.yaml, so no .ps1 header in this directory is read at
   all - including the ones that publish their own case counts. Widening it to

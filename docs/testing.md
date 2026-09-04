@@ -20,7 +20,7 @@ not the same as passing —
 which is the one external binary any suite here depends on besides `powershell` itself; every
 "remote" it builds is a local bare repository under the temp directory and no case reaches a network.
 `tests/stop_behaviour.ps1` runs the two hooks that fire at every turn end —
-`lib/stop_advisories.ps1` and `lib/supervisor.ps1` — with 117 cases, and covers more
+`lib/stop_advisories.ps1` and `lib/supervisor.ps1` — with 120 cases, and covers more
 **observing** modules than anything else here. `tests/uninstall_footprint.ps1` drives `bin/lwg-uninstall.ps1` against
 throwaway data directories and throwaway `settings.json` files with 37 cases, and is the only one
 that covers a **deletion**.
@@ -33,7 +33,7 @@ and the model-visible `additionalContext` envelope.
 and `tests/config_behaviour.ps1` does the same for `bin/lwg-config.ps1`, each closing with an
 invariant that the plugin root's tracked `config.json` was not moved by a byte. They are the only
 suites besides the merge suite that cover a **write to a file an operator owns**.
-`tests/subagent_scan.ps1` pipes payloads into `lib/subagent_start.ps1` with 13 cases, and is the only
+`tests/subagent_scan.ps1` pipes payloads into `lib/subagent_start.ps1` with 14 cases, and is the only
 coverage of any kind that `context_injection` has.
 `tests/payload_guard.ps1` reads every file `git ls-files` reports under `lw-watchtower/` — which is
 the whole shipped payload — with 22 cases, and is the only one that asks what a **stranger

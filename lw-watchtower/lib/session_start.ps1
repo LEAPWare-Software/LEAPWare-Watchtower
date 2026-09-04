@@ -150,8 +150,12 @@ try {
         #
         #    -Replace, NOT an append. This fires on every SessionStart - start,
         #    resume, clear and compact - and nothing in the tree rotates,
-        #    truncates or READS selfcheck.probe: Invoke-LwgRotate has exactly
-        #    one call site and it is passed health.jsonl. It was the only file
+        #    truncates or READS selfcheck.probe: Invoke-LwgRotate has three call
+        #    sites and not one of them names it - lib/supervisor.ps1:634
+        #    (health.jsonl), :635 (lw-watchtower.jsonl) and lib/post_edit.ps1:99
+        #    (the edits file). This said "exactly one call site and it is passed
+        #    health.jsonl" until 4 September 2026; lib/common.ps1's copy of the
+        #    same sentence carries the same correction. It was the only file
         #    this plugin wrote with no bound of any kind, growing by 29 bytes a
         #    session forever, inside a plugin whose log_rotation module reports
         #    itself as capping the logs - an operator reading that module list
@@ -272,12 +276,21 @@ try {
     $offList = @()
     foreach ($m in $implemented) { if ($active -notcontains $m) { $offList += $m } }
 
-    $rest = @()
+    # Each bucket opens with its OWN count, because with two or more of them a
+    # reader needs the split and not just the total. $restCounts carries the
+    # same numbers separately so the one-bucket case below can tell whether the
+    # label would be repeating a number the bucket is about to print anyway.
+    $rest       = @()
+    $restCounts = @()
     if ($blocked.Count -gt 0) {
-        $rest += "$($blocked.Count) ($($blocked -join ', ')) CANNOT be built - the data they need reaches no hook"
+        $rest       += "$($blocked.Count) ($($blocked -join ', ')) CANNOT be built - the data they need reaches no hook"
+        $restCounts += $blocked.Count
     }
-    if ($unbuilt -gt 0)       { $rest += "$unbuilt declared in config.json but unwritten" }
-    if ($offList.Count -gt 0) { $rest += "$($offList.Count) ($($offList -join ', ')) built but switched OFF in config.json" }
+    if ($unbuilt -gt 0)       { $rest += "$unbuilt declared in config.json but unwritten"; $restCounts += $unbuilt }
+    if ($offList.Count -gt 0) {
+        $rest       += "$($offList.Count) ($($offList -join ', ')) built but switched OFF in config.json"
+        $restCounts += $offList.Count
+    }
 
     $lines = @(
         "LW-WATCHTOWER v$version, mode $mode."
@@ -285,7 +298,26 @@ try {
     )
     if ($rest.Count -gt 0) {
         $restCount = $totalCount - $activeCount
-        $lines += "The other $($restCount): " + ($rest -join '; ') + "."
+        if ($rest.Count -eq 1 -and $restCounts[0] -eq $restCount) {
+            # ONE BUCKET ACCOUNTS FOR THE WHOLE REMAINDER, so the label's colon
+            # form printed the same number twice - "The other 4: 4
+            # (send_liveness_gate, completion_audit, orphan_watch,
+            # delegate_gate) built but switched OFF in config.json". That is the
+            # SHIPPED default configuration, not an edge case, and this string
+            # is injected into the model's context on every single session
+            # start. Every fact in it was true; it was the sentence that was
+            # malformed, which is its own kind of overstatement in a file whose
+            # section heading is "The plugin never overstates itself".
+            #
+            # The guard is on the NUMBER and not just on the bucket count: the
+            # three buckets are meant to partition the remainder, and if they
+            # ever stop doing so the colon form is the honest rendering because
+            # it still prints the true total. Collapsing unconditionally would
+            # hide that arithmetic going wrong.
+            $lines += "The other " + $rest[0] + "."
+        } else {
+            $lines += "The other $($restCount): " + ($rest -join '; ') + "."
+        }
     }
     # The gate sentence is derived, never hardcoded. Saying "nothing is blocked"
     # while a gate is enforcing is the same class of lie as counting an unbuilt

@@ -77,6 +77,28 @@
          blank one, or any of the three self-reported failure strings the file
          can emit would have failed no build. Section G, with the envelope.
 
+  AND THE THREE ADDED ON 4 SEPTEMBER 2026, all found by driving the shipped
+  default install rather than by reading it:
+
+    #268 Get-LwgConfig tested `$null -ne $cfg.modules` to decide whether
+         config.json was a config at all, and $false is not $null - so
+         {"modules":false} was accepted as a good one, the operator's override
+         was merged over it and the blocking gate came up ARMED off seventeen
+         bytes. Section I asserts on the banner's gate count, because the
+         consequence that matters is a lockout.
+
+    #266 the model-visible context printed its remainder count TWICE - "The
+         other 4: 4 (...)" - on the shipped configuration, because the label
+         states the total and the single clause under it opens with its own
+         count. G5 could not catch it: G5 asserts the four are NAMED, and they
+         were. Case G8.
+
+    #269 every hook decoded its stdin through [Console]::In, whose encoding is
+         the CONSOLE's input code page and not the payload's, so one non-ASCII
+         character anywhere in cwd was mojibaked into the audit trail and made
+         `repo` resolve to null. Section H, and see its header for why the
+         assertion is on the ledger rather than on the hook's stdout.
+
   THE SANDBOX
 
   Every child process gets its own environment block - USERPROFILE pointed at a
@@ -136,12 +158,25 @@ function Invoke-Child {
       an empty string is not the same thing and Get-LwgStateDirInfo's own
       IsNullOrWhiteSpace test would read them alike, so both are exercised
       through this one door rather than assumed equivalent.
+
+      -NoConsoleWindow SETS CreateNoWindow, WHICH IS NOT COSMETIC HERE. Claude
+      Code is a Node host and spawns every hook with `windowsHide: true`, i.e.
+      CREATE_NO_WINDOW, so the child gets its OWN console at the system's OEM
+      code page instead of inheriting the terminal's. That decides
+      [Console]::InputEncoding inside the child, and therefore what
+      [Console]::In makes of a UTF-8 payload. Without this switch a child
+      inherits whatever the suite is running under, so a developer whose
+      terminal happens to sit at 65001 would run H1 against an encoding the
+      product never sees and read a vacuous pass as coverage. Measured on this
+      machine: inherited console 65001 -> the payload decodes correctly;
+      CreateNoWindow -> IBM437, and every non-ASCII byte is mojibaked.
     #>
     param(
         [string]$ScriptPath,
         [hashtable]$EnvSet = @{},
         [string]$Stdin = '',
-        [string]$WorkDir = ''
+        [string]$WorkDir = '',
+        [switch]$NoConsoleWindow
     )
 
     $psi = New-Object Diagnostics.ProcessStartInfo
@@ -153,6 +188,7 @@ function Invoke-Child {
     $psi.RedirectStandardError  = $true
     $psi.StandardOutputEncoding = New-Object Text.UTF8Encoding($false)
     $psi.StandardErrorEncoding  = New-Object Text.UTF8Encoding($false)
+    $psi.CreateNoWindow         = [bool]$NoConsoleWindow
     if ($WorkDir) { $psi.WorkingDirectory = $WorkDir }
 
     # Cleared for EVERY case unless the case names them. Anything inherited here
@@ -256,12 +292,26 @@ function New-Payload {
 }
 
 function Get-LedgerRecords {
-    <# Every lw-watchtower.jsonl record under a directory tree, parsed. #>
+    <#
+      Every lw-watchtower.jsonl record under a directory tree, parsed.
+
+      READ AS UTF-8 EXPLICITLY, and it used to be Get-Content with no -Encoding.
+      lib/common.ps1's Add-LwgLine writes these files through
+      [IO.File]::AppendAllText with a UTF8Encoding($false) - no BOM - and
+      Windows PowerShell 5.1's Get-Content reads a BOM-less file at the system
+      ANSI code page. Every record this suite had ever read was pure ASCII, so
+      the two agreed and nothing showed; the moment a case put a non-ASCII cwd
+      in the ledger (H1) the reader turned it into CP1252 mojibake and reported
+      the PRODUCT as broken while the product was correct. A harness that
+      mis-decodes the evidence cannot tell a fixed defect from a live one, in
+      either direction - it is the same defect as #269 one layer out, and it was
+      found by fixing #269.
+    #>
     param([string]$UnderDir)
     $recs = @()
     if (-not (Test-Path -LiteralPath $UnderDir)) { return $recs }
     foreach ($f in (Get-ChildItem -LiteralPath $UnderDir -Recurse -Filter 'lw-watchtower.jsonl' -File -ErrorAction SilentlyContinue)) {
-        foreach ($l in (Get-Content -LiteralPath $f.FullName)) {
+        foreach ($l in ([IO.File]::ReadAllLines($f.FullName, [Text.UTF8Encoding]::new($false)))) {
             if ([string]::IsNullOrWhiteSpace($l)) { continue }
             try { $recs += ($l | ConvertFrom-Json) } catch { }
         }
@@ -450,15 +500,25 @@ function Invoke-SessionStartCase {
       carrying neither key is a difference in what is being tested, so the case
       passes the object it means.
     #>
-    param([string]$Name, [string]$ConfigJson = '', [string]$PayloadJson = '')
+    param([string]$Name, [string]$ConfigJson = '', [string]$PayloadJson = '', [string]$OverrideJson = '',
+          [switch]$NoConsoleWindow)
 
     $root = New-PluginTree (Join-Path $script:Work $Name) -ConfigJson $ConfigJson
     $prof = New-Dir (Join-Path $script:Work "$Name-profile")
     $data = New-Dir (Join-Path $script:Work "$Name-data")
     $hook = Join-Path $root 'lib\session_start.ps1'
 
+    # -OverrideJson seeds config.override.json in the state directory, which is
+    # where the configuring commands write and what Get-LwgConfig merges over
+    # the shipped defaults. Section I needs it: the question there is whether a
+    # config.json that is not a config can have an OPERATOR OVERRIDE merged onto
+    # it, and that is not askable without one on disk.
+    if (-not [string]::IsNullOrEmpty($OverrideJson)) {
+        [IO.File]::WriteAllText([IO.Path]::Combine($data, 'config.override.json'), $OverrideJson, [Text.UTF8Encoding]::new($false))
+    }
+
     $stdin = $(if ([string]::IsNullOrEmpty($PayloadJson)) { New-Payload $root } else { $PayloadJson })
-    $r = Invoke-Child -ScriptPath $hook -Stdin $stdin -WorkDir $root `
+    $r = Invoke-Child -ScriptPath $hook -Stdin $stdin -WorkDir $root -NoConsoleWindow:$NoConsoleWindow `
          -EnvSet @{ USERPROFILE = $prof; CLAUDE_PLUGIN_DATA = $data; CLAUDE_PLUGIN_ROOT = $root }
 
     $envelope = $null
@@ -516,11 +576,20 @@ function Test-B2-ASwitchBackedFlagIsCheckedToo {
       interaction.delegate. A probe that read only the `modules` block would
       walk straight past the flag that arms the only gate this plugin ships,
       which is the value #60's own worked example turns on.
+
+      THE `modules` BLOCK CARRIES ONE KEY AND IT USED TO BE EMPTY (#268). This
+      case is about a non-boolean at a SWITCH-BACKED key, and `modules` was `{}`
+      only because it was not the subject. Since #268 an empty `modules` object
+      is not a config Get-LwgConfig will merge an override onto - a destroyed
+      file wearing the right brackets - so `{}` here would have made this case
+      test the config-shape boundary instead of the probe. One real declaration
+      moves it back off that boundary and changes nothing it asserts. The
+      boundary itself is pinned by its own cases in tests/config_behaviour.ps1.
     #>
     $cfg = @'
 {
   "version": "0.4.0",
-  "modules": {},
+  "modules": { "git_hygiene": true },
   "interaction": { "delegate": "false" },
   "repos": {},
   "thresholds": {
@@ -1123,11 +1192,20 @@ function Test-F3-AConfigWithNoThresholdsFailsThresholdsLive {
       true - and no thresholds at all. Both halves are asserted: the case would
       be satisfied by a probe that simply mirrored config_from_file if it only
       looked at thresholds_live.
+
+      THE MODULES BLOCK CARRIES ONE KEY AND IT USED TO BE EMPTY (#268). The
+      subject here is the absence of THRESHOLDS, and `"modules": {}` sat on a
+      boundary that has since moved: an empty modules object is no longer a
+      config this plugin will merge an operator override onto, because
+      {"modules":{}} declares nothing and every module then resolves through the
+      absent-key default - which is how a seventeen-byte file came to arm a
+      blocking gate. Written this way the case asserts what it always meant,
+      and config_from_file is true for the reason its own comment gives.
     #>
     $cfg = @'
 {
   "version": "0.4.0",
-  "modules": {},
+  "modules": { "git_hygiene": true },
   "repos": {}
 }
 '@
@@ -1600,6 +1678,244 @@ function Test-G7-AdditionalContextSaysTheSelfCheckDidNotRun {
     Add-Case 'G7 additionalContext says the self-check did NOT run, rather than reporting it passed or failed' ($problems.Count -eq 0) ($problems -join "`n")
 }
 
+function Test-G8-AdditionalContextDoesNotPrintItsRemainderCountTwice {
+    <#
+      #266. The remainder sentence is assembled from a label carrying the total
+      and one clause per non-empty bucket, and each clause opens with ITS OWN
+      count. On the SHIPPED configuration exactly one bucket is non-empty - four
+      modules built and switched off - so the two numbers were the same number
+      and the sentence came out
+
+          The other 4: 4 (send_liveness_gate, completion_audit, orphan_watch,
+          delegate_gate) built but switched OFF in config.json.
+
+      Every fact in it is true, which is why this is the low-severity end of the
+      shelf and why no other case here catches it: G5 asserts that all four are
+      NAMED, and they are. What is wrong is the sentence, and the sentence is
+      injected into the model's context on every single session start, under a
+      heading in docs/architecture.md that reads "The plugin never overstates
+      itself".
+
+      THE ASSERTION IS ON THE SHAPE AND NOT ON A FIXED STRING. `The other N: N (`
+      with the same N twice is the defect; a backreference says exactly that and
+      keeps working when the counts move, which they do every time a module
+      lands. The second half - that all four are still named and the total is
+      still right - is what stops a "fix" that simply deleted the numbers from
+      passing.
+
+      RED-FIRST: this case FAILS at 6aebcd6, where lib/session_start.ps1 emits
+      the label and the clause unconditionally.
+
+      TWO BUCKETS ARE DELIBERATELY NOT ASSERTED HERE. The colon form is correct
+      whenever the remainder is split across buckets, and reaching that state
+      needs a config.json that leaves a module both unbuilt and switched off -
+      a fixture about the registry rather than about this sentence.
+    #>
+    $c = Invoke-SessionStartCase -Name 'g8'
+    $ctx = [string]$c.envelope.hookSpecificOutput.additionalContext
+    $problems = @()
+    if ([string]::IsNullOrWhiteSpace($ctx)) {
+        Add-Case 'G8 additionalContext states its remainder count ONCE, not twice (#266)' $false `
+            "additionalContext is empty. exit $($c.code), stdout: [$($c.raw)], stderr: $($c.err)"
+        return
+    }
+    $m = [regex]::Match($ctx, 'The other (\d+): \1 \(')
+    if ($m.Success) {
+        $problems += ("REGRESSION (#266): additionalContext renders '" + $m.Value + "' - the remainder count is " +
+                      "printed as the label AND again as the head of the only clause under it. One bucket accounts " +
+                      "for the whole remainder on the shipped configuration, so this is what every default install " +
+                      "puts in front of the model on every session start.")
+    }
+    if ($ctx -notmatch 'The other 4\b') {
+        $problems += "additionalContext does not account for the four remaining modules with the number 4 at all - the count must still be stated, just not twice"
+    }
+    foreach ($mod in @('send_liveness_gate', 'completion_audit', 'orphan_watch', 'delegate_gate')) {
+        if ($ctx -notmatch [regex]::Escape($mod)) { $problems += "additionalContext no longer names '$mod' among the modules that are built and switched off" }
+    }
+    if ($ctx -notmatch 'built but switched OFF in config\.json') {
+        $problems += 'additionalContext no longer says the remainder is built but switched off, so a reader is left with a number and no account of it'
+    }
+    if ($problems.Count -gt 0) { $problems += "additionalContext: [$ctx]" }
+    Add-Case 'G8 additionalContext states its remainder count ONCE, not twice (#266)' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+# =========================================================================
+# SECTION H - #269, the payload is UTF-8 and nothing here decoded it as UTF-8
+#
+# Every hook read its stdin through [Console]::In, which is built from
+# [Console]::InputEncoding - the CONSOLE's input code page. Claude Code spawns
+# hooks from a Node host with windowsHide: true, so the child gets its own
+# console at the system OEM page (IBM437 on this machine, measured), while the
+# payload on the pipe is UTF-8 with no BOM. Every non-ASCII byte therefore
+# arrived mojibaked: `cwd` named a directory that does not exist, so
+# Get-LwgRepoInfo's walk found no .git, `repo` resolved to null, every `repos`
+# entry in config.json fell through to the global default, and the event log -
+# the thing this plugin exists to produce - recorded a path that never existed,
+# on every record, for the life of the install. Nothing reported a fault: the
+# session still said `partial`, the gate still said live, the self-check still
+# passed, because payload.cwd was non-EMPTY and that is all probe 4 asks.
+#
+# THE REPOSITORY ALREADY KNEW. statusline/statusline.ps1:52-86 states this
+# defect, about this exact spawn shape, and fixes it - and the reasoning was
+# applied to one file out of the ten that read a payload.
+#
+# WHY THIS IS ONE CASE AND NOT FOUR, AND WHAT IS THEREFORE UNPINNED. There are
+# four stdin readers: Read-LwgStdin in lib/common.ps1, which every hook that
+# dot-sources it uses, and three scripts that must drain the pipe before
+# common.ps1 exists - lib/gate_delegate.ps1, lib/gate_send.ps1 and
+# lib/subagent_start.ps1. This suite owns the SessionStart hook, so H1 pins the
+# SHARED reader and nothing else.
+#
+# The three pre-common.ps1 drains are FIXED AND UNPINNED. No case anywhere
+# asserts on them, and that is stated here rather than left to be assumed,
+# because a header claiming coverage that does not exist is the defect this
+# whole file was written about. Their sibling cases belong in
+# tests/gate_delegate.ps1, tests/subagent_scan.ps1 and tests/payload_guard.ps1,
+# and were not added in the branch that fixed them: each of those suites
+# publishes a case count that tracked pages state, and moving one would have
+# failed the documentation-claims guard on a number that branch could not edit.
+# The measurement and the exact cases are written on #269.
+#
+# WHAT IT ASSERTS AND WHY THAT ONE. The recorded cwd, read off
+# lw-watchtower.jsonl on DISK, byte for byte against the fixture. Not the hook's
+# stdout: the child writes stdout through [Console]::Out at the same code page
+# it read stdin at, and the harness decodes stdout as UTF-8, so a CP437 decode
+# followed by a CP437 encode CANCELS OUT and the mojibake is invisible on that
+# channel. Measured - the same run whose ledger record read
+# "hello w<U+251C><U+2562>rld" returned "hello w<U+00F6>rld" on stdout. The
+# ledger is written through [IO.File]::AppendAllText with an explicit UTF8
+# encoding, so it is the one surface where what the hook UNDERSTOOD is visible.
+# =========================================================================
+
+function Test-H1-ANonAsciiCwdSurvivesTheHooksStdinByteForByte {
+    <#
+      RED-FIRST: this case FAILS at 6aebcd6, where lib/common.ps1's
+      Read-LwgStdin reads [Console]::In.ReadToEnd(). Measured there: the
+      fixture cwd "...\hello w<U+00F6>rld <U+65E5><U+672C>" was recorded as
+      "...\hello w<U+251C><U+2562>rld <U+00B5><U+00F9><U+00D1>..." - a CP437
+      decode of the UTF-8 bytes, exactly the transformation
+      statusline/statusline.ps1's header describes.
+
+      THE FIXTURE IS A REAL DIRECTORY, created here. It does not have to be for
+      the assertion to hold - the record carries what the hook read, existing or
+      not - but a fixture path that could not exist would leave a reader unsure
+      whether the defect is about decoding or about a missing directory, and it
+      is about decoding.
+
+      -NoConsoleWindow is load-bearing and Invoke-Child's header says why: it is
+      what makes the child's console code page the OEM one Claude Code's own
+      spawn produces, instead of whatever terminal the suite happens to be run
+      from. Without it this case can pass at the baseline on a machine whose
+      terminal sits at 65001, which is a vacuous green.
+    #>
+    # Built from code points rather than typed, so the assertion cannot be
+    # defeated by this file being saved in the wrong encoding one day - which is
+    # the very class of defect under test.
+    $leaf = 'hello w' + [char]0x00F6 + 'rld ' + [char]0x65E5 + [char]0x672C
+    $cwd  = Join-Path $script:Work $leaf
+    New-Dir $cwd | Out-Null
+
+    $payload = (@{ session_id = 'h1-utf8'; cwd = $cwd; source = 'startup' } | ConvertTo-Json -Compress)
+    $c = Invoke-SessionStartCase -Name 'h1' -PayloadJson $payload -NoConsoleWindow
+
+    if ($null -eq $c.record) {
+        Add-Case 'H1 a non-ASCII cwd survives the hook''s stdin byte for byte (#269)' $false `
+            "no SessionStart record was written, so nothing about the payload could be read. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+
+    $got = [string]$c.record.cwd
+    $problems = @()
+    if ($got -cne $cwd) {
+        $hex = { param($s) (([int[]][char[]]$s) | ForEach-Object { $_.ToString('X4') }) -join ' ' }
+        $problems += ("REGRESSION (#269): the ledger records cwd as [$got], not [$cwd]. The payload is written to " +
+                      "the pipe as UTF-8 with no BOM; a reader built from [Console]::InputEncoding decodes it at " +
+                      "the console's code page instead, so cwd names a directory that does not exist, " +
+                      "Get-LwgRepoInfo finds no .git, repo resolves to null and every repos entry in config.json " +
+                      "applies to nothing - silently, on every record.")
+        $problems += ("recorded: " + (& $hex $got))
+        $problems += ("expected: " + (& $hex $cwd))
+    }
+    if ($c.code -ne 0) { $problems += "the hook exited $($c.code); it must always exit 0. stderr: $($c.err)" }
+    Add-Case 'H1 a non-ASCII cwd survives the hook''s stdin byte for byte (#269)' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+# =========================================================================
+# SECTION I - #268, a config.json that parses and is not a config must not be
+# able to arm a gate through the operator's override
+#
+# Get-LwgConfig decided whether config.json was good enough to merge an override
+# onto with `$null -ne $cfg.modules`, and in PowerShell $false, 0, '', @() and
+# 'yes' are every one of them non-$null. So {"modules":false} - seventeen bytes,
+# no thresholds, no `interaction` block, none of the shipped defaults - was
+# accepted as a GOOD config, the operator's override was merged over it, and
+# delegate_gate came up ARMED. The self-check in the same process reported the
+# config degraded and the banner reported the gate live anyway.
+#
+# WHY THE ASSERTION IS ON THE BANNER'S GATE COUNT. The consequence that matters
+# is a LOCKOUT: with delegate_gate armed the main thread cannot call Bash, so it
+# cannot run the command that would switch the gate off, and the operator's way
+# out is hand-editing JSON. docs/configuration.md's "a corrupt config leaves the
+# gate off" and docs/modules.md's "it keeps a bad config a nuisance rather than
+# a lockout" are both statements about this number. This suite already drives
+# the hook that prints it (F5 to F9), so the polarity is observable here without
+# a second harness.
+#
+# I2 IS NOT DECORATION. Without it, a Get-LwgConfig that had simply stopped
+# merging overrides at all would pass I1 - green because nothing works, which is
+# the shape of pass this file's header calls execution without coverage.
+# =========================================================================
+
+function Test-I1-AMangledConfigCannotArmAGateThroughTheOverride {
+    <#
+      RED-FIRST: this case FAILS at 6aebcd6, where the banner over the same two
+      files reads `1 gate` and `partial`, and gate_delegate exits 2 on the next
+      main-thread call. Measured there on {"modules":false}, {"modules":0},
+      {"modules":"yes"}, {"modules":[]} and {"modules":{}} alike.
+    #>
+    $c = Invoke-SessionStartCase -Name 'i1' -ConfigJson '{"modules":false}' `
+                                 -OverrideJson '{"interaction":{"delegate":true}}'
+    $banner = [string]$c.envelope.systemMessage
+    $problems = @()
+    if ([string]::IsNullOrWhiteSpace($banner)) {
+        Add-Case 'I1 a config.json that is not a config cannot arm a gate through the override (#268)' $false `
+            "the hook printed no banner. exit $($c.code), stdout: [$($c.raw)], stderr: $($c.err)"
+        return
+    }
+    if ($banner -notmatch '0 gates') {
+        $problems += ("REGRESSION (#268): the banner reports a live gate over a config.json of seventeen bytes. " +
+                      "`$false is not `$null, so the null guard read it as a whole config and merged the operator's " +
+                      "override over it. With delegate_gate armed the main thread cannot call Bash, so it cannot run " +
+                      "the command that would switch the gate off - the lockout docs/modules.md says a bad config " +
+                      "cannot cause.")
+    }
+    if ($null -ne $c.record -and $c.record.selfcheck.config_from_file -ne $false) {
+        $problems += "config_from_file is [$($c.record.selfcheck.config_from_file)] for a document that is not a config, so the session would not report the damage either"
+    }
+    if ($c.code -ne 0) { $problems += "the hook exited $($c.code); it must always exit 0. stderr: $($c.err)" }
+    if ($problems.Count -gt 0) { $problems += "banner: [$banner]" }
+    Add-Case 'I1 a config.json that is not a config cannot arm a gate through the override (#268)' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-I2-TheSameOverrideOverTheShippedConfigDoesArmTheGate {
+    <#
+      The control for I1, and the only thing that stops it passing on a plugin
+      that has stopped reading overrides. Same override, same hook, the SHIPPED
+      config.json underneath it: one gate, mode partial.
+    #>
+    $c = Invoke-SessionStartCase -Name 'i2' -OverrideJson '{"interaction":{"delegate":true}}'
+    $banner = [string]$c.envelope.systemMessage
+    $problems = @()
+    if ($banner -notmatch '1 gate\b') {
+        $problems += ("the override does not arm the gate over the SHIPPED config.json either, so I1 beside this " +
+                      "case establishes nothing: a Get-LwgConfig that had stopped merging overrides at all would " +
+                      "pass it.")
+    }
+    if (-not (Test-BannerMode $banner 'partial')) { $problems += "the banner does not report mode 'partial' with one gate live" }
+    if ($problems.Count -gt 0) { $problems += "banner: [$banner]" }
+    Add-Case 'I2 CONTROL: the same override over the SHIPPED config.json does arm the gate (#268)' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
 # =========================================================================
 
 Say ''
@@ -1607,7 +1923,9 @@ Say 'LW-WATCHTOWER state-resolution and platform suite'
 Say '  A #146 CLAUDE_CONFIG_DIR   B #60 probe 2   C #106 selfcheck.probe'
 Say '  D #8 marketplace layout    E #132 platform and hook events, #249 the registry''s own prose'
 Say '  F #177 the four unasserted probes and the mode ladder'
-Say '  G #144 the banner   #177 the additionalContext envelope'
+Say '  G #144 the banner   #177 the additionalContext envelope   #266 its remainder count'
+Say '  H #269 the payload is UTF-8 and [Console]::In decoded it at the console''s code page'
+Say '  I #268 a config.json that parses and is not a config cannot arm a gate'
 Say ''
 
 try {
@@ -1622,8 +1940,8 @@ try {
     # written and never called is a suite that reports a clean pass over
     # coverage it does not have - the founding defect this repository exists to
     # catch, in its own test harness. Sorting on the name gives A1..A5, B1..B4,
-    # C1, D1..D3, E1..E4, F1..F9, G1..G7, so section order is a property of the
-    # naming. IT IS A STRING SORT: F10 would come before F2, so a section stops
+    # C1, D1..D3, E1..E4, F1..F9, G1..G8, H1, I1..I2, so section order is a property of
+    # the naming. IT IS A STRING SORT: F10 would come before F2, so a section stops
     # at nine cases and the next one takes a new letter. That costs nothing
     # except readability of the run, which is the only thing the order decides.
     $cases = @(Get-ChildItem function:\ | Where-Object { $_.Name -match '^Test-[A-Z]\d+-' } | Sort-Object Name)

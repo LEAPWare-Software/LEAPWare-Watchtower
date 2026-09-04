@@ -104,6 +104,67 @@ function Write-Refusal {
     $script:Exit = 1
 }
 
+function Get-LwgSwitchRoute {
+    <#
+      How an operator actually changes a switch that lives OUTSIDE the `modules`
+      block, as one sentence fragment. Returns a HASHTABLE
+      @{ command; short; long } - `command` is the slash command's name when one
+      exists and '' when none does; `short` is the clause for the table's
+      NOT SWITCHABLE HERE list; `long` is the sentence for the refusal path.
+
+      WHY THIS IS DERIVED AND NOT SPELLED OUT. Both texts used to be built as
+      "use /lw-watchtower:<key> instead" from the registry's switch KEY, which is
+      right for exactly one of the four switches. `interaction.delegate` has a
+      command called `delegate` by coincidence of naming; the three
+      `supervision.*` switches have no command at all, and this plugin ships six -
+      config, delegate, doctor, setup, uninstall, update. So the operator who
+      wanted to arm send_liveness_gate - one of the two gates that can refuse
+      something - was sent to a command named after the switch key, which does
+      not exist, and no page tells them the real route either (#251, #274).
+
+      The existence test reads commands\<key>.md under the plugin root rather
+      than a list held here, so a command added later is picked up with no edit
+      and a command removed stops being advertised the same day. It is also the
+      only form the doctor's `commands` check can agree with: that check scans
+      files for slash-command references, and a reference assembled at run time
+      is invisible to it, which is how this survived every check in the tree.
+
+      NOTHING HERE MAY SPELL A COMMAND THAT DOES NOT EXIST, comments included.
+      The first draft of this block quoted the three bad routes verbatim to
+      explain them, and the doctor's `commands` check failed the whole payload
+      over the comment - correctly: it reads text, and a text reference to an
+      absent command is what it exists to catch. The names are described rather
+      than written for that reason.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]$Switch,
+        [Parameter(Mandatory = $true)][string]$PluginRoot,
+        [string]$OverridePath
+    )
+
+    $key  = [string]$Switch.key
+    $dotted = "$($Switch.block).$key"
+    $md   = [IO.Path]::Combine($PluginRoot, 'commands', "$key.md")
+    if ([IO.File]::Exists($md)) {
+        return @{
+            command = $key
+            short   = "use /lw-watchtower:$key instead"
+            long    = "Use /lw-watchtower:$key instead - it writes the key that is actually read, and states what the change does."
+        }
+    }
+
+    $where = if ([string]::IsNullOrWhiteSpace($OverridePath)) {
+        'config.override.json under the state directory ($CLAUDE_PLUGIN_DATA, or ~/.claude/plugins/data/lw-watchtower*/)'
+    } else {
+        $OverridePath
+    }
+    return @{
+        command = ''
+        short   = "no command writes it - set $dotted by hand in $where"
+        long    = "No command writes $dotted. Set it by hand in $where - the same file this command writes for ``modules`` keys, merged over the shipped defaults by Get-LwgConfig."
+    }
+}
+
 function Get-LwgConfigRepoShape {
     <#
       -Repo, reduced to the shape a hook actually produces - or the reason it
@@ -195,6 +256,12 @@ try {
         )
         exit $script:Exit
     }
+    # WHETHER $ovPath IS EVEN THE FILE A HOOK READS - #270. Resolved once, here,
+    # because both the listing above and the write refusal below have to say the
+    # same thing about it, and Get-LwgStateDirSplit's answer is $false for every
+    # hook by construction (they take the env branch and never rank).
+    $sdSplit = Get-LwgStateDirSplit
+
     # ABSENT IS A STATE, NOT AN ERROR. A machine that has never been configured
     # has no override, and a writer that assumes its target exists exits 3 on
     # every fresh install - the measurement that killed route 2a on #11. So an
@@ -337,9 +404,22 @@ try {
     # command exists to refuse.
     $ovNote = if ("$($cfg._override_error)" -ne '') { "   override: IGNORED - $ovPath $($cfg._override_error)" }
               elseif ("$($cfg._override)" -ne '')   { "   override: $($cfg._override)" }
+              elseif ($sdSplit.ambiguous)           { '   override: none IN THE DIRECTORY THIS RUN RESOLVED - see the note below' }
               else                                   { '   override: none - these are the shipped defaults' }
     Write-Output ("  source: {0}{3}   scope: {1}{2}" -f `
         $(if ($onDefaults) { 'BUILT-IN DEFAULTS (config.json is unreadable or invalid)' } else { 'config.json' }), $scope, $repoNote, $ovNote)
+    # "override: none - these are the shipped defaults" over an armed gate is
+    # half of #270: with two candidate directories this command read the one it
+    # ranked highest, and the operator's real override was in the other. The
+    # 'none' branch above is the one that had to change wording, because the
+    # other two name a file and this one asserts an absence.
+    # Only on the LISTING. A -Module run reaches the refusal below, which carries
+    # the same block, and printing it twice in one run of a command whose whole
+    # subject is saying things once, accurately, would be its own small joke.
+    if ($sdSplit.ambiguous -and [string]::IsNullOrWhiteSpace($Module)) {
+        Write-Output ''
+        foreach ($l in $sdSplit.lines) { Write-Output ("  {0}" -f $l) }
+    }
 
     $implemented = @(Get-LwgImplementedModules)
     $planned     = @(Get-LwgPlannedModules)
@@ -382,7 +462,16 @@ try {
                 $(if ($eff) { 'on' } else { 'off' }))
         }
         Write-Output ''
-        Write-Output '  EFFECTIVE is the flag a hook will read. It is still only an INTENTION:'
+        # "EFFECTIVE is the flag a hook will read" is a claim about the HOOK,
+        # and over an ambiguous state directory this run does not know which
+        # override a hook resolves - so the column is what THIS run resolved and
+        # the sentence has to say so (#270).
+        if ($sdSplit.ambiguous) {
+            Write-Output '  EFFECTIVE is the flag THIS RUN resolved. Whether a hook reads the same override is NOT'
+            Write-Output '  established - see the note above. It is also still only an INTENTION:'
+        } else {
+            Write-Output '  EFFECTIVE is the flag a hook will read. It is still only an INTENTION:'
+        }
         Write-Output "  a module whose BUILT column is 'no' or 'BLOCKED' does nothing whatever its flag says."
         if ($ownSwitch.Count -gt 0) {
             Write-Output ''
@@ -391,7 +480,8 @@ try {
             Write-Output '  ours to make.'
             foreach ($m in $ownSwitch) {
                 $sw = $script:LwgModuleRegistry[$m].switch
-                Write-Output ("    {0} - switch is {1}.{2}; use /lw-watchtower:{2} instead" -f $m, $sw.block, $sw.key)
+                $route = Get-LwgSwitchRoute -Switch $sw -PluginRoot $pluginRoot -OverridePath $ovPath
+                Write-Output ("    {0} - switch is {1}.{2}; {3}" -f $m, $sw.block, $sw.key, $route.short)
             }
         }
         if ($planned.Count -gt 0) {
@@ -442,7 +532,7 @@ try {
             'Test-LwgModule never reads: the module would carry two switches, one of them dead, and turning the dead',
             'one would look like it worked and change nothing.',
             '',
-            "Use /lw-watchtower:$($sw.key) instead - it writes the key that is actually read, and states what the change does.",
+            (Get-LwgSwitchRoute -Switch $sw -PluginRoot $pluginRoot -OverridePath $ovPath).long,
             "Its current effective state is shown in the table printed by this command with no -Module argument."
         )
         exit $script:Exit
@@ -513,8 +603,24 @@ try {
     }
 
     if ($onDefaults) {
+        # WHY, NOT JUST THAT - and "does not parse" was the wrong sentence for
+        # one of the three ways to get here (#268). A config.json reduced to
+        # {"modules":false} parses perfectly and is still not a config, so a
+        # refusal blaming the JSON sends the operator hunting a syntax error
+        # that is not there. The probe below distinguishes the three.
+        $whyDefaults = 'does not parse'
+        try {
+            $probeText = Read-LwgTextFile -Path $ConfigPath
+            if ($probeText.ok -and -not [string]::IsNullOrWhiteSpace($probeText.text)) {
+                $probeCfg = $null
+                try { $probeCfg = $probeText.text | ConvertFrom-Json -ErrorAction Stop } catch { $probeCfg = $null }
+                if ($null -ne $probeCfg -and -not (Test-LwgConfigShape -Config $probeCfg)) {
+                    $whyDefaults = 'parses, but its "modules" member is not an object carrying at least one flag - a "modules" of false, 0, "", [] or {} declares nothing, so Get-LwgConfig will not use the file'
+                }
+            }
+        } catch { }
         Write-Refusal @(
-            "$ConfigPath does not parse, so the plugin is running on BUILT-IN DEFAULTS and every operator ON/OFF choice is already being ignored.",
+            "$ConfigPath $whyDefaults, so the plugin is running on BUILT-IN DEFAULTS and every operator ON/OFF choice is already being ignored.",
             'An override is merged over those defaults, not over a file nobody could read, so a write now would be recorded and then resolved against a config that is not the one you meant.',
             'Fix the JSON first - /lw-watchtower:doctor names this as the config-registry check.'
         )
@@ -533,6 +639,27 @@ try {
             'Writing here would replace text this command cannot read back, and would destroy whatever else that file was holding.',
             "Fix or delete $ovPath and run this again. Deleting it is safe: it holds only overrides, and everything falls back to the shipped defaults without it."
         )
+        exit $script:Exit
+    }
+
+    # AND THE REFUSAL FOR NOT KNOWING WHICH FILE A HOOK READS - #270. Two
+    # lw-watchtower* directories under plugins\data - a marketplace install
+    # beside what --plugin-dir produces - and this command, which is spawned
+    # through Bash and is NOT handed $CLAUDE_PLUGIN_DATA, ranks them by most
+    # recent write while every hook is simply told which one to use. The two can
+    # differ, and then a write here is recorded, verified against itself, and
+    # read by nobody: the same silent no-op every other refusal in this file
+    # exists to prevent, arrived at through the directory rather than through
+    # the key. bin\lwg-toggle.ps1 refuses the same condition in the same words.
+    if ($sdSplit.ambiguous) {
+        Write-Refusal (@(
+            'this command cannot tell which config.override.json a hook reads, so it will not write one.',
+            ''
+        ) + $sdSplit.lines + @(
+            '',
+            'With CLAUDE_PLUGIN_DATA set, this command and every hook resolve the same directory by',
+            'construction and this refusal cannot arise.'
+        ))
         exit $script:Exit
     }
 

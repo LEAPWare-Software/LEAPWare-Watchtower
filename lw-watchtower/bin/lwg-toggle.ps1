@@ -787,7 +787,17 @@ try {
                 if ($null -eq $probe) {
                     $why = 'holds no JSON object'
                 } elseif ($null -eq $probe.modules) {
-                    $why = 'parses, but has no top-level "modules" block - which is what Get-LwgConfig requires before it will use the file at all (lib\common.ps1:452)'
+                    $why = 'parses, but has no top-level "modules" block - which is what Get-LwgConfig requires before it will use the file at all'
+                } elseif (-not (Test-LwgConfigShape -Config $probe)) {
+                    # THE THIRD STATE, AND IT USED TO BE DIAGNOSED AS THE FIRST
+                    # (#268). `"modules": false` is not $null, so the branch
+                    # above never fired for it and the ladder fell through to
+                    # "could not be loaded" - a sentence that is false about a
+                    # file which parses perfectly, and which sends the operator
+                    # looking for a syntax error that is not there. The three
+                    # states have the same fallback and different causes, so
+                    # they get different sentences.
+                    $why = 'parses and has a "modules" member, but that member is not an object carrying at least one flag - which is what Get-LwgConfig requires before it will use the file at all (Test-LwgConfigShape in lib\common.ps1). A "modules" of false, 0, "" , [] or {} declares nothing'
                 }
             } catch {
                 $why = ("does not parse - {0}" -f (Get-LwgBriefParseError -Message $_.Exception.Message))
@@ -822,6 +832,43 @@ try {
             ("Fix or delete {0}, then run this again. Deleting it is safe: it holds only overrides, and" -f $ovPath),
             'everything falls back to the shipped defaults without it.'
         )
+        exit 3
+    }
+
+    # --- and the refusal for not knowing WHICH file a hook reads (#270) ------
+    # Measured: with plugins\data\lw-watchtower-leapware-watchtower (a
+    # marketplace install) beside plugins\data\lw-watchtower-inline (what
+    # --plugin-dir produces, i.e. every worktree agent), this command wrote
+    # `off` into the one IT discovered, printed "delegate is OFF",
+    # "effective here : OFF" and "[merged over the defaults; this is what a hook
+    # reads]" - and the very next main-thread Bash call was refused with exit 2
+    # by a gate reading the override in the OTHER directory. Seconds later the
+    # same command reported ON, from the other file, with no operator action in
+    # between.
+    #
+    # It is a refusal and not a warning because of what this command IS: the
+    # documented escape hatch from an armed gate. An operator locked out of Bash
+    # runs it, is told the gate is off, and is still locked out. Being told the
+    # truth - which directories exist, which of them already hold a recorded
+    # choice, and that this command cannot tell which one the CLI is handing the
+    # hooks - is the only answer that leads anywhere.
+    #
+    # THE WAY THROUGH IT IS ONE ENVIRONMENT VARIABLE, and it is named. Setting
+    # CLAUDE_PLUGIN_DATA makes Get-LwgStateDirInfo take its env branch, which is
+    # the same branch every hook takes, so command and hook resolve identically
+    # by construction rather than by luck. That is why this refusal is not a
+    # dead end.
+    $sdSplit = Get-LwgStateDirSplit
+    if ($null -ne $want -and $sdSplit.ambiguous) {
+        Write-LwgToggleRefusal (@(
+            ("this command cannot tell which config.override.json a hook reads, so it will not write one.")
+            ''
+        ) + $sdSplit.lines + @(
+            '',
+            ("With CLAUDE_PLUGIN_DATA set, this command and every hook resolve the same directory,"),
+            ('and this refusal cannot arise. Until then, editing {0}.{1} by hand in the file a hook' -f $block, $key),
+            'actually reads is the only change that is certain to take effect.'
+        ))
         exit 3
     }
 
@@ -982,7 +1029,19 @@ try {
     }
 
     # --- report -------------------------------------------------------------
-    Write-Output ("{0} is {1}    ({2})" -f $Flag, $(if ($afterEffOn) { 'ON' } else { 'OFF' }), $spec.summary)
+    # THE HEADLINE IS QUALIFIED WHERE IT CANNOT BE PROVEN - #270. "delegate is
+    # OFF", printed while the gate went on refusing every main-thread Bash call,
+    # is the single worst line this plugin produced under adversarial test, and
+    # it was worst because it was the FIRST line: an operator who reads no
+    # further has been told the opposite of what is happening. So the caveat
+    # goes on the headline and above the fields, not underneath them.
+    Write-Output ("{0} is {1}{3}    ({2})" -f `
+        $Flag, $(if ($afterEffOn) { 'ON' } else { 'OFF' }), $spec.summary,
+        $(if ($sdSplit.ambiguous) { ' HERE - and this run cannot prove a hook agrees' } else { '' }))
+    if ($sdSplit.ambiguous) {
+        Write-Output ''
+        foreach ($l in $sdSplit.lines) { Write-Output ("  {0}" -f $l) }
+    }
     Write-Output ''
     Write-Output ("  changed        : {0}" -f $changeLine)
     Write-Output ("  global default : {0}" -f (& $shown $afterGlobal))
@@ -1014,7 +1073,18 @@ try {
     if ("$($cfg._override_error)" -ne '') {
         Write-Output ("  override       : IGNORED - {0} exists but {1}, so nothing recorded in it is in effect" -f $ovPath, $cfg._override_error)
     } elseif ("$($cfg._override)" -ne '') {
-        Write-Output ("  override       : {0}   [merged over the defaults; this is what a hook reads]" -f $cfg._override)
+        # THE BRACKET IS A CLAIM AND IT IS ONLY TRUE UNQUALIFIED (#270). When
+        # this process had to rank state directories, the file named here is the
+        # one THIS command resolved, and a hook - handed CLAUDE_PLUGIN_DATA - may
+        # be reading a different one. Saying "this is what a hook reads" over
+        # that is the exact sentence the finding is about.
+        if ($sdSplit.ambiguous) {
+            Write-Output ("  override       : {0}   [merged over the defaults; whether a HOOK reads this file is NOT established - see below]" -f $cfg._override)
+        } else {
+            Write-Output ("  override       : {0}   [merged over the defaults; this is what a hook reads]" -f $cfg._override)
+        }
+    } elseif ($sdSplit.ambiguous) {
+        Write-Output '  override       : none IN THE DIRECTORY THIS RUN RESOLVED - see the note at the top'
     } else {
         Write-Output '  override       : none yet - every value above is the shipped default'
     }
@@ -1038,10 +1108,26 @@ try {
     }
 
     Write-Output ''
-    Write-Output 'IN EFFECT FROM NOW ON, in this session:'
-    Write-Output ''
-    Write-Wrapped -Text $(if ($afterEff) { $spec.onText } else { $spec.offText }) -Indent '  '
-    Write-Output ''
+    # THE HEADING IS A SESSION-LEVEL ASSERTION AND IT IS THE LAST PLACE #270
+    # SURVIVED. "IN EFFECT FROM NOW ON, in this session: Work may be done
+    # directly on the main thread" is the same false claim as the headline, one
+    # block lower, and it is the sentence an operator acts on - it does not name
+    # a file, so a caveat attached to a file does not reach it. Over an
+    # ambiguous state directory this command cannot state what is in effect,
+    # because "in effect" means "what the hook reads" and it does not know which
+    # file that is.
+    if ($sdSplit.ambiguous) {
+        Write-Output 'WHAT IS IN EFFECT CANNOT BE STATED FROM HERE - see the ambiguity note above.'
+        Write-Output ''
+        Write-Wrapped -Text ("IF a hook resolves the same state directory this run did, then: " +
+                             $(if ($afterEff) { $spec.onText } else { $spec.offText })) -Indent '  '
+        Write-Output ''
+    } else {
+        Write-Output 'IN EFFECT FROM NOW ON, in this session:'
+        Write-Output ''
+        Write-Wrapped -Text $(if ($afterEff) { $spec.onText } else { $spec.offText }) -Indent '  '
+        Write-Output ''
+    }
     # The heading is the first thing read, so a switch that prints ENFORCED
     # while enforcing nothing would be the loudest possible lie this command
     # could tell about itself. It is guarded on $spec.wired rather than printed

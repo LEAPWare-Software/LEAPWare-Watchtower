@@ -692,6 +692,18 @@ function Get-LwgStateDirInfo {
         resolved    $true only for 'env' and 'discovered'; $false means the path
                     is a GUESS and may well be a directory nothing else writes to
         candidates  how many <name>* directories were seen
+        ranked      the SUFFIXED candidates this call had to choose between, as
+                    full paths. Empty on the 'env' branch, which chooses
+                    nothing, and empty when there is no suffixed sibling at all.
+                    More than one entry means the answer came out of the mtime
+                    ranking below and could have gone the other way - it is a
+                    THIRD added key, for the same reason as the two below, and
+                    it is not the same question as `candidates`: a bare
+                    directory beside one suffixed sibling counts two candidates
+                    and ranks nothing, which is not ambiguous. The configuring
+                    commands read it because they are the callers that have to
+                    tell an operator that the file they are about to write may
+                    not be the file a hook reads (#270).
         home        the configuration root the search was made under, and
         home_source how that root was arrived at - 'env' (CLAUDE_CONFIG_DIR),
                     'profile', 'unresolved', or 'not-consulted' when
@@ -721,7 +733,7 @@ function Get-LwgStateDirInfo {
     if (-not $Refresh -and $null -ne $script:LwgStateDirInfo) { return $script:LwgStateDirInfo }
 
     $info = @{ path = $null; source = 'unresolved'; resolved = $false; candidates = 0
-               home = $null; home_source = 'not-consulted' }
+               ranked = @(); home = $null; home_source = 'not-consulted' }
 
     # 1. an explicit CLAUDE_PLUGIN_DATA is authoritative and ends the matter.
     #    The configuration root is deliberately NOT resolved on this branch: it
@@ -837,6 +849,14 @@ function Get-LwgStateDirInfo {
                 }
             }
             $info.path = $best; $info.source = 'discovered'; $info.resolved = $true
+            # Published so a CALLER can say the ranking happened. A hook never
+            # needs this - Claude Code hands it CLAUDE_PLUGIN_DATA and the env
+            # branch above returns before any of this runs - but a configuring
+            # command is spawned through Bash and is NOT handed that variable,
+            # so it gets here, ranks, and may land on a different directory from
+            # the one the hook was told to use. That is #270: /delegate off
+            # reporting OFF while the gate goes on denying.
+            $info.ranked = $suffixed
         }
         elseif ([IO.Directory]::Exists($bare)) {
             # No suffixed sibling. The bare dir is all there is, so use it - but
@@ -917,6 +937,23 @@ function Get-LwgDefaultConfig {
 # every hook, the banner, the doctor, the status line, and the configuring
 # commands' own read-back verification - resolves through this one function, so
 # the value a command verifies is the value a hook reads.
+#
+# THAT LAST CLAUSE HAS ONE CONDITION AND IT IS NOT DECORATIVE (#270). One
+# function resolves the override, but it does not always resolve the same
+# DIRECTORY for both readers. A hook is handed $CLAUDE_PLUGIN_DATA by Claude
+# Code and takes the env branch of Get-LwgStateDirInfo; a configuring command
+# runs through Bash(powershell:*), which is not handed that variable, so it
+# falls through to discovery and RANKS the lw-watchtower* siblings by most
+# recent write. With two or more suffixed siblings - which is what an operator
+# who has run this plugin from a marketplace install AND from a checkout has -
+# the two can land on different files, and then /lw-watchtower:delegate off
+# reports OFF while the gate goes on denying every main-thread Bash call.
+#
+# It is not fixable inside this function: the command is not told which
+# directory the CLI chose, and no ranking can recover an answer it was never
+# given. What IS fixable is the claim. Get-LwgStateDirSplit below reports the
+# condition, and both configuring commands refuse to write over it rather than
+# printing "this is what a hook reads" about a file that may not be.
 $script:LwgConfigOverrideName = 'config.override.json'
 
 function Get-LwgConfigOverridePath {
@@ -930,6 +967,77 @@ function Get-LwgConfigOverridePath {
     $dir = (Get-LwgStateDirInfo).path
     if ([string]::IsNullOrWhiteSpace($dir)) { return $null }
     return [IO.Path]::Combine($dir, $script:LwgConfigOverrideName)
+}
+
+function Get-LwgStateDirSplit {
+    <#
+      Whether this process had to CHOOSE between state directories, and the
+      lines that say so. Returns a HASHTABLE:
+
+        @{ ambiguous; chosen; paths; with_override; lines }
+
+        ambiguous      $true when more than one suffixed candidate was ranked
+        chosen         the directory the ranking picked
+        paths          every ranked candidate, full paths
+        with_override  those of them that hold a config.override.json
+        lines          ready-to-print report lines, '' when not ambiguous
+
+      FOR THE CONFIGURING COMMANDS, AND FOR NOTHING ON A HOOK PATH. A hook takes
+      Get-LwgStateDirInfo's env branch and never ranks, so `ambiguous` is $false
+      for every hook by construction and this costs it nothing; it is the
+      commands, spawned through Bash without CLAUDE_PLUGIN_DATA, that rank and
+      can therefore be wrong about which file a hook reads (#270).
+
+      IT REPORTS, IT DOES NOT RE-RANK. Preferring the candidate that holds an
+      override was considered and rejected: it would change the documented
+      five-step ladder in docs/architecture.md, it would still be a guess, and a
+      guess that happens to be right more often is exactly the shape of bug this
+      whole finding is - a component sounding certain about something it cannot
+      know. Naming the split is an answer the operator can act on.
+
+      Never throws: it is called from a report path that must still print.
+    #>
+    param([switch]$Refresh)
+
+    $r = @{ ambiguous = $false; chosen = $null; paths = @(); with_override = @(); lines = @() }
+    try {
+        $info    = Get-LwgStateDirInfo -Refresh:$Refresh
+        $r.chosen = $info.path
+        $ranked  = @($info.ranked)
+        if ($ranked.Count -lt 2) { return $r }
+
+        $r.ambiguous = $true
+        $r.paths     = $ranked
+        $lines = @(
+            ("the state directory is AMBIGUOUS: {0} directories match the plugin's name under" -f $ranked.Count),
+            'plugins\data, and this command had to pick one of them by which was written most',
+            'recently. A HOOK does not pick: Claude Code hands it $CLAUDE_PLUGIN_DATA. This',
+            'command runs through Bash, which is not handed that variable, so the file below',
+            'may not be the file a hook reads - and the pick can change between two runs of',
+            'this command with no operator action in between.',
+            ''
+        )
+        foreach ($d in $ranked) {
+            $ov   = [IO.Path]::Combine($d, $script:LwgConfigOverrideName)
+            $has  = $false
+            try { $has = [IO.File]::Exists($ov) } catch { }
+            if ($has) { $r.with_override += $ov }
+            $lines += ("  {0}{1}   override: {2}" -f `
+                $d,
+                $(if ($d -eq $info.path) { '   <- this run would use it' } else { '' }),
+                $(if ($has) { 'PRESENT' } else { 'absent' }))
+        }
+        $lines += ''
+        if (@($r.with_override).Count -gt 1) {
+            $lines += 'MORE THAN ONE of them already holds a config.override.json, so two recorded sets'
+            $lines += 'of operator choices exist and no rule here can say which one is in force.'
+        }
+        $lines += 'Set $CLAUDE_PLUGIN_DATA to the directory you mean and re-run, or delete the'
+        $lines += 'directories you do not use. /lw-watchtower:doctor names the state directory it'
+        $lines += 'resolves and how many candidates it saw.'
+        $r.lines = $lines
+    } catch { }
+    return $r
 }
 
 function Merge-LwgConfigOverride {
@@ -979,6 +1087,57 @@ function Merge-LwgConfigOverride {
     return $out
 }
 
+function Test-LwgConfigShape {
+    <#
+      Is this parsed document a config.json this file may merge an operator
+      override onto? $true only for an object whose `modules` member is itself
+      an object carrying AT LEAST ONE member.
+
+      THIS IS A SHAPE TEST AND IT USED TO BE A NULL TEST, which is the whole
+      point of the function. The line it replaces was
+
+          if ($null -ne $cfg -and $null -ne $cfg.modules) { $base = $cfg }
+
+      and in PowerShell $false, 0, '', @() and 'yes' are every one of them
+      non-$null. So a seventeen-byte file - {"modules":false} - with no
+      thresholds, no `interaction` block, no `repos` block and none of the
+      shipped defaults in it was accepted as a GOOD config, the operator's
+      override was merged over it, and delegate_gate, the only thing in this
+      plugin that can refuse a tool call, came up ARMED. Measured on all of
+      {"modules":false}, {"modules":0}, {"modules":"yes"}, {"modules":[]} and
+      {"modules":{}}: gate_delegate exited 2 while the self-check in the same
+      process reported the config degraded.
+
+      That is the exact lockout the two polarity decisions below Get-LwgConfig's
+      name exist to prevent, and it is what docs/configuration.md means by "a
+      corrupt config leaves the gate off". An operator who edits config.json
+      down to "modules": false meaning TURN EVERYTHING OFF got every observing
+      module on, a live blocking gate, and no route back: with the gate armed
+      the main thread cannot call Bash, so it cannot run the command that would
+      switch it off again.
+
+      WHY AT LEAST ONE MEMBER AND NOT MERELY AN OBJECT. {"modules":{}} declares
+      nothing at all, and every module then resolves through Test-LwgModule's
+      absent-key default, so an empty object is a destroyed file wearing the
+      right brackets - the same input the null test was already wrong about.
+
+      WHAT THIS DELIBERATELY STILL ACCEPTS, stated so nobody reads the check as
+      wider than it is: {"modules":{"git_hygiene":true}} is a shaped document
+      with a real declaration in it, so it IS accepted as the base and an
+      override can arm a gate over it. That is a hand-written minimal config,
+      not a destroyed one. Its missing thresholds are what self_health's probe 3
+      is for, and the session reports `degraded` and names them.
+    #>
+    param($Config)
+
+    if ($Config -isnot [System.Management.Automation.PSCustomObject]) { return $false }
+    $m = $Config.modules
+    if ($m -isnot [System.Management.Automation.PSCustomObject]) { return $false }
+    # .PSObject.Properties on a PSCustomObject from ConvertFrom-Json is exactly
+    # its JSON members, so an empty object counts zero and nothing else does.
+    return (@($m.PSObject.Properties).Count -gt 0)
+}
+
 function Get-LwgConfig {
     <#
       The shipped defaults from config.json, with the operator's override
@@ -988,7 +1147,8 @@ function Get-LwgConfig {
       Adds three fields to what it returns:
 
         _source          'file' when config.json parsed and carried a `modules`
-                         block, 'defaults' when it did not. UNCHANGED in meaning
+                         block of the SHAPE Test-LwgConfigShape describes,
+                         'defaults' when it did not. UNCHANGED in meaning
                          and in spelling - both configuring commands refuse to
                          write when it is not 'file', and several readers test it.
         _override        the override document's path when one was read and
@@ -999,7 +1159,9 @@ function Get-LwgConfig {
       TWO POLARITY DECISIONS, both stated here because both are the difference
       between a nuisance and a lockout.
 
-      1. A config.json that does not parse discards the override too. The
+      1. A config.json that does not parse, OR that parses into something that
+         is not the shape of a config (Test-LwgConfigShape, immediately above),
+         discards the override too. The
          override is merged over the SHIPPED DEFAULTS, and when those could not
          be read there is nothing to merge onto but the built-in fallback - which
          deliberately carries no `interaction` and no `supervision` block, so
@@ -1034,7 +1196,7 @@ function Get-LwgConfig {
             $raw = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
             if (-not [string]::IsNullOrWhiteSpace($raw)) {
                 $cfg = $raw | ConvertFrom-Json -ErrorAction Stop
-                if ($null -ne $cfg -and $null -ne $cfg.modules) { $base = $cfg }
+                if (Test-LwgConfigShape -Config $cfg) { $base = $cfg }
             }
         }
     } catch { }
@@ -1895,8 +2057,14 @@ function Add-LwgLine {
       WHY THE PROBE NEEDED IT. That probe proves the state directory is writable
       by writing a timestamp, and it fires on every SessionStart - start,
       resume, clear and compact. Nothing in the tree rotates, truncates or READS
-      selfcheck.probe: Invoke-LwgRotate has exactly one call site and it is
-      passed health.jsonl. It was the only file this plugin wrote with no bound
+      selfcheck.probe: Invoke-LwgRotate has three call sites and not one of them
+      names it - lib/supervisor.ps1:634 (health.jsonl), :635
+      (lw-watchtower.jsonl) and lib/post_edit.ps1:99 (the edits file). This
+      sentence said "exactly one call site and it is passed health.jsonl" until
+      4 September 2026, which was true when it was written and had been wrong
+      since the ledger and the edits file were given rotation; it is
+      load-bearing for a maintainer asking whether selfcheck.probe can grow, so
+      it is corrected rather than deleted. It was the only file this plugin wrote with no bound
       of any kind, inside a plugin whose log_rotation module reports itself as
       capping the logs. The file's entire value is in the RETURN of the write,
       and the LAST result is the only one with any meaning, so replacing is what
@@ -2743,11 +2911,45 @@ function Test-LwgHasFlag {
     return $false
 }
 
+function Read-LwgStdinText {
+    <#
+      The whole of stdin, decoded as UTF-8, as a string. '' when there is
+      nothing to read or the stream cannot be opened - never $null, and it never
+      throws, because every caller is on a hook path where an exception is a
+      refusal nobody asked for.
+
+      detectEncodingFromByteOrderMarks is $true so that a UTF-8 BOM is CONSUMED
+      by the reader rather than handed on as U+FEFF to a caller that tests the
+      first character. The reader is disposed rather than left to the finaliser:
+      it owns the standard input handle, and a hook that exits with it open has
+      the same shape as one that never drained the pipe.
+
+      Type accelerators and ::new(), not New-Object: two of the three drains
+      that carry a copy of these lines sit on documented no-cmdlet fast paths
+      (lib/gate_delegate.ps1 and lib/subagent_start.ps1; lib/gate_send.ps1 has
+      no fast path and says so in its own header). The spelling is the same in
+      all four places anyway, because four copies that differ are four things to
+      keep in step.
+
+      See Read-LwgStdin's header for WHY this exists rather than [Console]::In.
+    #>
+    $sr = $null
+    try {
+        $sr = [IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false), $true)
+        return $sr.ReadToEnd()
+    } catch {
+        return ''
+    } finally {
+        if ($null -ne $sr) { try { $sr.Dispose() } catch { } }
+    }
+}
+
 function Read-LwgStdin {
     <#
       Read the hook JSON from stdin. Returns an empty object for empty or
       unparseable input so callers never have to null-check the result.
-      NOTE: a PowerShell object pipe does not reach [Console]::In - test with
+      NOTE: a PowerShell object pipe does not reach the process's standard
+      input at all - test with
       `cmd /c "type payload.json | powershell -File ..."`.
 
       -Raw parses text the CALLER already drained instead of reading stdin. A
@@ -2763,6 +2965,33 @@ function Read-LwgStdin {
       The local is $text, NOT $raw: PowerShell variable names are
       case-INSENSITIVE, so a local $raw and the parameter $Raw would be one
       variable and the read would overwrite what the caller passed.
+
+      THE PAYLOAD IS DECODED AS UTF-8 EXPLICITLY, and deliberately NOT through
+      [Console]::In. This is Read-LwgStdinText below, and the same three lines
+      appear in the three scripts that have to drain the pipe before this file
+      is dot-sourced - lib/gate_delegate.ps1, lib/gate_send.ps1 and
+      lib/subagent_start.ps1. Four copies, because a pipe is consumed exactly
+      once and those three cannot call a function that does not exist yet.
+
+      [Console]::In is built from [Console]::InputEncoding, which is the
+      CONSOLE's input code page - IBM437 in a `powershell -File` child spawned
+      with stdin redirected from a pipe, measured on this machine - while
+      Claude Code writes this payload as UTF-8. Read through it, every non-ASCII
+      byte arrives mojibaked: `cwd` then names a directory that does not exist,
+      Get-LwgRepoInfo's walk finds no .git, `repo` resolves to $null, every
+      `repos` entry in config.json falls through to the global default, and the
+      event log records a path that never existed - silently, on every record.
+      Measured: a cwd of "...\hello w<U+00F6>rld <U+65E5><U+672C>" was written
+      to lw-watchtower.jsonl as "hello w<U+251C><U+2562>rld ..." with
+      "repo":null, and the same session still reported mode `partial` with the
+      gate live.
+
+      statusline/statusline.ps1:52-86 found this first, stated it in full, and
+      fixed it for itself; the reasoning was never applied to the nine hooks,
+      which are the components that read a payload on every tool call. Its note
+      on why setting [Console]::InputEncoding is the worse option (it throws
+      with no console attached, and must precede the first read because the
+      reader is cached) holds here too, which is why this opens the raw stream.
     #>
     param(
         [AllowNull()][AllowEmptyString()]
@@ -2773,7 +3002,7 @@ function Read-LwgStdin {
     $text = ''
     try {
         if ($PSBoundParameters.ContainsKey('Raw')) { $text = [string]$Raw }
-        else { $text = [Console]::In.ReadToEnd() }
+        else { $text = Read-LwgStdinText }
         if (-not [string]::IsNullOrWhiteSpace($text)) { $payload = $text | ConvertFrom-Json }
     } catch { $payload = $null }
     # Garbage that happens to be valid JSON ("null", "42", "[]") parses to a
