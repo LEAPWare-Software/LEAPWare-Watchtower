@@ -1187,6 +1187,60 @@ try {
         "expected the roster's resolved-for-repo line to carry 'override: IGNORED - $ovBroken'. Full output:`n$($rOv.out)"
 
     # -------------------------------------------------------------------
+    # 6c-dir. #300. A DIRECTORY AT THE OVERRIDE'S PATH IS AN UNREADABLE
+    #     OVERRIDE, NOT AN ABSENT ONE.
+    #
+    #     Cases 6a-6c pin three of the shapes an override can take and still not
+    #     be readable: unparseable text, zero bytes, a top-level array. A file
+    #     the process is denied read access to is a fourth and reports the same
+    #     way. The FIFTH - a directory sitting at exactly the resolved path -
+    #     did not, because the existence test that gates the whole read is
+    #     [IO.File]::Exists, which answers $false for a directory. Nothing set
+    #     _override_error, so the config-registry row PASSED and the roster
+    #     printed 'override: none - these are the shipped defaults' with a
+    #     config.override.json sitting at the path that line names.
+    #
+    #     THAT IS THE #270 SENTENCE AGAIN: a footer asserting an absence the run
+    #     never established. It is filed and pinned separately from 6a because
+    #     the fault is in a different clause - 6a's fixture is READ and rejected,
+    #     this one is never read at all - and a fix to the parse branch cannot
+    #     reach it.
+    #
+    #     ONE CASE, THREE CLAUSES, because they are one statement made in two
+    #     places and the verdict that carries it: the row must FAIL and name the
+    #     path and the reason, the roster must say IGNORED rather than none, and
+    #     the run must exit 1 so a reader who stops at the verdict is still told.
+    #     Case 1 established that this sandbox reaches exit 0 without a seed.
+    #
+    #     THE FIXTURE IS A DIRECTORY AND NOTHING ELSE. It is left empty: what is
+    #     inside it is irrelevant to every branch under test, and seeding
+    #     children would suggest the check reads them.
+    #
+    #     BASELINE 1baf6d4: '[PASS] config-registry  parses; all 7 module flags
+    #     match the registry exactly ...', the roster line 'override: none -
+    #     these are the shipped defaults', and EXIT 0 - the doctor called a
+    #     machine healthy over a configuration it never opened. All three
+    #     clauses are red there; at tip all three are green.
+    # -------------------------------------------------------------------
+    $tDir = New-HealthyCase -Tag 'cfg-override-dir' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $ovDir = Join-Path $tDir.state 'config.override.json'
+    [void][IO.Directory]::CreateDirectory($ovDir)
+    $rDir   = Invoke-Doctor -ProfileDir $tDir.profile -StateDir $tDir.state
+    $rowDir = Get-DoctorRow -Text $rDir.out -Id 'config-registry'
+
+    Add-Result 'an override that is a DIRECTORY is reported DISCARDED, not as no override at all (#300)' `
+        ($rowDir.found -and $rowDir.status -eq 'FAIL' -and
+         $rowDir.detail -match [regex]::Escape($ovDir) -and
+         $rowDir.detail -match '(?i)not a file' -and
+         $rDir.code -eq 1 -and
+         $rDir.out -match ('(?m)^\s+resolved for repo:.*override: IGNORED - ' + [regex]::Escape($ovDir)) -and
+         $rDir.out -notmatch 'override: none - these are the shipped defaults') `
+        ("expected [FAIL] config-registry naming $ovDir and saying it is not a file, the roster line " +
+         "carrying 'override: IGNORED - $ovDir', and exit 1; got [$($rowDir.status)] $($rowDir.detail) at exit $($rDir.code). " +
+         "config.override.json IS at that path - as a directory - so 'override: none - these are the shipped defaults' " +
+         "is an assertion of absence over something the run could not read. Full output:`n$($rDir.out)")
+
+    # -------------------------------------------------------------------
     # 6d. CONTROL. A VALID override is NOT a finding, and the roster names it.
     #
     #     Without this, "FAIL whenever an override exists" passes 6a, 6b and 6c

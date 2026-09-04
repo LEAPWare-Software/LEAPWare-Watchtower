@@ -1177,6 +1177,22 @@ function Get-LwgConfig {
          plugin down either. The configuring commands read _override_error and
          refuse to write over a file they cannot read back, exactly as they
          already refuse over an unreadable config.json.
+
+      AND "IS THERE ONE" IS A PATH QUESTION, NOT A FILE QUESTION (#300). Every
+      unreadable shape an override can take - unparseable text, zero bytes, a
+      top-level array, a file this process is denied - reaches _override_error
+      and is reported as DISCARDED by all four surfaces that read these two
+      fields (bin\lwg-doctor.ps1's config-registry row and its roster,
+      bin\lwg-config.ps1's source line and its write refusal, bin\lwg-toggle.ps1's
+      state block and its write refusal, bin\lwg-setup.ps1's -Doctor block). A
+      DIRECTORY at the resolved path reached none of them: [IO.File]::Exists is
+      $false for a directory, so the whole block was skipped and both fields
+      stayed empty - which every one of those surfaces renders as "override:
+      none - these are the shipped defaults", an assertion of ABSENCE over
+      something that is sitting at the path being named. That is the #270 defect
+      in a second dress, and it is fixed here rather than in the four readers so
+      that the four cannot disagree: the directory test comes FIRST, and its
+      reason joins the other four in _override_error.
     #>
     param(
         [string]$Path,
@@ -1214,7 +1230,15 @@ function Get-LwgConfig {
     if (-not $NoOverride) {
         try {
             $p = Get-LwgConfigOverridePath
-            if (-not [string]::IsNullOrWhiteSpace($p) -and [IO.File]::Exists($p)) {
+            # DIRECTORY FIRST - #300. Ordered before the file test, not merged
+            # into it, because the two answers are different sentences: a
+            # directory is a thing that EXISTS and cannot be read, which is the
+            # DISCARDED branch, while a genuinely absent file is the untouched
+            # 'none' branch. [IO.File]::Exists answers $false for both, so
+            # asking it alone cannot tell them apart.
+            if (-not [string]::IsNullOrWhiteSpace($p) -and [IO.Directory]::Exists($p)) {
+                $ovError = 'it is not a file'
+            } elseif (-not [string]::IsNullOrWhiteSpace($p) -and [IO.File]::Exists($p)) {
                 $txt = [IO.File]::ReadAllText($p)
                 if ([string]::IsNullOrWhiteSpace($txt)) {
                     $ovError = 'it is empty'
