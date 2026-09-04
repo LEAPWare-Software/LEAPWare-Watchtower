@@ -291,6 +291,9 @@ By hand:
 - Marketplace install: `/plugin uninstall lw-watchtower@leapware-watchtower`. **That deletes this
   plugin's data directory with it**, measured on CLI 2.1.260;
   `claude plugin uninstall lw-watchtower@leapware-watchtower --keep-data` is the form that keeps it.
+- The marketplace itself: `claude plugin marketplace remove leapware-watchtower`. Adding the
+  marketplace clones this whole repository to `~\.claude\plugins\marketplaces\leapware-watchtower\`;
+  uninstalling the plugin does not remove it and this does.
 - Junction install: delete the junction under your skills directory. Removing the link does not
   remove the clone.
 - Status line: remove the `statusLine` key from your `settings.json`, and delete the copied script.

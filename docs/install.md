@@ -72,14 +72,32 @@ not do anything either.
 
 The repo hosts its own single-plugin marketplace in
 [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json), named `leapware-watchtower`,
-whose one entry sources `lw-watchtower` from the `lw-watchtower/` subdirectory. That subdirectory is
-the whole of what a consumer receives: `docs/`, `tests/` and `.github/` stay in the repository and are
-not copied into the cache.
+whose one entry sources `lw-watchtower` from the `lw-watchtower/` subdirectory.
 
 ```
 /plugin marketplace add LEAPWare-Software/LEAPWare-Watchtower
 /plugin install lw-watchtower@leapware-watchtower
 ```
+
+**Those two lines put two different trees on your disk, and only one of them is the plugin.** Stated
+precisely, because the shorter version of this sentence was wrong on the page for months:
+
+- **The cache** —
+  `~\.claude\plugins\cache\leapware-watchtower\lw-watchtower\<version>\` — is the `lw-watchtower/`
+  subdirectory and nothing else. It is what Claude Code loads. `docs/`, `tests/`, `.github/` and
+  `.git` are **not** copied into it; that was checked directly, and each of the four is absent.
+- **The marketplace clone** —
+  `~\.claude\plugins\marketplaces\leapware-watchtower\` — is a **shallow git clone of the whole
+  repository**, made by the `marketplace add` step, which says so as it runs (*"Cloning repository
+  … https://github.com/LEAPWare-Software/LEAPWare-Watchtower.git"*). `docs/`, `tests/`, `.github/`,
+  `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md` and a `.git` directory with its pack are all
+  there, and it is several times the size of the cache. Nothing loads it as a plugin, and the
+  installer reads it only as a source; it is on your disk all the same.
+
+So *"nothing outside `lw-watchtower/` is loaded"* is true and *"nothing outside `lw-watchtower/`
+reaches you"* is not. Measured on CLI 2.1.260 against a clean profile.
+`claude plugin marketplace remove leapware-watchtower` is what deletes the clone — see
+[Removing the load path itself](#removing-the-load-path-itself).
 
 A marketplace install *copies* the plugin root into an internal cache, so an edit to your clone
 does nothing until `claude plugin update`. That is correct for consumers and wrong for anyone
@@ -516,7 +534,7 @@ their own behaviour and cannot describe the CLI's, so read this list and the nex
 
 ### Removing the load path itself
 
-The uninstaller deliberately does not do either of these.
+The uninstaller deliberately does none of these.
 
 - **Marketplace install:** `/plugin uninstall lw-watchtower@leapware-watchtower` in a session, or
   `claude plugin uninstall lw-watchtower@leapware-watchtower` on the command line. That copy lives in
@@ -545,6 +563,11 @@ The uninstaller deliberately does not do either of these.
   `lw-watchtower.jsonl` somewhere outside `~\.claude\plugins\data\` first. `--keep-data` is the CLI's
   flag, not this plugin's; `claude plugin uninstall --help` is where it is documented and where a
   later build would say if it had changed.
+- **The marketplace itself, on the marketplace route:** `claude plugin marketplace remove
+  leapware-watchtower`. Uninstalling the plugin leaves the shallow clone of this whole repository
+  under `~\.claude\plugins\marketplaces\leapware-watchtower\` exactly where it was; this is the
+  command that deletes it, and it was measured doing so. It is the larger of the two trees Option A
+  put on the machine. A state directory kept with `--keep-data` survives this step.
 - **Junction install:** delete the junction at `%USERPROFILE%\.claude\skills\lw-watchtower` with
   `cmd /c rmdir "%USERPROFILE%\.claude\skills\lw-watchtower"`, which removes the link and not the clone.
   Use that verb and not a PowerShell one. Removing the junction is what deregisters every hook,
