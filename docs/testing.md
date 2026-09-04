@@ -973,9 +973,12 @@ held the day it landed, a UAT observation from a date. Correcting one would be f
 markers exempt them, both written **inside an HTML comment**:
 
 - `doc-claims:ignore` — on the offending line, or the line directly above it.
-- `doc-claims:ignore-file` — anywhere in a file that is a record end to end. `CHANGELOG.md` and the
-  v0.3.0 UAT record, now the maintainer note `.github/notes/uat-report.md`, carry this one and say
-  why at the top.
+- `doc-claims:ignore-file` — anywhere in a file that is a record end to end. `CHANGELOG.md` carries
+  it, and so do three of the five maintainer notes under `.github/notes/`: the v0.3.0 UAT record
+  (`uat-report.md`), the hosting plan that was proposed and not executed (`harness-hosting-plan.md`),
+  and the 31 July 2026 handoff (`HANDOFF.md`, exempted on 4 September 2026 — see #256 for why it
+  could not be until then). Each says why at the top. Read the marker as a claim in its own right:
+  every number in that file is now unchecked, the correct ones included.
 
 **The delimiters are required, and that is not decoration.** The markers have to be named in tracked
 prose — this section names them, and so does `CONTRIBUTING.md` — and with a bare token any page that

@@ -1211,8 +1211,7 @@ Test-Claim -Rule 'ci-check-steps' -Expected $ciSteps `
     '(?i)one\s+job,\s+([A-Za-z]+|\d+)\s+check\s+steps',
     '(?i)of\s+its\s+([A-Za-z]+|\d+)\s+check\s+steps',
     '(?i)means\s+exactly\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+things',
-    '(?i)except\s+the\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+(?:CI\s+)?check\s+steps\s+named\s+above',
-    '(?i)runs\s+all\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s*(?:of\s+them)?\s*[.,]'
+    '(?i)except\s+the\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+(?:CI\s+)?check\s+steps\s+named\s+above'
 )
 
 # --- how many checks the doctor runs --------------------------------------
@@ -1254,19 +1253,41 @@ Test-Claim -Rule 'doctor-check-count' -Expected $doctorChecks `
 )
 
 # --- how many slash commands ship -----------------------------------------
+# THREE PATTERNS WERE DELETED HERE AND ONE DIRECTORY OVER ON 4 SEPTEMBER 2026,
+# AND THE REASON IS THE COUPLING RATHER THAN THE REGEXES - #256.
+# `\*\*(N)\s+commands:`, `(N)\s+modules,\s+(N)\s+of\s+them\s+active` and
+# `runs\s+all\s+(N)...` each had ONE site in the whole tree, and it was the same
+# site: .github\notes\HANDOFF.md, a page titled by a date, in a directory whose
+# README says its contents are records read as records rather than corrected
+# into agreement with today's tree. Two of the five files there carry
+# doc-claims:ignore-file. That one could not, and not for a reason anybody had
+# decided: exempting it - or marking those three lines - takes three patterns to
+# zero hits, and a pattern that checked no claim anywhere ABORTS this guard. So
+# the liveness rule, which exists to stop a rule going blind, was instead
+# holding one maintainer note permanently current, and the next person to file
+# that page as a record would have taken Documentation claims down with an abort
+# naming a regex rather than the cause.
+#
+# Deleting them loses no coverage and that was measured, not assumed:
+# command-count keeps two patterns with live sites (docs\README.md, README.md,
+# docs\limitations.md), module-total keeps two, and ci-check-steps keeps five.
+# The alternative - writing `**6 commands:**` onto a consumer page so a regex
+# has something to read - is choosing sentences to feed a guard, which is the
+# tail wagging the dog and would have been a worse page for a better ledger.
+# The file's own doctrine on a dead pattern applies to the three: DELETED rather
+# than kept with a comment, because a pattern retained as "not currently used"
+# reports a coverage it does not have.
 Test-Claim -Rule 'command-count' -Expected $commandFiles.Count `
     -Source 'git ls-files -- commands/*.md, present on disk' -Patterns @(
     '(?i)all\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+(?:slash\s+)?commands\b',
-    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+slash\s+commands\b',
-    '(?i)\*\*([a-z]+|\d+)\s+commands:'
+    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+slash\s+commands\b'
 )
 
 # --- how many modules there are, and how many only observe ----------------
 Test-Claim -Rule 'module-total' -Expected $moduleTotal `
     -Source '$LwgModuleRegistry in lib/common.ps1' -Patterns @(
     '(?i)all\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+declared\s+modules',
-    '(?i)of\s+(?:its|the)\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules\b',
-    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules,\s+(?:[a-z]+|\d+)\s+of\s+them\s+active'
+    '(?i)of\s+(?:its|the)\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules\b'
 )
 
 # Only phrasings that assert the TOTAL are read here. "The other three
