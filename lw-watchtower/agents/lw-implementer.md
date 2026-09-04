@@ -3,7 +3,6 @@ name: lw-implementer
 description: "Writes and modifies code. Use for multi-file implementation, refactors, bug fixes, and anything requiring real changes to the working tree."
 model: opus
 effort: high
-lw-class: work
 ---
 
 <!--

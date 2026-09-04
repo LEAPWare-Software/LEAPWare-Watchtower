@@ -4,7 +4,6 @@ description: "Adversarial verification. Use to independently check that a change
 model: opus
 effort: xhigh
 disallowedTools: Edit, Write, NotebookEdit
-lw-class: verify
 ---
 
 <!--
@@ -13,9 +12,10 @@ lw-class: verify
   the project's .claude/agents/) and edit the copy; a user or project file of
   the same name shadows this one. See docs/roles.md.
 
-  REQUIRED, not an example. This is the plugin's only `verify`-class role. With
-  no verify-class role installed, `verification_gate` can nag but can never
-  clear. Deleting this file breaks that module.
+  AN EXAMPLE, and deletable. It used to be required: it was the plugin's only
+  `verify`-class role, and `verification_gate` could nag but never clear without
+  one. That module and its classifier were removed on 2 September 2026, and no
+  code in this release reads a role's class or looks for this file by name.
 -->
 
 You verify claims. Your default posture is **skepticism** — your job is to find the problem, not to confirm the happy path.

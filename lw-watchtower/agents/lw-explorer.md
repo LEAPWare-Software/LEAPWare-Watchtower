@@ -4,7 +4,6 @@ description: "Read-only search and reconnaissance. Use to locate code, map a sub
 model: sonnet
 effort: medium
 disallowedTools: Edit, Write, NotebookEdit
-lw-class: neutral
 ---
 
 <!--
