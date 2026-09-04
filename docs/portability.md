@@ -19,7 +19,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\portability_scan.ps1
 | --- | --- |
 | `0` | Every tracked file was scanned; nothing machine-specific found. |
 | `1` | At least one violation. Each is reported as `file:line: <matched text> - <rule>`. |
-| `2` | The scan **aborted**; the tree was not checked. Not a pass. An enumeration returning zero files is an abort. |
+| `2` | The scan **aborted**, or it could not read every tracked file, or a **scoped rule was applied to no file at all**, or a **single glob** — in a rule's scope or an allowlist entry's `files` — **matched no scanned file** without declaring `may_be_empty`; the tree was not fully checked. Not a pass. An enumeration returning zero files is an abort, and `2` takes precedence over `1` — a run that did not read everything, or did not ask everything, cannot report "checked, and dirty" either. |
 
 Add `-ShowAllowed` to see every match the allowlist excused, with the entry that excused it.
 
@@ -103,6 +103,27 @@ visible rather than quietly accumulating.
 
 **What does not qualify:** the scan being inconvenient. If it fires on something genuinely portable,
 add an entry *with the reason*. If it fires on something machine-specific, fix the file.
+
+**Every glob is asserted, one at a time, and a glob that reaches nothing fails.** A rule may be
+scoped to path globs and an allowlist entry names the files it applies to; both lists are matched
+against `git ls-files` output, so a rename breaks the entries whose subject moved and leaves the
+ones that did not. The result is almost never zero — it is *narrowed*, and a narrowed scope is a
+rule still "applied" and barely asking. Measured: the payload move took one rule's scope from 33
+files to **1 of 94**, eight of its nine globs dead beside a ninth that still matched
+`.claude-plugin/marketplace.json` at the repository root, and the run exited `0`. So the check is
+per glob rather than per rule: a glob matching no scanned file exits `2` and is named, in a
+`NOT REACHED` line beside the `NOT ASKED` line a wholly dead scope still writes.
+
+**A glob that is meant to be empty says so.** Writing
+`@{ glob = 'docs/not-yet.md'; may_be_empty = 'the page this defends is not written; see #NNN' }`
+in place of the bare string exempts that glob and prints the reason beside the zero in the reach
+ledger. A dead glob with no declaration is a defect; a declared one is a stated expectation a
+reviewer can disagree with. That is what makes asserting a *defensive* allowlist entry safe: the
+correct deletion — a glob naming something that no longer exists, or does not exist yet — is
+declared rather than tolerated. Delete the glob with its subject, or declare it.
+
+Read the two numbers in the ledger together: `0` excused of `2` in reach is a defensive entry doing
+its job; `0` excused of `0` in reach is an entry that cannot fire at all.
 
 **Self-exemption.** Two files must contain the strings the rules look for: the scanner (the patterns)
 and this page (the examples below). Neither is skipped wholesale — each marks the exact exempt lines

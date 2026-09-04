@@ -154,9 +154,19 @@ defaults:
 
 jobs:
   # The whole workflow. It was one of two jobs until the gate regression suite
-  # was removed on 30 July 2026, and it stays one job now that NINE behavioural
-  # suites are in it: a second job would buy parallelism this workflow does not
-  # need at the cost of a second required check to configure. The parse steps
+  # was removed on 30 July 2026, and it stays one job now that ELEVEN
+  # behavioural suites are in it: a second job would buy parallelism this
+  # workflow does not need at the cost of a second required check to configure.
+  #
+  # IT SAID NINE UNTIL 4 SEPTEMBER 2026 AND NOTHING SAW IT, THOUGH A RULE FOR
+  # IT EXISTED. tests\doc_claims.ps1's behavioural-suite-count rule carries a
+  # pattern shaped for this exact sentence, this file is in its corpus, and the
+  # line carries no exemption. The claim wrapped: "NINE behavioural" ended one
+  # line and "suites" began the next, and the `\s+` between them spans a
+  # newline and an indent but not the `#` that starts a wrapped comment. A
+  # document pass, a numbers pass and every green run of the guard went past
+  # it. The guard now masks a continuation marker to spaces before matching, so
+  # this sentence is read where it sits (#258). The parse steps
   # are still sub-second; the suites are the part that is not, because each
   # spawns a child PowerShell process per case - the uninstaller one spawns two
   # for several of its cases - and that is the point of them.
@@ -1474,15 +1484,21 @@ jobs:
           #   1  at least one violation
           #   2  the scan aborted, OR a tracked file was not fully read - not
           #      on disk, unreadable as text, or behind an unclosed exempt
-          #      region. Two channels used to print a line about that and then
-          #      leave the exit code alone, so exit 0 asserted "every tracked
-          #      file was scanned" about runs that had skipped files. An
+          #      region - OR a rule or an allowlist entry was not fully ASKED:
+          #      a scoped rule applied to no file at all, or one glob of a
+          #      scope or an entry's files that reached nothing without
+          #      declaring may_be_empty. Two channels used to print a line
+          #      about the file half and then leave the exit code alone, so
+          #      exit 0 asserted "every tracked file was scanned" about runs
+          #      that had skipped files; the rule half was the same collapse
+          #      one word over, and the per-glob half is it one level down -
+          #      nine globs narrowed to one is a rule still "applied". An
           #      enumeration returning zero files is an abort, never an
           #      empty-set pass, and 2 takes precedence over 1.
           $label = switch ($code) {
             0       { 'PASS - every tracked file was read and none carries a local environment dependency.' }
             1       { 'FAIL (exit 1) - a tracked file names a machine: an account, a host, a profile path, an absolute interpreter path or a hardcoded install location. Fix the file. Do NOT add an allowlist entry unless the match is genuinely portable, and if it is, state the reason on the entry - see docs\portability.md.' }
-            2       { 'ABORT (exit 2) - the scan did not read every tracked file, so it cannot say the tree is clean. Read the NOT SCANNED / PARTLY SCANNED lines above: each names the file and the reason. A UTF-16 file - which is what > and Out-File write by default in Windows PowerShell 5.1 - lands here and should be re-saved as UTF-8, not exempted. Violations found alongside are still listed and still real.' }
+            2       { 'ABORT (exit 2) - the scan did not read every tracked file, or one of its scoped rules was applied to no file at all, or one glob of a scope or an allowlist entry reached no file and did not declare may_be_empty, so it cannot say the tree is clean. Read the NOT SCANNED / PARTLY SCANNED / NOT ASKED / NOT REACHED lines above: each names the file or the glob and the reason. A UTF-16 file - which is what > and Out-File write by default in Windows PowerShell 5.1 - lands here and should be re-saved as UTF-8, not exempted. A dead glob is fixed, deleted with its subject, or declared. Violations found alongside are still listed and still real.' }
             255     { 'NOT RUN (exit 255) - tests\portability_scan.ps1 could not be invoked.' }
             default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
           }

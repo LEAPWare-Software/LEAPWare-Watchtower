@@ -21,7 +21,12 @@ contact_links:
       that all ship switched off — read modules.md before filing a report that something was not
       stopped, and read it especially if you armed one of those switches.
   # BOTH NUMBERS BELOW ARE PHRASED IN A SHAPE tests\doc_claims.ps1 READS, and the
-  # exact wording is load-bearing rather than stylistic. "five of them test
+  # exact wording is load-bearing rather than stylistic. The quotation on the
+  # next line is an ILLUSTRATION of a phrasing, not a claim about this tree, and
+  # it is marked as such: from 4 September 2026 that guard reads a claim broken
+  # across a comment continuation (#258), and before that this sentence was
+  # invisible to it for exactly the reason ci.yml's stale suite count was.
+  # "five of them test                                       <!-- doc-claims:ignore -->
   # behaviour" is a phrasing that guard's behavioural-suite-count rule matches;
   # "five of which test behaviour" is not, and would have been prose nothing
   # checks - which is how this block went wrong in the first place. It said "the

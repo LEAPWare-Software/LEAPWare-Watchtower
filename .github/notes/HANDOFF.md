@@ -1,3 +1,29 @@
+<!-- doc-claims:ignore-file -->
+<!--
+  THIS PAGE IS A RECORD OF 31 JULY 2026 AND IS READ AS ONE (#256). The
+  directory's README states the rule for everything in it: these are records of
+  a moment, "read as records rather than corrected into agreement with today's
+  tree". Two of the five files here already carry this marker. This one could
+  not until 4 September 2026, and the obstacle was mechanical rather than
+  editorial: three patterns in tests/doc_claims.ps1 had their ONLY site in the
+  tree on this page, and a pattern that checks no claim anywhere aborts that
+  guard. So the guard was holding one maintainer note permanently current, and
+  the next person to file this page as the record it says it is would have taken
+  `Documentation claims` down with an abort naming a regex. Those three patterns
+  are deleted, with the derivation, in the same change as this marker; the
+  duplicate shapes that read the same three numbers on live pages are untouched.
+
+  WHAT THIS COSTS, stated rather than left to be found. Every number on this
+  page is now unchecked, the correct ones included, and it is out of the wide
+  set too - so the forbidden-phrasing and GM-promise rules no longer read it
+  either. That is what exempting a file means, and it is the right trade only
+  because nothing here is documentation: the payload is lw-watchtower/, this
+  file is outside it and no longer ships, and a reader is sent to docs/ and to
+  /lw-watchtower:doctor for what is true today. Wave D-N corrected every count
+  on this page before the marker landed, so it is a record that was accurate on
+  the day it was frozen rather than one frozen mid-drift.
+-->
+
 # Handoff — 31 July 2026 (v0.3.0 release)
 
 **What this file is, and what it deliberately no longer carries.** This is the part of the 31 July
@@ -49,7 +75,13 @@ Run `/lw-watchtower:doctor` for install state, rather
 than trusting any number written on this page.
 
 
-## What this plugin is now
+## What this plugin was on 31 July 2026
+
+Present tense below, because that is how it was written on the day. The heading said *"What this
+plugin is now"* until 4 September 2026, which made every sentence under it read as a claim about
+today's tree rather than a record of that one — the last thing on this page still doing that after
+the numbers were corrected. Read it as dated. `docs/` and `/lw-watchtower:doctor` are the authorities
+on what is true now.
 
 **An advisory layer. It blocks almost nothing, and that is the finished state, not a gap.**
 

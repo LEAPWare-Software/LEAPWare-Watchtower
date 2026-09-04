@@ -121,30 +121,69 @@
   the rule is NAMED, which is the answer tests\payload_guard.ps1's S7 already
   gave to the same question in the sibling guard.
 
-  THE REACH OF AN ALLOWLIST ENTRY IS THE OPPOSITE QUESTION AND GETS THE OPPOSITE
-  ANSWER: IT IS MEASURED AND PRINTED, NOT FAILED. An entry's `files` globs go
-  dead exactly the way a scope does - the same move broke three of them - but
-  the consequence is inverted, and that is the whole of the argument for
-  answering the two differently:
+  AND A SCOPE THAT NARROWED IS THE SAME DEFECT ONE LEVEL DOWN, WHICH THE
+  WHOLE-RULE CHECK ABOVE CANNOT SEE. Measured, not supposed: the payload move
+  did not take claude-home-composition's scope to zero, it took it to ONE. Eight
+  of its nine globs died at the rename and the ninth, `.claude-plugin/*`,
+  matched `.claude-plugin/marketplace.json`, which stays at the repository root
+  because that is where the CLI reads a marketplace from. So the run printed
+  `applied to 1 of 94 file(s)`, the boolean above was satisfied, and a rule 97%
+  switched off exited 0. That is the general shape rather than a quirk of one
+  path: a scope is a LIST, one entry per role it covers, and a path change
+  breaks the entries that moved and leaves the ones that did not. The result is
+  almost never zero. It is narrowed. (#247)
 
-    * A DEAD SCOPE MAKES THIS SCAN SILENTLY ASK LESS. The question stops being
-      put, no line is produced by the files that would have answered it, and the
-      exit code is the same 0 as a clean tree. Nobody is told.
-    * A DEAD ALLOWLIST ENTRY CAN ONLY MAKE IT ASK MORE. The matches that entry
-      would have excused become violations: the run goes RED, names the file and
-      the line, and prints the rule. The failure announces itself in the loudest
-      channel this file has, so an assertion adds nothing a reader would not
-      already have been handed - and it would go red on a CORRECT deletion,
-      because a defensive entry is allowed to name a file that does not exist
-      yet or does not exist any more. That is the reason payload_guard prints
-      its historical mentions rather than failing them.
+  So EVERY GLOB IS ASSERTED, NOT EVERY SCOPE - in a rule's `scope` and in an
+  allowlist entry's `files` alike. A glob matching none of the scanned files
+  exits 2 and is named, in a `NOT REACHED` line beside the `NOT ASKED` line the
+  whole-rule check writes. Eight of the nine would have gone red on the move
+  that motivated this, on the commit that made it.
 
-  Asymmetric failure modes get asymmetric answers. What the ledger prints per
-  entry is now TWO numbers, because one cannot answer for the other: the matches
-  the entry excused, and the number of scanned files its globs REACH. Zero
-  excused of two in reach is a defensive entry doing its job; zero excused of
-  ZERO in reach is an entry that cannot fire at all, and only the second number
-  can tell them apart.
+  THE STRICTNESS OBJECTION IS ANSWERED BY DECLARATION RATHER THAN BY TOLERANCE.
+  A glob may legitimately name a directory that is empty today - a defensive
+  allowlist entry is allowed to name a file that does not exist yet. Such a glob
+  writes
+
+      @{ glob = 'docs/whatever.md'; may_be_empty = 'why it is legitimately empty' }
+
+  in place of the bare string, and the reason is PRINTED in the reach ledger
+  beside the zero. A dead glob with no such declaration is a defect; a declared
+  one is a stated expectation, and the declaration is a line a reviewer can
+  disagree with. That keeps a legitimate deletion honest - delete the glob with
+  its subject - and a silent narrowing loud. A `may_be_empty` glob that DOES
+  reach files is printed as such and not failed: going red on a correct addition
+  would be the same trap the other way round.
+
+  NO GLOB IN THIS FILE CARRIES ONE TODAY, and that sentence is not prose anybody
+  has to keep true: every glob in every scope and in every entry's `files`
+  reaches at least one tracked file, and the moment one stops doing so this scan
+  exits 2 and names it. So the mechanism ships unused, which is the right state
+  for it - a declaration is a thing to write when a real subject is missing, not
+  a thing to keep one of on hand.
+
+  THIS REVERSES WHAT THIS FILE SAID UNTIL 4 SEPTEMBER 2026, and the argument it
+  reverses is worth keeping because it is right about everything except its
+  conclusion. It ran: a dead SCOPE makes the scan silently ask LESS - the
+  question stops being put, no file answers it, and the exit code is the same 0
+  as a clean tree - while a dead ALLOWLIST entry can only make it ask MORE,
+  since the matches it would have excused become violations and the run goes
+  loudly red naming the file, the line and the rule. Asymmetric failure modes,
+  asymmetric answers: reach was measured and printed, never failed.
+
+  What that misses is the case where the entry excuses nothing TODAY. Then
+  nothing turns red, because there is nothing to turn red: a defensive entry
+  whose globs have quietly died is indistinguishable, on every channel, from a
+  defensive entry standing ready - and the first line that needs it will be
+  reported as a violation with no hint that an entry meant to cover it exists
+  three files away. The loudness the old argument relied on is a property of
+  entries that are currently firing, and those are the ones least likely to have
+  gone dead. `may_be_empty` is what makes asserting both safe: the correct
+  deletion the old argument protected is now declared rather than tolerated.
+
+  The ledger still prints TWO numbers per entry, because one cannot answer for
+  the other: the matches the entry excused, and the scanned files its globs
+  reach. Zero excused of two in reach is a defensive entry doing its job; zero
+  excused of zero in reach is now a failure rather than a note.
 
   EXIT CODES - a CI job reads these and nothing else.
 
@@ -152,10 +191,13 @@
       1  at least one violation - a local environment dependency is in the tree
       2  the scan ABORTED, or it could not read every tracked file, or an owner
          file left an exempt region open, or a SCOPED RULE was applied to no
-         file at all; the tree was NOT fully checked, which is not the same as
-         passing. An enumeration returning zero files is an abort, never a pass,
-         and 2 takes precedence over 1 - a run that did not read everything, or
-         did not ask everything, cannot report "checked, and dirty" either.
+         file at all, or a single GLOB - in a rule's scope or an allowlist
+         entry's files - matched no scanned file without declaring
+         `may_be_empty`; the tree was NOT fully checked, which is not the same
+         as passing. An enumeration returning zero files is an abort, never a
+         pass, and 2 takes precedence over 1 - a run that did not read
+         everything, or did not ask everything, cannot report "checked, and
+         dirty" either.
 
   No network. No writes of any kind. Nothing here deletes, moves or modifies a
   file: it opens tracked files for reading and prints.
@@ -228,10 +270,24 @@ $RegionMarker = '^\s*(?:#|<!--)\s*LWG-SCAN-REGION:\s*(begin|end)\b'
 #           each scoped rule actually ran on is printed in the summary, and a
 #           count of ZERO EXITS 2 with the rule named: a scope that matches
 #           nothing is a rule switched off without anyone saying so, and it is
-#           printed AND asserted rather than only printed. The count is the
-#           half that catches a scope which merely NARROWED - nine globs down
-#           to one after a rename is a rule still "applied" and barely asking,
-#           which no boolean can see.
+#           printed AND asserted rather than only printed.
+#
+#           EVERY GLOB IN THE LIST IS ASSERTED SEPARATELY, and that is the half
+#           the whole-rule count cannot supply. Nine globs down to one after a
+#           rename is a rule still "applied" and barely asking - the boolean is
+#           satisfied and the corpus has collapsed by 97%. Each glob's own
+#           reach is printed and a zero exits 2 naming the glob (#247). An
+#           entry may be written as a hashtable instead of a string to declare
+#           that emptiness is expected:
+#
+#             scope = @('lw-watchtower/bin/*',
+#                       @{ glob = 'lw-watchtower/skills/*'
+#                          may_be_empty = 'no skill ships yet; the role is
+#                                          named so the first one is scanned' })
+#
+#           The reason is printed beside the zero in the reach ledger. Omitting
+#           it is not an option: `may_be_empty` with no reason aborts, because
+#           the reason IS the declaration.
 # ===========================================================================
 $Rules = @(
     @{
@@ -364,11 +420,25 @@ $Rules = @(
 #
 # THE `files` GLOBS ARE MATCHED AGAINST `git ls-files` OUTPUT, exactly like a
 # rule's `scope`, and a path change breaks them the same way - the payload move
-# under lw-watchtower/ broke three of the entries below. The ledger therefore
-# prints, per entry, how many scanned files its globs REACH alongside how many
-# matches it excused. That reach is PRINTED AND NOT ASSERTED, unlike a rule's
-# scope, and the header says why in full: a dead scope makes this scan silently
-# ask less, while a dead entry can only make it ask more and go loudly red.
+# under lw-watchtower/ broke three of the entries below. The ledger prints, per
+# entry, how many scanned files its globs REACH alongside how many matches it
+# excused, and then one line per glob with its own reach.
+#
+# EVERY GLOB IS ASSERTED. A glob reaching none of the scanned files exits 2 and
+# is named, the same answer a rule's scope gets (#247). Until 4 September 2026
+# reach here was printed and not failed, on the argument that a dead entry can
+# only make the scan louder - which is true of an entry that is CURRENTLY
+# EXCUSING SOMETHING and false of the defensive ones, where nothing turns red
+# because there is nothing to turn red. The header carries the full reversal.
+#
+# A glob that is legitimately empty says so, in place of the bare string:
+#
+#     files = @('CHANGELOG.md',
+#               @{ glob = 'docs/not-yet.md'; may_be_empty = 'the page this
+#                  entry defends has not been written; see #NNN' })
+#
+# and its reason is printed beside the zero. `'*'` reaches every scanned file
+# by construction and is never at issue.
 # ===========================================================================
 $AllowList = @(
     @{
@@ -547,6 +617,71 @@ function Test-Attributed {
     return $false
 }
 
+function Get-GlobSpecs {
+    <#
+      Normalises one glob list - a rule's `scope` or an allowlist entry's
+      `files` - into one record per glob carrying the glob and the reason, if
+      any, that it is allowed to reach nothing. Both spellings are accepted so
+      that declaring an expectation is a change to one entry rather than to
+      every entry in the table:
+
+        'lw-watchtower/bin/*'
+        @{ glob = 'lw-watchtower/skills/*'; may_be_empty = 'no skill ships yet' }
+
+      A `may_be_empty` with no reason ABORTS rather than being read as a bare
+      declaration. The reason is the whole of what makes a declared empty glob
+      different from a dead one - without it this key is a way to switch the
+      assertion off silently, which is the shape the assertion exists to refuse.
+
+      RETURNS BARE, AND EVERY CALLER WRAPS IN @(). The other spelling of this -
+      `return ,$out`, the unrolling guard lib\common.ps1:961 records - is WRONG
+      here and was written that way first: the comma stops the unroll, the
+      caller's @() then wraps the already-wrapped array, and `$specs` comes back
+      as ONE element holding all nine globs. Member enumeration hides it - the
+      ledger printed `[string]$g` of the whole array as one glob and the
+      assertion read a reason built from nine empty strings, so a nine-glob
+      scope passed as one declared-empty entry. Both spellings cannot be right;
+      @() at the call site is the one that survives a single-glob list too.
+    #>
+    param($Globs)
+    $out = @()
+    foreach ($g in $Globs) {
+        if ($g -is [hashtable]) {
+            if (-not $g.ContainsKey('glob') -or [string]::IsNullOrWhiteSpace([string]$g.glob)) {
+                throw "a glob written as a hashtable must carry a non-empty 'glob' key; this one carries: $(($g.Keys | Sort-Object) -join ', ')"
+            }
+            $reason = ''
+            if ($g.ContainsKey('may_be_empty')) {
+                $reason = [string]$g.may_be_empty
+                if ([string]::IsNullOrWhiteSpace($reason)) {
+                    throw "glob '$($g.glob)' declares may_be_empty with no reason. The reason IS the declaration: without it this is an assertion switched off in silence."
+                }
+            }
+            $out += [pscustomobject]@{ Glob = [string]$g.glob; MayBeEmpty = $reason }
+        } else {
+            $out += [pscustomobject]@{ Glob = [string]$g; MayBeEmpty = '' }
+        }
+    }
+    return $out
+}
+
+function Format-GlobNote {
+    <#
+      What the reach ledger prints after a glob. Silent for the ordinary case -
+      a glob reaching files, undeclared - so the three states that are worth a
+      reader's attention are the three that say anything.
+    #>
+    param($Spec)
+    if ($Spec.MayBeEmpty -and $Spec.Reach -eq 0) {
+        return "   DECLARED MAY BE EMPTY - $($Spec.MayBeEmpty)"
+    }
+    if ($Spec.MayBeEmpty) {
+        return "   declared may_be_empty and reaching files, so the declaration is no longer load-bearing - $($Spec.MayBeEmpty)"
+    }
+    if ($Spec.Reach -eq 0) { return '   NOT REACHED - see below' }
+    return ''
+}
+
 function Test-InScope {
     <#
       Whether a rule applies to this file. A rule with no `scope` key applies
@@ -622,6 +757,19 @@ foreach ($r in $Rules) { if ($r.ContainsKey('scope')) { $scopedFiles[$r.id] = 0 
 # the header carries the argument for the asymmetry with a rule's scope.
 $allowReach = @{}
 foreach ($a in $AllowList) { if ($a.files -notcontains '*') { $allowReach[$a.id] = 0 } }
+# EVERY GLOB, one row, from both tables - the half neither counter above can
+# supply. $scopedFiles collapses a rule's whole list to one number and
+# $allowReach does the same for an entry's, so eight dead globs beside one live
+# one read as a healthy rule in both. Seeded here from the tables for the same
+# reason $scopedFiles is: a row populated lazily is absent from the assertion on
+# exactly the run that read no files, which is when it matters most.
+#
+# The seeding also NORMALISES the two tables in place, replacing `scope` and
+# `files` with plain string arrays. Every reader below - Test-InScope,
+# Test-Allowed, the per-file reach loop - then sees the spelling it was written
+# against, and the hashtable form is understood in one place rather than in
+# four.
+$globSpecs = @()
 $scanned = 0
 # $binary was a bare counter, so the summary could say "skipped 1 binary" and a
 # UTF-16 re-encode of a tracked page was indistinguishable from a committed
@@ -641,6 +789,37 @@ $exemptLines   = @{}
 $aborted = ''
 
 try {
+    # THE ARITY FLOOR, and it is here because the nesting bug Get-GlobSpecs
+    # documents produced ONE spec for nine globs and nothing noticed: the
+    # ledger printed a plausible line and the assertion read a declaration that
+    # was not there. One spec per glob is the only property that makes the
+    # per-glob assertion per-glob, so it is checked rather than assumed.
+    foreach ($r in $Rules) {
+        if (-not $r.ContainsKey('scope')) { continue }
+        $specs = @(Get-GlobSpecs $r.scope)
+        if ($specs.Count -ne @($r.scope).Count) {
+            throw "rule $($r.id) declares $(@($r.scope).Count) scope glob(s) and normalised to $($specs.Count) - the per-glob check would be reading something other than the globs"
+        }
+        foreach ($s in $specs) {
+            $globSpecs += [pscustomobject]@{
+                Owner = 'rule'; Id = $r.id; Glob = $s.Glob; MayBeEmpty = $s.MayBeEmpty; Reach = 0
+            }
+        }
+        $r.scope = @($specs | ForEach-Object { $_.Glob })
+    }
+    foreach ($a in $AllowList) {
+        $specs = @(Get-GlobSpecs $a.files)
+        if ($specs.Count -ne @($a.files).Count) {
+            throw "allowlist entry $($a.id) declares $(@($a.files).Count) files glob(s) and normalised to $($specs.Count) - the per-glob check would be reading something other than the globs"
+        }
+        foreach ($s in $specs) {
+            $globSpecs += [pscustomobject]@{
+                Owner = 'allowlist'; Id = $a.id; Glob = $s.Glob; MayBeEmpty = $s.MayBeEmpty; Reach = 0
+            }
+        }
+        $a.files = @($specs | ForEach-Object { $_.Glob })
+    }
+
     'LW-WATCHTOWER portability scan'
     "  repo    : $Root"
     "  mandate : docs\portability.md"
@@ -732,6 +911,13 @@ try {
             if (-not $allowReach.ContainsKey($a.id)) { continue }
             foreach ($g in $a.files) { if ($rel -like $g) { $allowReach[$a.id]++; break } }
         }
+
+        # Per glob, over the same set again, and WITHOUT the `break` the two
+        # loops above use: those ask "did this rule/entry reach this file?" and
+        # stop at the first yes, which is the question that collapses nine globs
+        # into one number. This one asks it of each glob separately, so a file
+        # two globs both match is counted for both.
+        foreach ($gs in $globSpecs) { if ($rel -like $gs.Glob) { $gs.Reach++ } }
 
         $isOwner  = $ownerPaths -contains $rel
         $inRegion = $false
@@ -826,9 +1012,13 @@ if ($aborted) {
 # a defensive entry doing exactly what it is for; the second is an entry aimed
 # at paths that are not in this tree - which is what a directory rename does to
 # three of the entries above in one commit. The reach is printed beside the
-# count for entries that name paths, and it is deliberately NOT asserted: see
-# the header for why a dead entry, unlike a dead rule scope, can only make this
-# scan stricter and louder.
+# count for entries that name paths, and since 4 September 2026 it is ASSERTED
+# as well, glob by glob - see the header for the reversal and for what
+# `may_be_empty` buys.
+#
+# THE PER-GLOB LINES ARE THE ONES TO READ. An entry's total reach is the same
+# kind of number as a rule's scope count, and it hides the same thing: five
+# globs of which one is live reads as an entry comfortably in reach.
 "ALLOWLIST - every entry, how many matches it excused on this tree ($($allowedHits.Count) total),"
 "           and - for entries that name paths - how many of the $scanned scanned file(s) it reaches:"
 foreach ($a in $AllowList) {
@@ -837,13 +1027,18 @@ foreach ($a in $AllowList) {
     $note = $(if ($n -gt 0) {
         $a.why
     } elseif ($null -ne $reach -and $reach -eq 0) {
-        'CANNOT FIRE - its files globs reach none of the scanned files, so the paths it names are not in this tree. This is printed and not failed on purpose: a dead entry can only make the scan stricter, and a defensive entry is allowed to name a file that does not exist yet. Read it, decide, and either fix the globs or say in the entry why the path is not there.'
+        'CANNOT FIRE - its files globs reach none of the scanned files, so the paths it names are not in this tree. Each dead glob is named in a NOT REACHED line below and this run exits 2: fix the globs, delete the entry with its subject, or declare may_be_empty with the reason the path is not there.'
     } elseif ($null -ne $reach) {
         "(unused on this tree - defensive; in reach of $reach scanned file(s), so it was offered nothing rather than unreachable)"
     } else {
         '(unused on this tree - defensive; in reach of every scanned file)'
     })
     "  {0,4}  {1,-28}  {2}" -f $n, $a.id, $note
+    if ($null -ne $reach) {
+        foreach ($gs in ($globSpecs | Where-Object { $_.Owner -eq 'allowlist' -and $_.Id -eq $a.id })) {
+            "        {0,4}  {1}{2}" -f $gs.Reach, $gs.Glob, (Format-GlobNote $gs)
+        }
+    }
 }
 if ($allowedHits.Count -gt 0) {
     if ($ShowAllowed) {
@@ -907,6 +1102,17 @@ foreach ($k in $emptyScope) {
     "  NOT ASKED  rule $k - its scope matched none of the $scanned scanned file(s), so it asked nothing of anything and cannot have found anything. Scope globs are matched against what ``git ls-files`` prints, which is repo-root-relative, so one directory rename breaks every glob of a rule at once. Fix the globs; deleting the rule is also an answer, but it has to be one somebody makes."
 }
 
+# One level down from NOT ASKED, and the level the incident actually happened
+# at. The line above fires when EVERY glob of a rule died; these fire per glob,
+# so eight dead ones beside a live ninth are eight lines rather than silence.
+# Ordered as the tables declare them, because that is the order a reader will
+# open the file at.
+$deadGlobs = @($globSpecs | Where-Object { $_.Reach -eq 0 -and -not $_.MayBeEmpty })
+foreach ($g in $deadGlobs) {
+    $owner = $(if ($g.Owner -eq 'rule') { "rule $($g.Id)'s scope" } else { "allowlist entry $($g.Id)'s files" })
+    "  NOT REACHED  $owner declares the glob [$($g.Glob)], which matched none of the $scanned scanned file(s). It is matched against what ``git ls-files`` prints, so a moved or deleted subject kills it while its siblings go on matching and the rule or entry goes on looking healthy. Three answers, and all three are somebody's decision: fix the glob, delete it with the subject it named, or write it as @{ glob = '...'; may_be_empty = '<why>' } if it is meant to name something that is not there yet."
+}
+
 '==========================================================================='
 "scanned $scanned file(s) in $([int]$sw.Elapsed.TotalMilliseconds) ms" +
     $(if ($binary.Count -gt 0)        { ", $($binary.Count) unreadable as text" } else { '' }) +
@@ -930,6 +1136,12 @@ foreach ($k in ($scopedFiles.Keys | Sort-Object)) {
     $n = $scopedFiles[$k]
     "  rule $k is SCOPED and was applied to $n of $scanned file(s)" +
         $(if ($n -eq 0) { ' - ZERO, so it asked nothing of anything and cannot have found anything' } else { '' })
+    # And what each of its globs reached on its own, which is the number the
+    # line above averages away. 33 of 96 was 1 of 94 the day the payload moved,
+    # and both read as a rule that is asking.
+    foreach ($gs in ($globSpecs | Where-Object { $_.Owner -eq 'rule' -and $_.Id -eq $k })) {
+        "      {0,4}  {1}{2}" -f $gs.Reach, $gs.Glob, (Format-GlobNote $gs)
+    }
 }
 "RESULT: $($violations.Count) violation(s), $($allowedHits.Count) allowlisted"
 
@@ -947,10 +1159,11 @@ foreach ($k in ($scopedFiles.Keys | Sort-Object)) {
 # checked the tree, so it cannot report "checked, and dirty" any more than a run
 # that could not read a file can. Conflating "dirty" with "not asked" is the
 # same collapse this table was built to prevent.
-if ($notScanned.Count -gt 0 -or $emptyScope.Count -gt 0) {
+if ($notScanned.Count -gt 0 -or $emptyScope.Count -gt 0 -or $deadGlobs.Count -gt 0) {
     $why2 = @()
     if ($notScanned.Count -gt 0) { $why2 += "$($notScanned.Count) tracked file(s) were not fully read" }
     if ($emptyScope.Count -gt 0) { $why2 += "$($emptyScope.Count) scoped rule(s) were applied to no file at all" }
+    if ($deadGlobs.Count -gt 0)  { $why2 += "$($deadGlobs.Count) glob(s) reached no scanned file and did not declare may_be_empty" }
     "EXIT: 2 ($($why2 -join ', and '), so this run cannot say"
     '         every tracked file is clean. Each is named above with the reason.'
     if ($notScanned.Count -gt 0) {
@@ -963,6 +1176,12 @@ if ($notScanned.Count -gt 0 -or $emptyScope.Count -gt 0) {
         "         The rule(s) that asked nothing: $($emptyScope -join ', '). A scope is path globs"
         '         matched against `git ls-files` output, so a directory rename switches the rule'
         '         off wholesale. Fix the globs and re-run; do not delete the rule to clear this.'
+    }
+    if ($deadGlobs.Count -gt 0) {
+        "         The glob(s) that reached nothing: $(($deadGlobs | ForEach-Object { $_.Id + ' [' + $_.Glob + ']' }) -join ', ')."
+        '         A rename breaks the globs that moved and leaves the ones that did not, so the'
+        '         rule or entry goes on looking healthy while its corpus collapses. Fix the glob,'
+        '         delete it with the subject it named, or declare may_be_empty with the reason.'
     }
     if ($violations.Count -gt 0) {
         "         NOTE: $($violations.Count) violation(s) were also found and are listed above."
@@ -977,11 +1196,18 @@ if ($violations.Count -gt 0) {
     '         portable, and if it is, say why in the entry. docs\portability.md)'
     exit 1
 }
-# THE SENTENCE THAT DEFINES A GREEN RUN, AND IT NOW CARRIES BOTH HALVES. It
-# used to assert only that every file was READ, while the rules deciding what
-# reading meant could have been switched off underneath it. A guard whose pass
-# line claims more than the run established is the shape this repository is
-# named for, so the claim is made no larger than the two things above it.
+# THE SENTENCE THAT DEFINES A GREEN RUN, AND IT NOW CARRIES ALL THREE HALVES.
+# It used to assert only that every file was READ, while the rules deciding
+# what reading meant could have been switched off underneath it; then that
+# every scoped rule was asked of something, which a rule asking one file of
+# ninety-four satisfies. A guard whose pass line claims more than the run
+# established is the shape this repository is named for, so the claim is made
+# no larger than the three things above it - and no smaller: "every glob"
+# includes the declared-empty ones, which are excluded from the assertion and
+# named in the ledger with their reason, so a reader is not told they were
+# checked.
 'EXIT: 0 (every tracked file was read, every scoped rule was asked of at least one of'
-'         them, and none carries a local environment dependency)'
+'         them, every glob in a scope or an allowlist entry reached at least one file'
+'         or declared why it reaches none, and none carries a local environment'
+'         dependency)'
 exit 0

@@ -335,6 +335,24 @@ $gmDataDirs = @(LwgDataDirs)
 # NOT WRITTEN: cost. The spec's section 9 puts dollars out of scope - token
 # counts only - and this file has never read $d.cost. Persisting it would make
 # this the first reader of a field the whole modules record calls a dead end.
+#
+# AND NOT READ EITHER, WHICH IS THE PART NOTHING IN THIS TREE RECORDED UNTIL
+# 4 SEPTEMBER 2026 - #78 item 2. THE COST BLOCK IS DELIVERED TO THIS PROCESS ON
+# EVERY RENDER AND IS DROPPED ON PURPOSE. This is the only process on the
+# machine that receives it: the census in docs\limitations.md, taken against the
+# status-line reference on 2 September 2026, lists cost.* beside model.*,
+# context_window.*, prompt_cache.*, rate_limits.* and the rest as what the
+# status-line input carries, and docs\modules.md's ratelimit_escalation /
+# cost_tracking entry records that no hook event carries any of the three. So
+# "unavailable" was never the reason, and a reader of this file who found
+# rate_limits read and cost absent could reasonably have concluded it was.
+#
+# The reason is a decision: dollars are out of scope for this plugin, taken with
+# the spec and not revisited here. It is written down because a DELIBERATE drop
+# and an OVERSIGHT are indistinguishable from the code - the field is simply
+# never named - and the same silence about the GM segment is what the tombstone
+# 750 lines below exists to break. No case pins this: the assertion would be
+# about a field this file does not mention, which is not a thing a test can see.
 function WriteSignal {
     param($Payload, [string[]]$Dirs)
 

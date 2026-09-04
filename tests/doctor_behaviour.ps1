@@ -1426,6 +1426,54 @@ try {
          "module table $(if ($modTable) { 'present' } else { 'MISSING' }). Full output:`n$($rr.out)")
 
     # -------------------------------------------------------------------
+    # 16b. THE COVERAGE PARAGRAPH DOES NOT CLAIM A COVERAGE GAP THAT tests\
+    #      CONTRADICTS - #253.
+    #
+    #      The doctor closes EVERY run, green ones included, with a paragraph
+    #      about what the suites reach. Its last sentence read "The other ONE -
+    #      self_health - is exercised by nothing, anywhere" while
+    #      tests\state_resolution.ps1 had three sections written against it.
+    #      That is a false claim about coverage, printed
+    #      on the widest-read surface this plugin has, by the component whose
+    #      job is to catch stale claims.
+    #
+    #      IT HAD GONE STALE ONCE BEFORE, in the same direction: the same
+    #      sentence said SEVEN modules were exercised by nothing until
+    #      3 August 2026 and ten tracked files went on saying seven while every
+    #      suite stayed green. tests\doc_claims.ps1's own comment on
+    #      observing-module-count records that and says why no rule there
+    #      derives which modules a suite exercises - it would mean parsing
+    #      assertions to decide what they are about. This case does not derive
+    #      that either. It asserts the two things that CAN be checked without
+    #      inventing that mechanism, and the second is the one with teeth.
+    #
+    #      1. The negative: the paragraph must not carry the "exercised by
+    #         nothing" clause. On its own this is a string pin and would be
+    #         satisfied by deleting the sentence, which is why it is not alone.
+    #      2. The positive: wherever the paragraph names self_health it must
+    #         name a suite beside it, spelled tests\<name>.ps1, AND THAT FILE
+    #         MUST EXIST ON DISK beside this one. A rewrite that credits a suite
+    #         that is not there fails, and so does one that quietly drops
+    #         self_health from the paragraph to get past (1).
+    #
+    #      RED AT 09b20be on both halves: the clause is present, and the
+    #      paragraph names no suite for self_health at all. 37 of 38, this case
+    #      the only failure.
+    # -------------------------------------------------------------------
+    $covFalse   = ($rr.out -match 'exercised by nothing')
+    $covSuite   = [regex]::Match($rr.out, 'self_health\s*\(\s*(tests\\[A-Za-z0-9_.-]+\.ps1)')
+    $covPath    = if ($covSuite.Success) { Join-Path (Split-Path -Parent $PSScriptRoot) ($covSuite.Groups[1].Value) } else { '' }
+    $covExists  = ($covSuite.Success -and [IO.File]::Exists($covPath))
+
+    Add-Result 'the coverage paragraph names a real suite for self_health rather than claiming nothing exercises it (#253)' `
+        ((-not $covFalse) -and $covExists) `
+        ("the 'exercised by nothing' clause is $(if ($covFalse) { 'STILL PRESENT' } else { 'gone' }); " +
+         "the paragraph names $(if ($covSuite.Success) { "'" + $covSuite.Groups[1].Value + "'" } else { 'NO SUITE AT ALL' }) beside self_health, " +
+         "and that file $(if ($covExists) { 'exists' } else { 'DOES NOT EXIST' }) at [$covPath]. " +
+         "A health command that understates its own coverage is still printing something untrue on every run, " +
+         "and this paragraph has now gone stale twice in that direction. Full output:`n$($rr.out)")
+
+    # -------------------------------------------------------------------
     # 17. THE EXIT CODE IS THE ONE THE TALLY IMPLIES, WITH THE ROSTER PRINTED.
     #
     #     3 beats 1 beats 2 beats 0 is the doctor's own contract; the roster is

@@ -845,6 +845,62 @@ Say ''
 $proseFiles = @($tracked | Where-Object { $_ -match '\.(md|json|yml|yaml)$' })
 if ($proseFiles.Count -eq 0) { Abort 'no tracked prose files found - the enumeration is broken.' }
 
+
+# A CLAIM THAT WRAPS ACROSS A COMMENT CONTINUATION WAS UNREADABLE, AND IN A
+# WORKFLOW FILE THAT IS THE COMMON CASE - #258. Every pattern here joins its
+# words with `\s+`, which spans a newline and an indent perfectly well because
+# $text is the file joined with `n. What it cannot span is the `#` that starts
+# the next line of a hard-wrapped YAML comment. So
+#
+#     # ... it stays one job now that NINE behavioural
+#     # suites are in it: a second job would buy parallelism ...
+#
+# held a live claim, matched by a live pattern, and the two never met: the
+# behavioural-suite count in ci.yml sat at NINE against eleven in the tree
+# through a document pass, a numbers pass and every green run of this guard.
+# ci.yml carries hundreds of lines of prose hard-wrapped at ~78 columns, so any
+# claim in it is one wrap away from invisible.
+#
+# THE FIX IS A MASK, NOT A JOIN, and the distinction is what keeps every line
+# number in this file's output correct. The obvious spelling - collapse
+# `\n\s*#\s*` to one space - changes the length of the text, and Get-LineNumber
+# counts newlines in a Substring of it, so every file:line this guard printed
+# would move. Instead each continuation marker is REPLACED BY THE SAME NUMBER
+# OF SPACES: same length, same newlines, same indices, and `\s+` now runs
+# straight through.
+#
+# ONLY A CONTINUATION IS MASKED - a `#` or `>` whose PREVIOUS line opens with
+# the same marker. That is the whole of the difference between a wrapped
+# comment and a markdown heading: `## What is not covered` is preceded by prose
+# or a blank line, and is left alone, so this does not weld a heading onto the
+# paragraph above it and invent a claim spanning both. What it does not fix is
+# a claim wrapped across anything else - a table cell, a list item's hanging
+# indent - and that is the honest limit of masking rather than parsing.
+function Get-ContinuationMasked {
+    <#
+      The file's text with every comment/blockquote continuation marker turned
+      into spaces. Same length as the original, so an index into one is an
+      index into the other.
+    #>
+    param([string[]]$Lines)
+    $lead = '^(\s*)([#>]+)(?=\s|$)'
+    $out  = New-Object System.Collections.Generic.List[string]
+    for ($i = 0; $i -lt $Lines.Count; $i++) {
+        $line = [string]$Lines[$i]
+        $m    = [regex]::Match($line, $lead)
+        if ($m.Success -and $i -gt 0) {
+            $prev = [regex]::Match([string]$Lines[$i - 1], $lead)
+            if ($prev.Success -and $prev.Groups[2].Value[0] -eq $m.Groups[2].Value[0]) {
+                $g = $m.Groups[2]
+                $out.Add($line.Substring(0, $g.Index) + (' ' * $g.Length) + $line.Substring($g.Index + $g.Length))
+                continue
+            }
+        }
+        $out.Add($line)
+    }
+    return ($out -join "`n")
+}
+
 $docs = @()
 $skippedWhole = @()
 foreach ($rel in $proseFiles) {
@@ -853,7 +909,14 @@ foreach ($rel in $proseFiles) {
     $lines = @(Get-Content -LiteralPath $full)
     $text  = ($lines -join "`n")
     if ($text -match '<!--[^>]*doc-claims:ignore-file') { $skippedWhole += $rel; continue }
-    $docs += [pscustomobject]@{ Rel = $rel; Lines = $lines; Text = $text }
+    $flat  = Get-ContinuationMasked -Lines $lines
+    # The mask is length-preserving or the line numbers below are wrong, and a
+    # guard printing the wrong file:line is worse than one printing none. It is
+    # checked rather than trusted to the regex.
+    if ($flat.Length -ne $text.Length) {
+        Abort ("the continuation mask changed the length of {0} ({1} -> {2}); every file:line this run printed would be wrong" -f $rel, $text.Length, $flat.Length)
+    }
+    $docs += [pscustomobject]@{ Rel = $rel; Lines = $lines; Text = $text; Flat = $flat }
 }
 if ($docs.Count -eq 0) { Abort 'every prose file was exempted - that is not a pass.' }
 
@@ -932,7 +995,12 @@ function Test-Claim {
         $pat = $Patterns[$pi]
         $patHits = 0
         foreach ($doc in $docs) {
-            foreach ($m in [regex]::Matches($doc.Text, $pat)) {
+            # MATCHED AGAINST .Flat, REPORTED AGAINST .Text - #258. The two are
+            # the same string except that a wrapped comment's continuation
+            # marker is spaces in one of them, so they are the same length and
+            # an index into one is an index into the other. Matching on .Text
+            # is what let a claim broken across a `#` go unread.
+            foreach ($m in [regex]::Matches($doc.Flat, $pat)) {
                 $ln  = Get-LineNumber $doc $m.Index
                 $qty = ConvertTo-Quantity $m.Groups[1].Value
                 if ($null -eq $qty) {
@@ -1143,8 +1211,7 @@ Test-Claim -Rule 'ci-check-steps' -Expected $ciSteps `
     '(?i)one\s+job,\s+([A-Za-z]+|\d+)\s+check\s+steps',
     '(?i)of\s+its\s+([A-Za-z]+|\d+)\s+check\s+steps',
     '(?i)means\s+exactly\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+things',
-    '(?i)except\s+the\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+(?:CI\s+)?check\s+steps\s+named\s+above',
-    '(?i)runs\s+all\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s*(?:of\s+them)?\s*[.,]'
+    '(?i)except\s+the\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+(?:CI\s+)?check\s+steps\s+named\s+above'
 )
 
 # --- how many checks the doctor runs --------------------------------------
@@ -1186,19 +1253,41 @@ Test-Claim -Rule 'doctor-check-count' -Expected $doctorChecks `
 )
 
 # --- how many slash commands ship -----------------------------------------
+# THREE PATTERNS WERE DELETED HERE AND ONE DIRECTORY OVER ON 4 SEPTEMBER 2026,
+# AND THE REASON IS THE COUPLING RATHER THAN THE REGEXES - #256.
+# `\*\*(N)\s+commands:`, `(N)\s+modules,\s+(N)\s+of\s+them\s+active` and
+# `runs\s+all\s+(N)...` each had ONE site in the whole tree, and it was the same
+# site: .github\notes\HANDOFF.md, a page titled by a date, in a directory whose
+# README says its contents are records read as records rather than corrected
+# into agreement with today's tree. Two of the five files there carry
+# doc-claims:ignore-file. That one could not, and not for a reason anybody had
+# decided: exempting it - or marking those three lines - takes three patterns to
+# zero hits, and a pattern that checked no claim anywhere ABORTS this guard. So
+# the liveness rule, which exists to stop a rule going blind, was instead
+# holding one maintainer note permanently current, and the next person to file
+# that page as a record would have taken Documentation claims down with an abort
+# naming a regex rather than the cause.
+#
+# Deleting them loses no coverage and that was measured, not assumed:
+# command-count keeps two patterns with live sites (docs\README.md, README.md,
+# docs\limitations.md), module-total keeps two, and ci-check-steps keeps five.
+# The alternative - writing `**6 commands:**` onto a consumer page so a regex
+# has something to read - is choosing sentences to feed a guard, which is the
+# tail wagging the dog and would have been a worse page for a better ledger.
+# The file's own doctrine on a dead pattern applies to the three: DELETED rather
+# than kept with a comment, because a pattern retained as "not currently used"
+# reports a coverage it does not have.
 Test-Claim -Rule 'command-count' -Expected $commandFiles.Count `
     -Source 'git ls-files -- commands/*.md, present on disk' -Patterns @(
     '(?i)all\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+(?:slash\s+)?commands\b',
-    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+slash\s+commands\b',
-    '(?i)\*\*([a-z]+|\d+)\s+commands:'
+    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+slash\s+commands\b'
 )
 
 # --- how many modules there are, and how many only observe ----------------
 Test-Claim -Rule 'module-total' -Expected $moduleTotal `
     -Source '$LwgModuleRegistry in lib/common.ps1' -Patterns @(
     '(?i)all\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+declared\s+modules',
-    '(?i)of\s+(?:its|the)\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules\b',
-    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules,\s+(?:[a-z]+|\d+)\s+of\s+them\s+active'
+    '(?i)of\s+(?:its|the)\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules\b'
 )
 
 # Only phrasings that assert the TOTAL are read here. "The other three

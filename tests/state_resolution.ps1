@@ -859,6 +859,100 @@ function Test-E3-ThePlatformAnswerHasOneHome {
     Add-Case 'E3 the OS and the Claude Code build have one resolver' ($problems.Count -eq 0) ($problems -join "`n")
 }
 
+function Test-E4-NoRegistryNoteContradictsTheRegistrysOwnGateCount {
+    <#
+      #249. $LwgModuleRegistry is this project's single source of truth for the
+      module list: bin\lwg-doctor.ps1 reads it, the SessionStart banner reads
+      it, and every page under docs\ is written from it. Its note for
+      delegate_gate opened "THE ONLY GATE THIS PLUGIN SHIPS" while three
+      entries in the same hashtable declared kind = 'gate', and that is the
+      drift the single-source arrangement exists to prevent. It propagated
+      exactly as you would expect - docs\modules.md, docs\architecture.md and
+      docs\gates-removed.md all said "the one gate" because this note said it.
+
+      THIS IS NOT A STRING PIN AND IT IS NOT A SELF-COMPARISON. Both halves
+      come out of the registry and they are DIFFERENT FIELDS: the count is
+      taken from `kind`, the claim is read out of the prose in `note`. So
+      rewording the sentence around the same claim does not get past it, and
+      adding a fourth gate without touching any note cannot break it.
+
+      RED AT 09b20be, where delegate_gate's note opens "THE ONLY GATE THIS
+      PLUGIN SHIPS" and three entries in the same table declare kind = 'gate':
+      32 of 33, this case the only failure.
+
+      WHAT IT DOES NOT CATCH, said rather than left to be found: a note that
+      asserts exclusivity in words this pattern does not spell. The pattern is
+      the four English shapes for "there is one of these" next to the word
+      gate; a note that says it some fifth way is not caught. That is the
+      honest limit of matching prose, and it is still the class rather than the
+      one sentence #249 was filed about.
+    #>
+    $probeRoot = New-PluginTree (Join-Path $script:Work 'e4')
+    $prof = New-Dir (Join-Path $script:Work 'e4-profile')
+    $data = New-Dir (Join-Path $script:Work 'e4-data')
+    $probe = New-Probe -Root $probeRoot -Name 'probe' -Body @"
+    `$m = [ordered]@{}
+    foreach (`$k in `$script:LwgModuleRegistry.Keys) {
+        `$m[`$k] = [ordered]@{
+            kind = [string]`$script:LwgModuleRegistry[`$k].kind
+            note = [string]`$script:LwgModuleRegistry[`$k].note
+        }
+    }
+    `$o['registry'] = `$m
+"@
+    $name = 'E4 no registry note claims an exclusivity the registry''s own kind field contradicts (#249)'
+    $r = Invoke-Child -ScriptPath $probe -EnvSet @{ USERPROFILE = $prof; CLAUDE_PLUGIN_DATA = $data }
+    $j = Read-Json $r 'the registry-note probe'
+    if (-not $j.ok) { Add-Case $name $false $j.why; return }
+    if ($j.obj.error) { Add-Case $name $false "REGRESSION (#249): $($j.obj.error)"; return }
+
+    $entries = @()
+    foreach ($p in $j.obj.registry.PSObject.Properties) {
+        $entries += [pscustomobject]@{
+            name = $p.Name
+            kind = [string]$p.Value.kind
+            note = [string]$p.Value.note
+        }
+    }
+
+    # THE FLOOR, and it is the whole reason this case is not vacuous. A probe
+    # that returned an empty table, or a registry whose notes were all blank,
+    # would satisfy "no note claims exclusivity" without reading anything. Both
+    # are asserted before the claim is, so the case fails loudly rather than
+    # passing on an absence.
+    $noted = @($entries | Where-Object { -not [string]::IsNullOrWhiteSpace($_.note) })
+    if ($entries.Count -lt 2 -or $noted.Count -lt 1) {
+        Add-Case $name $false ("the registry probe returned {0} entr(ies), {1} of them carrying a note - too few to have read the table at all, so nothing about its prose was established" -f $entries.Count, $noted.Count)
+        return
+    }
+
+    $gates = @($entries | Where-Object { $_.kind -eq 'gate' })
+    # The four English shapes for "there is one of these", beside the word the
+    # count is over. Matched against `note`; counted from `kind`.
+    $claim = '(?i)\b(?:only|sole|single)\s+gate\b|\bthe\s+one\s+gate\b|\bgate\s+(?:that\s+)?this\s+plugin\s+ships\b'
+
+    $offenders = @()
+    foreach ($e in $noted) {
+        $m = [regex]::Match($e.note, $claim)
+        if ($m.Success) {
+            $offenders += ("{0}'s note claims exclusivity - it says [{1}] - and {2} entr(ies) in the same table declare kind = 'gate': {3}" -f `
+                $e.name, $m.Value, $gates.Count, (($gates | ForEach-Object { $_.name }) -join ', '))
+        }
+    }
+
+    # One gate and a note saying so is not a contradiction, and this case must
+    # not pretend otherwise: the assertion is only owed when the count exceeds
+    # one. The count is printed either way so a run that stopped being able to
+    # fail says so in its own output rather than going quietly green.
+    $ok = ($gates.Count -le 1) -or ($offenders.Count -eq 0)
+    $why = if ($gates.Count -le 1) {
+        ("{0} entr(ies) declare kind = 'gate', so an exclusivity claim would be TRUE and nothing is asserted about the notes. This case is dormant, not passing." -f $gates.Count)
+    } else {
+        ($offenders -join "`n")
+    }
+    Add-Case $name $ok $why
+}
+
 # =========================================================================
 # SECTION F - #177, the four unasserted probes and the mode ladder
 #
@@ -1511,7 +1605,7 @@ function Test-G7-AdditionalContextSaysTheSelfCheckDidNotRun {
 Say ''
 Say 'LW-WATCHTOWER state-resolution and platform suite'
 Say '  A #146 CLAUDE_CONFIG_DIR   B #60 probe 2   C #106 selfcheck.probe'
-Say '  D #8 marketplace layout    E #132 platform and hook events'
+Say '  D #8 marketplace layout    E #132 platform and hook events, #249 the registry''s own prose'
 Say '  F #177 the four unasserted probes and the mode ladder'
 Say '  G #144 the banner   #177 the additionalContext envelope'
 Say ''
@@ -1528,7 +1622,7 @@ try {
     # written and never called is a suite that reports a clean pass over
     # coverage it does not have - the founding defect this repository exists to
     # catch, in its own test harness. Sorting on the name gives A1..A5, B1..B4,
-    # C1, D1..D3, E1..E3, F1..F9, G1..G7, so section order is a property of the
+    # C1, D1..D3, E1..E4, F1..F9, G1..G7, so section order is a property of the
     # naming. IT IS A STRING SORT: F10 would come before F2, so a section stops
     # at nine cases and the next one takes a new letter. That costs nothing
     # except readability of the run, which is the only thing the order decides.

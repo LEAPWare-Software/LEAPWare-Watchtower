@@ -39,7 +39,7 @@ about whether it would refuse anything if you armed it. See
 3. Confirm the interpreter. Every hook launches `powershell` — Windows PowerShell 5.1. If your `PATH`
    resolves `powershell` to something else, or to nothing, no hook runs at all.
 4. The `HH` segment is the **status line**, which is a separate install and is not part of the
-   plugin. See [Install § status line](install.md#installing-the-status-line-optional-and-separate).
+   plugin. See [Install § status line](install.md#installing-the-status-line-part-of-the-install-and-a-separate-step).
    A `GM` segment was named here until 3 August 2026; it was deleted on 30 July 2026 with the trip
    ledger it read, so no status line renders one and its absence is not a symptom.
 

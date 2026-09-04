@@ -28,7 +28,7 @@ that covers a **deletion**.
 `CLAUDE_CONFIG_DIR` precedence, the five self-check probes, every rung of the mode ladder, the banner
 and the model-visible `additionalContext` envelope.
 `tests/doctor_behaviour.ps1` runs `bin/lwg-doctor.ps1` against seeded configs and seeded
-`settings.json` files with 37 cases, on **two of its ten checks and no others**.
+`settings.json` files with 38 cases, on **two of its ten checks and no others**.
 `tests/toggle_behaviour.ps1` drives `bin/lwg-toggle.ps1`'s write to the override file with 28 cases,
 and `tests/config_behaviour.ps1` does the same for `bin/lwg-config.ps1`, each closing with an
 invariant that the plugin root's tracked `config.json` was not moved by a byte. They are the only
@@ -973,9 +973,12 @@ held the day it landed, a UAT observation from a date. Correcting one would be f
 markers exempt them, both written **inside an HTML comment**:
 
 - `doc-claims:ignore` — on the offending line, or the line directly above it.
-- `doc-claims:ignore-file` — anywhere in a file that is a record end to end. `CHANGELOG.md` and the
-  v0.3.0 UAT record, now the maintainer note `.github/notes/uat-report.md`, carry this one and say
-  why at the top.
+- `doc-claims:ignore-file` — anywhere in a file that is a record end to end. `CHANGELOG.md` carries
+  it, and so do three of the five maintainer notes under `.github/notes/`: the v0.3.0 UAT record
+  (`uat-report.md`), the hosting plan that was proposed and not executed (`harness-hosting-plan.md`),
+  and the 31 July 2026 handoff (`HANDOFF.md`, exempted on 4 September 2026 — see #256 for why it
+  could not be until then). Each says why at the top. Read the marker as a claim in its own right:
+  every number in that file is now unchecked, the correct ones included.
 
 **The delimiters are required, and that is not decoration.** The markers have to be named in tracked
 prose — this section names them, and so does `CONTRIBUTING.md` — and with a bare token any page that
@@ -993,12 +996,29 @@ page can carry every count correctly and still describe a plugin that does not e
 
 ## What is not covered
 
-Everything except the twenty CI check steps named above — which is every module in the plugin bar
-two, since the eleven behavioural suites cover the gate, one section of the installer, the two hooks
-that run at turn end, one command's deletions, the evidence engine the two reporting commands share,
-two of the doctor's ten checks, the toggle's write to `config.json`, the `SubagentStart` fast path,
-and what the shipped payload discloses.
-Stated item by item, because an absence nobody writes down reads as coverage:
+Everything except the twenty CI check steps named above — and what is left out is a set of
+**properties**, not a set of modules. This sentence said *"every module in the plugin bar two"* until
+4 September 2026, which the same page contradicts sixty lines earlier: **every module name is now
+reached by at least one suite**, and that paragraph is explicit that being reached is not being
+tested. Two numbers cannot both be right, and the map is the one derived from the tree.
+
+What the eleven behavioural suites do cover, read off that map rather than restated from memory: the
+delegate gate's refusals and the two supervision gates', `orphan_watch` beside them in the same
+suite, the five advisories the turn-end hooks raise, `self_health`'s self-check, the `SubagentStart`
+fast path's answer to the global `modules` flag, two sections of the installer's merge, one
+command's deletions, two of the doctor's ten checks, the toggle's write to `config.json`, and what
+the shipped payload discloses. It named *the
+evidence engine the two reporting commands share* until the same date; `bin/lwg-evidence.ps1` and the
+`checklist` and `sitrep` commands were deleted in wave 1 and that clause described nothing.
+
+**So the honest residue is per property, and the map already names the worst of it**: four of the
+observing ones carry one to three cases apiece on at most two properties (`context_pressure` 2,
+`docs_coupling` 2, `log_rotation` 3, `git_hygiene` 1), and `context_injection` has exactly one
+property run with its `worker_facts.md` handling untested. No count is written for the properties
+that remain, and that is deliberate: it would mean deciding what counts as a property and then
+maintaining a number nothing derives, which is how the figure this sentence replaces came to be
+wrong in the first place. Stated item by item instead, because an absence nobody writes down reads
+as coverage:
 
 1. **The installer's merge is now tested on `statusline` and on `hooks`, and on nothing else.** The
    `permissions.deny` parity test used to cover it end to end and went on 30 July 2026;
@@ -1101,7 +1121,7 @@ Rename it only together with the branch-protection setting.
 | Installer merge suite | `tests\setup_merge.ps1` — the only step that tests a **write to settings.json**. It drives `bin\lwg-setup.ps1` against throwaway settings files under the temp directory. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Stop-hook behaviour suite | `tests\stop_behaviour.ps1` — the step that reaches **five of the eight observing modules**, more than anything else here. It runs `lib\stop_advisories.ps1` and `lib\supervisor.ps1` in real child processes against throwaway plugin roots under the temp directory. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Uninstaller footprint suite | `tests\uninstall_footprint.ps1` — the only step that tests a **deletion**. It drives `bin\lwg-uninstall.ps1` against throwaway data directories under the temp directory, with `$env:USERPROFILE` and `$env:CLAUDE_PLUGIN_DATA` redirected around every call, and asserts on the filesystem as well as on the report. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
-| Doctor behaviour suite | `tests\doctor_behaviour.ps1` — the step that runs the component whose job is to notice a switch wired to nothing. It copies the plugin tree to a scratch directory and drives the copy's own `bin\lwg-doctor.ps1` against seeded configs and seeded `settings.json` files, on **two of its nine checks and no others**. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
+| Doctor behaviour suite | `tests\doctor_behaviour.ps1` — the step that runs the component whose job is to notice a switch wired to nothing. It copies the plugin tree to a scratch directory and drives the copy's own `bin\lwg-doctor.ps1` against seeded configs and seeded `settings.json` files, on **two of its ten checks and no others**. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Toggle write-path suite | `tests\toggle_behaviour.ps1` — one of the steps that test a **write to a file an operator owns**. It drives `bin\lwg-toggle.ps1` against a byte copy of `bin\` and `lib\` under a scratch plugin root with the config seeded per case, and closes with an invariant that the plugin root's tracked `config.json` was not moved by a byte. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Config write-path suite | `tests\config_behaviour.ps1` — the same job for `bin\lwg-config.ps1`: the module switchboard's read, validate, write and report path, the `config.override.json` it writes under the state directory, and the same untouched-`config.json` invariant. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Supervision suite | `tests\supervision.ps1` — the step that covers `send_liveness_gate`, `completion_audit` and `orphan_watch`, against seeded transcripts and seeded health logs, each case run through a real pipe into a real child process. Its anchor cases reproduce the measured failure all three were built from. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |

@@ -188,7 +188,7 @@ Then, on the new machine:
 3. **Install the status line separately if you want it.** It is *not* part of the plugin — `statusLine`
    is a top-level `settings.json` key and a plugin has no manifest field for it. You copy
    [`statusline/statusline.ps1`](../lw-watchtower/statusline/statusline.ps1) into your profile and wire the key by
-   hand. See [Install § status line](install.md#installing-the-status-line-optional-and-separate).
+   hand. See [Install § status line](install.md#installing-the-status-line-part-of-the-install-and-a-separate-step).
 
 Three things that will **not** carry over, stated so they are not a surprise:
 
