@@ -1104,18 +1104,63 @@ Write-Output ("RESULT: {0} passed, {1} warning(s), {2} failure(s), {3} informati
 # What a green run does not cover. Stated on every run, including the green
 # ones, because a health report that omits its own blind spots is how "all
 # checks passed" comes to be read as "everything works".
+#
+# THIS PARAGRAPH HAS NOW GONE STALE TWICE, IN THE SAME DIRECTION BOTH TIMES -
+# it understated coverage - and it is hand-written text no guard derives, so
+# the derivation for the current wording is recorded here rather than left to
+# be reconstructed a third time. Nothing below is computed at run time; the
+# next person to change what tests\ reaches has to change this by hand, and
+# these are the commands that say whether it needs changing.
+#
+#   the eight observing modules, and the three gates:
+#     $script:LwgModuleRegistry.Keys | ? { $script:LwgModuleRegistry[$_].kind -ne 'gate' }
+#   the suite that reaches self_health, and the sections that do it:
+#     tests\state_resolution.ps1 - B (#60, modules_resolved), C (#106, the
+#     selfcheck.probe file, which is state_writable's side effect) and F (#177,
+#     config_from_file, thresholds_live, payload_session and payload_cwd).
+#
+# NO PROBE COUNT IS WRITTEN HERE, DELIBERATELY, and the reason is a discrepancy
+# found while deriving the above rather than a preference. lib\session_start.ps1
+# sets SIX boolean fields on $selfcheck - the five the tree calls "the five
+# probes" plus state_writable, which docs\modules.md's own "Five probes" section
+# does not count. Which of those two numbers is right is a question about what
+# counts as a probe, it is not settled anywhere in the tree, and settling it in
+# passing inside a paragraph nothing derives is how the last two stale numbers
+# got here. So this names the SECTIONS, which are checkable by looking, and
+# leaves the count to the pages that already argue about it.
+#
+# The "one to three cases on at most two properties" clause for the other four
+# is NOT re-derived here and is not presented as though it were: it is
+# docs\testing.md's per-module count (context_pressure 2, docs_coupling 2,
+# log_rotation 3, git_hygiene 1), and this line and that page state the same
+# thing. Counting cases BY SUBJECT means parsing assertions to decide what they
+# are about, which tests\doc_claims.ps1 declines to invent in passing for the
+# same reason and says so in its own comment on this exact number.
+#
+# WHY "EVERY ONE of the EIGHT" RATHER THAN "ALL EIGHT", and what that does NOT
+# buy. `of the <N> observing` is the shape doc_claims's observing-module-count
+# rule reads, so the wording matches a live rule rather than evading one - but
+# NOTHING CHECKS THIS LINE. tests\doc_claims.ps1 builds its corpus from tracked
+# .md, .json, .yml and .yaml only ("Prose files only. A .ps1 is checked by the
+# parse step and by its own suite"), so no rule in that file has ever read a
+# word of this script. The two sites it does read are docs\testing.md and
+# .github\notes\HANDOFF.md. The phrasing is kept in the family the guard knows
+# so that a reader grepping for the claim finds this line beside the pages, and
+# so that the day this paragraph is moved onto a page it is already checkable.
+# What holds it today is the case in tests\doctor_behaviour.ps1 (#253) and
+# review, and saying otherwise would be this paragraph's own defect one turn on.
 Write-Output ''
 Write-Output "NOT checked here: whether the advisories actually fire, and whether Claude Code has"
 Write-Output "this plugin ENABLED in the current session - a hook can be perfectly configured and"
-Write-Output "still be switched off. SEVEN of the EIGHT observing modules - failure_capture,"
+Write-Output "still be switched off. EVERY ONE of the EIGHT observing modules - failure_capture,"
 Write-Output "context_pressure, docs_coupling, git_hygiene and log_rotation"
-Write-Output "(tests\stop_behaviour.ps1), orphan_watch (tests\supervision.ps1) and context_injection"
-Write-Output "(tests\subagent_scan.ps1) - are exercised by suites CI runs on every push and every"
-Write-Output "PR, though for four of those seven - context_pressure, docs_coupling, git_hygiene and"
-Write-Output "log_rotation - that is one to three cases on at most two properties and not end to"
-Write-Output "end. The other ONE - self_health - is exercised by nothing, anywhere. Neither fact"
-Write-Output "is established by this command: no test is run here, and a green run above says"
-Write-Output "nothing about whether any advisory would fire."
+Write-Output "(tests\stop_behaviour.ps1), orphan_watch (tests\supervision.ps1), context_injection"
+Write-Output "(tests\subagent_scan.ps1) and self_health (tests\state_resolution.ps1 sections B, C"
+Write-Output "and F, written against its self-check) - is exercised by a suite CI runs on every"
+Write-Output "push and every PR, though for four of those eight - context_pressure, docs_coupling,"
+Write-Output "git_hygiene and log_rotation - that is one to three cases on at most two properties"
+Write-Output "and not end to end. Neither fact is established by this command: no test is run"
+Write-Output "here, and a green run above says nothing about whether any advisory would fire."
 Write-Output ''
 Write-Output "THREE GATES SHIP, ALL OFF BY DEFAULT, AND NOTHING HERE EXERCISES ANY OF THEM."
 Write-Output "delegate_gate (lib\gate_delegate.ps1, PreToolUse, refuses Edit, Write, NotebookEdit,"
