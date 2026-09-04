@@ -2081,7 +2081,7 @@ try {
     #
     #      IT IS STRICTER, SO IT FAILS MORE OFTEN, NOT LESS. Under `-lt` this
     #      case went red when the gap was <= 0; it now goes red when the gap is
-    #      < 50. The tie that motivated the change still fails - 0 is not >= 50
+    #      under the margin below. The tie that motivated the change still fails
     #      - and the blast radius is unchanged: a red here still takes
     #      tests\doc_claims.ps1 down with it, because that file aborts on any
     #      sibling suite's nonzero exit and then establishes nothing about the
@@ -2091,32 +2091,57 @@ try {
     #      instead of leaving a reader to infer whether 291 and 291 were a
     #      regression or a busy host.
     #
-    #      WHERE 50 COMES FROM, AND WHY IT IS NOT HEADROOM. Six runs of this
-    #      suite on the development machine, with seven other agents working in
-    #      the same checkout throughout: gaps of 203, 171 and 177 ms at five
-    #      samples per leg, then 330, 376 and 698 ms at nine. 50 is under a
-    #      third of the smallest of those, which is the whole of the argument
-    #      for the number, and it is a weaker argument than it looks.
+    #      WHERE THE MARGIN COMES FROM, AND IT IS NOW A FLOOR RATHER THAN
+    #      HEADROOM (#227). It was 50 ms, and the argument for 50 was "under a
+    #      third of the smallest gap anyone had observed" - which is a fraction
+    #      of the SIGNAL and says nothing about the noise the signal has to
+    #      clear. The floor is the thing a margin has to be above, so it was
+    #      measured directly rather than inferred: both legs pointed at the SAME
+    #      provable-off config - nothing for the fast path to be faster at, so
+    #      the true gap is zero - and the case run whole, three times, at
+    #      c39e782, on the machine described below.
     #
-    #      THE NOISE ON THESE MINIMA IS LARGER THAN THE SIGNAL, MEASURED. Both
-    #      legs were pointed at the SAME provable-off config - nothing for the
-    #      fast path to be faster at, so the true gap is zero - and run five
-    #      times per leg. The measured gaps were -211 ms, -334 ms and one
-    #      POSITIVE run that passed the strict inequality outright: a green line
-    #      produced by scheduler noise on a fixture with no fast path advantage
-    #      in it. That is the false green the margin is aimed at, and it is also
-    #      the number that says the margin cannot do much: if two identical legs
-    #      differ by 334 ms, a real 171 ms gap sits inside the noise and NO
-    #      margin separates them. A margin large enough to be outside that noise
-    #      would fail on the idle-machine observation.
+    #          null gap, identical legs, best of 9 :  -20 ms,   7 ms,  11 ms
+    #          real gap, this case,      best of 9 :  207 ms, 205 ms, 216 ms
     #
-    #      SO READ THIS CASE AS A SENTINEL FOR A FAST PATH THAT HAS STOPPED
-    #      ENTIRELY, and not as a measurement. It is kept because deleting it
-    #      costs the only signal this file has for that, and the header already
-    #      says the fast path silently ceasing to run "will not be caught by
-    #      this file at all". No run on a CI runner has been measured. If this
-    #      fails on windows-latest with both legs still allowing, re-measure
-    #      both legs there before reading it as a regression.
+    #      THE 211-334 MS FLOOR THIS COMMENT USED TO CARRY WAS MEASURED AT FIVE
+    #      SAMPLES PER LEG AND DOES NOT DESCRIBE THE CASE AS IT NOW RUNS. It was
+    #      correct when it was taken, and it is the reason the sample count was
+    #      raised to nine; quoting it against nine samples describes a case that
+    #      no longer exists, which is how the file came to hold a margin its own
+    #      comment said could not work. A minimum over nine interleaved spawns is
+    #      what collapses that noise, and the third run above is the evidence:
+    #      its per-leg spreads were 313 ms and 637 ms - a badly disturbed host,
+    #      six sibling worktrees building throughout - and the gap still came
+    #      back 216. THE MINIMA ARE STABLE WHEN THE SAMPLES ARE NOT, which is
+    #      the whole reason this case reads minima and not means.
+    #
+    #      So the margin is 100 ms: five times the largest null gap measured, and
+    #      under half the smallest real gap measured. Both halves of that are
+    #      load-bearing. Below the floor the case cannot tell a working fast path
+    #      from a stopped one; far above it, every extra millisecond of margin is
+    #      bought out of the headroom that keeps a busy runner from going red on
+    #      a fast path that is working perfectly.
+    #
+    #      WHAT IT STILL DOES NOT DO, WHICH IS THE HALF #227 WAS RIGHT ABOUT. It
+    #      is a THRESHOLD, not a performance number: a fast path whose saving
+    #      fell from 205 ms to 120 would pass this and nothing here would say a
+    #      word. What it can see is the fast path stopping ENTIRELY - the thing
+    #      the header says would otherwise "not be caught by this file at all" -
+    #      and it can now say so with a margin that noise has been measured
+    #      unable to reach. No run on a CI runner has been measured, here or
+    #      anywhere. If this fails on windows-latest with both legs still
+    #      allowing, re-measure both legs there before reading it as a
+    #      regression.
+    #
+    #      THE NUMBERS ARE PRINTED ON EVERY RUN, NOT ONLY WHEN THE CASE FAILS,
+    #      and that is the other half of the fix. Everything above is prose
+    #      written once, about the one case in this file whose inputs are wall
+    #      clock and machine-specific - the exact shape that goes stale without
+    #      anyone noticing, as the 211-334 did. A reader on another machine
+    #      cannot re-derive the floor from a comment; they can from the line the
+    #      run prints. It is one line, and it is deliberately the only per-case
+    #      line a green run of this suite emits.
     $j10Fast = New-LwgRawRoot -Base $work -Name 'j10-fast' -Json (
         $jHead + '"interaction":{"delegate":false},' +
         '"repos":{"$comment":"Per-repo overrides keyed by the owner/name slug of the origin remote."}}')
@@ -2124,9 +2149,14 @@ try {
         $jHead + '"interaction":{"delegate":false},' +
         '"repos":{"$comment":"This comment mentions interaction, which is enough to make the fast path abstain."}}')
 
-    $j10FastMs = [int]::MaxValue
-    $j10SlowMs = [int]::MaxValue
-    $j10Bad    = ''
+    $j10FastMs  = [int]::MaxValue
+    $j10SlowMs  = [int]::MaxValue
+    # Every sample, not only the running minimum, because the SPREAD is what
+    # tells a reader whether the host was quiet - and the spread is the number
+    # that decides whether a red is worth investigating or worth re-running.
+    $j10FastAll = @()
+    $j10SlowAll = @()
+    $j10Bad     = ''
     for ($i = 0; $i -lt 9; $i++) {
         foreach ($leg in @(@{ n = 'fast'; root = $j10Fast }, @{ n = 'slow'; root = $j10Slow })) {
             $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -2136,14 +2166,26 @@ try {
             $ms = [int]$clock.Elapsed.TotalMilliseconds
             $vj = Test-IsAllow $rj
             if (-not $vj.ok -and $j10Bad -eq '') { $j10Bad = "the $($leg.n) leg did not allow: $($vj.why)" }
-            if ($leg.n -eq 'fast') { if ($ms -lt $j10FastMs) { $j10FastMs = $ms } }
-            else                   { if ($ms -lt $j10SlowMs) { $j10SlowMs = $ms } }
+            if ($leg.n -eq 'fast') { $j10FastAll += $ms; if ($ms -lt $j10FastMs) { $j10FastMs = $ms } }
+            else                   { $j10SlowAll += $ms; if ($ms -lt $j10SlowMs) { $j10SlowMs = $ms } }
         }
     }
-    $j10MarginMs = 50
+    # 100 ms, and the two numbers it sits between are in the comment above with
+    # the runs they came from. Changing it without re-measuring the null is how
+    # it came to be 50 against a floor of 211.
+    $j10MarginMs   = 100
+    $j10Gap        = $j10SlowMs - $j10FastMs
+    $j10FastSpread = ($j10FastAll | Measure-Object -Maximum).Maximum - $j10FastMs
+    $j10SlowSpread = ($j10SlowAll | Measure-Object -Maximum).Maximum - $j10SlowMs
+    # PRINTED WHETHER OR NOT THE CASE PASSES. See the comment above: this is the
+    # only case here whose inputs are wall clock, the prose describing them went
+    # stale once already, and a number in the run is the only thing a reader on
+    # another machine can re-derive the floor from.
+    Write-Output ("  J10 timing  provable-off {0} ms (spread {1}), forced-through {2} ms (spread {3}), gap {4} ms, required >= {5} ms" -f `
+        $j10FastMs, $j10FastSpread, $j10SlowMs, $j10SlowSpread, $j10Gap, $j10MarginMs)
     Add-Result 'J10 an off switch the fast path can prove still exits 0, and quicker than one it cannot' `
-        ($j10Bad -eq '' -and ($j10SlowMs - $j10FastMs) -ge $j10MarginMs) `
-        ("$j10Bad  --  best of 9: provable-off $j10FastMs ms, forced-through $j10SlowMs ms, gap $($j10SlowMs - $j10FastMs) ms, required >= $j10MarginMs ms. The gap must be at least the margin, or the fast path is no longer running and the only thing this suite would notice is the cost going back to what docs/modules.md says it used to be. A gap that is merely SMALLER than the margin is the one reading this case cannot tell apart from a noisy host - measure both legs by hand before reading it as a regression")
+        ($j10Bad -eq '' -and $j10Gap -ge $j10MarginMs) `
+        ("$j10Bad  --  best of 9 interleaved: provable-off $j10FastMs ms (spread $j10FastSpread over its 9 samples), forced-through $j10SlowMs ms (spread $j10SlowSpread), gap $j10Gap ms, required >= $j10MarginMs ms. The margin is five times the largest gap measured between two IDENTICAL legs at this sample count (-20, 7 and 11 ms over three whole runs at c39e782), so noise has been measured unable to reach it; the real gap measured 207, 205 and 216 ms over the same three runs. READ THE SPREADS BEFORE READING THIS AS A REGRESSION: a spread of a few hundred milliseconds says the host was disturbed, and the minimum is the statistic least disturbed by that - a gap that collapsed while both spreads stayed small is the fast path no longer running, which is the one thing this case exists to see, and the only other thing that would notice is the cost going back to what docs/modules.md says it used to be. Nothing has ever been measured on a CI runner: measure both legs by hand there first")
 
     # -------------------------------------------------------------------
     # K. THE REPORTER AND THE READER, ON THE SAME CONFIG.
