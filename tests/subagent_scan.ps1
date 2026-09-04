@@ -53,13 +53,13 @@
   green run, and written down 3 August 2026 after review found the distinction
   was being carried by nothing
   ---------------------------------------------------------------------------
-  Two of the five cases below FAIL on the depth-blind scanner and are the
+  Two of the thirteen cases below FAIL on the depth-blind scanner and are the
   regression cases for it:
 
       Test-ReposBeforeModulesReadsTheGlobalFlag
       Test-DecoyModulesUnderANonReposKeyIsIgnored
 
-  The other three are green on the defect as well, and each is here for its own
+  The other eleven are green on the defect as well, and each is here for its own
   reason rather than as evidence about depth:
 
       Test-ShippedOrderReadsTheGlobalFlag   A CONTROL. It is what says a depth

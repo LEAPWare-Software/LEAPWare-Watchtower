@@ -6,7 +6,7 @@ name: CI
 # matrix, and every step runs under Windows PowerShell 5.1 rather than the `pwsh`
 # (PowerShell 7) that GitHub's Windows runners default to.
 #
-# THERE IS ONE JOB, AND TEN OF ITS SEVENTEEN CHECK STEPS TEST BEHAVIOUR. The
+# THERE IS ONE JOB, AND ELEVEN OF ITS TWENTY CHECK STEPS TEST BEHAVIOUR. The
 # `gate-regression` job and tests\gate_regression.ps1 went on 30 July 2026 with
 # the destructive command gate; the `permissions.deny parity` step and
 # tests\deny_parity.ps1 went the same day with the secret gate. Neither is coming
@@ -19,7 +19,7 @@ name: CI
 #
 # What runs now: every tracked .json and every .ps1 PARSE; no tracked file names
 # one machine; every file under .github\workflows\ is parsed and held to the
-# workflow guard's nine rules, and the rest of .github\ - dependabot.yml and the
+# workflow guard's ten rules, and the rest of .github\ - dependabot.yml and the
 # issue-template files, which GitHub reads at run time and which no step here
 # read until 3 August 2026 - is PARSED ONLY, so a syntax error in one of them
 # fails the build while a schema mistake in one still does not; the guard is
@@ -38,7 +38,7 @@ name: CI
 # removes exactly what its footprint said it would, and refuses to report a
 # no-op deletion as a success; tests\doctor_behaviour.ps1 drives
 # bin\lwg-doctor.ps1 against seeded configs and seeded settings.json files, on
-# two of its nine checks and no others, because until it landed nothing had ever
+# two of its ten checks and no others, because until it landed nothing had ever
 # RUN the component whose whole job is to notice a switch wired to nothing;
 # tests\toggle_behaviour.ps1 drives bin\lwg-toggle.ps1's WRITE to config.json,
 # the second thing here that edits a file an operator owns and the one that had
@@ -56,7 +56,7 @@ name: CI
 # reaches a runner GitHub does not host, that the gate still refuses what it
 # declares, that the statusline merge still behaves, that those stop-path cases
 # still behave, that the uninstaller's state-data footprint is true, that two
-# of the doctor's nine checks still ask the question they claim to, that the
+# of the doctor's ten checks still ask the question they claim to, that the
 # toggle's write still backs up and still re-checks the file it replaces,
 # that the SubagentStart
 # fast path still answers the global flag, that no tracked file carries a
@@ -186,6 +186,16 @@ jobs:
   # removed with the checklist commands; its own 21 s row went with it and the
   # 236 s was NOT re-measured afterwards. Read the total as an upper bound.
   #
+  # THE LIST AND THE WALL CLOCK ARE BOTH tests\ ONLY, and three suites that live
+  # there now - config_behaviour, state_resolution and supervision - have no row
+  # either, for the same reason the 236 s was not re-taken: the table is one
+  # machine's run on one date and a row measured somewhere else does not belong
+  # in it. So are the guards under .github\scripts\, which run in their own
+  # steps. The one figure that has been taken since, reported on #226 with the
+  # step that introduced it:
+  #
+  #     .github\scripts\redfirst_annotations.ps1   2 s   (fixtures + live, same step)
+  #
   # ONE MACHINE, NOT THE RUNNER. These are not GitHub's hosted Windows numbers
   # and nothing here has measured those; they are stated so the budget rests on
   # an observation rather than on prose nobody re-ran. Read them as an order of
@@ -257,7 +267,7 @@ jobs:
       #
       #   * `persist-credentials` DEFAULTS TO TRUE, which writes an
       #     AUTHORIZATION header into .git\config in the runner workspace where
-      #     it stays for the rest of the job - fourteen steps, twelve of them
+      #     it stays for the rest of the job - twenty steps, fourteen of them
       #     invoking powershell.exe against a script in tests\. Nothing after this step
       #     uses git over the network: the checks run `git ls-files` and
       #     `git tag -l`, which need no credential. Turning it off is free here.
@@ -424,7 +434,7 @@ jobs:
           #
           # The live run also now PARSES the rest of .github\ - dependabot.yml
           # and the five issue-template files, which GitHub reads at run time
-          # and which no step here read until now. The nine rules are NOT
+          # and which no step here read until now. The ten rules are NOT
           # applied to them and parsing is not schema validation: it catches a
           # list item indented out of its sequence, not a `type:` value GitHub
           # does not recognise.
@@ -464,7 +474,7 @@ jobs:
             & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard -SelfTest
             $selfCode = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
             if ($selfCode -ne 0) {
-              Write-Host "::error title=Workflow guard self-test::The guard reported the live tree clean, but at least one of its nine rules did NOT fire on input planted to trip it, or its exit contract did not hold (self-test exit $selfCode). A clean run from a guard that cannot fire is the exact false assurance this file replaced. Read the per-case lines above."
+              Write-Host "::error title=Workflow guard self-test::The guard reported the live tree clean, but at least one of its ten rules did NOT fire on input planted to trip it, or its exit contract did not hold (self-test exit $selfCode). A clean run from a guard that cannot fire is the exact false assurance this file replaced. Read the per-case lines above."
               if ($env:GITHUB_STEP_SUMMARY) {
                 Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Workflow guard:** SELF-TEST FAILED (exit $selfCode) - the live scan was clean but the guard was not shown able to fire."
               }
@@ -482,7 +492,7 @@ jobs:
           #   2  the guard aborted; the workflows were NOT checked. An
           #      enumeration returning zero files is an abort, never a pass.
           $label = switch ($code) {
-            0       { 'PASS - no workflow names a non-hosted runner or uses pull_request_target, every rule hit that remains is excused by an allowlist entry PRINTED ABOVE WITH ITS REASON, every file under .github\ that GitHub reads at run time parses, and the guard was demonstrated able to fire on all nine rules. READ THE ALLOWLISTED BLOCK, if there is one: an exempted use is a use, and this label stopped saying "reaches a secret" outright the day release.yml needed the automatic token to publish a Release. That is a statement about the FILES IN THIS REPOSITORY only: an action pulled from another repository runs code this guard never sees, and parsing dependabot.yml or an issue form is not validating it against GitHub''s schema.' }
+            0       { 'PASS - no workflow names a non-hosted runner or uses pull_request_target, every rule hit that remains is excused by an allowlist entry PRINTED ABOVE WITH ITS REASON, every file under .github\ that GitHub reads at run time parses, and the guard was demonstrated able to fire on all ten rules. READ THE ALLOWLISTED BLOCK, if there is one: an exempted use is a use, and this label stopped saying "reaches a secret" outright the day release.yml needed the automatic token to publish a Release. That is a statement about the FILES IN THIS REPOSITORY only: an action pulled from another repository runs code this guard never sees, and parsing dependabot.yml or an issue form is not validating it against GitHub''s schema.' }
             1       { 'FAIL (exit 1) - a workflow reaches a runner GitHub does not host, uses pull_request_target, uses a secret, or could not be parsed. Read the file:line list above. Do NOT add an allowlist entry to silence it unless the use is genuinely necessary and the reason is stated on the entry.' }
             2       { 'ABORT (exit 2) - the guard did not complete, so nothing about these workflows was established by this run.' }
             255     { 'NOT RUN (exit 255) - tests\workflow_guard.ps1 could not be invoked.' }
@@ -520,7 +530,7 @@ jobs:
       - name: Delegate gate regression suite
         shell: powershell
         run: |
-          # One of the ten tests of behaviour in this repository, and the only
+          # One of the eleven tests of behaviour in this repository, and the only
           # one that tests a GATE. The parse and scan steps ask whether files are
           # well formed; this asks whether the one gate this plugin ships refuses
           # what it says it refuses. The installer merge suite, the stop-hook
@@ -827,7 +837,7 @@ jobs:
           #                    stale copy of this plugin's - with the printed
           #                    remedy being to overwrite it.
           #
-          # IT DRIVES TWO OF THE NINE CHECKS AND NO OTHERS, and a green run here
+          # IT DRIVES TWO OF THE TEN CHECKS AND NO OTHERS, and a green run here
           # says nothing about the other seven. In particular it says nothing
           # about sessionstart, which is owned by a separate issue and is
           # deliberately untouched. Read the suite header rather than this
@@ -879,7 +889,7 @@ jobs:
           #   2  the suite aborted; the doctor was NOT exercised. Zero cases run
           #      is an abort, never an empty-set pass.
           $label = switch ($code) {
-            0       { 'PASS - config-registry still refuses a quoted flag the reader ignores, and statusline still asks whose file it is before calling one a stale copy. That is TWO of the nine checks: the other seven are not driven here, and a byte-identical or token-bearing foreign status line is a stated limit rather than something this suite catches.' }
+            0       { 'PASS - config-registry still refuses a quoted flag the reader ignores, and statusline still asks whose file it is before calling one a stale copy. That is TWO of the ten checks: the other eight are not driven here, and a byte-identical or token-bearing foreign status line is a stated limit rather than something this suite catches.' }
             1       { 'FAIL (exit 1) - a doctor check did not behave as declared. Read the per-case lines above. A config-registry case that passed a non-boolean means an operator can disarm the only gate this plugin ships with a typo and be told it is armed; a statusline case that claimed a foreign file means the printed remedy is to overwrite somebody else''s status line.' }
             2       { 'ABORT (exit 2) - the suite did not complete, so nothing about the doctor was established by this run.' }
             255     { 'NOT RUN (exit 255) - tests\doctor_behaviour.ps1 could not be invoked.' }
@@ -1647,7 +1657,7 @@ jobs:
       #
       # IT DOES NOT LIVE UNDER tests\ ON PURPOSE. Every file there exercises the
       # PLUGIN; this one checks a pull request's metadata and asserts nothing
-      # about the product. Counting it among "thirteen files in tests\, ten of
+      # about the product. Counting it among "fourteen files in tests\, eleven of
       # which test behaviour" would make both of those documented numbers LESS
       # true, and tests\doc_claims.ps1 derives them from tests\*.ps1 - so it
       # sits beside the workflow that is its only caller instead.

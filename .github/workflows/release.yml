@@ -111,8 +111,12 @@ jobs:
           }
 
           # Fixtures first, then the tree. A green run of the guard against a
-          # tree it cannot fail on establishes nothing, and this workflow is the
-          # only caller, so nothing else would ever run them.
+          # tree it cannot fail on establishes nothing. ci.yml runs the same
+          # fixtures on every push and pull request (#219), so by the time a tag
+          # reaches here they have already fired - but this workflow runs them
+          # again rather than assuming it: this is the only invocation that
+          # publishes anything, and it does not take a sibling workflow's word
+          # for whether the guard it is about to trust still works.
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard
           $fixtureCode = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
           if ($fixtureCode -ne 0) {

@@ -183,18 +183,18 @@ section exists has not changed.
 - [ ] The flag genuinely gates the behaviour, with **zero** side effects when off — no log record, no
       state written, no subprocess started, no file opened.
 - [ ] `gate` only if it can actually block. If it warns, it is `observe`. **Exactly three modules in
-      the registry is `kind = 'gate'` today — `delegate_gate` and `send_liveness_gate` on
+      the registry are `kind = 'gate'` today — `delegate_gate` and `send_liveness_gate` on
       `PreToolUse`, `completion_audit` on `Stop` and `SubagentStop`, all three shipping switched
       off** — so a `gate` here means you are adding the fourth. Say so explicitly, say what it
       denies, and read [`docs/gates-removed.md`](../docs/gates-removed.md) first.
 
-<!-- THE UNGRAMMATICAL "modules in the registry IS `kind`" ON THE LINE ABOVE IS LOAD-BEARING, not a
-     typo. tests\doc_claims.ps1's gate-module-count rule has two patterns and this sentence is the
-     only site in the tree that its FIRST pattern matches; that pattern requires the literal
-     `is `kind`. Correcting the verb to "are" makes the pattern match nothing anywhere, and a pattern
-     that matches nothing ABORTS the whole guard by its own contract - measured, on 3 September 2026,
-     by making exactly that edit. The wording is fixable, but only together with the pattern, and
-     the guard is not this file's to edit. -->
+<!-- THE SENTENCE ABOVE IS STILL LOAD-BEARING, and the verb no longer is. This line is the only site
+     in the tree that tests\doc_claims.ps1's gate-module-count FIRST pattern matches, so deleting or
+     rephrasing it away from "N modules in the registry are `kind" makes that pattern match nothing
+     anywhere - and a pattern that matches nothing ABORTS the whole guard by its own contract, which
+     lane D3 measured on 3 September 2026 by correcting the verb while the pattern still demanded
+     "is". The pattern now accepts either verb, so the wording reads as English; what it cannot
+     survive is losing this sentence. -->
 
 - [ ] `implemented` only if the code exists and can fire. If the data it needs does not reach a hook,
       it is `planned`, with the evidence recorded.

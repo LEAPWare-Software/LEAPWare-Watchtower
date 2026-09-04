@@ -153,13 +153,21 @@
       rather than preferences, because it establishes that the same command, on
       the same file, reports that override as live.
 
-  THE BASELINE COUNT IS MEASURED, NOT DERIVED. THIRTY-TWO cases. Twenty-three
-  PASS at origin/main (a2d9447) and NINE FAIL there - three in section A, six in
-  section B - measured by running this file unchanged against a tree holding
-  origin/main's bin\lwg-config.ps1, bin\lwg-cmdlib.ps1 and lib\common.ps1.
+  THE BASELINE COUNT IS MEASURED, NOT DERIVED, AND IT IS A RECORD OF ONE DAY
+  RATHER THAN A COUNT OF WHAT THIS FILE RUNS NOW. This file held THIRTY-TWO
+  cases when that baseline was taken. Twenty-three PASS at origin/main
+  (a2d9447) and NINE FAIL there - three in section A, six in section B -
+  measured by running this file unchanged against a tree holding origin/main's
+  bin\lwg-config.ps1, bin\lwg-cmdlib.ps1 and lib\common.ps1.
   bin\lwg-config.ps1 is the ONLY file that differs between that run and the
   green one, byte for byte, so the nine are attributable to it and to nothing in
   lib\.
+
+  IT HAS GROWN SINCE, AND THIS HEADER DELIBERATELY DOES NOT SAY BY HOW MUCH.
+  The live total is the `RESULT: N of N case(s) passed` line this file prints,
+  which is also where tests\doc_claims.ps1 reads it from; a second copy here is
+  a number nobody maintains, and it went stale twice before anything noticed
+  (#240). Sections H and I and the section A/G additions all landed without it.
 
   CONTROL CASES ARE LABELLED. Twenty-one of the twenty-three that pass at the
   baseline carry the word CONTROL in their name; the other two are section G's

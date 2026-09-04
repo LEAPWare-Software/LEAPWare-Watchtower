@@ -1279,7 +1279,18 @@ Test-Claim -Rule 'observing-module-count' -Expected $moduleObserving `
 
 Test-Claim -Rule 'gate-module-count' -Expected $moduleGates `
     -Source '$LwgModuleRegistry entries of kind gate' -Patterns @(
-    '(?i)exactly\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules?\s+in\s+the\s*\n?\s*registry\s+is\s+`?kind',
+    # `is|are`, AND THE ALTERNATION IS THE WHOLE POINT OF THIS EDIT. This branch
+    # required the literal `is`, and its only site in the tree was the pull
+    # request template's "Exactly three modules in the registry IS `kind`" - so
+    # correcting that verb to the grammatical `are` made the branch match
+    # nothing anywhere and ABORTED the whole guard, which lane D3 measured on
+    # 3 September 2026 by making exactly that edit and reverting it. The page
+    # was then carrying an ungrammatical sentence to keep a guard alive, with an
+    # HTML comment explaining why - a document shaped by a regex rather than the
+    # other way round. Accepting both verbs costs nothing (the second branch
+    # keys on `of kind \`gate\`` and does not reach this sentence, so there is
+    # still exactly one hit) and lets the sentence read as English.
+    '(?i)exactly\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules?\s+in\s+the\s*\n?\s*registry\s+(?:is|are)\s+`?kind',
     '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules?\s+(?:is|are)\s+of\s+kind\s+`gate`'
 )
 
