@@ -39,8 +39,7 @@ Rules for reporting it:
   that is not the `owner/name` shape a hook produces, or that disagrees with `-ThisRepo`, or a
   `-ThisRepo` where no origin remote resolves to a slug at all; a `config.json` it cannot read,
   or one that does not parse (an override is merged over defaults, not over a file nobody could
-  parse); a module whose hook reads `config.json` directly rather than through the shared resolver,
-  where an override would be reported as applied and ignored; and a write stopped at the last moment - the member is missing, the
+  parse); and a write stopped at the last moment - the member is missing, the
   file changed underneath it, or the edited text would not have parsed as JSON. Give its reason
   in its words, and when it names another command, send the operator there. One further refusal -
   enabling a module that is declared with no code behind it - is defined but **fires for nothing
