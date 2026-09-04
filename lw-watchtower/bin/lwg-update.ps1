@@ -82,6 +82,31 @@ $script:Rows  = New-Object System.Collections.ArrayList
 $script:Warn  = 0
 $script:Fail  = 0
 
+# A FILE HASH THAT DOES NOT NEED Get-FileHash (#273). Get-FileHash is a FUNCTION
+# exported by the Microsoft.PowerShell.Utility module in Windows PowerShell 5.1,
+# not a compiled cmdlet, and it stops resolving whenever a PowerShell 7
+# PSModulePath is inherited - which is what Claude Code hands this script when
+# the operator launched the CLI from a pwsh prompt. Measured on 2026-09-04
+# against 6aebcd6: this script reached the status-line row and then ended
+# "LW-WATCHTOWER update could not complete: The term 'Get-FileHash' is not
+# recognized", having reported nothing about whether there was an update.
+# bin\lwg-doctor.ps1 carries the whole measurement, why module-qualifying the
+# call does not fix it, and why this function is not in lib\common.ps1. The body
+# is the same in all three.
+function Get-LwgFileSha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # ABSOLUTE, ALWAYS: a .NET call resolves a relative path against the process
+    # working directory, which is wherever the operator ran this from.
+    $full = [IO.Path]::GetFullPath($Path)
+    $sha  = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $fs = [IO.File]::Open($full, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try { $bytes = $sha.ComputeHash($fs) } finally { $fs.Dispose() }
+    } finally { $sha.Dispose() }
+    return [BitConverter]::ToString($bytes).Replace('-', '')
+}
+
 function Add-Row {
     param(
         [Parameter(Mandatory = $true)][string]$Id,
@@ -616,8 +641,8 @@ try {
     } elseif ([string]::IsNullOrWhiteSpace($slLive)) {
         Add-Row -Id 'statusline' -Status 'INFO' -Detail 'no configuration directory could be resolved, so the live status line was not looked for. This is not evidence that it is missing.'
     } elseif ((Test-Path -LiteralPath $slLive) -and (Test-Path -LiteralPath $slRepo)) {
-        $a = (Get-FileHash -LiteralPath $slLive -Algorithm SHA256).Hash
-        $b = (Get-FileHash -LiteralPath $slRepo -Algorithm SHA256).Hash
+        $a = Get-LwgFileSha256 -Path $slLive
+        $b = Get-LwgFileSha256 -Path $slRepo
         if ($a -eq $b) { Add-Row -Id 'statusline' -Status 'OK' -Detail "$slLive is byte-identical to the repo copy ($slWhose)" }
         else {
             Add-Row -Id 'statusline' -Status 'WARN' -Detail "$slLive DIFFERS from statusline/statusline.ps1 - one of them is stale and nothing on this machine reconciles them ($slWhose)"

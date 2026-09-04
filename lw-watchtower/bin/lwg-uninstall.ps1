@@ -94,6 +94,32 @@ $script:Left   = New-Object System.Collections.ArrayList
 $script:Failed = 0
 $script:Done   = 0
 
+# A FILE HASH THAT DOES NOT NEED Get-FileHash (#273). Get-FileHash is a FUNCTION
+# exported by the Microsoft.PowerShell.Utility module in Windows PowerShell 5.1,
+# not a compiled cmdlet, and it stops resolving whenever a PowerShell 7
+# PSModulePath is inherited - which is what Claude Code hands this script when
+# the operator launched the CLI from a pwsh prompt. THIS SCRIPT WAS THE WORST
+# CASE: the call site below is in the plan-building pass, which runs before a
+# single row is printed, so the throw reached the outer catch and the whole
+# uninstall ended in "could not complete" and exit 3, on the dry run as well as
+# on -Apply, with no footprint at all. Measured on 2026-09-04 against 6aebcd6;
+# the stack trace named this file, line 795. bin\lwg-doctor.ps1 carries the
+# whole measurement, why module-qualifying the call does not fix it, and why
+# this function is not in lib\common.ps1. The body is the same in all three.
+function Get-LwgFileSha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # ABSOLUTE, ALWAYS: a .NET call resolves a relative path against the process
+    # working directory, which is wherever the operator ran this from.
+    $full = [IO.Path]::GetFullPath($Path)
+    $sha  = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $fs = [IO.File]::Open($full, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try { $bytes = $sha.ComputeHash($fs) } finally { $fs.Dispose() }
+    } finally { $sha.Dispose() }
+    return [BitConverter]::ToString($bytes).Replace('-', '')
+}
+
 function Add-PlanRow {
     <#
       One row of the plan. `action` is what -Apply would do; 'report only' means
@@ -792,10 +818,10 @@ try {
     $slHash = ''
     $repoSl = Join-Path $pluginRoot 'statusline\statusline.ps1'
     if (Test-Path -LiteralPath $slFile) {
-        $a = (Get-FileHash -LiteralPath $slFile -Algorithm SHA256).Hash
+        $a = Get-LwgFileSha256 -Path $slFile
         $drift = 'no repo copy to compare against'
         if (Test-Path -LiteralPath $repoSl) {
-            $b = (Get-FileHash -LiteralPath $repoSl -Algorithm SHA256).Hash
+            $b = Get-LwgFileSha256 -Path $repoSl
             $drift = if ($a -eq $b) { 'byte-identical to statusline/statusline.ps1 in the repo' } else { 'DIFFERS from statusline/statusline.ps1 - it has been edited in place, and deleting it loses that edit' }
         }
         $slHash = $a

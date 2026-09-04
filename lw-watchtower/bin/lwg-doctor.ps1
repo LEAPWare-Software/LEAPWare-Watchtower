@@ -97,6 +97,94 @@ function Get-JsonStrings {
     }
 }
 
+# ---------------------------------------------------------------------------
+# A FILE HASH THAT DOES NOT NEED Get-FileHash (#273) - THE CANONICAL COPY
+# ---------------------------------------------------------------------------
+# Get-FileHash is NOT a compiled cmdlet in Windows PowerShell 5.1. It is a
+# FUNCTION exported by the Microsoft.PowerShell.Utility module, and it stops
+# resolving the moment a PowerShell 7 PSModulePath is inherited. Claude Code
+# hands every hook and every command the environment the terminal was launched
+# with, so an operator who started the CLI from a PowerShell 7 prompt - the
+# Windows Terminal default wherever pwsh is installed - runs every script in
+# bin\ with PS7's Microsoft.PowerShell.Utility 7.0.0.0 ahead of 5.1's own
+# 3.1.0.0 on the path. 5.1 then resolves the module name to the Core-only
+# manifest, whose FunctionsToExport is empty, and Get-FileHash is simply gone.
+# Measured on 2026-09-04 against 6aebcd6:
+#
+#     PS7> cmd /c 'powershell -NoProfile -Command "Get-FileHash ..."'
+#     The term 'Get-FileHash' is not recognized as the name of a cmdlet ...
+#
+# What that cost, on a CORRECT install with the status line wired: this doctor
+# printed [FAIL] statusline "check threw" and VERDICT: NOT healthy (exit 1),
+# bin\lwg-uninstall.ps1 could not complete at all (exit 3, before it had
+# printed a single footprint row), bin\lwg-update.ps1 could not complete, and
+# setup -Step detect reported the drift comparison as "could not be compared".
+# The hooks and statusline\statusline.ps1 were unaffected - none of them calls
+# it - so the plugin WORKED and only the tools that report on it failed.
+#
+# MODULE-QUALIFYING THE CALL DOES NOT FIX IT, and that is the fix that looks
+# right. `Microsoft.PowerShell.Utility\Get-FileHash` fails with the same
+# message, because the module that name resolves to IS the shadowing one:
+#
+#     PS7> cmd /c 'powershell -NoProfile -Command "Microsoft.PowerShell.Utility\Get-FileHash ..."'
+#     The term 'Microsoft.PowerShell.Utility\Get-FileHash' is not recognized ...
+#
+# `Import-Module "$PSHOME\Modules\Microsoft.PowerShell.Utility" -Force` DOES
+# work and was rejected anyway: it repairs the environment instead of removing
+# the dependency, it has to be repeated in every entry point, and it leaves the
+# next 5.1-module-only call to be found by the next operator.
+#
+# So the hash is computed from .NET, which is present and identical in both
+# editions and needs no module at all. The return is UPPERCASE hex with no
+# separators - byte for byte what (Get-FileHash -Algorithm SHA256).Hash
+# returned - so every comparison and every printed value is unchanged.
+#
+# THIS FUNCTION IS DUPLICATED, with the same body, in bin\lwg-uninstall.ps1 and
+# bin\lwg-update.ps1, and this copy carries the reasoning for all three.
+# bin\lwg-setup.ps1 is the fourth script that had the defect and gets no copy:
+# it has carried its own .NET Get-Sha256 since the settings-file reader was
+# written (bin\lwg-setup.ps1:199), which is exactly why `setup -Step detect`
+# still printed a sha256 for settings.json from a PowerShell 7 launch while the
+# status-line drift line beside it read "could not be compared" - two hashes in
+# one report, one of them already immune. That site now calls the helper that
+# was already there.
+#
+# WHY NOT ONE COPY IN lib\common.ps1: there is no file all four already load
+# except lib\common.ps1, and lib\common.ps1 is the HOOK path - SessionStart and
+# PreToolUse dot-source it on every turn - so a helper only the lifecycle
+# scripts need does not belong there. bin\lwg-cmdlib.ps1 is loaded by uninstall
+# and update but NOT by this file or by setup, so it is not the shared place
+# either.
+#
+# TWO CALL SITES ARE STILL Get-FileHash AND ARE NOT FIXED HERE:
+# bin\lwg-cmdlib.ps1:356,389,402 (Read-LwgTextFile, Save-LwgTextFile - both
+# CATCH, so they degrade to "could not be read" rather than throwing, which is
+# why bin\lwg-toggle.ps1 exits 3 with "config.json could not be read" on the
+# same machine) and bin\lwg-toggle.ps1:955. Those two files belong to another
+# lane this wave; the hunk for them is written on #273.
+function Get-LwgFileSha256 {
+    <#
+      SHA256 of one file as uppercase hex, with no PowerShell module behind it.
+      Throws what the file system throws, exactly as Get-FileHash did, so every
+      caller's try/catch keeps its meaning.
+    #>
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # ABSOLUTE, ALWAYS. Every .NET call resolves a relative path against the
+    # PROCESS working directory, which is wherever the operator ran this from
+    # and not this tree.
+    $full = [IO.Path]::GetFullPath($Path)
+    $sha  = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        # FileShare::ReadWrite because settings.json is rewritten by the CLI
+        # underneath whatever is reading it. Get-FileHash opens the same way;
+        # a narrower share would fail on files that used to hash fine.
+        $fs = [IO.File]::Open($full, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try { $bytes = $sha.ComputeHash($fs) } finally { $fs.Dispose() }
+    } finally { $sha.Dispose() }
+    return [BitConverter]::ToString($bytes).Replace('-', '')
+}
+
 try {
     # The doctor must work when run from anywhere, including from a bin/ on
     # PATH, so the root is derived from this file rather than from the cwd.
@@ -679,8 +767,8 @@ try {
         # said it means. The text and the remedy are unchanged.
         $drift = "; carries the $marker marker"
         if (Test-Path -LiteralPath $repoCopy) {
-            $a = (Get-FileHash -LiteralPath $target   -Algorithm SHA256).Hash
-            $b = (Get-FileHash -LiteralPath $repoCopy -Algorithm SHA256).Hash
+            $a = Get-LwgFileSha256 -Path $target
+            $b = Get-LwgFileSha256 -Path $repoCopy
             if ($a -ne $b) {
                 Add-Row -Id 'statusline' -Status 'WARN' -Detail "wired to $target, but it DIFFERS from statusline/statusline.ps1 in this repo - the installed copy is stale or locally modified; re-copy it to make the repo's version live"
                 return

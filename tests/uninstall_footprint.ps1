@@ -334,6 +334,11 @@ function Invoke-Uninstall {
       is decided by the environment, which is not a thing to do casually to a
       script that deletes: the case that uses it passes no removal flag.
 
+      PSModulePath IS INHERITED BY DEFAULT AND SET BY EXACTLY ONE CASE (#273).
+      The child is Windows PowerShell 5.1 and what it can resolve depends on
+      this variable; the one case that cares passes -ModulePath, and it is saved
+      and restored like every other.
+
       Returns @{ code; out } where `out` is the whole stdout as one string.
     #>
     param(
@@ -341,15 +346,18 @@ function Invoke-Uninstall {
         [string]$DataEnv,
         [string[]]$ScriptArgs = @(),
         [string]$ConfigDir = '',
+        [string]$ModulePath,
         [switch]$NoClaudeHome
     )
 
     $saveProfile = $env:USERPROFILE
     $saveData    = $env:CLAUDE_PLUGIN_DATA
     $saveCfg     = $env:CLAUDE_CONFIG_DIR
+    $saveMods    = $env:PSModulePath
     try {
         $env:USERPROFILE       = $Tree.profile
         $env:CLAUDE_CONFIG_DIR = $ConfigDir
+        if ($PSBoundParameters.ContainsKey('ModulePath')) { $env:PSModulePath = $ModulePath }
         if ([string]::IsNullOrWhiteSpace($DataEnv)) {
             Remove-Item -LiteralPath 'Env:\CLAUDE_PLUGIN_DATA' -ErrorAction SilentlyContinue
         } else {
@@ -364,12 +372,60 @@ function Invoke-Uninstall {
     } finally {
         $env:USERPROFILE       = $saveProfile
         $env:CLAUDE_CONFIG_DIR = $saveCfg
+        $env:PSModulePath      = $saveMods
         if ($null -eq $saveData) {
             Remove-Item -LiteralPath 'Env:\CLAUDE_PLUGIN_DATA' -ErrorAction SilentlyContinue
         } else {
             $env:CLAUDE_PLUGIN_DATA = $saveData
         }
     }
+}
+
+function New-ShadowUtilityModule {
+    <#
+      A directory that, PREFIXED to PSModulePath, makes a Windows PowerShell 5.1
+      child resolve `Microsoft.PowerShell.Utility` to a PowerShell 7 manifest
+      instead of its own - the state a child launched from a pwsh 7 terminal
+      inherits, and the state in which Get-FileHash does not resolve (#273).
+      Returns the directory to prefix.
+
+      WHY A SYNTHETIC MANIFEST RATHER THAN THE REAL PS7 ONE: the real file only
+      exists on a machine with PowerShell 7 installed, at a path that moves with
+      the install method, so a case reading it would pass by being skipped.
+      This one reproduces the fault with no PowerShell 7 on the machine at all -
+      verified on 2026-09-04: with it prefixed, `powershell -NoProfile -Command
+      "Get-FileHash ..."` fails with "The term 'Get-FileHash' is not recognized".
+
+      WHAT MAKES IT SHADOW: the module NAME and ModuleVersion 7.0.0.0 ahead of
+      5.1's own 3.1.0.0. It exports Get-FileHash as a CMDLET and exports no
+      FUNCTIONS, which is the shape of PS7's real manifest and the reason 5.1 -
+      where Get-FileHash IS a function in that module - can no longer find it.
+
+      The value is PREFIXED to the inherited path rather than replacing it, so
+      the child still finds everything else, and so the case behaves the same
+      whether this suite was launched from a 5.1 console or from pwsh 7.
+    #>
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    $dir = [IO.Path]::Combine($Root, 'Microsoft.PowerShell.Utility')
+    [void][IO.Directory]::CreateDirectory($dir)
+    $psd1 = @(
+        '@{'
+        'GUID = "1DA87E53-152B-403E-98DC-74D7B4D63D59"'
+        'Author = "PowerShell"'
+        'CompanyName = "Microsoft Corporation"'
+        'ModuleVersion = "7.0.0.0"'
+        'CompatiblePSEditions = @("Core")'
+        'PowerShellVersion = "3.0"'
+        "CmdletsToExport = @('Get-FileHash', 'ConvertFrom-Json', 'ConvertTo-Json', 'Out-String', 'Select-Object', 'Write-Output', 'Format-Table', 'Format-List', 'Get-Date', 'Write-Host')"
+        'FunctionsToExport = @()'
+        'AliasesToExport = @()'
+        'NestedModules = @("Microsoft.PowerShell.Commands.Utility.dll")'
+        '}'
+    ) -join "`r`n"
+    [IO.File]::WriteAllText([IO.Path]::Combine($dir, 'Microsoft.PowerShell.Utility.psd1'),
+                            $psd1, [Text.UTF8Encoding]::new($false))
+    return $Root
 }
 
 function Invoke-UninstallWithConcurrentWrite {
@@ -1524,6 +1580,64 @@ function Test-StatusLineFileKeptWhenKeyHalfCannotRun {
                -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
 }
 
+function Test-Ps7ModulePathStillProducesAFootprint {
+    <#
+      THE TERMINAL THE OPERATOR HAPPENED TO LAUNCH FROM MUST NOT DECIDE WHETHER
+      THIS SCRIPT RUNS AT ALL (#273).
+
+      Claude Code hands every hook and every command the environment it was
+      started with. Start it from a PowerShell 7 prompt - the Windows Terminal
+      default on any machine that has pwsh installed - and every `powershell`
+      this plugin spawns is a Windows PowerShell 5.1 child carrying PS7's
+      PSModulePath. 5.1 then resolves Microsoft.PowerShell.Utility to PS7's
+      7.0.0.0 manifest ahead of its own 3.1.0.0, and Get-FileHash - a FUNCTION
+      in 5.1's module, not a compiled cmdlet - is gone.
+
+      THIS SCRIPT WAS THE WORST-AFFECTED OF THE FOUR. Its Get-FileHash call sat
+      in the plan-building pass, which runs before a single row is printed, so
+      the throw went straight to the outer catch: the DRY RUN and -Apply alike
+      ended in "LW-WATCHTOWER uninstall could not complete" and exit 3, having
+      printed no footprint at all - and the run could not even say whether it
+      had changed anything, which is the one thing its closing lines promise.
+
+      BASELINE 6aebcd6, measured by hand on 2026-09-04 with a stack trace
+      exposed in the outer catch:
+
+          LW-WATCHTOWER uninstall could not complete: The term 'Get-FileHash'
+          is not recognized as the name of a cmdlet, function, script file, or
+          operable program. ...
+          TEMP-TRACE:
+          at <ScriptBlock>, ...\bin\lwg-uninstall.ps1: line 795
+          exit=3
+
+      THE ASSERTION IS NOT "IT EXITED 0". A run that printed a footprint with
+      the statusline-file row silently downgraded would also exit 0. The drift
+      sentence is what makes this discriminate: the fixture status line is
+      invented content, so a hash comparison that actually HAPPENS must report
+      it as DIFFERING from the repo copy. That sentence cannot be printed
+      without the hash.
+    #>
+    $t  = New-CaseTree 'ps7-modulepath'
+    $sl = New-CaseStatusLine (Join-Path $t.claudeHome 'statusline.ps1')
+    $cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $sl.Replace('\', '/') + '"'
+    [void](Set-CaseSettings -Tree $t -Text ("{`r`n  `"statusLine`": {`r`n    `"type`": `"command`",`r`n    `"command`": `"" + $cmd.Replace('\', '\\').Replace('"', '\"') + "`"`r`n  }`r`n}`r`n"))
+    $shadow = New-ShadowUtilityModule -Root (Join-Path $t.dir 'shadow-modules')
+
+    $r = Invoke-Uninstall -Tree $t -ModulePath "$shadow;$($env:PSModulePath)"
+
+    $bad = @()
+    if ($r.code -ne 0)                          { $bad += "exit $($r.code) - the dry run did not complete" }
+    if ($r.out -match '(?i)could not complete') { $bad += 'the run ended in "could not complete"' }
+    if ($r.out -match 'Get-FileHash')           { $bad += 'the run named Get-FileHash, so it is still resolving one' }
+    if ($r.out -notmatch '(?i)statusline-file\s+PRESENT') { $bad += 'no statusline-file row was planned for a status line that is present' }
+    if ($r.out -notmatch '(?i)DIFFERS from statusline/statusline\.ps1') {
+        $bad += 'the statusline-file row did not report the drift, so no hash was computed'
+    }
+
+    Add-Result -Name 'a PowerShell 7 PSModulePath does not stop the dry run producing a footprint' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
+}
+
 function Test-ReparseStateDirIsRefused {
     <#
       A JUNCTION UNDER THE DATA ROOT, POINTING AT A CANARY TREE.
@@ -2056,6 +2170,7 @@ try {
     Test-HookRegistrationReachesLeftBehind
     Test-ThirdPartyStatusLineIsNotOurs
     Test-StatusLineFileKeptWhenKeyHalfCannotRun
+    Test-Ps7ModulePathStillProducesAFootprint
     Test-ReparseStateDirIsRefused
     Test-PartialDeletionNamesWhatWent
     Test-EnvPathWithNoOwnershipSignalIsRefused

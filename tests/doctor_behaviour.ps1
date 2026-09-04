@@ -396,8 +396,14 @@ function Invoke-Doctor {
       configuration directory instead of the scratch profile it seeded, and the
       statusline cases would report on somebody's live settings.json. Cleared by
       default, and -ConfigDir is how the one case that wants it set gets it.
+
+      PSModulePath IS A SIXTH SANDBOX VARIABLE, AND IT IS THE ONLY ONE LEFT
+      ALONE BY DEFAULT (#273). The child is Windows PowerShell 5.1 and it
+      inherits this process's value; overwriting it for every case would change
+      what half of them exercise. -ModulePath is passed by the one case that
+      needs a specific value, and it is saved and restored with the rest.
     #>
-    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun, [string]$DoctorPath, [string]$Build, [string]$ConfigDir)
+    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun, [string]$DoctorPath, [string]$Build, [string]$ConfigDir, [string]$ModulePath)
 
     if ([string]::IsNullOrWhiteSpace($DoctorPath)) { $DoctorPath = $script:DoctorPath }
     $seedBuild = if ($PSBoundParameters.ContainsKey('Build')) { $Build } else { $script:VerifiedBuild }
@@ -408,6 +414,7 @@ function Invoke-Doctor {
     $prevR = $env:CLAUDE_PLUGIN_ROOT
     $prevC = $env:CLAUDE_CODE_PLUGIN_CACHE_DIR
     $prevH = $env:CLAUDE_CONFIG_DIR
+    $prevM = $env:PSModulePath
     $out  = ''
     $code = 255
     try {
@@ -417,6 +424,7 @@ function Invoke-Doctor {
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = ''
         $env:CLAUDE_CONFIG_DIR            = $ConfigDir
         $env:CLAUDE_CODE_VERSION          = $seedBuild
+        if ($PSBoundParameters.ContainsKey('ModulePath')) { $env:PSModulePath = $ModulePath }
         # -Quiet is passed as a real switch on the child's command line rather
         # than spliced into a string: the only case that uses it asserts what
         # the shipped switch does, and a hand-built argument list is a second
@@ -435,8 +443,62 @@ function Invoke-Doctor {
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $prevC
         $env:CLAUDE_CONFIG_DIR            = $prevH
         $env:CLAUDE_CODE_VERSION          = $prevV
+        $env:PSModulePath                 = $prevM
     }
     return @{ code = $code; out = $out }
+}
+
+function New-ShadowUtilityModule {
+    <#
+      Build a directory that, when PREFIXED to PSModulePath, makes a Windows
+      PowerShell 5.1 child resolve `Microsoft.PowerShell.Utility` to a
+      PowerShell 7 manifest instead of its own - which is exactly what a child
+      launched from a pwsh 7 terminal inherits, and which removes Get-FileHash
+      from that child (#273). Returns the directory to prefix.
+
+      WHY A SYNTHETIC MANIFEST AND NOT THE REAL PS7 ONE. The real file only
+      exists on a machine that has PowerShell 7 installed, at a path that moves
+      with the install method (Store package, MSI, winget), so a case that read
+      it would pass by being skipped on the runner. This one is written into the
+      case's own scratch tree and reproduces the fault with no PowerShell 7 on
+      the machine at all. Verified on 2026-09-04: with this directory prefixed,
+      `powershell -NoProfile -Command "Get-FileHash ..."` fails with "The term
+      'Get-FileHash' is not recognized", exactly as it does under the real one.
+
+      WHAT MAKES IT SHADOW: the name and the location are what 5.1 matches on,
+      and ModuleVersion 7.0.0.0 beats its own 3.1.0.0. The manifest exports
+      Get-FileHash as a CMDLET and exports no FUNCTIONS, which is the shape of
+      PS7's own manifest and the reason 5.1 - where Get-FileHash IS a function
+      in the module - cannot find it any more. CompatiblePSEditions Core is
+      copied from the real manifest for the same reason: this is a portrait of
+      that file, not an invention.
+
+      The prefix is added to the INHERITED PSModulePath rather than replacing
+      it, so the child still finds every other module it needs, and so the case
+      behaves the same whether this suite was launched from a 5.1 console (where
+      nothing shadows yet) or from pwsh 7 (where something already does).
+    #>
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    $dir = [IO.Path]::Combine($Root, 'Microsoft.PowerShell.Utility')
+    [void][IO.Directory]::CreateDirectory($dir)
+    $psd1 = @(
+        '@{'
+        'GUID = "1DA87E53-152B-403E-98DC-74D7B4D63D59"'
+        'Author = "PowerShell"'
+        'CompanyName = "Microsoft Corporation"'
+        'ModuleVersion = "7.0.0.0"'
+        'CompatiblePSEditions = @("Core")'
+        'PowerShellVersion = "3.0"'
+        "CmdletsToExport = @('Get-FileHash', 'ConvertFrom-Json', 'ConvertTo-Json', 'Out-String', 'Select-Object', 'Write-Output', 'Format-Table', 'Format-List', 'Get-Date', 'Write-Host')"
+        'FunctionsToExport = @()'
+        'AliasesToExport = @()'
+        'NestedModules = @("Microsoft.PowerShell.Commands.Utility.dll")'
+        '}'
+    ) -join "`r`n"
+    [IO.File]::WriteAllText([IO.Path]::Combine($dir, 'Microsoft.PowerShell.Utility.psd1'),
+                            $psd1, (New-Object Text.UTF8Encoding($false)))
+    return $Root
 }
 
 function Get-DoctorRow {
@@ -1349,6 +1411,50 @@ try {
         ($row.found -and $row.status -eq 'WARN' -and $row.detail -match '(?i)not established' -and
          $row.detail -notmatch 'check threw' -and $r.out -notmatch 're-copy it') `
         "expected a WARN saying provenance was not established, with no remedy anywhere in the report; got [$($row.status)] $($row.detail). Full output:`n$($r.out)"
+
+    # -------------------------------------------------------------------
+    # 15b. THE TERMINAL THE OPERATOR HAPPENED TO LAUNCH FROM MUST NOT DECIDE
+    #      THE VERDICT (#273).
+    #
+    #      Claude Code hands every hook and every command the environment it was
+    #      started with. Start it from a PowerShell 7 prompt - the Windows
+    #      Terminal default on any machine that has pwsh installed - and every
+    #      `powershell` this plugin spawns is a Windows PowerShell 5.1 child
+    #      carrying PS7's PSModulePath. 5.1 then resolves
+    #      Microsoft.PowerShell.Utility to PS7's 7.0.0.0 manifest ahead of its
+    #      own 3.1.0.0, and Get-FileHash - a FUNCTION in 5.1's module, not a
+    #      compiled cmdlet - is gone. ConvertFrom-Json survives, so nothing else
+    #      in this file notices.
+    #
+    #      This case is the sl-real-install control (case 12) run once more with
+    #      that one variable changed, so the two together say the terminal is
+    #      the only difference. The tree is a CORRECT install: the repo copy,
+    #      byte for byte, wired as the status line.
+    #
+    #      BASELINE 6aebcd6: '[FAIL] statusline  check threw: The term
+    #      'Get-FileHash' is not recognized as the name of a cmdlet, function,
+    #      script file, or operable program...' and the report's own
+    #      VERDICT: NOT healthy. A correct install, called broken, because of
+    #      the terminal. Measured by hand on the same day through the real
+    #      slash command as well: the model reported "NOT healthy" to the
+    #      operator, correctly following commands\doctor.md.
+    #
+    #      WHAT THIS CASE DOES NOT ESTABLISH: nothing here runs PowerShell 7.
+    #      It reproduces the STATE a PS7 launch leaves the 5.1 child in, which
+    #      is where the fault lives; that this is the state pwsh 7 actually
+    #      produces was measured by hand and is recorded on #273.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'sl-ps7-modulepath'
+    $installed = Join-Path $t.profile '.claude\statusline.ps1'
+    [IO.File]::Copy($PlugStatusLine, $installed, $true)
+    [void](Set-CaseSettings -ProfileDir $t.profile -Command (New-StatusLineCommand $installed))
+    $shadow = New-ShadowUtilityModule -Root (Join-Path $t.dir 'shadow-modules')
+    $r   = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -ModulePath "$shadow;$($env:PSModulePath)"
+    $row = Get-DoctorRow -Text $r.out -Id 'statusline'
+    Add-Result 'a correct install still attests a match when Get-FileHash cannot be resolved' `
+        ($row.found -and $row.status -eq 'PASS' -and $row.detail -match 'matches the repo copy' -and
+         $r.out -notmatch 'Get-FileHash') `
+        "expected PASS attesting the match with no mention of Get-FileHash anywhere in the report; got [$($row.status)] $($row.detail). Full output:`n$($r.out)"
 
     # -------------------------------------------------------------------
     # 16-18. THE INFORMATIONAL ROSTER AT THE FOOT, AND THE THING IT MUST NOT
