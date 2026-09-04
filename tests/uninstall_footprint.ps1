@@ -1796,6 +1796,109 @@ function Test-MarketplaceRouteDoesNotPrintJunctionSentences {
                -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | marketplace exit $($r.code), control exit $($ctl.code)")
 }
 
+function Get-LeftBehindDataParagraph {
+    <#
+      The `Why` line of the LEFT BEHIND entry whose subject is the data
+      directories - the one paragraph #280 is about. The block prints each entry
+      as two lines, the What indented four and the Why six, so the Why is the
+      line after the one matching `N data directories (`. Returns '' when there
+      is no such entry, and every caller treats that as a failure rather than as
+      a vacuous pass: a case that asserts on a paragraph the run never printed
+      has established nothing.
+    #>
+    param([string]$Out)
+
+    $lines = @($Out -split "`r?`n")
+    for ($i = 0; $i -lt ($lines.Count - 1); $i++) {
+        if ($lines[$i] -match '(?i)^\s+\d+ data directories \(') { return $lines[$i + 1] }
+    }
+    return ''
+}
+
+function Test-MarketplaceRouteSaysTheCliUninstallTakesTheData {
+    <#
+      THE REPORT PROMISED THE EVIDENCE SURVIVES AND THEN, ELEVEN LINES LOWER,
+      NAMED THE COMMAND THAT DESTROYS IT (#280).
+
+      On the marketplace route the run printed, in one report:
+
+        state-data   1 dir(s), 268 B   kept - this is evidence
+        LEFT BEHIND
+          1 data directories (268 B)
+            health.jsonl and lw-watchtower.jsonl are the record of every fault
+            ... Deleting them needs -RemoveData -ConfirmToken DELETE-MY-LWG-LOGS.
+        ...
+            'claude plugin uninstall <plugin>@<marketplace>' is what removes it
+
+      Measured on CLI 2.1.260 against a clean profile (#280, and independently by
+      QA): the PLAIN form of that command deletes the plugin's data directory
+      whole - every file in it, including a file this plugin never wrote - with
+      no prompt and no confirmation token, while leaving the payload copy in the
+      cache intact. `--keep-data` is the only form that keeps it, and
+      `git grep keep-data -- lw-watchtower/bin/` had no hits at all. So the
+      surface that promises the record survives was the surface handing over the
+      command that removes it, and nobody copies logs out before a step the page
+      describes as removing "the load path itself".
+
+      WHAT THE FIXED OUTPUT HAS TO DO, and this is what the assertions are: keep
+      the true half - the token is still what this script needs - and qualify the
+      promise on the route where it is false, by naming the CLI command, naming
+      `--keep-data` as the form that keeps the directory, and never printing that
+      command anywhere in the run without the flag beside it.
+
+      THE CONTROL IS THE JUNCTION ROUTE, IN THIS CASE RATHER THAN BESIDE IT. On a
+      junction install no CLI uninstall owns that data directory, so the warning
+      would be a warning about a command the operator is not going to run, and
+      the original sentence is simply true. A fix that printed the new paragraph
+      on both routes would be the same defect facing the other way, and only a
+      control catches that.
+
+      BASELINE 1baf6d4: the marketplace run's data paragraph ended at
+      'DELETE-MY-LWG-LOGS.', the string '--keep-data' appeared nowhere in the
+      whole run, and 'claude plugin uninstall <id>' was printed bare twice.
+    #>
+    $t      = New-CaseTree 'keep-data-marketplace'
+    $mk     = New-CachedPluginCopy -Tree $t
+    $data   = New-SeededDataDir (Join-Path $t.elsewhere 'redirected-state')
+    $before = Get-TreeFingerprint $data
+    $r      = Invoke-Uninstall -Tree $t -DataEnv $data -ScriptPath (Join-Path $mk 'bin\lwg-uninstall.ps1')
+
+    # The control: the same script from the repository payload, which is not on
+    # the marketplace route, with its own seeded data directory.
+    $t2    = New-CaseTree 'keep-data-junction-control'
+    $data2 = New-SeededDataDir (Join-Path $t2.elsewhere 'redirected-state')
+    $ctl   = Invoke-Uninstall -Tree $t2 -DataEnv $data2
+
+    $id    = "$PluginName@lwg-fixture-marketplace"
+    $para  = Get-LeftBehindDataParagraph $r.out
+    $cpara = Get-LeftBehindDataParagraph $ctl.out
+    # EVERY PLACE THE COMMAND IS NAMED, NOT JUST THE FIRST. The contradiction was
+    # never in one paragraph: the plugin-clone entry and the CANNOT SEE block
+    # name the same command, and fixing one of the three leaves the report still
+    # handing over the destroying form.
+    $bare  = @($r.out -split "`r?`n" |
+               Where-Object { $_ -like "*claude plugin uninstall $id*" -and $_ -notlike '*--keep-data*' })
+
+    $bad = @()
+    if ($r.code -ne 0) { $bad += "the marketplace run exited $($r.code), expected 0" }
+    if ($para -eq '')  { $bad += 'the marketplace run printed no LEFT BEHIND entry for the data directories, so the paragraph this case is about was never reached' }
+    if ($para -notmatch 'DELETE-MY-LWG-LOGS') { $bad += 'the data paragraph no longer names the confirmation token - the true half was deleted instead of the false half being qualified' }
+    if ($para -notmatch [regex]::Escape('--keep-data')) { $bad += 'THE PROMISE IS STILL UNQUALIFIED: the paragraph says these files are kept and never names --keep-data, the only form of the CLI uninstall that keeps them' }
+    if ($para -notmatch [regex]::Escape("claude plugin uninstall $id")) { $bad += "the data paragraph does not name 'claude plugin uninstall $id', so the operator is not told which command the warning is about" }
+    if ($bare.Count -gt 0) { $bad += "$($bare.Count) line(s) name 'claude plugin uninstall $id' with no --keep-data beside it: " + (($bare | ForEach-Object { $_.Trim() }) -join ' || ') }
+    if ((Get-TreeFingerprint $data) -ne $before) { $bad += 'the dry run changed the seeded data directory' }
+    # CONTROL - the junction route keeps the original sentence and gains no
+    # warning about a command that does not apply to it.
+    if ($cpara -eq '') { $bad += 'CONTROL: the junction run printed no data-directories entry, so the control established nothing' }
+    if ($cpara -notmatch 'DELETE-MY-LWG-LOGS') { $bad += 'CONTROL: the junction route lost the confirmation-token sentence' }
+    if ($cpara -match [regex]::Escape('--keep-data')) { $bad += 'CONTROL: the junction route warns about a CLI uninstall that owns none of its data, so the new sentence is unconditional rather than route-aware' }
+    if ($ctl.out -match [regex]::Escape("claude plugin uninstall $id")) { $bad += 'CONTROL: the junction route printed a marketplace id' }
+
+    Add-Result -Name 'the marketplace route names --keep-data and stops promising the logs survive the CLI uninstall (#280)' `
+               -Ok ($bad.Count -eq 0) `
+               -Detail (($bad -join '; ') + " | marketplace exit $($r.code), control exit $($ctl.code) | paragraph: $($para.Trim())")
+}
+
 function Test-ReparseStateDirIsRefused {
     <#
       A JUNCTION UNDER THE DATA ROOT, POINTING AT A CANARY TREE.
@@ -2330,6 +2433,7 @@ try {
     Test-StatusLineFileKeptWhenKeyHalfCannotRun
     Test-NoFileHashStillProducesAFootprint
     Test-MarketplaceRouteDoesNotPrintJunctionSentences
+    Test-MarketplaceRouteSaysTheCliUninstallTakesTheData
     Test-ReparseStateDirIsRefused
     Test-PartialDeletionNamesWhatWent
     Test-EnvPathWithNoOwnershipSignalIsRefused
