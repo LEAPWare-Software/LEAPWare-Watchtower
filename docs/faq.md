@@ -128,7 +128,7 @@ What the evidence *does* say, and it is kept in full at
   hole in the record was found by somebody deliberately trying to break the gate.
 
 The conclusion written down at the time — *a gate with a green suite and no independent break-attempt
-should be assumed broken* — is why `tests/gate_delegate.ps1` being 93 of 93 green is stated carefully
+should be assumed broken* — is why `tests/gate_delegate.ps1` being 99 of 99 green is stated carefully
 everywhere rather than shrugged at.
 
 A gate *can* come back; the owner intends blocking capability to be re-addable. What a new one has to
