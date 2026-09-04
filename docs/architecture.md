@@ -521,9 +521,26 @@ session — that exit code is the only channel that reaches the orchestrator mid
 
 Until wave 1 the health indicator was cleared by a marker record, written by a resolver command
 that has since been deleted along with its library half. **Nothing writes a clearing record now and
-nothing reads one**: the status line takes a peak of the recorded fault counts over the log tail it
-reads, and that peak is lowered by nothing. A log written before the deletion may still hold such
-records; they fall through every arm of the reader untouched and are inert.
+nothing reads one.** What the status line puts in front of the `HH` glyph is three separate arms
+added together, and they do not behave the same way, so the difference is stated rather than
+averaged into one word:
+
+- **`supervisor_error` and non-interrupt `PostToolUseFailure` records are counted**, one fault each
+  ([`statusline/statusline.ps1`](../lw-watchtower/statusline/statusline.ps1), the two `$faults++` arms). No
+  later record lowers them; the only thing that removes one is the record itself leaving the tail
+  window the reader bounds itself to.
+- **`Stop.failed_tasks` is carried, newest wins** — the gauge, `$gauge = [int]$r.failed_tasks`,
+  added once below the loop. A turn end that records no failed task therefore *does* lower this arm,
+  to zero. The paragraph below is where that is argued; this is only where it is counted.
+- **The standing orphan count is a peak** over the same window (`$orphanPeak`, added beside the
+  gauge), and *that* is the arm nothing lowers.
+
+Driven against the shipped reader with seeded logs, one arm at a time: `failed_tasks` of `5` then
+`0` renders the **green** all-clear and `0, 3, 1` renders `HH1` rather than `HH3`, while one
+`PostToolUseFailure` followed by a clean `Stop` still renders `HH1` and `orphans_new` of `3` then
+`0` still renders `HH3`. So a red `HH` can clear itself and a red `HH` can be permanent, depending
+on which arm produced it. A log written before the deletion may still hold clearing records; they
+fall through every arm of the reader untouched and are inert.
 
 `Stop.failed_tasks` on those records is a **gauge**, not an event count: the supervisor writes the
 number of currently-failed background tasks at every turn end, so the newest record is the current
@@ -717,7 +734,7 @@ nonzero exit or empty stdout blanks the whole row.
 | Glyph | Meaning |
 | --- | --- |
 | green `HH` | the logs were read and this session is clean |
-| red `HH`*n* | *n* outstanding faults recorded for this session |
+| red `HH`*n* | *n* faults for this session. Whether a later clean turn end can lower it depends on which arm produced it — see [Health and healing](#health-and-healing) |
 | purple `HH?` | the supervisor or a healer agent is not installed, so nothing could be determined |
 | purple `HHx` | a log **exists** and could not be read |
 | dim `HH-` | nothing about this session was found to read — **not** an all-clear |
