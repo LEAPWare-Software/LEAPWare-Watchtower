@@ -3259,14 +3259,22 @@ try {
     # 26k. THE PAYLOAD IS A SUBDIRECTORY NOW, AND EVERY ADVISORY IN THIS FILE
     #      COMPARES A PATH (#238, #118).
     #
-    #      $dirtyPaths and $changed are built from `git status --porcelain=v2`
-    #      and `git diff --name-only` with -WorkDir $Root and NO --relative, so
-    #      git prints paths relative to the REPOSITORY ROOT. After PR #236 the
-    #      shipped payload lives under lw-watchtower/, so every one of those
-    #      paths is `lw-watchtower/...` while NINE comparisons in
+    #      $changed is built from `git diff --name-only` with -WorkDir $Root and
+    #      NO --relative, so git prints paths relative to the REPOSITORY ROOT.
+    #      After PR #236 the shipped payload lives under lw-watchtower/, so every
+    #      one of those paths is `lw-watchtower/...` while EIGHT comparisons in
     #      bin\lwg-update.ps1 were written against `hooks/hooks.json`,
     #      `.claude-plugin/plugin.json`, `statusline/statusline.ps1`,
     #      `config.json` and `commands/*`.
+    #
+    #      #238 COUNTS NINE AND THE NINTH GOES THE OTHER WAY, which this section
+    #      is how anybody found out. $dirtyPaths comes from
+    #      `git status --porcelain=v2`, which honours status.relativePaths -
+    #      default true - and therefore prints paths relative to -WorkDir, i.e.
+    #      ALREADY payload-relative. PR #236 gave that comparison the prefix too,
+    #      and it then matched nothing on the shape it was added for. So the
+    #      count is eight-plus-one, and the mutation note below says what each
+    #      half does.
     #
     #      NOTHING GOES RED WHEN THOSE STOP MATCHING. No row disappears, no exit
     #      code moves: the operator simply stops being told that a hooks change
@@ -3282,10 +3290,19 @@ try {
     #      '' when -Root is the repository root, which is what every case above
     #      exercises, so the two shapes are both covered.
     #
-    #      GREEN AT c39e782, where the derivation already is. The red is BY
-    #      MUTATION: force `$script:PathPrefix = ''` at bin\lwg-update.ps1's
-    #      derivation and all four assertions below fail together, because that
-    #      is the one place the nine literals are now built from.
+    #      HOW EACH ASSERTION BELOW GOES RED, and they do not all go the same
+    #      way, which is the whole finding:
+    #
+    #        the WORKTREE one is red at c39e782 with NO mutation at all - the
+    #        prefix is on that comparison there and it matches nothing;
+    #        the other three are green at c39e782 and go red BY MUTATION -
+    #        force `$script:PathPrefix = ''` at bin\lwg-update.ps1's derivation,
+    #        which is the one place the eight literals are built from.
+    #
+    #      Under that same mutation the worktree one goes GREEN, because the bare
+    #      `config.json` is what git status prints. Two mutations pointing
+    #      opposite ways over one variable is the evidence for the split, and it
+    #      is stated rather than averaged into "all four fail together".
     # -------------------------------------------------------------------
     $repoConfigBytes = [IO.File]::ReadAllBytes((Join-Path $Root 'config.json'))
     $t = New-CaseTree -Tag 'update-payload-prefix' -Bytes $null
@@ -3338,14 +3355,14 @@ try {
 
     Add-Result 'update: all five re-approval advisories still fire when the payload is a subdirectory (#238)' `
         ([bool]($missing.Count -eq 0 -and $a.out -match 'NEEDS RE-APPROVAL OR RE-INSTALL \(5\):')) `
-        ("$($missing.Count) advisory(ies) did not fire: $($missing -join ', '). These are five of the nine path literals PR #236 had to change, and nothing went red when they stopped matching. Bullets:`n$needText`nOutput:`n$($a.out)")
+        ("$($missing.Count) advisory(ies) did not fire: $($missing -join ', '). These are five of the eight repo-root-relative path literals PR #236 had to change, and nothing went red when they stopped matching. Bullets:`n$needText`nOutput:`n$($a.out)")
 
     Add-Result 'update: the config-flags row is computed for a payload config.json, and names the flags that move (#238)' `
         ([bool]($cfRow -and $cfRow -match 'docs_coupling' -and $cfRow -match 'git_hygiene')) `
         ("the row is built by `git show <upstream>:<prefix>config.json`, so without the prefix the branch is never entered and the row is ABSENT - which is a third answer, not a wrong one. Row:`n$cfRow`nOutput:`n$($a.out)")
 
-    # THE NINTH LITERAL is the FAILURE twin of the eighth: the same `git show`,
-    # reported when it does not answer. It is only reachable when the ref is not
+    # THE LAST OF THE EIGHT is the FAILURE twin of the one above it: the same
+    # `git show`, reported when it does not answer. It is only reachable when the ref is not
     # there, so the incoming commit DELETES the payload config.json - a deletion
     # is a change like any other to `git diff --name-only`, so the branch is
     # entered and the show then fails.
