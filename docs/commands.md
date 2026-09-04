@@ -19,7 +19,9 @@ that it exists is not a feature.
   else's project, formatted exactly like findings about your tree — on a consumer's machine, because
   at the time the whole repository root was the payload. It went with the manifest and the evidence
   engine behind it, and the payload boundary was drawn separately: the marketplace now sources
-  `./lw-watchtower` and nothing outside that subdirectory reaches a consumer at all.
+  `./lw-watchtower` and nothing outside that subdirectory is **loaded** as the plugin. The
+  marketplace clone beside the cache is the whole repository — see
+  [Install § Option A](install.md#option-a--marketplace-install-recommended-for-consumers).
 - `lw-watchtower:sitrep` reported the maintainer's repository to an operator working in their own,
   made authenticated `gh` calls with the operator's token to do it, and could not see running agents
   at all.
