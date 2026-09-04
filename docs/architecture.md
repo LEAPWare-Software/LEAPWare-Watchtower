@@ -403,11 +403,12 @@ Where it came from, and what was measured rather than assumed:
   the child is launched before the **two** in-process modules that can cover it and collected after
   them. Instrumented on this repo: git itself runs **93 ms**, about **400 ms** of other module work
   covers it, and the collection point waits **26 ms** instead of the **140 ms** it blocked for
-  before. **That 400 ms was measured when there were four modules in the process**, before
-  `verification_gate` and `mission_drift` were removed; it is left as the figure that was taken
-  rather than rescaled to a count nobody re-measured. `Process.Start` (~65 ms) is unavoidably
-  synchronous and is still paid. The child's timeout is measured from its launch, so it gets exactly
-  the same leash — the overlap shortens the hook, never the bound on the child.
+  before. **That 400 ms was measured when four modules, not two, sat between the launch and the
+  collection point** — see [Advisories](modules.md#advisories) for the two removals that took this
+  process down to its present three. It is left as the figure that was taken rather than rescaled to
+  a count nobody re-measured. `Process.Start` (~65 ms) is unavoidably synchronous and is still paid.
+  The child's timeout is measured from its launch, so it gets exactly the same leash — the overlap
+  shortens the hook, never the bound on the child.
 - **The repo slug is resolved only when it can change an answer** — when `config.repos` carries a
   real override, or when `git_hygiene` reaches its optional `gh` call. With the shipped empty
   `repos` block, `Test-LwgModule` behaves identically with a `$null` slug.
@@ -466,9 +467,9 @@ Measured on this repository on 3 August 2026, through the same `ProcessStartInfo
 **Read the ratio, not the absolutes.** The machine was running eight concurrent agent sessions, so
 both numbers are far above the 93 ms this page records for `git status` on an idle machine. What
 transfers is that the two children cost **about the same**, and that one of them is overlapped by
-the in-process module work while the other is not (the ~400 ms above, measured at four modules). So
-on an upstream-less branch the module's critical-path cost is roughly the ~90 ms above **plus a
-whole `git status`-sized child**, and the
+the in-process module work while the other is not (the ~400 ms above, taken when four modules
+covered the child rather than two). So on an upstream-less branch the module's critical-path cost is
+roughly the ~90 ms above **plus a whole `git status`-sized child**, and the
 sentence *"the worst case remains the `gh` call"* is misleading in the way that matters: the `gh`
 call is once per branch head per session, and this is once per turn.
 
