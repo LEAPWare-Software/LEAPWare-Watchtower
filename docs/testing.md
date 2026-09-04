@@ -907,7 +907,7 @@ separate entries so that dropping either does not quietly widen the other.
 `secrets.GITHUB_TOKEN` is still not pre-approved anywhere else: an entry written before a concrete
 step needs it is an entry written without a reason.
 
-### The red-first annotation guard
+## The red-first annotation guard
 
 `.github/scripts/redfirst_annotations.ps1` reads every `tests/*.ps1` and checks the SHAPE of its
 red-first annotations: a line claiming a baseline must name a commit, and a case id an annotation
