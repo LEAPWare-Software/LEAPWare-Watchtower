@@ -462,7 +462,16 @@ try {
                 $(if ($eff) { 'on' } else { 'off' }))
         }
         Write-Output ''
-        Write-Output '  EFFECTIVE is the flag a hook will read. It is still only an INTENTION:'
+        # "EFFECTIVE is the flag a hook will read" is a claim about the HOOK,
+        # and over an ambiguous state directory this run does not know which
+        # override a hook resolves - so the column is what THIS run resolved and
+        # the sentence has to say so (#270).
+        if ($sdSplit.ambiguous) {
+            Write-Output '  EFFECTIVE is the flag THIS RUN resolved. Whether a hook reads the same override is NOT'
+            Write-Output '  established - see the note above. It is also still only an INTENTION:'
+        } else {
+            Write-Output '  EFFECTIVE is the flag a hook will read. It is still only an INTENTION:'
+        }
         Write-Output "  a module whose BUILT column is 'no' or 'BLOCKED' does nothing whatever its flag says."
         if ($ownSwitch.Count -gt 0) {
             Write-Output ''
@@ -594,8 +603,24 @@ try {
     }
 
     if ($onDefaults) {
+        # WHY, NOT JUST THAT - and "does not parse" was the wrong sentence for
+        # one of the three ways to get here (#268). A config.json reduced to
+        # {"modules":false} parses perfectly and is still not a config, so a
+        # refusal blaming the JSON sends the operator hunting a syntax error
+        # that is not there. The probe below distinguishes the three.
+        $whyDefaults = 'does not parse'
+        try {
+            $probeText = Read-LwgTextFile -Path $ConfigPath
+            if ($probeText.ok -and -not [string]::IsNullOrWhiteSpace($probeText.text)) {
+                $probeCfg = $null
+                try { $probeCfg = $probeText.text | ConvertFrom-Json -ErrorAction Stop } catch { $probeCfg = $null }
+                if ($null -ne $probeCfg -and -not (Test-LwgConfigShape -Config $probeCfg)) {
+                    $whyDefaults = 'parses, but its "modules" member is not an object carrying at least one flag - a "modules" of false, 0, "", [] or {} declares nothing, so Get-LwgConfig will not use the file'
+                }
+            }
+        } catch { }
         Write-Refusal @(
-            "$ConfigPath does not parse, so the plugin is running on BUILT-IN DEFAULTS and every operator ON/OFF choice is already being ignored.",
+            "$ConfigPath $whyDefaults, so the plugin is running on BUILT-IN DEFAULTS and every operator ON/OFF choice is already being ignored.",
             'An override is merged over those defaults, not over a file nobody could read, so a write now would be recorded and then resolved against a config that is not the one you meant.',
             'Fix the JSON first - /lw-watchtower:doctor names this as the config-registry check.'
         )

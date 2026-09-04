@@ -1759,13 +1759,22 @@ function Test-G8-AdditionalContextDoesNotPrintItsRemainderCountTwice {
 # defect, about this exact spawn shape, and fixes it - and the reasoning was
 # applied to one file out of the ten that read a payload.
 #
-# WHY THIS IS ONE CASE AND NOT FOUR. There are four stdin readers: Read-LwgStdin
-# in lib/common.ps1, which every hook that dot-sources it uses, and three
-# scripts that must drain the pipe before common.ps1 exists - lib/gate_delegate.ps1,
-# lib/gate_send.ps1 and lib/subagent_start.ps1. This suite owns the SessionStart
-# hook, so H1 pins the shared reader; tests/gate_delegate.ps1 carries the
-# sibling case for the gate's own drain. lib/gate_send.ps1's drain is asserted
-# by nothing, and that is a gap rather than a claim.
+# WHY THIS IS ONE CASE AND NOT FOUR, AND WHAT IS THEREFORE UNPINNED. There are
+# four stdin readers: Read-LwgStdin in lib/common.ps1, which every hook that
+# dot-sources it uses, and three scripts that must drain the pipe before
+# common.ps1 exists - lib/gate_delegate.ps1, lib/gate_send.ps1 and
+# lib/subagent_start.ps1. This suite owns the SessionStart hook, so H1 pins the
+# SHARED reader and nothing else.
+#
+# The three pre-common.ps1 drains are FIXED AND UNPINNED. No case anywhere
+# asserts on them, and that is stated here rather than left to be assumed,
+# because a header claiming coverage that does not exist is the defect this
+# whole file was written about. Their sibling cases belong in
+# tests/gate_delegate.ps1, tests/subagent_scan.ps1 and tests/payload_guard.ps1,
+# and were not added in the branch that fixed them: each of those suites
+# publishes a case count that tracked pages state, and moving one would have
+# failed the documentation-claims guard on a number that branch could not edit.
+# The measurement and the exact cases are written on #269.
 #
 # WHAT IT ASSERTS AND WHY THAT ONE. The recorded cwd, read off
 # lw-watchtower.jsonl on DISK, byte for byte against the fixture. Not the hook's

@@ -787,7 +787,17 @@ try {
                 if ($null -eq $probe) {
                     $why = 'holds no JSON object'
                 } elseif ($null -eq $probe.modules) {
-                    $why = 'parses, but has no top-level "modules" block - which is what Get-LwgConfig requires before it will use the file at all (lib\common.ps1:452)'
+                    $why = 'parses, but has no top-level "modules" block - which is what Get-LwgConfig requires before it will use the file at all'
+                } elseif (-not (Test-LwgConfigShape -Config $probe)) {
+                    # THE THIRD STATE, AND IT USED TO BE DIAGNOSED AS THE FIRST
+                    # (#268). `"modules": false` is not $null, so the branch
+                    # above never fired for it and the ladder fell through to
+                    # "could not be loaded" - a sentence that is false about a
+                    # file which parses perfectly, and which sends the operator
+                    # looking for a syntax error that is not there. The three
+                    # states have the same fallback and different causes, so
+                    # they get different sentences.
+                    $why = 'parses and has a "modules" member, but that member is not an object carrying at least one flag - which is what Get-LwgConfig requires before it will use the file at all (Test-LwgConfigShape in lib\common.ps1). A "modules" of false, 0, "" , [] or {} declares nothing'
                 }
             } catch {
                 $why = ("does not parse - {0}" -f (Get-LwgBriefParseError -Message $_.Exception.Message))
@@ -1098,10 +1108,26 @@ try {
     }
 
     Write-Output ''
-    Write-Output 'IN EFFECT FROM NOW ON, in this session:'
-    Write-Output ''
-    Write-Wrapped -Text $(if ($afterEff) { $spec.onText } else { $spec.offText }) -Indent '  '
-    Write-Output ''
+    # THE HEADING IS A SESSION-LEVEL ASSERTION AND IT IS THE LAST PLACE #270
+    # SURVIVED. "IN EFFECT FROM NOW ON, in this session: Work may be done
+    # directly on the main thread" is the same false claim as the headline, one
+    # block lower, and it is the sentence an operator acts on - it does not name
+    # a file, so a caveat attached to a file does not reach it. Over an
+    # ambiguous state directory this command cannot state what is in effect,
+    # because "in effect" means "what the hook reads" and it does not know which
+    # file that is.
+    if ($sdSplit.ambiguous) {
+        Write-Output 'WHAT IS IN EFFECT CANNOT BE STATED FROM HERE - see the ambiguity note above.'
+        Write-Output ''
+        Write-Wrapped -Text ("IF a hook resolves the same state directory this run did, then: " +
+                             $(if ($afterEff) { $spec.onText } else { $spec.offText })) -Indent '  '
+        Write-Output ''
+    } else {
+        Write-Output 'IN EFFECT FROM NOW ON, in this session:'
+        Write-Output ''
+        Write-Wrapped -Text $(if ($afterEff) { $spec.onText } else { $spec.offText }) -Indent '  '
+        Write-Output ''
+    }
     # The heading is the first thing read, so a switch that prints ENFORCED
     # while enforcing nothing would be the loudest possible lie this command
     # could tell about itself. It is guarded on $spec.wired rather than printed

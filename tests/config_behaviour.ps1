@@ -1126,7 +1126,9 @@ try {
             $f4.code, $(if (Test-Path -LiteralPath $sand.cfg) { 'WAS CREATED' } else { 'was not created' }))
 
     # -----------------------------------------------------------------------
-    # F5 to F8 - #268. A config.json that PARSES and is not a config.
+    # F5 to F7 - #268. A config.json that PARSES and is not a config.
+    # F8 is #274 and rides in this block only because it drives the SHIPPED
+    # config.json, which F8 has to and nothing else here does.
     #
     # Every case above this one breaks config.json in a way ConvertFrom-Json
     # rejects, and Get-LwgConfig's guard was a NULL TEST - `$null -ne

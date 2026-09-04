@@ -19,10 +19,11 @@
   This paragraph said THREE and named only two siblings until 3 August 2026,
   omitting the uninstaller and evidence-state suites by name; it went on naming
   tests\evidence_states.ps1 - deleted in wave 1 with the evidence engine it held
-  - until 4 September 2026, and said FIVE while eleven suites test behaviour. A
-  header that names a file which is not there is exactly the stale reference the
-  red-first annotation guard exists to catch one class of, and nothing catches
-  this one: that guard reads annotations, not sibling names. It is not read by
+  - until 4 September 2026, and said FIVE while eleven suites test behaviour.
+  Nothing in the tree could have caught it. The annotation guard under
+  .github\scripts\ checks that a case an annotation names still exists, which is
+  the same class of staleness one step over, but it reads annotations rather
+  than sibling file names. It is not read by
   tests\doc_claims.ps1 and still is not: that guard's $proseFiles set is
   tracked .md/.json/.yml/.yaml, so no .ps1 header in this directory is read at
   all - including the ones that publish their own case counts. Widening it to

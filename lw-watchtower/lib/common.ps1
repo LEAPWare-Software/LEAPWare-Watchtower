@@ -2924,8 +2924,12 @@ function Read-LwgStdinText {
       it owns the standard input handle, and a hook that exits with it open has
       the same shape as one that never drained the pipe.
 
-      Type accelerators and ::new(), not New-Object: the three drains that carry
-      a copy of these lines sit on documented no-cmdlet fast paths.
+      Type accelerators and ::new(), not New-Object: two of the three drains
+      that carry a copy of these lines sit on documented no-cmdlet fast paths
+      (lib/gate_delegate.ps1 and lib/subagent_start.ps1; lib/gate_send.ps1 has
+      no fast path and says so in its own header). The spelling is the same in
+      all four places anyway, because four copies that differ are four things to
+      keep in step.
 
       See Read-LwgStdin's header for WHY this exists rather than [Console]::In.
     #>
