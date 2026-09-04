@@ -749,12 +749,14 @@ it stood on disk *before* that turn's write; a later turn at 950 k rendered
 `context 95% CRITICAL (950k/1.0M, window inferred from earlier turns)` with
 `window_source: observed`.
 
-**A promoted entry is never lowered.** Corroboration makes a wrong pin much less likely; it does not
-make one recoverable. The stored figure only ever grows, nothing in the plugin clears it and there
-is no expiry — so `observed` corrects the 200 000 assumption *upward* and in no other direction. The
-two ways back are an explicit `window_tokens` entry, which outranks it, and deleting
-`context_windows.json` from the state directory: a missing file reads as an empty store, so the
-ladder starts again from the top.
+**A promoted entry is never revised.** Corroboration makes a wrong pin much less likely; it does not
+make one recoverable. Both write branches are guarded on the stored figure still being at or below
+the 200 000 default, so the moment it goes above it nothing rewrites it, nothing clears it and there
+is no expiry — `observed` corrects the assumption *upward*, once, and in no other direction.
+Reproduced: after `{"claude-z-1":260000}` was promoted, a later turn at 950 k resolved against it
+and left it at 260 000. The two ways back are an explicit `window_tokens` entry, which outranks it,
+and deleting `context_windows.json` from the state directory — a missing file reads as an empty
+store, so the ladder starts again from the top.
 
 **Residual risk, stated plainly:** for an unrecognised model whose real window is 1 M, occupancy
 between 150 k and 200 k will read as `75–100%` until **two** turns cross 200 000 and the
