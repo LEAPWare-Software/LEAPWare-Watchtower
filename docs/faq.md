@@ -16,8 +16,7 @@ If you are here to find out what this plugin **cannot** do, the consolidated ans
 - [Does it block anything?](#does-it-block-anything)
 - [Is this a security tool?](#is-this-a-security-tool)
 - [Why were the gates removed?](#why-were-the-gates-removed)
-- [Why does the banner say `9/10` and `observe-only`? Is something broken?](#why-does-the-banner-say-910-and-observe-only-is-something-broken)
-- [Why is `verification_gate` called a gate if it cannot block?](#why-is-verification_gate-called-a-gate-if-it-cannot-block)
+- [Why does the banner say some modules are off, and `observe-only`? Is something broken?](#why-does-the-banner-say-some-modules-are-off-and-observe-only-is-something-broken)
 
 **Installing and running it**
 
@@ -48,9 +47,10 @@ If you are here to find out what this plugin **cannot** do, the consolidated ans
 
 ## What does this actually do?
 
-It runs ten governance modules over every Claude Code session on the machine, in every repo, with no
-per-project setup. **Nine of them observe** — they record, count or warn — and **one, `delegate_gate`,
-can refuse a tool call, and ships switched off.**
+It runs 11 governance modules over every Claude Code session on the machine, in every repo, with no
+per-project setup. **Eight of them observe** — they record, count or warn — and **three are gates that
+can refuse or hold an action: `delegate_gate`, `send_liveness_gate` and `completion_audit`. All three
+ship switched off**, and so does the eighth observing module, `orphan_watch`.
 
 Concretely, as shipped:
 
@@ -59,17 +59,17 @@ Concretely, as shipped:
   fails the session reports `degraded`; if `self_health` is off it reports `unverified`, which is a
   separate word from any that implies a pass.
 - **On every subagent dispatch** it injects the current bytes of
-  [`context/worker_facts.md`](../context/worker_facts.md) into the worker's context — because Claude
+  [`context/worker_facts.md`](../lw-watchtower/context/worker_facts.md) into the worker's context — because Claude
   Code snapshots `CLAUDE.md` at *parent-session* start, so an instruction added mid-session never
   reaches a worker dispatched later.
 - **On every `Write`/`Edit`/`NotebookEdit`** it records the path, for two turn-end advisories.
-- **At every turn end** it runs five advisories in one process: context-window pressure, whether work
-  was shipped without an independent verifier, whether source changed without docs, git branch/commit/push
-  hygiene, and whether the session has wandered off the task. All five warn; none blocks.
+- **At every turn end** it runs three advisories in one process — context-window pressure, whether
+  source changed without docs, and git branch/commit/push hygiene — and rotates two logs beside them.
+  Every one of them warns; none blocks.
 - **On five hook events** it records failures to `health.jsonl`, and on a genuine failure it exits 2,
   which injects a task notification into the live session. That exit code is the only channel that
   reaches an orchestrator mid-turn.
-- **Twelve slash commands** report on governance, report on the plan, or manage the install. Four of
+- **Six slash commands** report on the install or manage it. Four of
   the lifecycle ones dry-run by default.
 
 What it does **not** do is a longer and more important list: [Limitations](limitations.md).
@@ -137,34 +137,27 @@ rebuild first is at
 and the rules it has to follow at
 [What a future attempt must do differently](gates-removed.md#what-a-future-attempt-must-do-differently).
 
-## Why does the banner say `9/10` and `observe-only`? Is something broken?
+## Why does the banner say some modules are off, and `observe-only`? Is something broken?
 
-No. That is the correct shipped state and it is what the banner is for.
+No. That is the correct shipped state and it is what the banner is for. As shipped it reads:
 
 ```
-LW-WATCHTOWER v0.4.0 · 9/10 modules active (1 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.4.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
 ```
 
-- **`9/13`** — thirteen modules are built; nine are enabled. The other four are `orphan_watch` and the three gates, each built
-  and switched off. The parenthetical accounts for the remainder so the total always adds up.
-- **`0 gates`** — that number counts gates that are **live**, not gates that ship. One ships. Counting
-  a switched-off capability as a gate would claim protection that is not running.
+- **`7/11`** — eleven modules are built; seven are enabled. The four that are off are
+  `send_liveness_gate`, `completion_audit`, `orphan_watch` and `delegate_gate` — all four built, all
+  four shipped switched off. The parenthetical is the remainder being accounted for rather than a
+  warning: everything not counted is named, so the total always adds up.
+- **`0 gates`** — that number counts gates that are **live**, not gates that ship. Three ship.
+  Counting a switched-off capability as a gate would claim protection that is not running.
 - **`observe-only`** — no live gate, so nothing can be blocked. The mode ladder tests the live gate
   count **before** it tests whether any module is switched off, because "nothing can be blocked" is a
   larger fact than "some module is off".
 
 Turning an observing module off does not change the mode word. Running `/lw-watchtower:delegate on` does:
-the mode becomes `enforcing`, or `partial` if something else is off. Every mode word is defined at
-[Session modes](modules.md#session-modes).
-
-## Why is `verification_gate` called a gate if it cannot block?
-
-Because the name is a leftover from its original specification, and it is kept only so that logs and
-configs written against it keep working. It is registered kind `observe`, it warns at `Stop`, it has
-never blocked anything, and it is **not counted in the gate total**.
-
-Read the name as historical. Calling an advisory a gate would be the same class of overstatement as
-counting an unbuilt module as coverage — which is the defect this plugin exists to catch.
+the mode becomes `partial`, and `enforcing` only once every implemented module is on as well. Every
+mode word is defined at [Session modes](modules.md#session-modes).
 
 ## How do I install it on a second laptop?
 
@@ -194,7 +187,7 @@ Then, on the new machine:
    exit is a real finding, not a glitch.
 3. **Install the status line separately if you want it.** It is *not* part of the plugin — `statusLine`
    is a top-level `settings.json` key and a plugin has no manifest field for it. You copy
-   [`statusline/statusline.ps1`](../statusline/statusline.ps1) into your profile and wire the key by
+   [`statusline/statusline.ps1`](../lw-watchtower/statusline/statusline.ps1) into your profile and wire the key by
    hand. See [Install § status line](install.md#installing-the-status-line-optional-and-separate).
 
 Three things that will **not** carry over, stated so they are not a surprise:
@@ -239,7 +232,7 @@ because the case that costs most is a fix made to the live file and then overwri
 copy. Compare them first:
 
 ```powershell
-Get-FileHash "$env:USERPROFILE\.claude\statusline.ps1", ".\statusline\statusline.ps1" |
+Get-FileHash "$env:USERPROFILE\.claude\statusline.ps1", ".\lw-watchtower\statusline\statusline.ps1" |
     Select-Object Hash, Path
 ```
 
@@ -267,7 +260,6 @@ Measured figures, all one machine's medians rather than constants:
 | --- | --- |
 | `delegate_gate`, before every `Edit`/`Write`/`NotebookEdit`/`Bash`/`PowerShell`, **on or off** | ~436 ms with the switch off — ~142 ms of its own work above a 294 ms floor. It was ~652 ms until a fast path landed on 31 July 2026. With the switch **on** it is ~868 ms, slower than before, and that cost falls on the operator who armed it — see [`delegate_gate`](modules.md#delegate_gate) for the full table |
 | Turn end (`Stop` advisories) | ~1 212 ms median, against a 283 ms floor |
-| `mission_drift`'s share of turn end | ~137 ms |
 | Subagent dispatch (`context_injection`) | ~437 ms, against a 248 ms floor |
 
 Three things worth knowing:
@@ -281,13 +273,12 @@ Three things worth knowing:
   0.4 ms; dot-sourcing `lib/common.ps1` costs 76–104 ms. A cheaper JSON route was looked for and does
   not exist on this platform. That is also why five advisories share one process rather than five.
 - **You pay for `delegate_gate` whether or not you use it**, because a hook registration cannot be
-  made conditional. Deleting its `PreToolUse` entry from [`hooks/hooks.json`](../hooks/hooks.json)
+  made conditional. Deleting its `PreToolUse` entry from [`hooks/hooks.json`](../lw-watchtower/hooks/hooks.json)
   removes the cost and the ability to ever turn the gate on.
 
 What you *can* switch off cheaply: `module_config.git_hygiene.use_gh` removes the one network call
-(~980 ms worst case, capped and killed on expiry, at most once per branch head per session), and
-`modules.mission_drift: false` returns its ~137 ms to zero. Full breakdown:
-[Turn-end cost](architecture.md#turn-end-cost).
+(~980 ms worst case, capped and killed on expiry, at most once per branch head per session). Full
+breakdown: [Turn-end cost](architecture.md#turn-end-cost).
 
 ## How do I uninstall it?
 
@@ -318,8 +309,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/bin/l
 then the identical command with `-Apply` appended. Scope it to one repository with `-ThisRepo` or
 `-Repo <owner/name>`, and drop an override with `-Clear -Repo <owner/name>`.
 
-Or edit the `modules` block in [`config.json`](../config.json) by hand — the plugin is loaded through
-a junction, so no reinstall is needed.
+Or write the flag into the `modules` block of `config.override.json` under the state directory by
+hand. Editing `config.json` works too and is honoured where no override overrides it, but it dirties
+the plugin's git checkout and stops `/lw-watchtower:update` pulling, which is what the override exists
+to avoid.
 
 Four things the command will tell you and that are easy to miss:
 
@@ -344,8 +337,11 @@ bypass, and this repository's history with named exemptions is the reason there 
 Two ways back:
 
 1. Have a **subagent** run `/lw-watchtower:delegate off`.
-2. Set `interaction.delegate` to `false` in [`config.json`](../config.json) by hand. If the gate is
-   also refusing the edit, do that from outside the session.
+2. Set `interaction.delegate` to `false` by hand in `config.override.json` under the state
+   directory — `$CLAUDE_PLUGIN_DATA`, or `~/.claude/plugins/data/lw-watchtower*/`. **Not in
+   `config.json`**: that file is the shipped defaults, and an edit there changes nothing while the
+   override still says `true`. If no override file exists, the gate is off already and there is
+   nothing to turn off. If the gate is also refusing the edit, do that from outside the session.
 
 The deny message states both. If a per-repo override under `repos[slug].interaction.delegate` set it,
 that is the key to clear rather than the global one.
@@ -369,9 +365,9 @@ hand when there was no fact to close on, and surfaced by a `GM` segment on the s
 
 **`delegate_gate` did not bring it back.** When it denies, it writes a `GateDeny` event to
 `lw-watchtower.jsonl` and **nothing tracks it as an open item**: nothing records, reads, closes or
-acknowledges a trip. The `sitrep` command counted `GateDeny` records under `GOVERNANCE` as history
-and went on 2 September 2026, so nothing counts them now and nothing can clear one — that is an audit trail, not a ledger, which is exactly why the ledger was
-built in the first place.
+acknowledges a trip. The command that once counted `GateDeny` records under a `GOVERNANCE` heading
+went on 2 September 2026, so nothing counts them now and nothing can clear one — that is an audit
+trail, not a ledger, which is exactly why the ledger was built in the first place.
 
 If your status line still shows a `GM` segment, you are running a copy of `statusline/statusline.ps1`
 older than the one in this repo. The design, and what a future gate would have to rebuild, is kept at
@@ -382,22 +378,14 @@ older than the one in this repo. The design, and what a future gate would have t
 Then say so and turn it off. That is the documented response, not a workaround.
 
 Each advisory has a known false-positive class, all listed at
-[Caveats on the ten that only observe](modules.md#caveats-on-the-ten-that-only-observe). The common
+[the per-module caveats in Modules](modules.md). The common
 ones:
 
-- **`mission_drift`** — one surviving class: a redirection phrased with no concrete noun at all
-  (*"now go fix the other repo"*) followed by edits in a tree nobody named. Turn it off with
-  `modules.mission_drift: false`, or raise `module_config.mission_drift.min_files`. This page said
-  until 3 August 2026 that **nothing in this repository tests this module**, and that had been false
-  since 31 July: `mission_drift` is one of only three modules exercised at all, by
-  [`tests/stop_behaviour.ps1`](../tests/stop_behaviour.ps1), and this same page says so 100 lines
-  below. **Tested is not validated** — the cases pin that the code does what it is documented to do,
-  never that being warned by it is right — so a wrong warning is still worth reporting, and there is
-  a suite to report it against.
-- **`verification_gate`** — it sees subagents only. Verification you did yourself, or an orchestrator
-  reading the diff, leaves no record. Classify your own roles with an `lw-class` key in the role
-  file's frontmatter (`work`, `verify` or `neutral`), or tune `work_agents` / `verify_agents` under
-  `module_config.verification_gate`, or switch it off. See [`lw-class`](roles.md#lw-class).
+- **`docs_coupling`** — it classifies a path by extension, directory segment and stem against a
+  configurable word list, which is not an analysis. Tune the lists under
+  `module_config.docs_coupling`, or switch the module off. **Tested is not validated** — the cases
+  pin that the code does what it is documented to do, never that being warned by it is right — so a
+  wrong warning is still worth reporting, and there is a suite to report it against.
 - **`git_hygiene` says UNKNOWN** — that is not a false positive. It means git was missing, timed out
   or exited nonzero. **Do not read it as a clean tree.** Raise `timeout_ms` or check by hand.
 - **`context_pressure` shows no percentage** — deliberate. The computed occupancy exceeded the
@@ -417,9 +405,9 @@ happened. See [`git_hygiene`](modules.md#git_hygiene).
 
 ## Does it see files changed by a shell command?
 
-**No.** `docs_coupling` and `mission_drift` are both fed by `lib/post_edit.ps1`, a `PostToolUse` hook
+**No.** `docs_coupling` is fed by `lib/post_edit.ps1`, a `PostToolUse` hook
 on `Write|Edit|NotebookEdit`. A file rewritten by a shell command never reaches that hook and is
-invisible to both.
+invisible to it.
 
 That is a real blind spot, not a bug: a `PostToolUse` hook on `Bash` would receive the command string,
 not the set of files it touched.
@@ -459,54 +447,51 @@ unless you pass `-RemoveData` with the confirmation token. See `## [0.4.0]` in
 
 ## Can I run the tests myself?
 
-Yes. All twelve, from the repo root — the same twelve the `fast-checks` CI job runs:
+Yes. All 14, from the repo root — the same 14 CI runs:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1        # the one gate
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\setup_merge.ps1          # the installer's statusline + hooks merge
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1       # the two turn-end hooks
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1        # the delegate gate
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\supervision.ps1          # the other two gates and orphan_watch
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\setup_merge.ps1          # the installer's statusline + hooks merge, and the status line
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1       # the turn-end hooks
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\state_resolution.ps1     # the SessionStart hook and its state-dir resolution
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\uninstall_footprint.ps1  # the uninstaller's deletions
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\evidence_states.ps1      # the evidence engine
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1     # two of the doctor's nine checks
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\toggle_behaviour.ps1     # the toggle's write to config.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1     # two of the doctor's ten checks
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\config_behaviour.ps1     # the switchboard's write to config.override.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\toggle_behaviour.ps1     # the toggle's write to config.override.json
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1        # the SubagentStart fast path
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1        # every tracked file, as shipped payload
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1        # the shipped payload, and the tree around it
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\workflow_guard.ps1       # every workflow file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\portability_scan.ps1     # every tracked file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doc_claims.ps1           # every tracked page's counts
 ```
 
-**The first nine tally cases; eight of them drive this plugin's code.** Each of those eight spawns a
+**The first 11 tally cases; 10 of them drive this plugin's code.** Each of those spawns a
 child PowerShell process per case, through a real
 pipe, because a PowerShell object pipe never reaches `[Console]::In`, which is where a hook reads its
 payload. Nothing real is touched: every case builds a throwaway tree under the temp directory, and no
 case constructs a destructive command even as a string it never runs. `tests\payload_guard.ps1` is
-the ninth and is the odd one — it reads tracked files rather than running anything, but it reports
-cases, so the documentation guard classifies it as behavioural. Run one after another the nine take
-about ten minutes on one developer machine.
+the odd one — it reads tracked files rather than running anything, but it reports
+cases, so the documentation guard classifies it as behavioural.
 
 **The last three take seconds and assert nothing about behaviour.** Two scan the contents of tracked
 files; the third checks that the counts written in the documentation still match the tree, and it
-re-runs the eleven other suites in parallel to derive them rather than trusting a number typed
+re-runs the other suites in parallel to derive them rather than trusting a number typed
 into it.
 
-All twelve share one exit contract: `0` all passed, `1` at least one failed, `2` aborted — **and zero
+All 14 share one exit contract: `0` all passed, `1` at least one failed, `2` aborted — **and zero
 cases run is an abort, never a pass**.
 
-**What a green run of all twelve does not mean:** that the other **two** observing modules work.
-`verification_gate` and `self_health` are exercised by nothing at all, the seven that are exercised
-are exercised only in the cases somebody
-thought to write, and for five of the seven that is one to three cases on at most two properties.
-This sentence said **seven** and named only `mission_drift` and `failure_capture` as covered until
-the wave that added `tests/subagent_scan.ps1`; the count has now moved three times and nothing
-derives it, so read [Testing § what is not covered](testing.md#what-is-not-covered) rather than
-trusting the number here.
+**What a green run of all of them does not mean:** that any observing module is *validated*. Each is
+exercised only in the cases somebody thought to write, and for several of them that is one to three
+cases on at most two properties. Read
+[Testing § what is not covered](testing.md#what-is-not-covered) rather than trusting a count here.
 
 ## Why is there no CI badge in the README?
 
-One reason now, and it is the one that was always the real one: a green badge covering three gates and
-eight of the ten observing modules would read as far broader assurance than it is — the exact
-overstatement this project exists to avoid.
+One reason now, and it is the one that was always the real one: a green badge covering suites this
+thin would read as far broader assurance than it is — the exact overstatement this project exists to
+avoid.
 
 A second reason stood here until **2026-08-28** — that a badge would not render for most viewers of a
 repository they cannot read — and the visibility flip on that date retired it. It is recorded rather
@@ -514,8 +499,10 @@ than quietly dropped, because a reader who remembers two reasons should be told 
 
 ## What version is this? Is there a release?
 
-The manifests declare **0.4.0**, and **no tag carries that number**. It is pre-1.0. `v0.3.0` is the
-first and so far only tagged release, and `main` is well past it.
+The manifests declare **0.4.0**, and **no tag carries that number**. It is pre-1.0, and this
+repository has **no release tag at all**: `v0.3.0` was tagged on a predecessor repository whose
+history this one does not carry, so it is not served here. `v0.4.0` will be the first tag this
+repository publishes.
 
 **That gap is deliberate, and it is a rule rather than an oversight.** `main` must never declare a
 version a tag has already published, because while the two carry the same number the version cannot
@@ -528,10 +515,6 @@ of which changed how an existing `config.json` is read. See
 tagged. It names the release *line*. The commit does the identifying: `git rev-parse --short HEAD`
 in a clone. The documented marketplace install resolves the **default branch**, so it gives you
 `main` rather than any release — see [Install](install.md#which-tree-this-actually-gives-you).
-
-`checklist.json`'s `plan_version` reads `LW-WATCHTOWER v0.3.0`, and it means something different again: it
-names the *plan* being worked towards, not the version that ships. It agreed with the manifests at
-`v0.3.0` by coincidence, not by rule, and it no longer does.
 
 ## Why do the commands all start with `/lw-watchtower:`?
 

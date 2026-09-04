@@ -20,8 +20,9 @@ appended. Scope it with `-Repo <owner/name>` or `-ThisRepo` for a per-repo overr
 `-Clear -Repo <owner/name>` to drop an override so the module falls back to the global flag.
 
 The script is the answer. It reads `$LwgModuleRegistry` in `lib/common.ps1` - the source of
-truth for what this plugin actually does - and edits `config.json` surgically, leaving every
-explanatory comment in the file intact.
+truth for what this plugin actually does - and edits `config.override.json` surgically, leaving
+every explanatory comment in the file intact. `config.json` in the plugin root is the shipped
+defaults and no path here writes it; the override is merged over it and wins.
 
 Rules for reporting it:
 
@@ -36,14 +37,18 @@ Rules for reporting it:
   switch; a wrong `-On`/`-Off`/`-Clear` combination, or `-Clear` with no repo scope; a `-Repo`
   that is not the `owner/name` shape a hook produces, or that disagrees with `-ThisRepo`, or a
   `-ThisRepo` where no origin remote resolves to a slug at all; a `config.json` it cannot read,
-  or one that does not parse; and a write stopped at the last moment - the member is missing, the
+  or one that does not parse (an override is merged over defaults, not over a file nobody could
+  parse); a module whose hook reads `config.json` directly rather than through the shared resolver,
+  where an override would be reported as applied and ignored; and a write stopped at the last moment - the member is missing, the
   file changed underneath it, or the edited text would not have parsed as JSON. Give its reason
   in its words, and when it names another command, send the operator there. One further refusal -
   enabling a module that is declared with no code behind it - is defined but **fires for nothing
   today**: every name in the registry is implemented, so that list is empty and the script never
   prints it. Do not offer it as the cause, and do not go hunting for modules to name. Never offer
-  to edit `config.json` by hand instead: enabling a name with nothing behind it is the exact
-  defect this plugin exists to catch, and doing it manually is the same lie with an extra step.
+  to edit the settings file by hand instead: enabling a name with nothing behind it is the exact
+  defect this plugin exists to catch, and doing it manually is the same lie with an extra step. If
+  a hand edit is genuinely wanted for some other reason, it goes in `config.override.json` under the
+  state directory and **not** in `config.json`, which the override would overrule.
 - **`-Apply` is not implied.** If the user said "turn off git_hygiene", that is a request to
   show them the effect first. Do not run `-Apply` in the same breath unless they have already
   seen the preview or explicitly asked for the change to be made now.
@@ -52,7 +57,8 @@ Rules for reporting it:
   the script printed, and do not describe the change as done.
 - **Exit `3` means it could not complete, not that nothing was wrong.** The script threw and
   stopped wherever it had got to: it prints `LW-WATCHTOWER config could not complete: <error>`
-  and then that nothing above should be read as a description of what `config.json` now contains.
+  and then that nothing above should be read as a description of what the settings file now
+  contains.
   It can fire before the header line is printed, so those two lines may be the whole output.
   Quote the error, report it as the script failing, and do not tell the user the change was made
   **or** that it was not - the run establishes neither, and the file has to be looked at.
