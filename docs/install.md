@@ -213,7 +213,7 @@ line that is somebody else's, carrying none of this plugin's markers, is a **PAS
 legitimate configuration and the check says so. So *absent* is a failure and only *differs* is a
 warning; a first install therefore exits `1` on that row, and exits `1` again while the state
 directory is unresolved and no `SessionStart` record has been written yet. Read the rows, then do the
-[status-line install](#installing-the-status-line-optional-and-separate) below. A tool that reported
+[status-line install](#installing-the-status-line-part-of-the-install-and-a-separate-step) below. A tool that reported
 `0` here would be telling you something it had not checked.
 
 The doctor runs **10 checks**: `plugin-manifest`, `marketplace`, `hooks-declared`,
@@ -347,10 +347,13 @@ existing, rather than quietly falling back to your profile — a silent fallback
 whole defect on exactly the machine that set the variable. An unset, empty or whitespace-only value
 is not a value, and resolution continues to the profile.
 
-## Installing the status line (optional, and separate)
+## Installing the status line (part of the install, and a separate step)
 
-The `HH` segment of the Claude Code status line is this plugin's only live indicator surface, and
-**the script that renders it is not part of the plugin.** A second segment, `GM`, rendered the
+**The status line is part of a complete install, and `/lw-watchtower:doctor` FAILs without it** —
+an absent `statusLine.command` in `settings.json` is a failing `statusline` row and exit `1`, not a
+warning — but **the script that renders it is not part of the plugin**, which is why installing it
+is a step of its own rather than something the plugin manifest can carry. The `HH` segment it
+renders is this plugin's only live indicator surface. A second segment, `GM`, rendered the
 plugin's own governance state until 30 July 2026 and was deleted with the trip ledger that was its
 only input — see [gates-removed.md](gates-removed.md). Nothing emits it now, so a status line that
 never shows `GM` is a correct one. `statusLine` is a
@@ -364,7 +367,7 @@ installer does not need either: `bin/lwg-setup.ps1` derives the plugin root from
 `$PSScriptRoot`, so it finds the tracked status line wherever the CLI put the plugin, and
 `-StatusLineMode copy` — the default — writes `~\.claude\statusline.ps1` and wires the
 `statusLine` key in the same run, each behind its own diff and its own yes. That is the whole
-Option A route, and it is the reason this section is headed *optional and separate* rather than
+Option A route, and it is the reason this section is headed *a separate step* rather than
 *Option B only*.
 
 Where the CLI put it, if you want to read the file rather than let the installer find it: a

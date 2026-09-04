@@ -695,7 +695,7 @@ taught it is deleted.
 The `HH` segment of the Claude Code status line is this plugin's only live indicator surface, and
 the script that renders it is **not part of the plugin**. It is tracked at
 [`statusline/statusline.ps1`](../lw-watchtower/statusline/statusline.ps1) and installed by copying — see
-[Install](install.md#installing-the-status-line-optional-and-separate).
+[Install](install.md#installing-the-status-line-part-of-the-install-and-a-separate-step).
 
 ```
 row 1   model  HH  ORC  ctx  5h  7d  #branch  PR#  owner/repo
