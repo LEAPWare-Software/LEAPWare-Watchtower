@@ -59,6 +59,7 @@ that the advisories fire, that the right context reaches a subagent, that the in
 `settings.json` correctly, or that Claude Code has this plugin enabled in the current session.
 **Nothing the doctor runs tests behaviour, and no command in this plugin does either.** Both security
 gates and both of their harnesses were removed on 30 July 2026 at the owner's instruction; the one
-gate that ships since, `delegate_gate`, is exercised by `tests/gate_delegate.ps1` — which is a test
-file run by CI and by hand, not something a command can invoke. Say that plainly rather than pointing
+gates that ship since — `delegate_gate`, `send_liveness_gate` and `completion_audit` — are
+exercised by `tests/gate_delegate.ps1` and `tests/supervision.ps1`, which are test
+files run by CI and by hand, not something a command can invoke. Say that plainly rather than pointing
 at a command that would establish it, because there is none.

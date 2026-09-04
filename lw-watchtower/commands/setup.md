@@ -36,24 +36,22 @@ written for someone non-technical and they carry the recommended answer. Ask the
 `AskUserQuestion`, one at a time, in the order given. Do not add questions of your own, do not
 reword them into jargon, and do not answer any of them yourself.
 
-**Q1 and Q2 no longer do anything, and each carries a `NOTE` saying so. Read that note out.**
-Q1 asks about stopping destructive commands and Q2 about protecting credential files; both
-protections were removed on 30 July 2026 at the owner's instruction, hooks and rules alike, and
-`-DestructiveGate` / `-SecretGate` now select nothing whichever way they are answered. The
-questions are still asked so an existing caller does not break. Put them plainly — "this one no
-longer has any effect, and here is what used to happen" — rather than letting the operator answer
-yes and believe they have installed something.
-
-Both print `recommended: n/a`, because a recommendation on a question whose answer selects nothing
-would be advice to no effect. Read the `NOTE` under each one out loud, and if the operator asks what
-to answer, say the answer does not matter because nothing acts on it.
+**There is no longer a question about destructive commands or about credential files, and there is
+no longer a parameter for either.** Both protections were removed on 30 July 2026 at the owner's
+instruction, hooks and rules alike. `-DestructiveGate` and `-SecretGate` are not accepted-but-inert
+parameters that select nothing - they are **not parameters at all**: `bin/lwg-setup.ps1` is
+`[CmdletBinding()]`, so passing either one is a binding error before a line of the script runs,
+nothing is written, and the exit code is `1` with the error on stderr. `-Section permissions` is
+refused the same way, by the `ValidateSet` on that parameter. If an operator asks for either gate,
+say it does not exist rather than offering a flag; if a caller still spells one, the script tells
+them, which is why the parameters were removed rather than kept loudly inert.
 
 Collect the answers into the flag string the block tells you to build. Every later command
 carries that same string.
 
-### 3. Three sections, three separate confirmations
+### 3. Two sections, two separate confirmations
 
-For each of `permissions`, `statusline`, `hooks`, **in that order**:
+For each of `statusline`, `hooks`, **in that order**:
 
 ```
 powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/bin/lwg-setup.ps1" -Step diff -Section <name> <answer flags>
@@ -62,7 +60,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/bin/l
 - Show the diff **verbatim**. It lists every line that would be added and states what is left
   alone. It writes nothing.
 - Ask the operator, for **this section only**, whether to go ahead. **One yes buys one section.**
-  Never ask once for all three, never carry a yes forward, and never treat "yes, do the setup"
+  Never ask once for both, never carry a yes forward, and never treat "yes, do the setup"
   from earlier as consent to any particular section.
 - On yes, run the `TO APPLY` line the diff printed, exactly as printed - it already carries the
   `-BaseHash` value. Do not invent that value and do not reuse an older one.
@@ -107,7 +105,8 @@ change was made. With a plain `param()` block PowerShell bound `-Something` as a
 and discarded it, so the step ran with its defaults and exited `0` as though the flag had been
 honoured: `-DryRunn` performed a real 15 KB write to `settings.json` and reported success, and
 `-StatusLineModee skip` silently installed the default `copy`. Both now exit `1` and write nothing.
-The UAT that found it is [`docs/uat-report.md`](../docs/uat-report.md).
+The UAT that found it is the v0.3.0 acceptance record, which is a maintainer note in
+`.github/notes/uat-report.md` and is not shipped with this plugin.
 
 Check the flags you pass against the `-> pass ...` lines the detect step printed anyway. The binding
 error tells you a name is wrong; it cannot tell you a *correct* name carries the answer you meant.
@@ -136,15 +135,15 @@ Restores the newest backup this command took, after keeping a copy of the curren
 - **Nothing is written that was not shown first.** If you find yourself about to edit
   `settings.json` with `Edit` or `Write`, stop: that is the one thing this command exists to
   avoid. The script is the only writer.
-- **Never bundle the three sections into one question.** `permissions.deny`, `statusLine` and
-  `hooks` are three different powers over the machine. The `permissions` section is still run and
-  still shown even though it now writes nothing — skipping it would hide the blurb that says so.
-- **Do not promise a single deny rule.** The rule table is empty: `permissions` can only ever
-  report "nothing to add". It installed 181 rules in six groups until 30 July 2026, when all six
-  went at the owner's instruction — the four destructive groups with the command gate, the two
-  secret groups with the secret gate. Paste the section's blurb verbatim; it says this in the
-  operator's own language. Never describe setup as installing protection, because it installs
-  none.
+- **Never bundle the two sections into one question.** `statusLine` and
+  `hooks` are two different powers over the machine.
+- **Do not promise a single deny rule, and do not look for a section that would write one.** There
+  is no `permissions` section any more: `Get-DenyGroups`, `New-PermissionsPlan` and the
+  `permissions` value of `-Section` are all deleted, and passing that value is refused by the
+  parameter's `ValidateSet`. The installer wrote 181 rules in six groups until 30 July 2026, when
+  all six went at the owner's instruction — the four destructive groups with the command gate, the
+  two secret groups with the secret gate. Never describe setup as installing protection, because it
+  installs none.
 - **Setup has never removed a rule and still does not.** An operator who was set up before
   30 July 2026 still has those rules in their own `settings.json` and the CLI still evaluates
   them. Running setup again neither renews nor deletes them. If they want them gone, that is
@@ -156,10 +155,13 @@ Restores the newest backup this command took, after keeping a copy of the curren
 - **Running it twice is safe and is meant to be.** A second run adds nothing, takes no backup
   and does not touch the file's timestamp. If someone asks whether it is safe to re-run, the
   answer is yes.
-- The module ON/OFF switchboard is [`config.json`](../config.json) and this command deliberately
-  does **not** edit it - it is a tracked file in a git working tree. Point the operator at it.
+- The module ON/OFF switchboard is `/lw-watchtower:config`, and this command deliberately does
+  **not** touch it. The shipped defaults are in [`config.json`](../config.json), a tracked file
+  nothing writes; an operator's own settings go to `config.override.json` under the state
+  directory. Point the operator at the command.
 - This command installs **wiring, and only wiring** — a status line, hook registrations and a
-  look at the helper roles. It writes **no** `permissions.deny` rule: that table is empty. The hook
+  look at the helper roles. It writes **no** `permissions.deny` rule: the function and the section that once wrote them are
+  both deleted, and `-Section` accepts `statusline` and `hooks` only. The hook
   registrations do now include one `PreToolUse` entry, `delegate_gate`, and registering it installs
   **no behaviour** — it is switched by `interaction.delegate` and ships off. There is deliberately
   no install-time question about it: an operator who declined it here and later ran

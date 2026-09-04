@@ -4,7 +4,7 @@ Six slash commands. Claude Code namespaces a plugin's commands with the plugin n
 prefix **cannot be suppressed**, so they are `/lw-watchtower:…` and nothing shorter.
 
 **There were twelve.** Every deleted command below is written **without a leading slash**, because
-[`bin/lwg-doctor.ps1`](../bin/lwg-doctor.ps1)'s `commands` check fails on a `/lw-watchtower:<name>`
+[`bin/lwg-doctor.ps1`](../lw-watchtower/bin/lwg-doctor.ps1)'s `commands` check fails on a `/lw-watchtower:<name>`
 reference with no command file behind it — the right rule, since a live-looking reference to a
 deleted command is a signpost to nothing.
 
@@ -17,8 +17,9 @@ that it exists is not a feature.
   places for the same answer to drift.
 - `lw-watchtower:checklist` rendered this plugin's own release plan — forty rows about somebody
   else's project, formatted exactly like findings about your tree — on a consumer's machine, because
-  the whole repository root is the payload. It went with `checklist.json` and the evidence engine
-  behind it.
+  at the time the whole repository root was the payload. It went with the manifest and the evidence
+  engine behind it, and the payload boundary was drawn separately: the marketplace now sources
+  `./lw-watchtower` and nothing outside that subdirectory reaches a consumer at all.
 - `lw-watchtower:sitrep` reported the maintainer's repository to an operator working in their own,
   made authenticated `gh` calls with the operator's token to do it, and could not see running agents
   at all.
@@ -33,8 +34,8 @@ that it exists is not a feature.
 **Four were deleted on 30 July 2026, and every deletion was deliberate.**
 
 - `lw-watchtower:verify` ran the gate regression suite and went with the destructive command gate that
-  suite mostly covered. **No command tests behaviour.** Ten suites test behaviour and only one of
-  them covers the gate — see [Testing](testing.md).
+  suite mostly covered. **No command tests behaviour.** 11 suites test behaviour and only two of
+  them cover a gate — see [Testing](testing.md).
 - `lw-watchtower:tripped` listed open gate trips and went with the trip ledger it read: both gates were
   already gone, so no trip could be recorded, and the ledger files it read were then backed up and
   removed too. Nothing records, reads, closes or acknowledges a trip, and `delegate_gate` did not
@@ -48,7 +49,7 @@ that it exists is not a feature.
   questions asked in a turn, and nothing can merge them after the fact; the 4-questions /
   2–4-options shape was always a platform limit on the question tool rather than a rule this plugin
   applied. Both had been **on by default since they shipped, enforcing nothing.**
-  `interaction.ask` and `interaction.ask_inline` went with them, and [`config.json`](../config.json)
+  `interaction.ask` and `interaction.ask_inline` went with them, and [`config.json`](../lw-watchtower/config.json)
   keeps the reasoning under `$removed_keys_comment` so nobody re-attempts them.
 
 ## Report on governance
@@ -58,7 +59,7 @@ Read and print; it changes nothing. There is one, and it absorbed the other on
 
 | Command | Backed by | What it does | Exits non-zero |
 | --- | --- | --- | --- |
-| [`/lw-watchtower:doctor`](#lw-watchtowerdoctor) | [`bin/lwg-doctor.ps1`](../bin/lwg-doctor.ps1) | Nine checks aimed at what is **not** working. | **yes — that is the point** |
+| [`/lw-watchtower:doctor`](#lw-watchtowerdoctor) | [`bin/lwg-doctor.ps1`](../lw-watchtower/bin/lwg-doctor.ps1) | 10 checks aimed at what is **not** working. | **yes — that is the point** |
 
 ## Lifecycle
 
@@ -67,14 +68,14 @@ second run with `-Apply` to write anything.
 
 | Command | Backed by | What it does | Exits non-zero |
 | --- | --- | --- | --- |
-| [`/lw-watchtower:setup`](#lw-watchtowersetup) | [`bin/lwg-setup.ps1`](../bin/lwg-setup.ps1) | Guided installer. Detects what is already present, asks in plain language, then writes `statusLine` and hooks **one section at a time, each behind its own diff and its own yes**. Its `permissions` section is still run and can only ever report that it has nothing to add — the rule table is empty and it installs no `permissions.deny` rules. | yes, on a step that could not be completed |
-| [`/lw-watchtower:config`](#lw-watchtowerconfig) | [`bin/lwg-config.ps1`](../bin/lwg-config.ps1) | Module switchboard: turn a governance module on or off, globally or for one repo, after being told exactly what the change does. | yes, on a bad key or an unwritable config |
-| [`/lw-watchtower:update`](#lw-watchtowerupdate) | [`bin/lwg-update.ps1`](../bin/lwg-update.ps1) | Fetches, then lists what would change and what needs re-approval afterwards. **Fast-forward only.** Re-runs the doctor after applying. | yes, if the fetch fails or a fast-forward is not possible |
-| [`/lw-watchtower:uninstall`](#lw-watchtoweruninstall) | [`bin/lwg-uninstall.ps1`](../bin/lwg-uninstall.ps1) | Reports the plugin's whole footprint and what removing it would take, and **names everything it cannot remove**. | yes, if part of the removal could not be completed |
+| [`/lw-watchtower:setup`](#lw-watchtowersetup) | [`bin/lwg-setup.ps1`](../lw-watchtower/bin/lwg-setup.ps1) | Guided installer. Detects what is already present, asks in plain language, then writes `statusLine` and hooks **one section at a time, each behind its own diff and its own yes**. It has no `permissions` section any more — the function and the section that wrote `permissions.deny` rules are both deleted, and `-Section` accepts `statusline` and `hooks` only. | yes, on a step that could not be completed |
+| [`/lw-watchtower:config`](#lw-watchtowerconfig) | [`bin/lwg-config.ps1`](../lw-watchtower/bin/lwg-config.ps1) | Module switchboard: turn a governance module on or off, globally or for one repo, after being told exactly what the change does. | yes, on a bad key or an unwritable config |
+| [`/lw-watchtower:update`](#lw-watchtowerupdate) | [`bin/lwg-update.ps1`](../lw-watchtower/bin/lwg-update.ps1) | Fetches, then lists what would change and what needs re-approval afterwards. **Fast-forward only.** Re-runs the doctor after applying. | yes, if the fetch fails or a fast-forward is not possible |
+| [`/lw-watchtower:uninstall`](#lw-watchtoweruninstall) | [`bin/lwg-uninstall.ps1`](../lw-watchtower/bin/lwg-uninstall.ps1) | Reports the plugin's whole footprint and what removing it would take, and **names everything it cannot remove**. | yes, if part of the removal could not be completed |
 
 ## Preferences
 
-One command, running [`bin/lwg-toggle.ps1`](../bin/lwg-toggle.ps1). It was three until
+One command, running [`bin/lwg-toggle.ps1`](../lw-watchtower/bin/lwg-toggle.ps1). It was three until
 2 September 2026, and the two that went were the two that enforced nothing. Read
 [what it actually does](#lw-watchtowerdelegate-the-one-preference-command-left) before treating it
 as a control.
@@ -93,22 +94,24 @@ the verdict.
 Each script can be run directly, which is how CI uses them:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File bin\lwg-doctor.ps1 -Quiet
+powershell -NoProfile -ExecutionPolicy Bypass -File lw-watchtower\bin\lwg-doctor.ps1 -Quiet
 ```
 
 ---
 
 ## `/lw-watchtower:doctor`
 
-Nine checks: `plugin-manifest`, `marketplace`, `hooks-declared`, `config-registry`, `state-dir`,
-`sessionstart`, `statusline`, `commands`, `agent-roles`.
+10 checks: `plugin-manifest`, `marketplace`, `hooks-declared`, `config-registry`, `state-dir`,
+`sessionstart`, `statusline`, `commands`, `platform`, `claude-version`.
 
-`agent-roles` was missing from this list, and the count above read *eight*, until 3 August 2026 — on
-a page the doctor's own slash command points the model at for what a row means. It is the check most
-likely to FAIL on a fresh install, so the one row a stranger was most likely to be told about was the
-one row this reference did not document. The script has never transcribed the number: it prints
-`$script:Rows.Count`, and `tests/doc_claims.ps1` now reads the three phrasings on this page against
+The list has been wrong twice, both times by omission, on a page the doctor's own slash command
+points the model at for what a row means. The script has never transcribed the number: it prints
+`$script:Rows.Count`, and `tests/doc_claims.ps1` reads the phrasings on this page against
 that header rather than against a sibling sentence.
+
+`agent-roles` was the ninth check until 2 September 2026 and **is gone**, with `verification_gate`,
+the module it was about. Nothing enumerates role classes any more and no row here reports on
+`agents/`.
 
 ### It is allowed to fail
 
@@ -123,7 +126,7 @@ that header rather than against a sibling sentence.
 statements, and collapsing them would let a crashed doctor read as a diagnosis. Every check was
 written by first arranging for it to fail and confirming it said so.
 
-Two of the nine checks exist because this repo has already shipped the bug they look for:
+Two of the 10 checks exist because this repo has already shipped the bug they look for:
 
 - **`state-dir`** fails when the state directory resolves to a *guess* rather than to the live
   directory — the defect that had the status line rendering unconditional green off an empty log.
@@ -132,19 +135,18 @@ Two of the nine checks exist because this repo has already shipped the bug they 
   disagree: a flag with no registry entry is a switch wired to nothing, and a registry entry with no
   flag is a module nobody can turn off.
 
-**`agent-roles`** fails when `verification_gate` is enabled — it is on by default — and **zero**
-verify-class roles are installed. That is a reachable state rather than a theoretical branch:
-[`docs/uat-report.md`](uat-report.md) records the FAIL being deliberately provoked and confirmed. A module in that state is not off: it can nag and can never clear,
-because it warns when the newest work-agent record is newer than the newest verify-agent record and
-with no verifier there is never a verify record to be newer than. A role counts by its own
-`lw-class: verify` frontmatter, or by a name in `module_config.verification_gate.verify_agents` that
-has a role file on disk. The remedy is to restore `agents/lw-verifier.md`, install a role declaring
-`lw-class: verify`, or switch `verification_gate` off. It is a **lower bound** and says so in its own
-detail line: roles shipped by other plugins are not enumerable from here, so it can produce a
-spurious FAIL and never a false PASS. See [Roles](roles.md).
+**`claude-version`** reports the Claude Code build against the one the eight hook events in
+`hooks/hooks.json` were read out of. It has three states and only one of them warns: a build that
+was read and is at or above the verified one **passes**; a build that was read and is **below** it
+**warns**, because `SubagentStart`, `PostToolUseFailure` and `StopFailure` may be inert there and an
+inert hook is silent; and a build that could not be read at all **passes with a detail saying so in
+words**. The third state is the normal one — `CLAUDE_CODE_VERSION` is not exported by the CLI on any
+path — and it is a PASS because it is a limit on what can be observed from here, not a fault in the
+tree. A PASS on this row is a statement about the **build only**: no event below `SessionStart` is
+proved to have fired on this machine by anything in the report.
 
 `statusline` also reports **drift** between `~/.claude/statusline.ps1` and this repo's
-[`statusline/statusline.ps1`](../statusline/statusline.ps1) as a warning. That copy is installed by
+[`statusline/statusline.ps1`](../lw-watchtower/statusline/statusline.ps1) as a warning. That copy is installed by
 hand and the two can silently diverge.
 
 ### What a green doctor does not mean
@@ -157,10 +159,12 @@ ships switched off, so on a default install nothing here blocks anything. The sc
 blind spots on every run, including the green ones.
 
 **No command tests behaviour.** The one that did — `lw-watchtower:verify`, over a 233-case suite — was
-removed with the destructive command gate. Ten behavioural test files survive it —
-[`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) for `delegate_gate`, and eight more covering
-the installer's `statusline` and hooks merge, the two `Stop` hooks, the uninstaller's deletions,
-the evidence engine, two of the doctor's nine checks, the toggle's write to `config.json`, the
+removed with the destructive command gate. 11 behavioural test files survive it —
+[`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) for `delegate_gate`,
+[`tests/supervision.ps1`](../tests/supervision.ps1) for the other two gates and `orphan_watch`, and
+nine more covering the installer's `statusline` and hooks merge, the turn-end hooks, the
+`SessionStart` hook and its state-directory resolution, the uninstaller's deletions,
+two of the doctor's 10 checks, the two writers of `config.override.json`, the
 `SubagentStart` fast path and what the shipped payload discloses — and every one of them is run by CI and by hand, while **no command reaches any
 of them.** So a green doctor is the only automated statement any *command* here makes about this
 plugin, and it is a statement about wiring alone. Do not fill that gap with an inference.
@@ -172,7 +176,7 @@ plugin, and it is a statement about wiring alone. Do not fill that gap with an i
 The guided installer, for someone who has never heard of a hook, a glob or a JSON key.
 
 **The model is the interface, not the installer.** Every decision, rule, path and diff comes out of
-[`bin/lwg-setup.ps1`](../bin/lwg-setup.ps1); the command prose only puts its questions to the
+[`bin/lwg-setup.ps1`](../lw-watchtower/bin/lwg-setup.ps1); the command prose only puts its questions to the
 operator and pastes its output verbatim. Nothing is written that the script has not printed first.
 
 It detects what is already there, then writes `statusLine` and hooks **one section at a time, each
@@ -190,14 +194,14 @@ removed or rewritten. See [`docs/install.md`](install.md) and
 
 ## `/lw-watchtower:config`
 
-The module switchboard, and the only supported way to change `config.json`'s `modules` block without
+The module switchboard, and the only supported way to change the `modules` block without
 hand-editing it.
 
 Run with no arguments it reports what is currently on. To change something it is run **twice**: once
 without `-Apply`, which prints the exact diff and states what the change does to your coverage, and
 once with, which writes it. `-Scope repo` writes an override for the current repository only.
 
-It refuses rather than guesses: a key that is not in the registry in [`lib/common.ps1`](../lib/common.ps1)
+It refuses rather than guesses: a key that is not in the registry in [`lib/common.ps1`](../lw-watchtower/lib/common.ps1)
 is rejected, because a flag with no registry entry is a switch wired to nothing — the defect
 `doctor`'s `config-registry` check exists to find.
 
@@ -244,7 +248,7 @@ the data is.
 
 ## `/lw-watchtower:delegate`, the one preference command left
 
-It runs [`bin/lwg-toggle.ps1`](../bin/lwg-toggle.ps1) with `-Flag delegate`. That script's own header
+It runs [`bin/lwg-toggle.ps1`](../lw-watchtower/bin/lwg-toggle.ps1) with `-Flag delegate`. That script's own header
 records the shape of the thing: **it was five flags, then three, and is now one.** `verbosity` and
 `plain` went with the output styles they recorded a preference about, and their removal took the
 `NOT WIRED` half of this page with them — the two flags that needed that block were exactly the two
@@ -264,7 +268,7 @@ wired switch printing `NOT WIRED` would be the loudest lie this command could te
 ### It is the only thing in this plugin that is enforced
 
 Turning it on arms [`delegate_gate`](modules.md#delegate_gate) —
-[`lib/gate_delegate.ps1`](../lib/gate_delegate.ps1), a `PreToolUse` hook on
+[`lib/gate_delegate.ps1`](../lw-watchtower/lib/gate_delegate.ps1), a `PreToolUse` hook on
 `Edit|Write|NotebookEdit|Bash|PowerShell` — which refuses those five tools for any call that did not
 come from a subagent. The refusal is real: a `PreToolUse` deny is honoured **even under
 `permissions.defaultMode: "bypassPermissions"`**, so for anyone running in that mode this is a
@@ -278,7 +282,11 @@ is a named bypass, and one named bypass is an argument about which others deserv
 back:
 
 1. Have a **subagent** run `/lw-watchtower:delegate off`. Its calls carry `agent_id` and are allowed.
-2. Set `interaction.delegate` to `false` in [`config.json`](../config.json) by hand.
+2. Set `interaction.delegate` to `false` by hand in `config.override.json` under the state
+   directory — `$CLAUDE_PLUGIN_DATA`, or `~/.claude/plugins/data/lw-watchtower*/`. **Not in
+   `config.json`**: that file is the shipped defaults, and an edit there changes nothing while the
+   override still says `true`. If no override file exists, the gate is off already and there is
+   nothing to turn off.
 
 **What it still does not do.** It refuses nothing a subagent does, and it never checks that a
 dispatch was any good. Delegation is enforced; delegating *well* is not, and describing it as
@@ -292,7 +300,7 @@ it is a registry entry of `kind = 'gate'` and the banner counts it. What stayed 
 `switch = @{ block = 'interaction'; key = 'delegate' }`, so `interaction.delegate` is the one and only
 switch. A second flag in `modules` would let you run `/lw-watchtower:delegate on` and have the gate
 stay silent because the other flag was false — a switch wired to nothing, which is the founding
-defect this plugin exists to catch. [`bin/lwg-doctor.ps1`](../bin/lwg-doctor.ps1)'s `config-registry`
+defect this plugin exists to catch. [`bin/lwg-doctor.ps1`](../lw-watchtower/bin/lwg-doctor.ps1)'s `config-registry`
 check knows about the exemption, asserts the declared key really exists, and fails if both spellings
 are present at once.
 
@@ -301,7 +309,7 @@ fails *open*, which would arm a blocking gate on a corrupt config — the wrong 
 unreadable `config.json` leaves it **off**, which is what keeps a bad config a nuisance rather than a
 lockout.
 
-### `config.json` is edited surgically, not round-tripped
+### The settings file is edited surgically, not round-tripped
 
 PowerShell 5.1's `ConvertTo-Json` rewrites an apostrophe and an angle bracket into six-character
 escape sequences, and roughly 60 % of `config.json` is explanatory `$comment` prose full of both. A
@@ -313,21 +321,21 @@ with `ConvertFrom-Json` and only writes the file if that parse succeeds, so a ba
 
 **There is no argument that deletes a per-repo override.** `on`, `off` and nothing at all are the
 only three things you type; a fourth verb that removes a key is a fourth thing to get wrong. When an
-override exists the script says where it is, and you delete the entry from `config.json` by hand to
+override exists the script says where it is, and you delete the entry from `config.override.json` by hand to
 fall back to the global default.
 
 | Exit | Meaning |
 | --- | --- |
 | `0` | the state was reported, or changed and reported |
 | `2` | the argument was not `on` or `off`, or `-Scope repo` was used outside a repo. **Nothing was written** |
-| `3` | `config.json` could not be read, could not be written, or would not have parsed afterwards. **Nothing was written** |
+| `3` | the settings file could not be read, could not be written, or would not have parsed afterwards. **Nothing was written**, and `config.json` in the plugin root is untouched on every path, because no path writes it |
 
 ---
 
 ## No manifest entry is needed
 
-`commands/` is **auto-discovered** from the plugin root; so are `agents/`, `skills/` and
-`output-styles/`. [`.claude-plugin/plugin.json`](../.claude-plugin/plugin.json) was **not** changed
+`commands/` is **auto-discovered** from the plugin root, and so is `agents/`.
+[`.claude-plugin/plugin.json`](../lw-watchtower/.claude-plugin/plugin.json) was **not** changed
 to add the command surface and must not be — naming `commands` in the manifest *replaces* the
 default directory scan rather than adding to it, so declaring it would at best change nothing and at
 worst hide the very files it names.

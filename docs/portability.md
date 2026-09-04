@@ -33,14 +33,16 @@ Three shipped defects, all the same defect:
   now derived; see the comment above `LwgPluginRoots`. (`GM` is named here because it existed at the
   time; it was deleted on 30 July 2026 and the line is left as the record it is.)
 - **One laptop's machine facts were injected into every subagent.**
-  [`context/worker_facts.md`](../context/worker_facts.md) is passed verbatim into every dispatch on
+  [`context/worker_facts.md`](../lw-watchtower/context/worker_facts.md) is passed verbatim into every dispatch on
   every machine, and it asserted an absolute interpreter path, an assumed minor version, one shell's
   stale-`PATH` quirk, and a claim about installed runtimes that was false even on the machine it
   described.
 - **A security module matched nothing on a fresh install.** `verification_gate`'s agent-name arrays
   listed only roles that exist in one operator's untracked personal agents directory. Everywhere
   else it was enabled, counted toward the session banner's coverage number, reported healthy — and
-  could never match a single record, so it could never warn.
+  could never match a single record, so it could never warn. (`verification_gate` is named here
+  because it existed at the time; the module was removed on 2 September 2026 and the line is left as
+  the record it is.)
 
 Each was found by an audit, which is a person remembering to look. This project's whole thesis is
 that a control which overstates itself is worse than no control; a rule enforced only by remembering
