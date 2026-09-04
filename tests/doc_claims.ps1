@@ -800,10 +800,41 @@ if (-not $SkipSuites) {
     if ($toRun.Count -eq 0) { Abort 'no sibling suites to run - the enumeration is broken.' }
 
     Say ("  running $($toRun.Count) sibling suite(s) in parallel to read their own tallies ...")
+    # LWG_SUITE_PARALLEL IS SET FOR THE CHILDREN AND FOR NOTHING ELSE - #250.
+    #
+    # A case whose verdict is a DURATION cannot be trusted here and must not be
+    # allowed to fail here. Thirteen suites start at once, most of them spawning
+    # a child process per case, and a case that asserts on the clock is then
+    # measuring the runner rather than the product. That is not a hypothesis:
+    # this guard aborted twice on tests\stop_behaviour.ps1 exiting 1 while the
+    # same suite passed 117 of 117 standalone minutes later (#250), and once on
+    # tests\gate_delegate.ps1 exiting 1 on main at 1799146 while its OWN CI step
+    # - the same tree, the same runner, minutes apart - passed 99 of 99.
+    #
+    # The abort is total by design: "nothing about the documentation was
+    # established by this run". So one timing case losing a race turns the whole
+    # Documentation claims step from a readable list of disagreements into an
+    # exit 2 that says nothing about the pages.
+    #
+    # WHAT THIS IS NOT. It is not a retry - a retry converts a flaky case into a
+    # slower flaky case and destroys the evidence that anything was ever wrong,
+    # and #250 is explicit that it is the wrong answer. It is not a widened
+    # threshold either: no margin is moved anywhere. The case still runs, is
+    # still counted in its suite's tally, still prints a line, and is still
+    # ENFORCED on every run that is not this one - its own CI step, and every
+    # local run of that suite. What is removed is only the one context in which
+    # its input is known to be meaningless.
+    #
+    # SET INSIDE THE JOB rather than on this process: the variable then reaches
+    # exactly the children this block starts and nothing that runs after it. A
+    # suite reads it by name; nothing here tells a suite which of its cases are
+    # durations, because a list held in this file is a list that goes stale in
+    # the other file.
     $jobs = @()
     foreach ($s in $toRun) {
         $jobs += Start-Job -ArgumentList $s.Full, $s.Base -ScriptBlock {
             param($Path, $Base)
+            $env:LWG_SUITE_PARALLEL = '1'
             $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Path
             [pscustomobject]@{ Base = $Base; Code = $LASTEXITCODE; Out = ($out -join "`n") }
         }

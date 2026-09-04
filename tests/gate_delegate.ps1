@@ -2263,6 +2263,50 @@ try {
     #      cannot re-derive the floor from a comment; they can from the line the
     #      run prints. It is one line, and it is deliberately the only per-case
     #      line a green run of this suite emits.
+    #
+    #      IT DOES NOT RUN UNDER tests\doc_claims.ps1's SIBLING PHASE - #250.
+    #      That phase starts all thirteen sibling suites at once, most of them
+    #      spawning a child process per case, and sets LWG_SUITE_PARALLEL in the
+    #      children. Everything this case reasons about above is about MACHINE
+    #      SPEED - a slow laptop against a fast one - and none of it is about
+    #      twelve other suites running beside it. The minimum of nine survives a
+    #      disturbed CI runner; it is not known to survive that, and on main at
+    #      1799146 it did not: CI step 6 passed this suite 99 of 99 standalone
+    #      while step 18's parallel phase aborted the whole documentation guard
+    #      on `tests\gate_delegate.ps1 exited 1`, same tree, same runner, minutes
+    #      apart. The abort is total - "nothing about the documentation was
+    #      established by this run" - so one timing case losing a race costs the
+    #      pages their only guard.
+    #
+    #      SKIPPED, NOT WIDENED AND NOT RETRIED. The margin does not move, the
+    #      sample count does not move, and nothing runs twice. The case is still
+    #      COUNTED in this suite's tally and still prints a line saying what
+    #      happened, so a run that skipped it cannot be mistaken for a run that
+    #      passed it - and it is still ENFORCED everywhere else, which is its own
+    #      CI step and every local run of this file. What is removed is the one
+    #      context in which its input is known to measure the runner.
+    #
+    #      THE VARIABLE IS READ HERE, not declared in doc_claims: that file knows
+    #      it launched siblings and nothing more. A list of "which cases are
+    #      timing cases" held over there is a list that goes stale here.
+    #
+    #      THE OTHER DURATION VERDICT IN THE FOURTEEN SUITES is
+    #      tests\stop_behaviour.ps1's D4 (:2210, two render medians against a
+    #      5000 ms difference) - the suite the first two aborts named. It needs
+    #      the same three lines and is not this lane's file; the shape is written
+    #      out on #250. Nothing else asserts on a clock: the remaining stopwatches
+    #      bound a poll or are reported in a RESULT: line, and
+    #      tests\uninstall_footprint.ps1's `wroteAtMs -lt 0` is a sentinel for
+    #      "the concurrent write never happened", not a duration.
+    $j10Parallel = -not [string]::IsNullOrWhiteSpace($env:LWG_SUITE_PARALLEL)
+    if ($j10Parallel) {
+        Write-Output '  J10 timing  SKIPPED under the parallel runner - a duration measured beside twelve other suites measures the runner, not the gate (#250)'
+        Add-Result 'J10 an off switch the fast path can prove still exits 0, and quicker than one it cannot' $true `
+            ('SKIPPED: LWG_SUITE_PARALLEL is set, so this run is one of the thirteen sibling suites tests\doc_claims.ps1 starts at once. This is the only case in this file whose verdict is a wall-clock difference, and a difference taken while twelve other suites are spawning a process per case measures the runner. Nothing is widened and nothing is retried - run this suite on its own, which its own CI step and every local run do, and the case is enforced exactly as written. See the block above it and #250.')
+    } else {
+    # NOT RE-INDENTED, deliberately: the body below is unchanged, and shifting it
+    # four spaces would bury a three-line change in a forty-line whitespace diff.
+
     $j10Fast = New-LwgRawRoot -Base $work -Name 'j10-fast' -Json (
         $jHead + '"interaction":{"delegate":false},' +
         '"repos":{"$comment":"Per-repo overrides keyed by the owner/name slug of the origin remote."}}')
@@ -2307,6 +2351,7 @@ try {
     Add-Result 'J10 an off switch the fast path can prove still exits 0, and quicker than one it cannot' `
         ($j10Bad -eq '' -and $j10Gap -ge $j10MarginMs) `
         ("$j10Bad  --  best of 9 interleaved: provable-off $j10FastMs ms (spread $j10FastSpread over its 9 samples), forced-through $j10SlowMs ms (spread $j10SlowSpread), gap $j10Gap ms, required >= $j10MarginMs ms. The margin is five times the largest gap measured between two IDENTICAL legs at this sample count (-20, 7 and 11 ms over three whole runs at c39e782), so noise has been measured unable to reach it; the real gap measured 207, 205 and 216 ms over the same three runs. READ THE SPREADS BEFORE READING THIS AS A REGRESSION: a spread of a few hundred milliseconds says the host was disturbed, and the minimum is the statistic least disturbed by that - a gap that collapsed while both spreads stayed small is the fast path no longer running, which is the one thing this case exists to see, and the only other thing that would notice is the cost going back to what docs/modules.md says it used to be. The first two measurements from a CI runner, both windows-latest, returned the SAME gap of 328 ms - one from a quiet runner (spreads 29 and 31) and one from a disturbed one (spreads 467 and 205), which is the minimum-of-nine argument holding on a machine nobody here controls. Measure both legs by hand there before reading a red as a regression")
+    }
 
     # -------------------------------------------------------------------
     # K. THE REPORTER AND THE READER, ON THE SAME CONFIG.
