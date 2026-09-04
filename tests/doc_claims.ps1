@@ -828,11 +828,21 @@ if (-not $SkipSuites) {
     # THE FAIL LINES AND THE TAIL, NOT THE WHOLE CAPTURE. A behavioural suite
     # here prints hundreds of lines and several print thousands; pasting all of
     # it into a step that has already failed buries the thing a reader came for.
-    # So: every line carrying a [FAIL] or an ABORT marker, plus the RESULT: and
-    # EXIT: lines, plus a stated count of what was left out. If a suite printed
-    # neither marker - it died before it could - the last lines it managed are
-    # printed instead, because "exited 1 and said nothing recognisable" is itself
-    # the finding.
+    # So: every line carrying a failure marker, plus the RESULT: and EXIT: lines,
+    # plus the whole `N FAILED:` block these suites close with, plus a stated
+    # count of what was left out. If a suite printed none of those - it died
+    # before it could - the last lines it managed are printed instead, because
+    # "exited 1 and said nothing recognisable" is itself the finding.
+    #
+    # THE MARKERS ARE THE ONES THE SUITES ACTUALLY PRINT, and this was got wrong
+    # on the first attempt in the way that matters: keying only on `[FAIL]` - the
+    # shape THIS file uses - showed a real stop_behaviour failure as two lines
+    # reading `RESULT: 116 of 117` and `EXIT: 1`, which is where the reader
+    # already was. The behavioural suites print `  FAIL  <case name>` and close
+    # with `N FAILED:` and one `  - name: detail` line per failure, and the
+    # detail line is the whole point: it carries what was seen. So the tail from
+    # the `N FAILED:` header is kept entire, bounded, rather than filtered
+    # line by line.
     #
     # THERE IS NO RETRY AND THERE WILL NOT BE ONE. A suite that fails
     # intermittently is a defect in that suite; re-running it until it passes is
@@ -840,8 +850,37 @@ if (-not $SkipSuites) {
     # into a permanently invisible one.
     foreach ($r in $results) {
         if ($r.Code -ne 0) {
-            $outLines = @([string]$r.Out -split "`r?`n")
-            $keep = @($outLines | Where-Object { $_ -match '(?i)\[FAIL\]|^\s*ABORT|^\s*RESULT:|^\s*EXIT:' })
+            $outLines  = @([string]$r.Out -split "`r?`n")
+            $markerPat = '(?i)^\s*(?:\[FAIL\]|FAIL\b|X\s|ABORT|ABORTED|RESULT:|EXIT:|\d+\s+FAILED)'
+            $tailFrom  = -1
+            for ($li = 0; $li -lt $outLines.Count; $li++) {
+                if ($outLines[$li] -match '(?i)^\s*\d+\s+FAILED\b') { $tailFrom = $li; break }
+            }
+            # THE DETAIL LINE IS THE POINT, AND IT IS THE LINE AFTER. Every suite
+            # here prints `  FAIL  <case name>` and then its detail indented
+            # underneath - what was expected, what was seen, the exit code, the
+            # first lines of the child's stdout. The name alone says which case;
+            # the detail is what stops the next person having to re-run anything.
+            # So a FAIL line drags the two lines under it along, bounded, and a
+            # RESULT:/EXIT:/ABORT line does not, because nothing useful follows
+            # those.
+            $failOnly = '(?i)^\s*(?:\[FAIL\]|FAIL\b|X\s)'
+            $keepIdx = New-Object System.Collections.Generic.List[int]
+            for ($li = 0; $li -lt $outLines.Count; $li++) {
+                if ($outLines[$li] -match $markerPat) {
+                    $null = $keepIdx.Add($li)
+                    if ($outLines[$li] -match $failOnly) {
+                        foreach ($d in 1, 2) {
+                            if (($li + $d) -lt $outLines.Count -and $outLines[$li + $d].Trim() -ne '') {
+                                $null = $keepIdx.Add($li + $d)
+                            }
+                        }
+                    }
+                    continue
+                }
+                if ($tailFrom -ge 0 -and $li -gt $tailFrom -and $li -le ($tailFrom + 60)) { $null = $keepIdx.Add($li) }
+            }
+            $keep = @($keepIdx | Sort-Object -Unique | ForEach-Object { $outLines[$_] } | Where-Object { $_.Trim() -ne '' })
             Say ''
             Say ("----- tests\{0}.ps1 said, before this run gave up on it -----" -f $r.Base)
             if ($keep.Count -eq 0) {
@@ -1251,18 +1290,36 @@ if ($suitesRan) {
                 # failed to match was a bare `continue`, and a truncated window
                 # and an empty one were byte-indistinguishable in the output.
                 #
-                # ONLY A WINDOW CONTAINING A DIGIT IS RECORDED. Most mentions of
-                # a suite's file name are followed by prose with no tally in it
-                # at all, and recording those would bury the interesting ones in
-                # a list as long as the corpus. A window holding a number this
-                # rule could not read is the shape that matters: it is a page
-                # stating something numeric beside a suite's name that nothing
-                # here checked. Most of those are timing rows, exit-code
-                # contracts and dates - all correctly unread - which is exactly
-                # why the line says "not read" rather than "wrong".
+                # WHAT IS RECORDED, AND THE THREE FILTERS, WHICH WERE MEASURED
+                # RATHER THAN GUESSED. The first draft recorded every window
+                # containing a digit and printed SEVENTY-SEVEN lines on a tree
+                # with one real defect in it. A report that long is a report
+                # nobody reads, which is the same failure as printing nothing,
+                # so the trace is narrowed to the shape the defect had:
+                #
+                #   * THE NUMBER IS NEXT TO THE SUITE'S NAME - inside the first
+                #     16 characters of the window. README.md's `runs 42` sat at
+                #     6. A number thirty words into a paragraph that happens to
+                #     mention a suite is not a claim about that suite's tally.
+                #   * IT IS NOT A TABLE CELL. A window opening with `|` is the
+                #     NEXT COLUMN of a table row, which is a different assertion
+                #     from the sentence naming the suite - the timing table in
+                #     docs\testing.md is eight rows of exactly that.
+                #   * IT IS NOT A DURATION. `262 s`, `10 s`, `4 min` are the
+                #     wall-clock figures ci.yml and docs\testing.md record beside
+                #     each suite. `s` is required at a word boundary, so `42
+                #     suites` is still read.
+                #
+                # WHAT THAT COSTS, stated rather than implied by a short report:
+                # a stale tally written more than 16 characters from the suite's
+                # name is still dropped silently. That is a narrower hole than
+                # the one this closes and it is the one to widen first if this
+                # ever misses something again.
                 if (-not $q.Success) {
                     $bare = [regex]::Match($win, '(?<![\w.])\d+')
-                    if ($bare.Success) {
+                    if ($bare.Success -and $bare.Index -lt 16 -and
+                        $win -notmatch '^\s*`?\s*\|' -and
+                        -not [regex]::IsMatch($win.Substring($bare.Index), '^\d+\s*(?:m?s|min|sec|seconds?|minutes?|hours?)\b')) {
                         Add-Decline -Rule "cases:$base" -Kind 'unread-window' -File $doc.Rel `
                             -Line (Get-LineNumber $doc $from) -Token ($win.Trim() -replace '\s+', ' ')
                     }
