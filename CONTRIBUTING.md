@@ -121,8 +121,16 @@ git clone https://github.com/<your-fork>/LEAPWare-Watchtower.git $Repo
 # junction route was written; this page dropped it.
 New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.claude\skills" | Out-Null
 
-cmd /c mklink /J "$env:USERPROFILE\.claude\skills\lw-watchtower" "$Repo"
+cmd /c mklink /J "$env:USERPROFILE\.claude\skills\lw-watchtower" "$Repo\lw-watchtower"
 ```
+
+**The target is `$Repo\lw-watchtower`, not `$Repo`, and getting that wrong gives you a
+working-looking install of nothing.** Since 3 September 2026 (#236) the shipped payload is the
+`lw-watchtower/` subtree — it is what holds `.claude-plugin/plugin.json` and `lib/`, and every hook
+registration is written as `${CLAUDE_PLUGIN_ROOT}/lib/*.ps1`. Link the clone root instead and
+`mklink` still prints `Junction created`, the session still starts, and every one of those paths
+resolves one directory short of the file it names: no banner, no hooks, nothing refused and nothing
+reported. See #242.
 
 A junction needs no administrator rights. **Do not develop against a marketplace install** — it
 copies the plugin root into an internal cache, so your edits do nothing until `claude plugin update`

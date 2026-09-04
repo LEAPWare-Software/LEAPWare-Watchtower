@@ -195,6 +195,18 @@ project exists to refuse.
 - **`tests/config_behaviour.ps1` and `tests/state_resolution.ps1`** — two behavioural suites for
   surfaces that had none: the config command's write path, and the state-directory resolver whose
   precedence rules every other component depends on and no case had ever exercised.
+  `state_resolution` landed with #210 and `config_behaviour` in the wave's first commit, which
+  carried no pull request of its own. **Both reached CI only through a sibling suite's helper until
+  #215**, which gave each its own named step — a suite that runs but reports under another suite's
+  name is a suite whose failure is attributed to the wrong thing.
+- **The state directory honours `CLAUDE_CONFIG_DIR`** (#146, #210, #220). Every path in `bin/` and in
+  the status line now resolves through one resolver with a stated precedence — an explicit
+  `-ClaudeHome`/`-SettingsPath`/`-DataRoot` parameter, then `$env:CLAUDE_PLUGIN_DATA` for the data
+  directory only, then `$env:CLAUDE_CONFIG_DIR`, then `$env:USERPROFILE\.claude`. A relative value is
+  made absolute against the working directory, a trailing separator is trimmed, and **a directory
+  that does not exist is returned as given with `exists = $false` rather than silently falling back
+  to the profile**, because a fallback that is not announced is how one machine's layout becomes
+  everybody's.
 - **A version-declaration guard that runs on a tag and on every pull request** (#209, #219, #224).
   `.github/scripts/version_declarations.ps1` holds the five declaration sites to each other, and —
   when a tag is passed — to the tag and to `CHANGELOG.md`'s heading for it. `release.yml` calls it
@@ -203,13 +215,13 @@ project exists to refuse.
   callers run the guard's own fixtures first and refuse to trust a live answer from a guard whose
   rules did not fire. This closes the gap where a drifted declaration was only ever noticed on
   release day, in the one workflow where stopping costs most.
-- **A red-first annotation guard** (#226). `.github/scripts/redfirst_annotations.ps1` reads every
+- **A red-first annotation guard** (#226, landed in #230). `.github/scripts/redfirst_annotations.ps1` reads every
   `tests/*.ps1` and holds the **shape** of its red-first annotations: a line claiming a baseline must
   name a commit, and a case id an annotation names must be a case that suite declares. It states its
   own limit in its header rather than in a footnote — it **cannot** re-run a baseline, so an
   annotation citing a real commit against a case that could never have failed there passes it — and
   a rule that matched nothing anywhere exits 2 rather than reporting a clean run.
-- **A tenth rule in `tests/workflow_guard.ps1`: `permissions-write`** (#225). Until 3 September 2026
+- **A tenth rule in `tests/workflow_guard.ps1`: `permissions-write`** (#225, landed in #230). Until 3 September 2026
   nothing here read a `permissions:` block, so a workflow granting `contents: write`, `pages: write`
   or `id-token: write` parsed clean and exited 0. The rule is structural rather than a grep, because
   two forms defeat one: the block sits at workflow level **or** at job level where it overrides, and
@@ -335,6 +347,12 @@ project exists to refuse.
   window is a pid reissued in the microseconds after the `HasExited` check, which the old `Kill()`
   fallback always carried too.
 
+- **`/lw-watchtower:config` refused a module name it should have accepted, and accepted one it
+  should have refused** (#91, #92, #206). The case-sensitivity check was written with an operator
+  that is case-insensitive in PowerShell, so the refusal whose own hint read *"Module names are
+  case-sensitive"* was unreachable for the only input it described. The command also now says when a
+  `-Repo` slug is being taken on trust rather than verified.
+
 - **The doctor reported a log it could not read as a dead hook** (#42, #203), reported an untracked
   tree as tracked, and carried a check-id set that no longer matched what it ran (#204, #205, #217).
   Each of those makes an unrun check read as a passed one, which is the failure class this whole
@@ -348,6 +366,13 @@ project exists to refuse.
 
 - **Two CI guards were being skipped by a sibling step's failure** (#209), so a red build could hide
   whether either had run at all. Both now run on `!cancelled()` and report their own verdict.
+
+- **`-SecretGate` and `-DestructiveGate` are binding errors rather than accepted-and-inert
+  parameters** (#173, #208, #212). Both gates were deleted on 30 July 2026 and the installer went on
+  accepting their switches, selecting nothing whichever way they were answered — a switch wired to
+  nothing, on the installer. Passing either now fails PowerShell's own parameter binding before any
+  script code runs, so nothing is written and there is no longer a question whose answer means
+  nothing. If a script of yours passes one, it will stop working, loudly, which is the point.
 
 - **Two committed cases could not fail** (#136, #137, #144, #177, #216, #232). They asserted
   something true of any tree, so they had been green since the day they were written and would have
@@ -561,9 +586,9 @@ project exists to refuse.
   enforced" is exactly the kind of overstatement this file exists to refuse.
 - **The version-identity guard reads declarations, not prose.** Pages that state the current version
   in a sentence or a sample banner are swept by hand; this pass swept `README.md`, `docs/faq.md` and
-  `docs/modules.md`. `HANDOFF.md` still says `0.3.0` in that form and is **left alone on purpose** —
-  it is titled *Handoff — 31 July 2026 (v0.3.0 release)* and that sentence is a record of the day,
-  not a claim about today.
+  `docs/modules.md`. `.github/notes/HANDOFF.md` still says `0.3.0` in that form and is **left alone
+  on purpose** — it is titled *Handoff — 31 July 2026 (v0.3.0 release)* and that sentence is a record
+  of the day, not a claim about today.
 - **The identity exposure this list carried as unresolved was resolved on 2026-08-28**, before this
   section was released, by deleting the predecessor repository that served the ref. The bullet is
   restated rather than deleted so the list does not silently lose an item it once carried; the
