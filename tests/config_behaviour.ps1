@@ -1152,30 +1152,38 @@ try {
         ("{0} run(s) wrote and exited 0, and config.override.json {1} in the state directory. A write that landed anywhere else is a write no hook resolves." -f `
             $ovLive.Count, $(if ([IO.File]::Exists($sand.ov)) { 'exists' } else { 'DOES NOT EXIST' }))
 
-    # THE ONE MODULE THIS COMMAND MUST NOT WRITE, AND WHY IT SAYS SO - #11.
-    # lib/subagent_start.ps1 reads <pluginRoot>\config.json directly, by raw
-    # text scan, and reaches Get-LwgConfig only for a per-repo override. An
-    # override written for context_injection would therefore be honoured by the
-    # banner, by the doctor and by this command's own read-back, and IGNORED by
-    # the hook the flag exists to switch - a write nothing honours, reported as
-    # verified, which is the silent no-op this command exists to refuse. Until
-    # that abstain lands, this refuses, loudly, and names the file and the
-    # issue. NEW SURFACE: at 4342980 the same command writes config.json and
-    # exits 0.
+    # THE MODULE THIS COMMAND USED TO REFUSE, AND WHY IT NO LONGER DOES - #11.
+    # lib/subagent_start.ps1 read <pluginRoot>\config.json directly, by raw text
+    # scan, and reached Get-LwgConfig only for a per-repo override. An override
+    # written for context_injection was therefore honoured by the banner, by the
+    # doctor and by this command's own read-back, and IGNORED by the hook the
+    # flag exists to switch - a write nothing honours, reported as verified,
+    # which is the silent no-op this command exists to refuse. So it refused.
+    #
+    # THE HOOK NOW READS THE OVERRIDE: the same two scanners run over
+    # config.override.json and every shape they cannot read escalates to
+    # Get-LwgConfig, so the two readers agree and a write here takes effect. The
+    # refusal went with the reason for it, in the same change as this case.
+    #
+    # THIS CASE IS THE MIRROR OF THE ONE IT REPLACES, and deliberately asserts
+    # the WRITE rather than merely the absence of the refusal: `-not refused` is
+    # satisfied by a command that has stopped doing anything at all. It goes RED
+    # at c253404, where the block is still in bin/lwg-config.ps1 and the command
+    # exits 1 having written nothing.
     Write-ConfigFile -Path $sand.cfg -Text $good
     Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $g1 = Invoke-Config -Sand $sand -ScriptArgs '-Module context_injection -Off -Apply' -Tag 'g1'
 
-    Add-Result 'context_injection is REFUSED rather than written where a second reader would not see it (#11)' `
-        ($g1.code -eq 1 -and (-not $g1.changed) -and (-not $g1.base_changed) -and `
-         ($g1.out -like '*subagent_start*') -and ($g1.out -like '*#11*')) `
-        ("exit was {0}; the override {1} and config.json {2}. The refusal must name lib/subagent_start.ps1 and the issue, because an operator refused a legitimate request is owed the reason and the way back. stdout: {3}" -f `
-            $g1.code, $(if ($g1.changed) { 'CHANGED' } else { 'was untouched' }), `
+    Add-Result 'context_injection is now WRITTEN, because lib/subagent_start.ps1 reads the override (#11)' `
+        ($g1.code -eq 0 -and $g1.changed -and (-not $g1.base_changed) -and `
+         ($g1.out -notlike '*cannot switch it*') -and ($g1.out -notlike '*does not switch it yet*')) `
+        ("exit was {0}; the override {1} and config.json {2}. The hook that made this a silent no-op now runs the same scanners over config.override.json and escalates to Get-LwgConfig for anything they cannot read, so a write here is honoured. stdout: {3}" -f `
+            $g1.code, $(if ($g1.changed) { 'changed' } else { 'was NOT changed' }), `
             $(if ($g1.base_changed) { 'CHANGED' } else { 'was untouched' }), (Get-FirstLines $g1.out 6))
 
-    Add-Result 'CONTROL: a module with no second reader is still written (#11)' `
+    Add-Result 'CONTROL: a module with no second reader of its own is written the same way (#11)' `
         (@($script:Runs | Where-Object { $_.tag -eq 'a3' -and $_.code -eq 0 -and $_.changed }).Count -eq 1) `
-        'the refusal above must be about context_injection and not about writing. git_hygiene has no fast reader of its own and case a3 wrote it; without this, refusing every module would satisfy the case above'
+        'the case above must be about context_injection reaching the same write path as everything else, not about this command writing whatever it is handed. git_hygiene has never had a fast reader of its own and case a3 wrote it; the two together say the special case is gone rather than inverted'
 
     # -----------------------------------------------------------------------
     # H. THE SHIPPED config.json ITSELF - #75
