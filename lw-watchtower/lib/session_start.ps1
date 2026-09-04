@@ -150,8 +150,12 @@ try {
         #
         #    -Replace, NOT an append. This fires on every SessionStart - start,
         #    resume, clear and compact - and nothing in the tree rotates,
-        #    truncates or READS selfcheck.probe: Invoke-LwgRotate has exactly
-        #    one call site and it is passed health.jsonl. It was the only file
+        #    truncates or READS selfcheck.probe: Invoke-LwgRotate has three call
+        #    sites and not one of them names it - lib/supervisor.ps1:634
+        #    (health.jsonl), :635 (lw-watchtower.jsonl) and lib/post_edit.ps1:99
+        #    (the edits file). This said "exactly one call site and it is passed
+        #    health.jsonl" until 4 September 2026; lib/common.ps1's copy of the
+        #    same sentence carries the same correction. It was the only file
         #    this plugin wrote with no bound of any kind, growing by 29 bytes a
         #    session forever, inside a plugin whose log_rotation module reports
         #    itself as capping the logs - an operator reading that module list

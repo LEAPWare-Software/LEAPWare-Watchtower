@@ -1949,8 +1949,14 @@ function Add-LwgLine {
       WHY THE PROBE NEEDED IT. That probe proves the state directory is writable
       by writing a timestamp, and it fires on every SessionStart - start,
       resume, clear and compact. Nothing in the tree rotates, truncates or READS
-      selfcheck.probe: Invoke-LwgRotate has exactly one call site and it is
-      passed health.jsonl. It was the only file this plugin wrote with no bound
+      selfcheck.probe: Invoke-LwgRotate has three call sites and not one of them
+      names it - lib/supervisor.ps1:634 (health.jsonl), :635
+      (lw-watchtower.jsonl) and lib/post_edit.ps1:99 (the edits file). This
+      sentence said "exactly one call site and it is passed health.jsonl" until
+      4 September 2026, which was true when it was written and had been wrong
+      since the ledger and the edits file were given rotation; it is
+      load-bearing for a maintainer asking whether selfcheck.probe can grow, so
+      it is corrected rather than deleted. It was the only file this plugin wrote with no bound
       of any kind, inside a plugin whose log_rotation module reports itself as
       capping the logs. The file's entire value is in the RETURN of the write,
       and the LAST result is the only one with any meaning, so replacing is what
