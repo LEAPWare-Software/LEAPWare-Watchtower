@@ -158,7 +158,7 @@ quoting them. They are also not the same machine's numbers as the previous revis
 the merge suite read 248 s and the gate suite 179 s there, and the gate suite's drop is a change in
 what it runs rather than in how fast the machine is.
 
-The documentation-claim guard re-runs the eleven other files in parallel to read the tallies they print
+The documentation-claim guard re-runs the thirteen other files in parallel to read the tallies they print
 about themselves, so it costs the slowest of them rather than the sum.
 `-SkipSuites` skips that and then **exits 2 rather than 0**, because a run that did not check
 something must not report as one that did. The job's `timeout-minutes` and the `-SuiteTimeoutSec` the
@@ -646,8 +646,9 @@ written**. The write is fine and the *report* after it throws — with `USERPROF
 activation block builds a settings path out of that variable — and every throw in that file lands in
 one handler that exits 3.
 
-**26 cases**, each in a real child process against a byte copy of `bin/` and `lib/` under a scratch
-plugin root built at runtime from the temp directory, with `config.json` seeded per case. The toggle
+`tests/toggle_behaviour.ps1` runs **32 cases**, each in a real child process against a byte copy of
+`bin/` and `lib/` under a scratch plugin root built at runtime from the temp directory, with
+`config.json` seeded per case. The toggle
 resolves its own config as `(Split-Path -Parent $PSScriptRoot)\config.json`, so a copied tree
 redirects the write **with no seam at all** — which is what lets the cases run unchanged against the
 pre-fix commit. `USERPROFILE` and `CLAUDE_PLUGIN_DATA` are redirected and both plugin-root variables
@@ -663,16 +664,23 @@ the toggle and `/lw-watchtower:config` read and write through, hashes from .NET,
 doctor, setup, update and uninstall. Until that landed, every toggle run under such a shell exited 3
 with *"config.json could not be read"*, which reads as a broken config file and was nothing of the
 kind. Section H of this suite is the case that pins it, and it plants the failure deliberately rather
-than waiting for a PowerShell 7 host. The only remaining `Get-FileHash` in the tree is the one-liner
-`docs/faq.md` and `docs/install.md` hand an operator to type, and both now say what to do when it
-does not resolve.
+than waiting for a PowerShell 7 host. The only remaining `Get-FileHash` **call** in the tree is the
+one-liner `docs/faq.md` and `docs/install.md` hand an operator to type, and both now say what to do
+when it does not resolve. `git grep Get-FileHash` still returns plenty of lines and none of them run:
+they are comments in `bin/` saying why the hash is computed from .NET instead, the alias
+`tests/doctor_behaviour.ps1` plants to make the failure happen on demand, and UAT records quoting the
+error as it reached an operator.
 
 **Eight of the cases are labelled `CONTROL`** and pass before the fix as well as after it, on
 purpose — they pin the other direction, so a "fix" that simply refuses everything, or reformats the
-file, or turns every run into a reported fault, fails them. **Ten of the twenty-six** passed at the
-pre-fix commit, both measured rather than reasoned: those eight controls plus two that are *not*
-controls and pass there for their own reasons. That is stated so a reader counting greens in a red
-run does not read those two as coverage.
+file, or turns every run into a reported fault, fails them. **Ten cases passed at the pre-fix
+commit**, both measured rather than reasoned: those eight controls plus two that are *not* controls
+and pass there for their own reasons. That is stated so a reader counting greens in a red run does
+not read those two as coverage. It is deliberately **not** written as a ratio against the suite's
+total: it stood here as "ten of the twenty-six" while the suite grew past twenty-six and then past
+twenty-eight, spelled as a word and so invisible to the guard whose whole job is stale numbers
+(#296). How many cases passed at that commit does not change when a case is added; a denominator
+does.
 
 Exit codes: `0` every case passed, `1` at least one failed, `2` the suite aborted **or a case could
 not be made conclusive** — and zero cases run is an abort, never a pass.
@@ -973,6 +981,13 @@ Exit codes: `0` every recognised claim agrees, `1` at least one disagrees, `2` a
 `-SkipSuites` was passed — and **finding zero claims is an abort**, because a pattern set that matches
 nothing is broken rather than clean. A sibling suite exiting non-zero aborts this one on purpose: a
 case tally from a failing suite is not a fact.
+
+**Two cases do not run in that phase.** `tests/doc_claims.ps1` sets `LWG_SUITE_PARALLEL` in the
+siblings it starts, and the two cases in the tree whose verdict is a wall-clock duration read it and
+report SKIPPED rather than measuring a machine running thirteen suites at once. They are still
+counted in their suite's tally and still enforced by that suite's own CI step and by every local
+run — what the flag removes is the one context in which the number they read is about the runner.
+It is not a retry: nothing runs twice, and no threshold was widened to fit.
 
 ### The opt-out, and when to use it
 

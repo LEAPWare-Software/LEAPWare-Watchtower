@@ -115,7 +115,13 @@
   Section A5 (changed under us) has fd8d023 as its baseline too, and it is the one
   case whose RED is a timing-anchored observation rather than a plain assertion -
   read its own comment before trusting it. It is conclusive or it ABORTS the
-  suite; it can never pass by missing its window.
+  suite; it can never pass by missing its window, and since #298 it can no longer
+  FAIL by missing it either. It used to: the probe that watches for the child's
+  clock cost more than the window it was watching, so on a loaded machine the
+  mutation could land after the write and a lost race was scored as a stale-read
+  overwrite - one red in four whole runs on a clean tree. The copy the toggle
+  takes before it writes is now read as well, because that copy is exactly what
+  its changed-under-us check looked at, and it separates the two.
 
   Section E has NO fd8d023 baseline: -ConfigPath does not exist there, so the
   child dies on a parameter-binding error. Those two cases pin new surface.
@@ -766,26 +772,48 @@ try {
     #
     # The mutation is two bytes of trailing whitespace appended after the closing
     # brace: it changes the SHA, keeps the file parseable, and leaves the seeded
-    # text as an exact prefix. It is applied REPEATEDLY, every 50 ms from the
+    # text as an exact prefix. It is applied REPEATEDLY, every 25 ms from the
     # moment the record appears until the child exits, rather than once after a
     # measured delay - a single delayed append has to be tuned to a window that
     # was 305 ms on this machine and is a different number on another, and a
     # mistuned one lands after the write and proves nothing.
     #
-    # That makes the run CONCLUSIVE either way:
+    # THE OUTCOME IS READ OFF THE FILE **AND OFF THE COPY THE TOGGLE TOOK**, and
+    # the second half of that is #298. Save-LwgTextFile takes its backup after
+    # its changed-under-us check has passed and before it writes, so the backup
+    # is a byte copy of exactly what that check looked at. Since every append is
+    # made after the clock, and the clock is after the child's read, a backup
+    # equal to the seed means no append had landed when the check ran:
+    #
     #   file still starts with the seeded text, is longer, and still holds the
     #   operator's own value          -> the write was refused               (pass)
-    #   file no longer starts with it -> the toggle replaced it from a stale
-    #                                    read                                (fail)
+    #   file replaced, NO backup      -> written with no check and no copy at
+    #                                    all, which is fd8d023               (fail)
+    #   file replaced, backup LONGER
+    #   than the seed                 -> the check looked at a file that had
+    #                                    changed and wrote over it anyway    (fail)
+    #   file replaced, backup EQUAL
+    #   to the seed                   -> the mutation was late; this harness lost
+    #                                    its own race and the attempt says
+    #                                    nothing         (inconclusive, retried)
     #   neither                       -> nothing was appended at all;
-    #                                    inconclusive, retried, and on repeated
-    #                                    failure the suite ABORTS rather than
-    #                                    passing.
-    # fd8d023 lands in the second of those: exit 0, no refusal, the appended
-    # bytes and the operator's value both gone.
+    #                                    inconclusive, retried.
+    #
+    # On six inconclusive attempts the suite ABORTS rather than passing, and it
+    # never scores an inconclusive attempt as either verdict. Before #298 the
+    # fourth row did not exist and was scored as the second: on a loaded machine
+    # the clock probe could be seen after the child had already written, and the
+    # suite reported `30 of 32` on a clean tree - one red in four whole runs,
+    # measured at 1baf6d4.
+    # fd8d023 lands in the second row: exit 0, no refusal, no backup, the
+    # appended bytes and the operator's value both gone.
     $a5 = $null
     $a5note = ''
-    for ($attempt = 1; $attempt -le 3 -and $null -eq $a5; $attempt++) {
+    # SIX ATTEMPTS RATHER THAN THREE, because there is now a fourth way for an
+    # attempt to establish nothing and it is the common one on a loaded machine.
+    # An attempt costs a few seconds; a suite that aborts costs the whole CI step
+    # and, under tests\doc_claims.ps1's sibling phase, every page's only guard.
+    for ($attempt = 1; $attempt -le 6 -and $null -eq $a5; $attempt++) {
         # THE PAD STAYS ON config.json AND THE MUTATION MOVES TO THE OVERRIDE.
         # The 700 KB of defaults is what makes the run take long enough to be
         # interrupted at all - the toggle parses that file twice through
@@ -829,18 +857,51 @@ try {
             $deadline = (Get-Date).AddSeconds(120)
             while ((Get-Date) -lt $deadline -and -not $p.HasExited) {
                 if (-not $clock) {
-                    foreach ($f in @(Get-ChildItem -LiteralPath $sand.data -Recurse -Filter '*.jsonl' -File -ErrorAction SilentlyContinue)) {
-                        $txt = ''
-                        try { $txt = [IO.File]::ReadAllText($f.FullName) } catch { }
-                        if ($txt -like '*ConfigInvalidFlag*') { $clock = $true; break }
-                    }
-                    Start-Sleep -Milliseconds 10
-                    continue
+                    # THE COST OF THIS PROBE IS WHAT LOST THE RACE - #298. It
+                    # ran every 10 ms as a Get-ChildItem -Recurse plus a whole
+                    # ReadAllText of every match, and on a loaded machine one
+                    # sweep of that can take longer than the read-to-write window
+                    # it is watching for. The clock was then seen AFTER the child
+                    # had already written, every append landed too late, and the
+                    # case scored a lost race as a stale-read overwrite: one red
+                    # in four whole runs on a clean tree, measured. The .NET
+                    # enumerator costs a directory listing and no file read, and
+                    # the content check is paid once, when a file finally exists.
+                    #
+                    # THE CONTENT IS STILL CHECKED, AND IT IS LOAD-BEARING. The
+                    # classification below rests on every append happening AFTER
+                    # the child read the override, and it is the ConfigInvalidFlag
+                    # RECORD that guarantees that - not the mere existence of a
+                    # log file, which could in principle be created earlier.
+                    #
+                    # IT IS READ WITH FileShare::ReadWrite, which the plain
+                    # ReadAllText this replaced does not do. The child is
+                    # appending to that same file, and a sharing violation there
+                    # left $txt empty, the clock unset, and the probe going round
+                    # again - the likeliest way the old probe missed a record
+                    # that was already on disk.
+                    try {
+                        foreach ($f in [IO.Directory]::EnumerateFiles($sand.data, '*.jsonl', [IO.SearchOption]::AllDirectories)) {
+                            $txt = ''
+                            try {
+                                $fs = [IO.File]::Open($f, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+                                try {
+                                    $sr = New-Object IO.StreamReader($fs)
+                                    try { $txt = $sr.ReadToEnd() } finally { $sr.Dispose() }
+                                } finally { $fs.Dispose() }
+                            } catch { }
+                            if ($txt -like '*ConfigInvalidFlag*') { $clock = $true; break }
+                        }
+                    } catch { }
+                    # NO SLEEP BETWEEN SEEING THE CLOCK AND THE FIRST APPEND.
+                    # Every millisecond spent here is a millisecond of the window
+                    # the mutation has to land in.
+                    if (-not $clock) { Start-Sleep -Milliseconds 5; continue }
                 }
                 # The file may be open for writing at this instant; a failed
-                # append is not a failed case, the next one is 50 ms away.
+                # append is not a failed case, the next one is 25 ms away.
                 try { [IO.File]::AppendAllText($sand.ov, "`r`n", [Text.UTF8Encoding]::new($false)); $appends++ } catch { }
-                Start-Sleep -Milliseconds 50
+                Start-Sleep -Milliseconds 25
             }
             $null = $p.WaitForExit(120000)
             if (-not $p.HasExited) { $p.Kill(); throw 'the toggle did not exit within 120s' }
@@ -853,6 +914,21 @@ try {
         $out = ''
         try { $out = [IO.File]::ReadAllText($of) } catch { }
         $now = [IO.File]::ReadAllText($sand.ov)
+
+        # THE BACKUP IS THE CHILD'S OWN RECORD OF WHAT ITS CHECK LOOKED AT - and
+        # it is what tells a lost race apart from the defect (#298).
+        # Save-LwgTextFile copies the file to <path>.lwg-toggle-<stamp>.bak AFTER
+        # the SHA it was handed matches the SHA on disk and BEFORE it writes, so
+        # a backup that exists is a byte copy of the file that check passed on.
+        # The data directory is emptied at the top of every attempt, so any .bak
+        # under it belongs to this attempt and to no earlier one.
+        $bakText = $null
+        try {
+            $bakFile = @([IO.Directory]::EnumerateFiles($sand.data, '*.lwg-toggle-*.bak', [IO.SearchOption]::AllDirectories)) |
+                       Sort-Object | Select-Object -Last 1
+            if ($bakFile) { $bakText = [IO.File]::ReadAllText($bakFile) }
+        } catch { }
+
         # The seeded text survives as an exact PREFIX only if this run did not
         # replace the file; the appended bytes make it strictly longer.
         $seedHeld  = ($now.StartsWith($seed) -and $now.Length -gt $seed.Length)
@@ -870,6 +946,32 @@ try {
         }
         if ($appends -eq 0) {
             $a5note = 'the clock appeared but every append failed, so the file never changed under the child'
+            continue
+        }
+        # THE HARNESS LOSING ITS OWN RACE, TOLD APART FROM THE DEFECT - #298.
+        # Every append in this attempt was made after the ConfigInvalidFlag
+        # record, and the code order puts that record AFTER the child has read
+        # the override and taken its SHA. So the file the child's check looked at
+        # is byte-identical to the seed if and only if no append had landed by
+        # the time it checked - which says the write went through because the
+        # mutation was LATE, not because the check failed to notice one. That is
+        # this harness getting in the way rather than an answer about the code,
+        # so it is retried, exactly like the three notes above it.
+        #
+        # THE OTHER TWO REPLACEMENT SHAPES ARE REAL AND ARE NOT RETRIED. A
+        # replacement with NO backup at all is fd8d023, which wrote with a bare
+        # WriteAllText and took no copy; a replacement whose backup is LONGER
+        # than the seed is a check that looked at a changed file and wrote over
+        # it anyway. Both fall through and fail the case, which is what it is
+        # for.
+        #
+        # THIS IS NOT A RETRY OF A FAILURE. #250 is explicit that re-running a
+        # case until it passes destroys the evidence that anything was wrong, and
+        # it is right. What is retried here is an attempt that established
+        # NOTHING, and the file already worked that way for three other reasons;
+        # what this adds is the fourth, which was being scored as a defect.
+        if ($replaced -and $null -ne $bakText -and $bakText -ceq $seed) {
+            $a5note = ("the file was replaced, but the copy the toggle took before writing is byte-identical to the seed - so none of the {0} append(s) had landed when its changed-under-us check ran, the mutation was late, and this attempt establishes nothing about the check" -f $appends)
             continue
         }
         if (-not $seedHeld -and -not $replaced) {
@@ -890,7 +992,7 @@ try {
     }
 
     if ($null -eq $a5) {
-        throw ("the changed-under-us case could not be made conclusive in 3 attempts: $a5note")
+        throw ("the changed-under-us case could not be made conclusive in 6 attempts: $a5note")
     }
 
     Add-Result 'changed under us: a config.json modified after the toggle read it is NOT overwritten' `
