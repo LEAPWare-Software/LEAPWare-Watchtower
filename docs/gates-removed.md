@@ -5,10 +5,10 @@ wants blocking capability re-addable, and this page is what makes that possible.
 what the last attempt cost, what it taught, and — since 30 July 2026 — **what a future gate now has
 to rebuild from nothing**, written down here because the code that would have taught it is deleted.
 
-**A gate has since been added back**, and this page is not out of date because of it — see
-[What is true right now](#what-is-true-right-now) at the foot, which says exactly what that one gate
-does and does not do. Nothing else here was softened by its arrival; it avoids every failure this
-page records by never doing the thing that produced them.
+**Gates have since been added back — three of them**, and this page is not out of date because of
+it — see [What is true right now](#what-is-true-right-now) at the foot, which says exactly what they
+do and do not do. Nothing else here was softened by their arrival; each of them avoids every failure
+this page records by never doing the thing that produced them.
 
 Four things are separate and must stay separate:
 
@@ -211,7 +211,9 @@ tracks it as an open item. There is still no ledger, no reader for one, no `trip
 governance segment on the status line — every word of *The trip ledger was NOT kept* above stands,
 and it stands for this gate too.
 
-**One gate is not the lessons being over.** `delegate_gate` avoids the entire failure surface this
-page documents by not having one: it parses no shell, models no language, enumerates no spellings and
-decides nothing about whether something is safe. Building it tested **none** of the five lessons. They
+**Three gates are not the lessons being over.** Each of them avoids the entire failure surface this
+page documents by not having one. `delegate_gate` parses no shell, models no language, enumerates no
+spellings and decides nothing about whether something is safe; `send_liveness_gate` and
+`completion_audit` decide on evidence about a message and a turn, never on the content of a command
+or a write. Building all three tested **none** of the five lessons. They
 are still owed in full by any future gate that has to look at what a call actually contains.
