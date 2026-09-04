@@ -167,9 +167,8 @@ tests/setup_merge.ps1        124 cases driving bin/lwg-setup.ps1 against throwaw
                              only coverage the reporting surfaces have, because
                              it owns the only harness that runs them for real:
                              statusline/statusline.ps1 from a scratch copy, and
-                             bin/lwg-update.ps1 against a
-                             local bare repo, and they are not
-                             about the installer
+                             bin/lwg-update.ps1 against a local bare repo. Those
+                             sections are not about the installer at all
 tests/state_resolution.ps1   the SessionStart hook in a real child process: the
                              CLAUDE_CONFIG_DIR precedence, the five self-check
                              probes, every rung of the mode ladder, the banner
