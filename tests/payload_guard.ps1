@@ -848,6 +848,21 @@ try {
         ($emptyScope.Count -eq 0) `
         ("$($emptyScope.Count) rule(s) declare a scope that matched no tracked file, so they asked nothing of anything and could not have found anything: " + ($emptyScope -join ', '))
 
+    # THE NUMBER IS PRINTED EVERY RUN, NOT ONLY WHEN IT IS ZERO. S7 above fails
+    # at zero, which catches a scope that was switched off entirely; it says
+    # nothing about a scope that quietly NARROWED - seven globs down to one,
+    # after a directory rename, is a rule still "applied" and barely asking. A
+    # count beside the rule id is the only thing that makes that visible, and
+    # tests\portability_scan.ps1 prints exactly this line for exactly this
+    # reason. A reader comparing two runs sees the corpus shrink; a reader of a
+    # green boolean does not.
+    foreach ($k in ($scopedFiles.Keys | Sort-Object)) {
+        Write-Output ("  rule {0} is SCOPED and was applied to {1} of {2} payload file(s){3}" -f `
+            $k, $scopedFiles[$k], $payloadRead,
+            $(if ($scopedFiles[$k] -eq 0) { ' - ZERO, so it asked nothing of anything and cannot have found anything' } else { '' }))
+    }
+    Write-Output ''
+
     # S8 IS THE PREMISE, ASSERTED RATHER THAN STATED. Every rule above runs over
     # a subtree this file NAMES, and the name is only trustworthy because the
     # manifest the CLI reads is parsed and compared to it on every run. Without
@@ -925,10 +940,21 @@ try {
     # ----------------------------------------------------------------------
     # RULE CASES - one per rule, over the payload, minus the ledger
     # ----------------------------------------------------------------------
+    # THE CASE NAME STATES THE SCOPE WHEN THERE IS ONE, and this is not
+    # cosmetic. `deleted-script` is asked of bin/, lib/, hooks/, statusline/,
+    # context/, config.json and .claude-plugin/ - and deliberately NOT of
+    # commands/ or agents/, because a page there still names a deleted library
+    # and a fixer may not edit a document. A green line reading "the payload
+    # carries no shipped file naming a script this branch deleted" is then a
+    # broader claim than the run made: two directories of text a model reads
+    # were never asked. The scope is in the sentence, so the green line is true.
     foreach ($r in $Rules) {
         $rHits = @($hits | Where-Object { $_.rule -eq $r.id })
         $sites = (($rHits | ForEach-Object { "$($_.file):$($_.line)" }) -join ', ')
-        Add-Result ("R   the payload carries no " + $r.name) `
+        $where = if ($r.ContainsKey('scope')) {
+            ' [asked only of ' + (($r.scope | ForEach-Object { $_ -replace ('^' + [regex]::Escape($script:PayloadRel) + '/', '') }) -join ' ') + ']'
+        } else { '' }
+        Add-Result ("R   the payload carries no " + $r.name + $where) `
             ($rHits.Count -eq 0) `
             ("$($rHits.Count) site(s): $sites  --  $($r.why)")
     }
