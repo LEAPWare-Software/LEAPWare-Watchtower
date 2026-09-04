@@ -213,9 +213,22 @@ one script and not a guarantee about all of them. The hooks will still invoke `p
 the `lw-watchtower/` subdirectory with no `ref`, `tag` or `branch` key, so the marketplace resolves
 the **default branch**, and you get whatever `main` held at the moment you installed. It is not
 pinned and no two installs on different days need be the same tree. That is a property of this
-install route and no version number can fix it, so it is stated here rather than papered over. The
-banner tells you the declared version and nothing more; to know which commit you are on, install from
-a clone by junction as [docs/install.md](docs/install.md) describes and read it there.
+install route and no version number can fix it, so it is stated here rather than papered over.
+
+**You can still read which commit you got.** The banner tells you the declared version and nothing
+more, but the CLI records the commit it copied and the marketplace's own clone is checked out at it,
+so either of these answers the question without a junction install:
+
+```powershell
+(Get-Content "$env:USERPROFILE\.claude\plugins\installed_plugins.json" -Raw | ConvertFrom-Json).plugins.'lw-watchtower@leapware-watchtower'[0].gitCommitSha
+git -C "$env:USERPROFILE\.claude\plugins\marketplaces\leapware-watchtower" rev-parse HEAD
+```
+
+Both printed the same 40-character sha when this was measured, and it was the sha `refs/heads/main`
+pointed at. Substitute `$env:CLAUDE_CONFIG_DIR` for `$env:USERPROFILE\.claude` if you have set one.
+Knowing which commit you are on is not the same as pinning it — nothing in this repository makes the
+marketplace resolve anything but `main` — and *choosing* the commit is still the junction route's
+advantage, not this one's.
 
 **This is the only install route, and no route on this page is called tested.** This repository has
 no release tag yet. `v0.3.0` was tagged on a predecessor repository whose history this one does not
@@ -245,7 +258,25 @@ Checks on the plugin's wiring, in under a second — it prints how many it ran, 
 transcribed here to go stale. It is built to be able to fail, and a
 non-zero exit is a real finding.
 
-That is the whole install. Configuration is optional and lives in one file,
+**Expect `VERDICT: NOT healthy` and exit `1` here, on the `statusline` row — that is the state a
+first install is genuinely in, not a fault in what you just did.** The status line is a
+`settings.json` key that no plugin manifest can carry, so it is installed by a step of its own, and
+the doctor is not healthy until you have run it. That step is:
+
+```
+/lw-watchtower:setup
+```
+
+It asks its questions one at a time and writes nothing you have not agreed to, each section behind
+its own diff. Apply the `statusline` section, then run `/lw-watchtower:doctor` again. Run the doctor
+*before* starting a session and `state-dir` and `sessionstart` fail beside it; both clear as soon as
+a session has written a record, which is what *"start a new session"* above is for. See
+[Install § installing the status line](docs/install.md#installing-the-status-line-part-of-the-install-and-a-separate-step)
+for what that step writes and how to undo it, and
+[Install § confirming it loaded](docs/install.md#confirming-it-loaded) for what each doctor exit code
+means.
+
+*Now* that is the whole install. Configuration is optional and lives in one file,
 [`lw-watchtower/config.json`](lw-watchtower/config.json).
 
 **Developing on it instead?** Use a directory junction so the clone is live — see
