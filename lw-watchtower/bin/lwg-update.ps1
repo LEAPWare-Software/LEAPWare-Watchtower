@@ -34,8 +34,9 @@
                               ~/.claude/statusline.ps1. git does not update it,
                               nothing on this machine compares them, and a pull
                               silently leaves the live one stale.
-    commands/, output-styles/ a new slash command or style appears only in a new
-                              session.
+    commands/                 a new slash command appears only in a new session.
+                              output-styles/ was named here too until that
+                              directory was deleted; there is no style to report.
 
   Exit codes:
 
@@ -190,6 +191,29 @@ try {
         return (Invoke-LwgCmdProcess -File 'git' -ProcArgs $A -WorkDir $Root -TimeoutMs $Ms)
     }
 
+    # THE PATHS GIT PRINTS ARE REPO-ROOT-RELATIVE AND THE PAYLOAD IS NO LONGER AT
+    # THE REPO ROOT. Every `git status --porcelain=v2` and `git diff --name-only`
+    # below runs with -WorkDir $Root and NO --relative, so git prints
+    # `lw-watchtower/hooks/hooks.json` where the comparisons underneath were
+    # written against `hooks/hooks.json`. NOTHING GOES RED WHEN THAT STOPS
+    # MATCHING: the operator simply stops being told that a hooks change needs a
+    # new session, that the status-line copy is now stale, or that module flags
+    # moved - the advisories just quietly stop. That is the failure this block
+    # exists to prevent.
+    #
+    # DERIVED, NOT HARDCODED. A literal 'lw-watchtower/' here would be a tenth
+    # place for the directory name to be wrong, and wrong on any tree that ever
+    # renames it; --show-prefix asks the repository that is actually checked out.
+    # It returns '' when $Root IS the repo root - the shape before the
+    # restructure, and any future re-flattening - so the comparisons below are
+    # correct in both.
+    $script:PathPrefix = ''
+    $spx = Git @('rev-parse', '--show-prefix')
+    if ($spx.ok) {
+        $script:PathPrefix = (($spx.out -split "`r?`n" | Where-Object { $_ }) -join '').Trim()
+        if ($script:PathPrefix -and -not $script:PathPrefix.EndsWith('/')) { $script:PathPrefix += '/' }
+    }
+
     Write-Output "LW-WATCHTOWER update v$($script:LwgVersion) - $(if ($Apply) { 'APPLY (git pull --ff-only)' } else { 'CHECK ONLY - nothing will be merged' })"
     Write-Output "  checkout: $Root"
 
@@ -339,7 +363,7 @@ try {
         # because deciding where those writes should go is #11 and is not this
         # file's to settle.
         $own = ''
-        if ($dirtyPaths -contains 'config.json') {
+        if ($dirtyPaths -contains ($script:PathPrefix + 'config.json')) {
             $own = ' config.json is written by /lw-watchtower:config and by the toggle commands, so a flag you changed through this plugin dirties its own checkout and lands here - that change may not be yours to commit. See issue #11.'
         }
         Add-Row -Id 'worktree' -Status 'FAIL' -Detail "$dirty uncommitted change(s) on ${branch}:$list. This command does not stash, reset or check out anything - commit or set them aside first.$own"
@@ -416,13 +440,13 @@ try {
     function Get-Needs {
         param([string[]]$Files)
         $n = @()
-        if ($Files -contains 'hooks/hooks.json') {
+        if ($Files -contains ($script:PathPrefix + 'hooks/hooks.json')) {
             $n += 'hooks/hooks.json changes: hook registrations are read at SESSION START, so nothing takes effect until you start a new session - and a hook command that is new to this machine can prompt for approval before it runs.'
         }
-        if ($Files -contains '.claude-plugin/plugin.json') {
+        if ($Files -contains ($script:PathPrefix + '.claude-plugin/plugin.json')) {
             $n += '.claude-plugin/plugin.json changes: the plugin NAME is what the state directory is resolved from, so a rename moves every log to a new directory and leaves the old one behind. The manifest does NOT name a hooks file - hooks are registered in hooks/hooks.json, which is reported on its own line.'
         }
-        if ($Files -contains 'statusline/statusline.ps1') {
+        if ($Files -contains ($script:PathPrefix + 'statusline/statusline.ps1')) {
             # THE SAME RESOLVED TARGET SECTION 4 USES (#77). This note named the
             # default copy target unconditionally, so on a machine whose status
             # line is wired through the skills junction it told the operator to
@@ -437,15 +461,15 @@ try {
                 $n += "statusline/statusline.ps1 changes: no statusLine.command is set in $slSettings, so the live status line - if there is one - is the DEFAULT copy target $(Join-Path $claudeHome 'statusline.ps1'). git does not touch it. Re-copy it after the pull or it stays stale, silently."
             }
         }
-        if ($Files -contains 'config.json') {
+        if ($Files -contains ($script:PathPrefix + 'config.json')) {
             $n += 'config.json changes: config.json is the SHIPPED DEFAULTS, so a pull can change what runs where you have not set the flag yourself. Your own settings are in config.override.json under the state directory, git does not touch that file, and it is merged over whatever arrives. The flag differences below are computed with your override applied to BOTH sides, so they are what will actually change.'
         }
         foreach ($c in $Files) {
-            if ($c -like 'commands/*')      { $n += "new or changed slash command ($c) - it appears in the next session, not this one"; break }
+            if ($c -like ($script:PathPrefix + 'commands/*')) { $n += "new or changed slash command ($c) - it appears in the next session, not this one"; break }
         }
-        foreach ($c in $Files) {
-            if ($c -like 'output-styles/*') { $n += "output style changed ($c) - a style is only re-read when a session starts"; break }
-        }
+        # THE output-styles/ BRANCH WENT WITH THE DIRECTORY. It could not fire on
+        # any tree this command can be run against, and a branch that cannot fire
+        # reads to the next maintainer as a covered case.
         # PLAIN, NOT `return , @($n)` - #222. The unary comma wraps
         # UNCONDITIONALLY, so what left this function was a ONE-ELEMENT array
         # holding the whole list, and the caller's own `@(...)` could not undo
@@ -470,8 +494,8 @@ try {
     $needs = @(Get-Needs -Files $changed)
 
     # The config diff, spelled out: which flags, which way.
-    if ($changed -contains 'config.json' -and -not [string]::IsNullOrWhiteSpace($upstream)) {
-        $show = Git @('show', "${upstream}:config.json")
+    if ($changed -contains ($script:PathPrefix + 'config.json') -and -not [string]::IsNullOrWhiteSpace($upstream)) {
+        $show = Git @('show', "${upstream}:$($script:PathPrefix)config.json")
         if ($show.ok) {
             try {
                 # BOTH SIDES CARRY THE OPERATOR'S OVERRIDE - #11. $mine comes
@@ -518,7 +542,7 @@ try {
                 else { Add-Row -Id 'config-flags' -Status 'OK' -Detail 'config.json changed, but no module flag did' }
             } catch { Add-Row -Id 'config-flags' -Status 'WARN' -Detail "the incoming config.json could not be parsed for comparison: $($_.Exception.Message)" }
         } else {
-            Add-Row -Id 'config-flags' -Status 'WARN' -Detail (Get-LwgToolReport -Tool "git show ${upstream}:config.json" -Result $show)
+            Add-Row -Id 'config-flags' -Status 'WARN' -Detail (Get-LwgToolReport -Tool "git show ${upstream}:$($script:PathPrefix)config.json" -Result $show)
         }
     }
 

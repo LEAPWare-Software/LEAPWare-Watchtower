@@ -256,14 +256,26 @@
 #>
 [CmdletBinding()]
 param(
-    # Repo root. Defaults to this file's parent, correct for a run from anywhere
+    # The PLUGIN PAYLOAD root - lw-watchtower\ under this file's parent, not the
+    # repository root, which is what this parameter meant before the restructure, correct for a run from anywhere
     # as long as this file stays in tests\.
     [string]$Root
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Split-Path -Parent $PSScriptRoot }
+# THE PAYLOAD ROOT, WHICH IS NO LONGER THE REPOSITORY ROOT. `Split-Path -Parent
+# $PSScriptRoot` is the parent of tests\, and tests\ stayed at the repository
+# root while the shipped plugin moved under lw-watchtower/. Everything this
+# suite composes off $Root - bin\, lib\, config.json, statusline\ - is payload,
+# so $Root is the payload root and the default says so in one place rather than
+# in every Join-Path below it.
+#
+# WHY THE DEFAULT AND NOT A -Root FROM CI. Neither .github\workflows\ci.yml nor
+# tests\doc_claims.ps1's sibling runner passes -Root at any invocation, so a
+# suite's default is the only value it ever gets on either route. Putting the
+# knowledge here is the only place it can be put.
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Join-Path (Split-Path -Parent $PSScriptRoot) 'lw-watchtower' }
 
 $SetupPath      = Join-Path $Root 'bin\lwg-setup.ps1'
 $RepoStatusLine = Join-Path $Root 'statusline\statusline.ps1'
@@ -972,6 +984,48 @@ try {
         if (-not [IO.File]::Exists($p)) { throw "missing: $p" }
     }
     $repoStatusLineBytes = [IO.File]::ReadAllBytes($RepoStatusLine)
+
+    # -------------------------------------------------------------------
+    # 0. #118. THE .gitattributes PIN STILL NAMES THE STATUS LINE.
+    #
+    #    Everything below rests on one property: the status line in the
+    #    checkout and the copy the installer writes to ~\.claude\statusline.ps1
+    #    are the same bytes, so a Get-FileHash comparison between them means
+    #    something. That property is not held by any code - it is held by ONE
+    #    LINE in .gitattributes pinning this file back to `text eol=lf` against
+    #    the `*.ps1 text eol=crlf` default two lines above it.
+    #
+    #    A .gitattributes path pattern is anchored to the directory holding the
+    #    file, which is the repository root. The payload restructure moved
+    #    statusline\statusline.ps1 under lw-watchtower/, and a pin left naming
+    #    the old path stops matching SILENTLY: the tracked file starts checking
+    #    out CRLF, the installed copy is LF, and the doctor's hash comparison
+    #    can never agree again on any clone made after that commit. It is not a
+    #    failure anyone would attribute to a moved directory.
+    #
+    #    ASKED OF GIT RATHER THAN OF THE FILE ON DISK, and that is the point.
+    #    Reading bytes would answer "what does this working tree have", which is
+    #    whatever the last checkout happened to produce. `git check-attr` answers
+    #    "what will every future clone get", which is the property at risk.
+    #
+    #    RED AT a42b169 with only this hunk applied: the pin named
+    #    statusline/statusline.ps1, the path asked about here does not exist at
+    #    that commit, and check-attr reported `eol: crlf` from the *.ps1
+    #    default.
+    # -------------------------------------------------------------------
+    $slRelForGit = ((Resolve-Path -LiteralPath $RepoStatusLine).Path.Substring(
+                        (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).Path.Length
+                    )).TrimStart('\', '/') -replace '\\', '/'
+    Push-Location -LiteralPath (Split-Path -Parent $PSScriptRoot)
+    try {
+        $attrOut  = (& git check-attr eol -- $slRelForGit 2>&1 | Out-String).Trim()
+        $attrCode = $LASTEXITCODE
+    } finally { Pop-Location }
+    Add-Result 'the .gitattributes eol=lf pin still names the status line at its tracked path' `
+        ($attrCode -eq 0 -and $attrOut -match '(?m):\s*eol:\s*lf\s*$') `
+        ("git check-attr eol -- $slRelForGit exited $attrCode and said '$attrOut'; expected 'eol: lf'. " +
+         "Without that pin the tracked status line checks out CRLF, the installed copy stays LF, and " +
+         "the doctor's Get-FileHash comparison between them can never agree again on any fresh clone.")
 
     # The declared plugin name, derived. Every fixture path below is built from
     # it rather than from a literal, for the reason lib\common.ps1 gives about

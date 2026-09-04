@@ -276,8 +276,16 @@ $Rules = @(
         # than "does a shipped script resolve without the variable?" - and the
         # honest way to say so is a scope with a reason, not a rule that fires
         # and an allowlist that catches it back.
-        scope   = @('bin/*', 'lib/*', 'hooks/*', 'statusline/*', 'context/*',
-                    'commands/*', 'agents/*', 'config.json', '.claude-plugin/*')
+        # EVERY GLOB HERE IS MATCHED AGAINST WHAT `git ls-files` PRINTS, which is
+        # repo-root-relative, and the shipped payload moved under lw-watchtower/.
+        # Left unprefixed after that move these globs match NOTHING: the rule is
+        # switched off and the run still exits 0, because a zero scope is
+        # PRINTED here and not failed. That is the one shape this whole file is
+        # written to refuse, built into the file itself.
+        scope   = @('lw-watchtower/bin/*', 'lw-watchtower/lib/*', 'lw-watchtower/hooks/*',
+                    'lw-watchtower/statusline/*', 'lw-watchtower/context/*',
+                    'lw-watchtower/commands/*', 'lw-watchtower/agents/*',
+                    'lw-watchtower/config.json', 'lw-watchtower/.claude-plugin/*')
     }
     @{
         id      = 'region-marker'
@@ -397,7 +405,11 @@ $AllowList = @(
         # tool-call rule naming a universal root or an interpreter, which is
         # what a reinstated gate writes, and a call to the deleted trip-target
         # classifier, which would sit on a line carrying such a path.
-        files = @('bin/lwg-setup.ps1', 'bin/lwg-uninstall.ps1', 'lib/gate_*.ps1',
+        # THREE OF THESE SIX MOVED WITH THE PAYLOAD AND THREE DID NOT: the setup
+        # and uninstall scripts and the gate library are under lw-watchtower/ now;
+        # the fixture, the suite and the page stayed at the repository root.
+        files = @('lw-watchtower/bin/lwg-setup.ps1', 'lw-watchtower/bin/lwg-uninstall.ps1',
+                  'lw-watchtower/lib/gate_*.ps1',
                   'tests/fixtures/deny_canonical.txt', 'tests/uninstall_footprint.ps1',
                   'docs/gates-removed.md')
         test  = '(?i)Get-LwgTargetClass' +
@@ -408,7 +420,7 @@ $AllowList = @(
         id    = 'claude-home-resolver'
         kind  = 'line-text'
         rules = @('claude-home-composition')
-        files = @('lib/common.ps1', 'statusline/statusline.ps1')
+        files = @('lw-watchtower/lib/common.ps1', 'lw-watchtower/statusline/statusline.ps1')
         test  = '\$info\.path\s*=\s*\[IO\.Path\]::Combine|return\s+\[IO\.Path\]::Combine\(\$p\.TrimEnd'
         why   = 'the ONE place each resolver is allowed to compose the historical default, reached only after CLAUDE_CONFIG_DIR has been consulted and found empty. IT EXCUSES NOTHING TODAY AND THE COUNT TO THE LEFT SAYS SO: both resolvers read the variable on one line and Combine on the next, so a line-based rule does not see a composition at all. This entry exists for the reflow that would put them on one line - a resolver reported as the defect it prevents is how a correct fix gets reverted - and it is scoped to those two files and to the two Combine statements rather than to a file or a `*`, so it cannot excuse a second composition added elsewhere in either file.'
     }

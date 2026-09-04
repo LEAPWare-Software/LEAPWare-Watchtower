@@ -212,14 +212,26 @@
 #>
 [CmdletBinding()]
 param(
-    # Repo root. Defaults to this file's parent, correct for a run from anywhere
+    # The PLUGIN PAYLOAD root - lw-watchtower\ under this file's parent, not the
+    # repository root, which is what this parameter meant before the restructure, correct for a run from anywhere
     # as long as this file stays in tests\.
     [string]$Root
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Split-Path -Parent $PSScriptRoot }
+# THE PAYLOAD ROOT, WHICH IS NO LONGER THE REPOSITORY ROOT. `Split-Path -Parent
+# $PSScriptRoot` is the parent of tests\, and tests\ stayed at the repository
+# root while the shipped plugin moved under lw-watchtower/. Everything this
+# suite composes off $Root - bin\, lib\, config.json, statusline\ - is payload,
+# so $Root is the payload root and the default says so in one place rather than
+# in every Join-Path below it.
+#
+# WHY THE DEFAULT AND NOT A -Root FROM CI. Neither .github\workflows\ci.yml nor
+# tests\doc_claims.ps1's sibling runner passes -Root at any invocation, so a
+# suite's default is the only value it ever gets on either route. Putting the
+# knowledge here is the only place it can be put.
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Join-Path (Split-Path -Parent $PSScriptRoot) 'lw-watchtower' }
 
 $ManifestPath = Join-Path $Root '.claude-plugin\plugin.json'
 
@@ -452,7 +464,7 @@ function Get-DoctorRow {
     param([string]$Text, [string]$Id)
 
     foreach ($line in ($Text -split "`r?`n")) {
-        $m = [regex]::Match($line, '^\s+\[(PASS|WARN|FAIL)\]\s+(\S+)\s+(.*)$')
+        $m = [regex]::Match($line, '^\s+\[(PASS|INFO|WARN|FAIL)\]\s+(\S+)\s+(.*)$')
         if ($m.Success -and $m.Groups[2].Value -eq $Id) {
             return @{ found = $true; status = $m.Groups[1].Value; detail = $m.Groups[3].Value.Trim() }
         }
@@ -744,7 +756,7 @@ function Get-RowMap {
     param([string]$Text)
     $map = [ordered]@{}
     foreach ($line in ($Text -split "`r?`n")) {
-        $m = [regex]::Match($line, '^\s+\[(PASS|WARN|FAIL)\]\s+(\S+)\s+(.*)$')
+        $m = [regex]::Match($line, '^\s+\[(PASS|INFO|WARN|FAIL)\]\s+(\S+)\s+(.*)$')
         if ($m.Success) { $map[$m.Groups[2].Value] = $m.Groups[1].Value }
     }
     return $map
@@ -1275,7 +1287,7 @@ try {
     $rr = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
 
     $hdr        = [regex]::Match($rr.out, '(?m)^LW-WATCHTOWER doctor - (\d+) checks')
-    $rowLines   = @([regex]::Matches($rr.out, '(?m)^\s+\[(?:PASS|WARN|FAIL)\]\s+\S+'))
+    $rowLines   = @([regex]::Matches($rr.out, '(?m)^\s+\[(?:PASS|INFO|WARN|FAIL)\]\s+\S+'))
     $iResult    = $rr.out.IndexOf('RESULT:')
     $iRoster    = $rr.out.IndexOf('WHAT IS SWITCHED ON')
     $gateBlock  = ($rr.out -match '(?m)^\s+GATES\s*$' -and
@@ -1641,6 +1653,57 @@ try {
          "the doctor printed $($ids.Count) distinct row id(s): $($ids -join ', ')" +
          $(if ($aborted) { '. THE DOCTOR ABORTED - the report is a fragment of a checkup, so the missing ids above are not evidence that any check was deleted' } else { '' }) +
          ". Full output:`n$($cs.out)")
+
+    # -------------------------------------------------------------------
+    # 25b. #118. NO marketplace.json BESIDE THE PLUGIN ROOT IS THE CORRECT
+    #      STATE, AND IT MUST NOT COST THE OPERATOR AN EXIT CODE.
+    #
+    #      Before the payload restructure `"source": "./"` shipped the whole
+    #      repository, so .claude-plugin\marketplace.json sat beside the plugin
+    #      root on every route and this row was PASS everywhere. The payload is
+    #      now lw-watchtower/ and marketplace.json stays at the MARKETPLACE root
+    #      - one directory above the plugin on the dev route, and not copied at
+    #      all on the cache route. Its absence is therefore the designed
+    #      arrangement on every healthy install that exists.
+    #
+    #      WHAT THIS CASE IS ACTUALLY PROTECTING. The row used to fire WARN, and
+    #      a WARN is counted into the caveat tally, which is `VERDICT: working,
+    #      with N caveat(s)` and EXIT 2. Left alone, the restructure would have
+    #      turned /lw-watchtower:doctor from exit 0 to exit 2 on every machine,
+    #      permanently, for a fault no install has - the "reports a fault it
+    #      does not have" failure, which is the same defect as reporting health
+    #      it cannot see and is the one this command is named for.
+    #
+    #      SO THE ASSERTION IS THREE-PART and each part fails differently:
+    #      the row is INFO (not WARN, not FAIL, not a silent PASS over a file
+    #      that is not there); its detail says WHY the absence is correct, so an
+    #      operator reading the report is not left to guess; and INFO moves
+    #      NEITHER the pass tally nor the warning tally, which is what keeps the
+    #      verdict arithmetic honest.
+    #
+    #      THE SANDBOX IS THE PROOF, not a contrivance. Copy-PluginTree copies
+    #      $Root, and $Root is the payload root, so the plugin copy this case
+    #      drives has exactly the shape a consumer's cache copy has: no
+    #      .claude-plugin\marketplace.json anywhere beneath it. Before the
+    #      restructure the same copy carried one and this row read PASS.
+    #
+    #      RED AT a42b169, with only this file's change applied: the sandbox
+    #      still held marketplace.json, the row read [PASS], and this case
+    #      failed on the status. It is red for the right reason either way -
+    #      PASS before the move, WARN if the status is reverted after it.
+    # -------------------------------------------------------------------
+    $mkRow   = Get-DoctorRow -Text $cs.out -Id 'marketplace'
+    $mkTally = [regex]::Match($cs.out, '(?m)^RESULT: (\d+) passed, (\d+) warning\(s\), (\d+) failure\(s\), (\d+) informational')
+    $mkOk    = ($mkRow.found -and $mkRow.status -eq 'INFO' -and
+                $mkRow.detail -match '(?i)marketplace\.json' -and
+                $mkRow.detail -match '(?i)restructure' -and
+                $mkTally.Success -and [int]$mkTally.Groups[4].Value -ge 1)
+    Add-Result 'no marketplace.json beside the plugin root is INFO, is explained, and is counted as neither a pass nor a caveat' `
+        $mkOk `
+        ("expected [INFO] on the marketplace row with a detail naming marketplace.json and the restructure, and a RESULT: line whose informational count is at least 1; " +
+         "got [$(if ($mkRow.found) { $mkRow.status } else { '<no marketplace row>' })] $(if ($mkRow.found) { $mkRow.detail } else { '' }) " +
+         "and RESULT line '$(if ($mkTally.Success) { $mkTally.Value } else { '<no four-term RESULT: line>' })'. " +
+         "Full output:`n$($cs.out)")
 
     # -------------------------------------------------------------------
     # 26-29. #132. THE MACHINE AND THE BUILD.

@@ -420,6 +420,22 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $script:RepoRoot = Split-Path -Parent $PSScriptRoot
+
+# THE PAYLOAD IS A SUBDIRECTORY NOW, AND THIS FILE NEEDS BOTH ROOTS. tests/,
+# docs/, .github/ and the root community-health files stayed where they were;
+# the shipped plugin moved under lw-watchtower/. Every $rel this file gets from
+# `git ls-files` is repo-relative and keeps resolving off $script:RepoRoot
+# unchanged - it is the HARDCODED payload paths, and the regexes that filter the
+# tracked list, that had to move.
+#
+# THE HARDCODE IS A CHECKED CLAIM, NOT A CONSTANT. Immediately after the
+# marketplace entry is resolved below, the declared `source` is compared against
+# $script:PayloadRel and the run ABORTS if they disagree - because a guard that
+# derived `command-count = 0` from a path that no longer exists would report
+# every "six commands" sentence in the tree as wrong, which is a worse failure
+# than not running at all.
+$script:PayloadRel  = 'lw-watchtower'
+$script:PayloadRoot = Join-Path $script:RepoRoot $script:PayloadRel
 $script:SelfPath = $MyInvocation.MyCommand.Path
 $script:Failures = @()
 $script:Passes   = 0
@@ -530,7 +546,7 @@ if (-not $tracked -or $tracked.Count -eq 0) {
 $testFiles = @($tracked | Where-Object { $_ -match '^tests/.+\.ps1$' -and (Test-StillOnDisk $_) })
 if ($testFiles.Count -eq 0) { Abort 'no tracked files under tests/ are present on disk - the enumeration is broken.' }
 
-$commandFiles = @($tracked | Where-Object { $_ -match '^commands/.+\.md$' -and (Test-StillOnDisk $_) })
+$commandFiles = @($tracked | Where-Object { $_ -match ('^' + [regex]::Escape($script:PayloadRel) + '/commands/.+\.md$') -and (Test-StillOnDisk $_) })
 if ($commandFiles.Count -eq 0) { Abort 'no tracked files under commands/ are present on disk - the enumeration is broken.' }
 
 # --- CI check steps --------------------------------------------------------
@@ -557,7 +573,7 @@ if ($ciSteps -eq 0) { Abort 'no named step in ci.yml carries a run: block - the 
 # --- module registry -------------------------------------------------------
 # Parsed out of lib/common.ps1 rather than dot-sourced: dot-sourcing a hook
 # library to count a hashtable runs its whole prologue for one number.
-$commonPath = Join-Path $script:RepoRoot 'lib\common.ps1'
+$commonPath = Join-Path $script:PayloadRoot 'lib\common.ps1'
 if (-not (Test-Path -LiteralPath $commonPath -PathType Leaf)) { Abort "missing $commonPath" }
 $commonText = Get-Content -Raw -LiteralPath $commonPath
 $regMatch = [regex]::Match($commonText,
@@ -624,8 +640,8 @@ $versionSites = @()
 # still-escaped bytes and turned every spelling it was too strict to see into a
 # silent pass. A guard is the last place that failure belongs, so the VALUE
 # comes from a real parse and the regex is used only to point at a line.
-$pluginRel   = '.claude-plugin/plugin.json'
-$pluginPath  = Join-Path $script:RepoRoot '.claude-plugin\plugin.json'
+$pluginRel   = "$($script:PayloadRel)/.claude-plugin/plugin.json"
+$pluginPath  = Join-Path $script:PayloadRoot '.claude-plugin\plugin.json'
 if (-not (Test-Path -LiteralPath $pluginPath -PathType Leaf)) { Abort "missing $pluginPath" }
 $pluginLines = @(Get-Content -LiteralPath $pluginPath)
 try { $pluginJson = ($pluginLines -join "`n") | ConvertFrom-Json }
@@ -653,8 +669,22 @@ $versionSites += [pscustomobject]@{
     Rel = $mktRel; Line = (Get-LineOf $mktLines '"version"\s*:'); Value = [string]$mktEntry[0].version
 }
 
-$cfgRel   = 'config.json'
-$cfgPath  = Join-Path $script:RepoRoot 'config.json'
+# THE PAYLOAD PATH THIS FILE HARDCODES, CHECKED AGAINST THE FILE THE CLI READS.
+# $script:PayloadRel appears in eight places above and below - the command
+# filter, the module registry, three version sites, the status line, hooks.json
+# and the plugin description. Every one of them would go quietly wrong together
+# if the subtree were renamed in marketplace.json and not here, and the failure
+# would not look like a broken guard: `command-count` would derive ZERO and this
+# suite would then report every "six commands" sentence in the tree as a stale
+# claim. That is a guard confidently reporting the opposite of the truth, which
+# is worse than one that does not run. So it aborts instead.
+$declaredSource = [string]$mktEntry[0].source
+if ($declaredSource -ne ('./' + $script:PayloadRel)) {
+    Abort ("$mktRel declares source '$declaredSource' but this guard resolved the payload at './$($script:PayloadRel)'. One of them is wrong and nothing below was checked.")
+}
+
+$cfgRel   = "$($script:PayloadRel)/config.json"
+$cfgPath  = Join-Path $script:PayloadRoot 'config.json'
 if (-not (Test-Path -LiteralPath $cfgPath -PathType Leaf)) { Abort "missing $cfgPath" }
 $cfgLines = @(Get-Content -LiteralPath $cfgPath)
 try { $cfgJson = ($cfgLines -join "`n") | ConvertFrom-Json }
@@ -669,11 +699,11 @@ $versionSites += [pscustomobject]@{
 # string would run a hook prologue, which is the same reason the module
 # registry above is parsed rather than loaded.
 $verLiterals = @(
-    @{ Rel = 'lib/common.ps1';        Path = 'lib\common.ps1';        Pattern = "\`$script:LwgVersion\s*=\s*'([^']+)'" }
-    @{ Rel = 'lib/session_start.ps1'; Path = 'lib\session_start.ps1'; Pattern = "(?m)^\s*\`$version\s*=\s*'([^']+)'" }
+    @{ Rel = "$($script:PayloadRel)/lib/common.ps1";        Path = 'lib\common.ps1';        Pattern = "\`$script:LwgVersion\s*=\s*'([^']+)'" }
+    @{ Rel = "$($script:PayloadRel)/lib/session_start.ps1"; Path = 'lib\session_start.ps1'; Pattern = "(?m)^\s*\`$version\s*=\s*'([^']+)'" }
 )
 foreach ($lit in $verLiterals) {
-    $litPath = Join-Path $script:RepoRoot $lit.Path
+    $litPath = Join-Path $script:PayloadRoot $lit.Path
     if (-not (Test-Path -LiteralPath $litPath -PathType Leaf)) { Abort "missing $litPath" }
     $litLines = @(Get-Content -LiteralPath $litPath)
     $litMatch = [regex]::Match(($litLines -join "`n"), $lit.Pattern)
@@ -709,7 +739,7 @@ if ($tagExit -eq 0 -and $publishedTags.Count -gt 0) { $tagsKnown = $true }
 # The doctor is RUN. Its exit code is deliberately ignored: it exits non-zero
 # on a real finding about the machine this happens to run on, and how many
 # checks it performs is a different question from whether they passed.
-$doctorPath = Join-Path $script:RepoRoot 'bin\lwg-doctor.ps1'
+$doctorPath = Join-Path $script:PayloadRoot 'bin\lwg-doctor.ps1'
 if (-not (Test-Path -LiteralPath $doctorPath -PathType Leaf)) { Abort "missing $doctorPath" }
 $doctorOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $doctorPath
 $doctorText = ($doctorOut -join "`n")
@@ -1639,7 +1669,7 @@ function Test-ForbiddenPhrasing {
 # rule must stop firing on its own rather than have to be remembered, so the
 # renderer is read for a GmSeg-shaped function AND for an assembly line that
 # emits one. Either is enough to stand the rule down.
-$slRel  = 'statusline/statusline.ps1'
+$slRel  = "$($script:PayloadRel)/statusline/statusline.ps1"
 $slFull = Join-Path $script:RepoRoot ($slRel -replace '/', '\')
 if (-not (Test-Path -LiteralPath $slFull -PathType Leaf)) {
     Abort "$slRel is missing, so whether the GM segment still exists could not be derived and no surface was held to its absence."
@@ -2035,7 +2065,7 @@ if ($ciText -match 'DELIBERATELY UNCHANGED') {
 #
 # THE PRECONDITION IS DERIVED: if the registrations ever stop naming
 # powershell, the platform claim stops being owed and this rule stands down.
-$hooksRel  = 'hooks/hooks.json'
+$hooksRel  = "$($script:PayloadRel)/hooks/hooks.json"
 $hooksFull = Join-Path $script:RepoRoot ($hooksRel -replace '/', '\')
 if (-not (Test-Path -LiteralPath $hooksFull -PathType Leaf)) {
     Abort "$hooksRel is missing, so the platform requirement could not be derived."
@@ -2051,8 +2081,13 @@ if ($cmdPs.Count -ne $cmdAll.Count) {
         -Said ("{0} of {1} registrations name powershell, so no manifest is held to a Windows-only claim" -f $cmdPs.Count, $cmdAll.Count)
 } else {
     foreach ($pair in @(
-        @{ Rel = '.claude-plugin/plugin.json';      Pat = '"description"\s*:\s*"([^"]+)"' },
-        @{ Rel = '.claude-plugin/marketplace.json'; Pat = '"name"\s*:\s*"lw-[^"]+"\s*,\s*\r?\n?\s*"description"\s*:\s*"([^"]+)"' }
+        # THE FIRST MOVED AND THE SECOND DID NOT, and both Rels are looked up in
+        # $wide, which is built from `git ls-files` - so each must be spelled
+        # exactly as git prints it. Prefixing marketplace.json here would make
+        # Get-WideDoc return $null and Abort this suite on a green tree; leaving
+        # plugin.json unprefixed does the same in the other direction.
+        @{ Rel = "$($script:PayloadRel)/.claude-plugin/plugin.json"; Pat = '"description"\s*:\s*"([^"]+)"' },
+        @{ Rel = '.claude-plugin/marketplace.json';                 Pat = '"name"\s*:\s*"lw-[^"]+"\s*,\s*\r?\n?\s*"description"\s*:\s*"([^"]+)"' }
     )) {
         $mDoc = Get-WideDoc $pair.Rel
         if ($null -eq $mDoc) { Abort ("{0} is not in the wide set, so its description was never read." -f $pair.Rel) }
@@ -2087,7 +2122,7 @@ if ($cmdPs.Count -ne $cmdAll.Count) {
 # not mean the platform requirement is stated well. It means no page makes the
 # specific overstatement that was made.
 $reqMax = 0
-foreach ($rel in @($tracked | Where-Object { $_ -match '^(bin|lib|statusline)/.+\.ps1$' })) {
+foreach ($rel in @($tracked | Where-Object { $_ -match ('^' + [regex]::Escape($script:PayloadRel) + '/(bin|lib|statusline)/.+\.ps1$') })) {
     $full = Join-Path $script:RepoRoot ($rel -replace '/', '\')
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
     foreach ($rm in [regex]::Matches(((Get-Content -LiteralPath $full -TotalCount 5) -join "`n"), '(?im)^#requires\s+-version\s+(\d+(?:\.\d+)?)')) {

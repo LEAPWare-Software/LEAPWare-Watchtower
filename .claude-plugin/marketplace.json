@@ -24,7 +24,7 @@
         "hooks",
         "safety"
       ],
-      "source": "./"
+      "source": "./lw-watchtower"
     }
   ]
 }
