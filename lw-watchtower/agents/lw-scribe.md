@@ -3,7 +3,6 @@ name: lw-scribe
 description: "Mechanical, diff-verifiable edits. Use for renames, formatting, boilerplate, import fixes and repetitive changes with an unambiguous correct answer."
 model: haiku
 effort: low
-lw-class: work
 ---
 
 <!--

@@ -4,7 +4,6 @@ description: "Main-thread coordinator. Talks to the user and delegates the work 
 model: opus
 effort: high
 tools: Agent, Skill, ToolSearch, AskUserQuestion, Read, Grep, Glob, SendUserFile, TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop, SendMessage, EnterPlanMode, ExitPlanMode
-lw-class: neutral
 ---
 
 <!--

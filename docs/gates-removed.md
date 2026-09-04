@@ -5,10 +5,10 @@ wants blocking capability re-addable, and this page is what makes that possible.
 what the last attempt cost, what it taught, and — since 30 July 2026 — **what a future gate now has
 to rebuild from nothing**, written down here because the code that would have taught it is deleted.
 
-**A gate has since been added back**, and this page is not out of date because of it — see
-[What is true right now](#what-is-true-right-now) at the foot, which says exactly what that one gate
-does and does not do. Nothing else here was softened by its arrival; it avoids every failure this
-page records by never doing the thing that produced them.
+**Gates have since been added back — three of them**, and this page is not out of date because of
+it — see [What is true right now](#what-is-true-right-now) at the foot, which says exactly what they
+do and do not do. Nothing else here was softened by their arrival; each of them avoids every failure
+this page records by never doing the thing that produced them.
 
 Four things are separate and must stay separate:
 
@@ -28,12 +28,19 @@ originally listed** — see the next section.
 
 | Kept | Why it matters to a future gate |
 | --- | --- |
-| `kind = 'gate'` in `$LwgModuleRegistry` ([`lib/common.ps1`](../lib/common.ps1)) | The registry can still **express** a gate. `$script:LwgGates` is built by a loop over the registry rather than replaced with a literal `@()`, so setting that one field makes the gate count, `Get-LwgActiveGates`, the mode ladder and the banner all follow with no other change. The status line no longer follows — it has no governance segment left to light. |
-| `Get-LwgSessionMode` ([`lib/common.ps1`](../lib/common.ps1)) | `enforcing` and `partial` are unreachable today only because the live gate count is zero. The ladder is guarded by that count, not by an assumption about which gates exist, so both words come back on their own. |
-| Every deny family in [`bin/lwg-uninstall.ps1`](../bin/lwg-uninstall.ps1) | The only code left that knows what the original 181 `permissions.deny` rules looked like. A machine installed before the removal still carries them. |
+| `kind = 'gate'` in `$LwgModuleRegistry` ([`lib/common.ps1`](../lw-watchtower/lib/common.ps1)) | The registry can still **express** a gate. `$script:LwgGates` is built by a loop over the registry rather than replaced with a literal `@()`, so setting that one field makes the gate count, `Get-LwgActiveGates`, the mode ladder and the banner all follow with no other change. The status line no longer follows — it has no governance segment left to light. |
+| `Get-LwgSessionMode` ([`lib/common.ps1`](../lw-watchtower/lib/common.ps1)) | `enforcing` and `partial` are unreachable today only because the live gate count is zero. The ladder is guarded by that count, not by an assumption about which gates exist, so both words come back on their own. |
+| Every deny family in [`bin/lwg-uninstall.ps1`](../lw-watchtower/bin/lwg-uninstall.ps1) | The only code left that knows what the original 181 `permissions.deny` rules looked like. A machine installed before the removal still carries them. |
 
-`bin/lwg-setup.ps1`'s `Get-DenyGroups` returns an **empty** table and `-SecretGate` / `-DestructiveGate`
-select nothing. The mechanism that writes deny groups is intact; only the groups are gone.
+**`Get-DenyGroups` no longer exists**, and neither do `-SecretGate` and `-DestructiveGate`. This page
+said until 3 September 2026 that the function returned an empty table and the two parameters selected
+nothing — that was true of an earlier tree and describes a state a reader can no longer be in. The
+function was deleted with the permissions section it fed; the two parameters were deleted from
+`bin/lwg-setup.ps1`'s param block, so passing either is a PowerShell binding error before any script
+code runs, rather than a question whose answer selects nothing. The only mentions of all three names
+left in the payload are comments in `bin/lwg-setup.ps1` and `bin/lwg-uninstall.ps1` recording that
+they went. The mechanism that *writes* a settings section is intact and is what a future gate would
+reuse; the deny-group builder is not.
 
 ## The trip ledger was NOT kept — a gate has to rebuild it
 
@@ -155,22 +162,33 @@ about what the input meant.
 
 ## What is true right now
 
-**There is one gate, it is the only one, and it ships switched off.** Until later on 30 July 2026
-this section said the opposite — no `PreToolUse` key, no registry entry of kind `gate`, nothing here
+**Three gates ship, and every one of them ships switched off.** Until later on 30 July 2026 this
+section said there was no `PreToolUse` key, no registry entry of kind `gate`, and nothing here
 blocking anything. All three of those statements are now false, and they are corrected here rather
-than left for a reader to trip over, in the same spirit as the ledger correction above.
+than left for a reader to trip over, in the same spirit as the ledger correction above. This section
+also said until 3 September 2026 that `delegate_gate` was *the only* gate; two more were built on
+1 August 2026 and it has not been the only one since.
 
 `delegate_gate` was built hours after the two removals, as the one blocking switch on the plan that
-research found fully buildable. What exists:
+research found fully buildable. `send_liveness_gate` and `completion_audit` followed on 1 August 2026,
+built from a measured failure rather than from this page's plan. What exists — the authoritative list
+is the `kind = 'gate'` entries in `$LwgModuleRegistry`
+([`lib/common.ps1`](../lw-watchtower/lib/common.ps1)), not this page:
 
-- `hooks/hooks.json` **has a `PreToolUse` key again**. One entry, matcher
-  `Edit|Write|NotebookEdit|Bash|PowerShell`, invoking [`lib/gate_delegate.ps1`](../lib/gate_delegate.ps1) in
-  exec form.
-- One registry entry **is** of kind `gate` — `delegate_gate` in `$LwgModuleRegistry`
-  ([`lib/common.ps1`](../lib/common.ps1)). The first row of the *What was kept* table has stopped
-  being a description of a capability held in reserve; it is the field the shipped gate turns on.
-- Its switch is `interaction.delegate` in `config.json`, declared on that registry entry's own
-  `switch` field rather than as a `modules` flag, and it **ships `false`**.
+- `hooks/hooks.json` **has a `PreToolUse` key again**. `delegate_gate`'s entry has matcher
+  `Edit|Write|NotebookEdit|Bash|PowerShell`, invoking [`lib/gate_delegate.ps1`](../lw-watchtower/lib/gate_delegate.ps1) in
+  exec form; `send_liveness_gate` registers on the same event for `SendMessage`.
+- Three registry entries **are** of kind `gate` — `delegate_gate`, `send_liveness_gate` and
+  `completion_audit`. The first row of the *What was kept* table has stopped being a description of a
+  capability held in reserve; it is the field the shipped gates turn on.
+- Each declares its switch on its own registry entry's `switch` field rather than as a `modules`
+  flag — `interaction.delegate`, `supervision.send_liveness` and `supervision.completion_audit` — and
+  **all three ship `false`**.
+
+The rest of this section is about `delegate_gate`, which is the gate this page's lessons were written
+against. `send_liveness_gate` and `completion_audit` have a section each in
+[Modules](modules.md#send_liveness_gate), written against what each one refuses and what each one
+lets through.
 
 What it does, and what it does not:
 
@@ -181,7 +199,7 @@ What it does, and what it does not:
 | **Does** | Fail safe in two opposite directions on purpose — unreadable stdin **denies** (no `agent_id` was read, and input the gate could not read is not evidence a subagent made the call); an unreadable or absent `config.json` **allows** (the switch is off by default, and the alternative makes a bad config a lockout on the file that has to be fixed). |
 | **Does not** | Read the path, the command, the content, or `tool_name` **to decide**. It reads `payload.tool_name` exactly once, *after* the decision to refuse has been made, only to name the refused tool in the message — a payload carrying none is refused identically, with the text falling back to *"this tool"*. See [modules.md](modules.md#delegate_gate). It carries **no exemption, no allowlist and no safety determination** — Lesson 1 and rule 2 above are exactly why, and the absence is the design. |
 | **Does not** | Refuse anything a subagent does, or check that a dispatch was any good. |
-| **Does not** | Replace either removed gate. Nothing inspects a shell command; nothing inspects a path or the bytes of a write; the installer still writes **no** `permissions.deny` rules at all — `Get-DenyGroups` returns an empty table. Every cost listed in the CHANGELOG entries for those two removals is still being paid. |
+| **Does not** | Replace either removed gate. Nothing inspects a shell command; nothing inspects a path or the bytes of a write; the installer still writes **no** `permissions.deny` rules at all, and has no code left that could — the deny-group builder is deleted. Every cost listed in the CHANGELOG entries for those two removals is still being paid. |
 | **Does not** | Block anything on a default install, because it ships off. The live gate count is `0`, and a healthy session still reads `observe-only`. |
 
 `enforcing` and `partial` are reachable words again — but only for an operator who sets the switch,
@@ -193,7 +211,9 @@ tracks it as an open item. There is still no ledger, no reader for one, no `trip
 governance segment on the status line — every word of *The trip ledger was NOT kept* above stands,
 and it stands for this gate too.
 
-**One gate is not the lessons being over.** `delegate_gate` avoids the entire failure surface this
-page documents by not having one: it parses no shell, models no language, enumerates no spellings and
-decides nothing about whether something is safe. Building it tested **none** of the five lessons. They
+**Three gates are not the lessons being over.** Each of them avoids the entire failure surface this
+page documents by not having one. `delegate_gate` parses no shell, models no language, enumerates no
+spellings and decides nothing about whether something is safe; `send_liveness_gate` and
+`completion_audit` decide on evidence about a message and a turn, never on the content of a command
+or a write. Building all three tested **none** of the five lessons. They
 are still owed in full by any future gate that has to look at what a call actually contains.
