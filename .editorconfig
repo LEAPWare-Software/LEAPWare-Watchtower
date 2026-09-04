@@ -33,7 +33,7 @@ indent_size = 4
 # reproduces the installed ~\.claude\statusline.ps1 byte for byte and the
 # doctor's hash comparison keeps meaning something. It is the single .ps1
 # exception, in both files, and the two must not be allowed to disagree.
-[statusline/statusline.ps1]
+[lw-watchtower/statusline/statusline.ps1]
 end_of_line = lf
 
 # .gitattributes: `*.sh text eol=lf`. Identical to the default above, restated so

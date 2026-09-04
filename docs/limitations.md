@@ -23,10 +23,10 @@ from running it, it says so.
 | --- | --- |
 | Can it refuse a destructive command? | **No.** Nothing inspects a shell command. |
 | Can it stop a credential reaching disk? | **No.** Nothing inspects written content, and nothing inspects a path in order to refuse it — one hook reads an edited path *after* the write, to feed two advisories. |
-| Does it install any `permissions.deny` rule? | **No.** The installer's rule table is empty. |
-| Can it block anything at all? | **Three things**, and it ships switched off — see [`delegate_gate`](#the-one-gate-blocks-one-thing-and-ships-off). |
+| Does it install any `permissions.deny` rule? | **No.** The installer has no rule table any more — the function and the section that wrote it are both deleted. |
+| Can it block anything at all? | **Three things**, and it ships switched off — see [the gates](#the-three-gates-block-little-and-all-ship-off). |
 | Can it block assistant text? | **No.** There is no hook between the model and the transcript. |
-| How many of its thirteen modules are tested? | **Eleven** — all three gates, and eight of the ten observing ones, only in the cases somebody thought to write and for five of them only one or two properties apiece. The other two — `verification_gate`, `self_health` — are exercised by nothing. |
+| How many of its eleven modules are tested? | **All eleven** — all three gates and all eight observing ones — but only in the cases somebody thought to write, and for several of them one or two properties apiece is the whole of it. See [What no test covers](#what-no-test-covers) before reading that as coverage. |
 | Does it run anywhere but Windows PowerShell 5.1? | **No**, and it does not pretend to. |
 
 ---
@@ -37,14 +37,9 @@ from running it, it says so.
 - [Why the gates went](#why-the-gates-went)
 - [The three gates block little, and all ship off](#the-three-gates-block-little-and-all-ship-off)
 - [The advisory modules advise; they do not enforce](#the-advisory-modules-advise-they-do-not-enforce)
-- [`mission_drift` is on, tested, and still unvalidated](#mission_drift-is-on-tested-and-still-unvalidated)
 - [The gate costs ~330 ms on every edit and command, on or off](#the-gate-costs-330-ms-on-every-edit-and-command-on-or-off)
-- [The checklist measures its own staleness on exactly one laptop](#the-checklist-measures-its-own-staleness-on-exactly-one-laptop)
-- [Most checklist ticks rest on a file existing](#most-checklist-ticks-rest-on-a-file-existing)
-- [The checklist read differently on the two install routes](#the-checklist-read-differently-on-the-two-install-routes)
 - [What no test covers](#what-no-test-covers)
 - [Platform, install and state](#platform-install-and-state)
-- [The preference commands are not controls](#the-preference-commands-are-not-controls)
 - [The documentation is not checked against the tree](#the-documentation-is-not-checked-against-the-tree)
 - [Things that were specified and cannot be built](#things-that-were-specified-and-cannot-be-built)
 - [What a fully green run actually establishes](#what-a-fully-green-run-actually-establishes)
@@ -64,17 +59,20 @@ decision, and neither is coming back. As shipped today:
   `*.pem`, `*.key`, `id_rsa*` or `.env`, or a write whose content is a live GitHub, AWS or Slack
   token, reaches disk with nothing here refusing it. **One hook does read a path**, and it is stated
   here rather than left to be discovered: `lib/post_edit.ps1` runs on `PostToolUse` and appends
-  `tool_input.file_path` (or `notebook_path`) to a per-session list, which `docs_coupling` and
-  `mission_drift` read at turn end. It runs **after** the write, it makes no judgement about the
+  `tool_input.file_path` (or `notebook_path`) to a per-session list, which `docs_coupling`
+  reads at turn end. It runs **after** the write, it makes no judgement about the
   path, and it can refuse nothing — but "no hook inspects a path" was false as written, and a page
   about what this plugin does not do cannot afford a false negative. Nothing here inspects the
   **bytes** being written, by any route.
 - **No hook refuses a write inside `.git/`.** `[core] sshCommand` in `.git/config` is arbitrary code
   execution on the next git command, and no layer here refuses it.
-- **`permissions.deny` is empty.** `Get-DenyGroups` in [`bin/lwg-setup.ps1`](../bin/lwg-setup.ps1)
-  returns an empty table, so `/lw-watchtower:setup` writes **zero** rules. It wrote 181 in six groups until
-  that date. `-SecretGate` and `-DestructiveGate` are still accepted parameters and select nothing at
-  either layer.
+- **`permissions.deny` is empty.** `Get-DenyGroups` in [`bin/lwg-setup.ps1`](../lw-watchtower/bin/lwg-setup.ps1)
+  no longer exists, and neither does the `permissions` section that called it, so
+  `/lw-watchtower:setup` writes **zero** rules. It wrote 181 in six groups until
+  that date. `-SecretGate` and `-DestructiveGate` are not accepted parameters that select nothing —
+  they are **not parameters**: the installer is `[CmdletBinding()]`, so passing either is a binding
+  error before a line of the script runs and nothing is written. `-Section permissions` is refused by
+  the same mechanism.
 - **The secret regex patterns that survive in `lib/common.ps1` are used for log redaction only**
   (`Get-LwgRedacted`). Nothing scans a write with them.
 
@@ -115,7 +113,7 @@ Summarised honestly, without softening:
 - The standing conclusion drawn from that, in `gates-removed.md`:
   **a gate with a green suite and no independent break-attempt should be assumed broken.**
 
-That conclusion applies to `tests/gate_delegate.ps1` too. It is 93 of 93 green, and that fact is
+That conclusion applies to `tests/gate_delegate.ps1` too. It is 99 of 99 green, and that fact is
 worth exactly what the paragraph above says it is worth.
 
 What a future gate now has to **rebuild from nothing**, because it was removed rather than kept, is
@@ -126,7 +124,7 @@ most of the work of adding a gate, and this repository no longer contains any of
 
 ## The three gates block little, and all ship off
 
-`delegate_gate` ([`lib/gate_delegate.ps1`](../lib/gate_delegate.ps1)) is the only thing in this plugin
+`delegate_gate` ([`lib/gate_delegate.ps1`](../lw-watchtower/lib/gate_delegate.ps1)) is the only thing in this plugin
 that can refuse a tool call. Its limits:
 
 - **It ships switched off** (`interaction.delegate: false`), so as shipped the live gate count is `0`
@@ -142,7 +140,7 @@ that can refuse a tool call. Its limits:
   short until 1 August 2026: the matcher named `Bash` and not `PowerShell` on a plugin that supports
   **Windows and nothing else**, where the CLI offers both shell tools — so with the gate armed the
   main thread could do every bit of the work the gate claims to refuse by asking for the other
-  shell, while `/lw-watchtower:status` printed *"1 gate(s) LIVE — it can refuse a tool call right now"*.
+  shell, while `/lw-watchtower:doctor` printed *"1 gate(s) LIVE — it can refuse a tool call right now"*.
   Nothing in the gate script was wrong; the CLI never invoked it. That specific hole is closed and
   [`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) section M is the regression case — it is
   the only section of that suite that models the CLI's matcher selection instead of assuming it.
@@ -166,31 +164,46 @@ that can refuse a tool call. Its limits:
 - **It enforces delegation, not good delegation.** It never checks that a dispatch was any good.
 - **Turning it on is close to one-way from the chat session.** `/lw-watchtower:delegate off` runs through
   `Bash`, which is one of the five refused tools, and there is deliberately no exemption for it —
-  nor is `PowerShell` a way round that, since 1 August 2026. The
-  two routes back are a subagent running the command, or hand-editing
-  [`config.json`](../config.json).
+  nor is `PowerShell` a way round that, since 1 August 2026. The two routes back are a subagent
+  running the command, or setting `interaction.delegate` to `false` by hand in
+  `config.override.json` under the state directory — `$CLAUDE_PLUGIN_DATA`, or
+  `~/.claude/plugins/data/lw-watchtower*/`. **Not in `config.json`**: that file is the shipped
+  defaults, and an edit there changes nothing while the override still says `true`.
+- **Read-only verification costs a dispatch, and this is an accepted cost rather than an oversight.**
+  With the switch armed, *every* `Bash` and `PowerShell` call from the main thread is refused,
+  read-only ones included: `git status --short` is refused exactly as `git push --force` is, exit 2,
+  with the deny text offering one route — dispatch a subagent and have it make the call. So checking
+  a worker's output from the main thread costs a full agent dispatch, every time.
+  **The gate will not be taught to allow the safe ones.** Doing that means classifying what a command
+  does from a string, which is the thing this repository has already failed at four separate times
+  (the record is [gates-removed.md](gates-removed.md)) and which
+  [`lib/gate_delegate.ps1`](../lw-watchtower/lib/gate_delegate.ps1)'s own header names, at three
+  separate points, as the entire reason the gate is trustworthy: it reads no path, no command, and
+  not even `tool_name` before deciding. An allowlist reopens the *scanner stricter than its consumer*
+  defect class that this very file has shipped twice since. The cost is a latency cost and not a
+  capability cost — the escape hatch is named in the deny text — and if it is ever judged intolerable
+  the honest fix is upstream: an orchestrator that batches its verifications into one dispatch, not
+  an exemption inside the gate.
 - **A denial is not tracked as an open item.** It is written to `lw-watchtower.jsonl` as a `GateDeny`
   event; nothing records, reads, closes or acknowledges it, and the status line has no governance
-  segment. `/lw-watchtower:sitrep` counts those records as history, and nothing can clear one.
+  segment. The `sitrep` command counted those records as history and went on 2 September 2026, so
+  nothing counts them now and nothing can clear one.
 
 Full detail: [`delegate_gate`](modules.md#delegate_gate).
 
 ## The advisory modules advise; they do not enforce
 
-Ten of the thirteen modules are kind `observe`. **Not one of them can stop, delay or alter anything** —
+Eight of the eleven modules are kind `observe`. **Not one of them can stop, delay or alter anything** —
 they warn at turn end, or write a log record, and the action happens regardless. The advisory handler
 exits 0 on every path and its only stdout is a `systemMessage` envelope with no `decision` field.
 *That was a property of the source, established by reading it, until 31 July 2026. It is now run:
 `tests/stop_behaviour.ps1` asserts exit 0 on every case it drives, and case B8 asserts on a real
-emitted envelope that it carries no `decision` member. That covers the six modules that suite
-reaches — `mission_drift`, `failure_capture`, `context_pressure`, `docs_coupling`, `git_hygiene` and
-`log_rotation`. For the other three observing modules it is still a property of the source and
+emitted envelope that it carries no `decision` member. That covers the five modules that suite
+reaches — `failure_capture`, `context_pressure`, `docs_coupling`, `git_hygiene` and
+`log_rotation`. For the other observing modules it is still a property of the source and
 nothing more.*
 
-`verification_gate` keeps the word "gate" in its name and **is not one**. It is registered kind
-`observe`, warns on `Stop`, and never blocks.
-
-Within the nine, the useful distinction is between a module that observes a **fact** and one that
+The useful distinction is between a module that observes a **fact** and one that
 runs a **heuristic**. Both are advisory; only the first is telling you something it actually saw.
 
 | Module | Observes | What limits it |
@@ -199,43 +212,12 @@ runs a **heuristic**. Both are advisory; only the first is telling you something
 | `self_health` | a fact — five probes, each asserting a real returned value | Runs at `SessionStart` only. With `self_health` off, no probe runs and the session reports mode `unverified`, not a pass. |
 | `log_rotation` | a fact — the file's size | Caps two named logs, `health.jsonl` and `lw-watchtower.jsonl`. It does **not** bound the state dir — the per-session `advisory-*` and `edits-*` files are swept by nothing. Asserts nothing about content. |
 | `context_pressure` | **partly** — real token counts, an **inferred** denominator | No hook receives `context_window`. Occupancy is recomputed from the transcript with the CLI's own arithmetic, but the **window size** depends on account entitlement and is assumed at 200 000 unless configured, `[1m]`-tagged, or proven by observation. For an unrecognised 1 M model, occupancy between 150 k and 200 k reads as `75–100%` until one turn crosses 200 k. |
-| `verification_gate` | **heuristic** — role classification over `SubagentStop` records, by the role file's `lw-class` key where it declares one and by name against two configured lists otherwise | Sees subagents only; main-thread work is invisible. About **28% of observed `SubagentStop` records carry an empty `agent_type`** and are unclassifiable. A role that declares no `lw-class` and appears on neither list is invisible. False positives: an implementer dispatched only to read, or verification you did yourself. `lw-class` is an **unknown frontmatter key the loader silently ignores** — an affordance, not a contract, and a future release could reject it. |
 | `docs_coupling` | a fact — the paths edited, over a **narrow window** | `Write`/`Edit`/`NotebookEdit` only. **A file rewritten by a shell command is invisible to it.** Its doc/source/neither classification is a configurable word list, not an analysis. |
 | `git_hygiene` | a fact — git's own answer | The only module that spawns a subprocess, on `Stop` only. If git is missing, times out or exits nonzero it reports **UNKNOWN**, never "clean" — but the operator has to read that word. Its open-PR half needs `gh` and the network and is best-effort by construction. |
 | `context_injection` | a fact — it emits the current bytes of one file per dispatch | It injects; it cannot block, because `SubagentStart` has no blocking channel. **Nothing verifies the worker read it or acted on it.** That the escaper emits pure ASCII rests on inspection of the source. |
-| `mission_drift` | **heuristic** — word, stem and path-segment overlap | See the next section. It is the weakest of the nine and it is on by default. |
 
 Blind spots per module, in the modules' own words:
-[Caveats on the ten that only observe](modules.md#caveats-on-the-ten-that-only-observe).
-
-## `mission_drift` is on, tested, and still unvalidated
-
-Stated separately because it is the weakest thing this plugin does that is switched on for everyone,
-which it became on 30 July 2026 when the owner switched it on by default. **Two of the three
-complaints this section used to make are no longer true**, and the third is the one that mattered.
-
-- **It is exercised end to end**, by `tests/stop_behaviour.ps1`, since 31 July 2026: the fire
-  condition, `min_files`, `require_outside_root`, `max_scan_bytes`, `stop_hook_active`, and the
-  behaviour that it never blocks. Until then no test of any kind reached it and the only evidence was
-  a one-off hand run against a constructed transcript. That is now re-run on every push and every PR.
-- **The claim that a legitimate mid-session pivot cannot trip it is now run, not read.** It has cases
-  in that suite. It was a property of the source until the same date.
-- **Its trigger has still never been validated against real sessions, and this is the one that
-  counts.** That was the reason it originally shipped `false`, and no validation has happened since.
-  A suite can establish that the trigger behaves as written; it cannot establish that being warned by
-  it is *right*, because that judgement is not in the code and no case in that suite can tell a
-  correct warning from one an operator would call noise. It is on for every install regardless.
-- **One false-positive class survives and is live**: a redirection phrased with no concrete noun at
-  all — *"now go fix the other repo"* — followed by edits in a tree nobody named.
-- **Its false negatives are many and deliberate**: drift inside the workspace root is invisible under
-  the default `require_outside_root: true`; one accounted file silences the whole assessment;
-  anything changed by a shell command is invisible; and a turn appending more than 2 MB of transcript
-  makes the module **skip that region and stay silent for the rest of the session**.
-- **It costs about 137 ms at every turn end** where it previously cost nothing — one development
-  machine's median, 122 ms fastest, 169 ms slowest, scaling with transcript growth and disk speed.
-
-Turn it off with `modules.mission_drift: false` and nothing else changes; the cost goes to zero on
-the same flag. Full write-up: [`mission_drift`](modules.md#mission_drift).
+[the per-module caveats in Modules](modules.md).
 
 ## The gate costs ~330 ms on every edit and command, on or off
 
@@ -286,7 +268,7 @@ the switch on the fast path runs, fails to prove the switch off, and the slow pa
 everything it always did. That is recorded here rather than left out: the saving goes to the operator
 who never arms the gate, and the extra cost to the one who did, on a call being blocked anyway. The
 only way to remove any of it is to delete the `PreToolUse` entry from
-[`hooks/hooks.json`](../hooks/hooks.json), which also removes the ability to ever turn the gate on.
+[`hooks/hooks.json`](../lw-watchtower/hooks/hooks.json), which also removes the ability to ever turn the gate on.
 
 Turn end costs are separate and are measured at
 [Architecture § turn-end cost](architecture.md#turn-end-cost). The short version: about 1 212 ms
@@ -294,185 +276,62 @@ median for the advisory handler against a 283 ms interpreter floor, and the rema
 overwhelmingly **PowerShell 5.1 engine warm-up, not data work**. It is not reducible much further
 from this side.
 
-## The checklist measures its own staleness on exactly one laptop
-
-`checklist.json` is transcribed **by hand** from a plan file that lives at
-`%USERPROFILE%\.claude\plans\…`, is not tracked in this repo, and does not ship with the plugin.
-
-- **Drift between the plan and the checklist is measurable on exactly one machine** — the one that
-  happens to hold the plan file. Everywhere else `/lw-watchtower:checklist` prints `STALENESS NOT MEASURED`
-  with the reason, which is the honest report of a gap and **not the gap being closed**.
-- **A plan item added and never transcribed is undetectable from any second machine.** The checklist
-  there will look complete while being short an item. A clean-looking run on a laptop without the
-  plan file is silence about plan agreement, not evidence of it.
-- **A loosely written evidence rule is not detectable by any automated means at all**, on any
-  machine. That is why every DONE row prints the evidence it rests on — so a reader can judge the
-  rule instead of trusting the tick.
-
-## Most checklist ticks rest on a file existing
-
-`checklist.json` carries 40 items. Their evidence rules, counted from the file:
-
-| Evidence kind | Items |
-| --- | --- |
-| `file` — a path exists, optionally matching a regex | 22 |
-| `manual` — **deliberately can never pass** | 8 |
-| `command` — a program's exit code and output | 6 |
-| `commit` — a commit subject reachable from a ref | 2 |
-| `hook` — a script registered on a named hook event, with a matcher | 1 |
-| `ci` — the newest CI run's conclusion | 1 |
-
-Of the 22 `file` rules, **13 test nothing but existence**; 9 also require a content match.
-
-**Every figure in this section was stale by one, in the same direction, until 3 August 2026, and the
-two sentences explaining the last recount were false.** The table said `file` 21 and `commit` 4; the
-errors cancelled, so the total of 40 was right while the composition was not, which is what let it
-survive a green `doc_claims` run. The recount note claimed `PD-proposal` `manual`→`file` was *"the
-only kind change in that pass"* — `PE-sitrep` moved `commit`→`file` in the same pass, by its own
-caveat's date — and it claimed the existence-only count *fell*, when the arrival of an
-existence-only `file` rule made it **rise**. A section whose whole subject is *what the ticks do not
-prove* was itself a stale claim about the ticks. It is fixed by a recount rather than by an
-adjustment, and `tests/doc_claims.ps1` now derives this table and the existence-only count from
-`checklist.json` on every run, so a manifest edit that moves *either of those two figures* fails the
-build instead of ageing them quietly. It does **not** cover the rest of this section: the
-DONE-by-kind breakdown two paragraphs below depends on which rows *pass*, which means resolving every
-rule in the manifest over the network, so nothing holds it to the tree and it is dated in the prose
-instead.
-
-**Two kind changes landed on 3 August 2026**, and both are recorded here because the last recount's
-mistake was failing to record one. `PE-checklist` moved `commit`→`file`: its old rule proved an
-evidence-backed checklist command from *a commit subject matching `(?i)checklist`*, which a commit
-**deleting** the command satisfies. `PD-delegate` moved `file`→`hook`, a kind that did not exist
-before: its old rule was one `(?s)` regex over the raw text of `hooks/hooks.json` whose three
-fragments were bound to no single entry, so the gate registered on `PostToolUse` — where it can
-refuse nothing — satisfied it. A third rule changed without changing kind: `P1-lineendings` stayed
-`file` and gained a content match, which is why the existence-only count did **not** rise by two.
-
-On a run taken from this tree on 3 August 2026 — 30 DONE, 0 in progress, 1 blocked, 9 UNVERIFIED,
-0 not started — the 30 ticks broke down as **13 on a file merely existing**, 9 on a file plus a
-regex, 4 on a command's exit code, 2 on a commit subject, 1 on a hook registration and 1 on a CI
-conclusion. So **more than a third of everything marked done is backed by a file being on disk and
-nothing else**, and another third by a regex over that file's text. A file can exist, match a
-pattern, and do nothing.
-
-One row still moves under its own tag: `P8-tag` flips once `v0.3.0` is pushed, and is counted above
-as it stood when this paragraph was written. `PE-sitrep` was named here as the second such row long
-after it had stopped being one — it has probed for two files rather than for a commit subject since
-31 July 2026 — which is the same missed kind change the corrected paragraph above records. Re-run
-`/lw-watchtower:checklist` for the current picture rather than adjusting these numbers by hand.
-
-**Exactly one item is proved by running one of this repository's own checks** — `P6-workflow-guard`,
-which executes `tests/workflow_guard.ps1` and requires exit 0. The other five `command` rules shell
-out to `git` or `gh` to *query a fact* — an author list, a grep, a tag, a branch-protection object, a
-visibility flag — which is not the same as exercising a control. Until 30 July 2026 even this one was
-a string match: the rule read *"`ci.yml` contains `self-hosted`"*, which **a comment satisfied**. Two
-more rules were tightened the same day for the same reason — `PD-classification` and
-`PD-doctor-assert` both required the literal `lw-class` to appear in a script, and in both scripts
-every occurrence of it is inside a comment or a display string, so the code could have been deleted
-with the tick intact. None of the three changed state; all three now name something that has to work.
-
-Two further caveats the command prints itself:
-
-- **`UNVERIFIED` is a third state, not a quieter "not started".** Nine items could not be checked at
-  all. The highest-severity item on the whole plan — whether any self-hosted runner group is visible
-  to this repository at org level — is one of them, and nothing on this machine can check it: reading
-  it needs org admin scope, and a 403 is indistinguishable from "no groups exist".
-- **Twenty-two of the 30 DONE items are marked `[x*]`** — the probe passed *and* a caveat beneath it
-  limits what passing proves. That is more than two thirds, and the proportion rose rather than fell
-  as the rules were tightened: a caveat is added when something is learned about what a tick does
-  *not* cover. The 22 is measured against a run taken as the `v0.3.0` release commit was written, so
-  the rise spans every wave since rather than one day; **three** of the caveats were added on 3 August
-  2026 — `PE-checklist`, `P1-lineendings` and `P5-setup` — and `P5-setup` is the one worth naming:
-  its title lists **five** behavioural properties of the guided installer — per-section confirmation,
-  diff before write, backup, rollback, never clobber — and its evidence is that two paths are files.
-  It carried no caveat at all until that date, which made it the largest unqualified claim in the
-  manifest.
-
-## The checklist read differently on the two install routes
-
-Recorded rather than quietly fixed, because it is the worst defect this project has shipped in its
-own reporting and the page it belongs on is this one.
-
-Until 31 July 2026, on the **marketplace install** — the route [Install](install.md) calls
-recommended for consumers — the plugin directory carried no `.git`, every `kind: command` rule that
-shells out to git exited `128` having read nothing, and the engine scored that as *the condition was
-not met*. Two rows rendered `[ ] NOT STARTED`, which the command's own legend defines as *a probe
-**ran** and found the thing absent*. What they therefore told a consumer was that **the owner's
-personal address was left in history** and that **the private sibling project's name is in the
-tree** — the opposite of the truth, about facts nothing had measured. The same commit on a junction
-install showed both rows correct, so the defect was invisible from the machine the plugin is written
-on and was found by an adversarial UAT on the other route.
-
-The engine now separates *the probe could not run* from *the probe ran and failed* for five signals,
-listed in [The evidence-state suite](testing.md#the-evidence-state-suite), and `tests/evidence_states.ps1`
-holds it there in CI. **Three things that fix does not close, stated so they are not read as closed:**
-
-- **A plugin directory that happens to sit inside an unrelated checkout is worse off than one that
-  sits inside none.** git then answers every rule about *that* repository, exit 0 and all, and the
-  checklist reports a tick or a finding about the wrong tree with nothing to signal it. The
-  no-repository case is now honest; the wrong-repository case is not detected at all.
-- **Only the listed signals are covered.** Any other way a probe can answer a question it never
-  reached — a `gh` call that succeeds with an unexpected body, a script that exits 0 having done
-  nothing — is still scored as a finding.
-- **`P8-tag` can no longer report a missing release.** A tag that was never cut and a tag that was
-  never fetched both produce exit 0 with empty output, so both now read `UNVERIFIED`. That is the
-  conservative direction on purpose, and it is still a thing the row cannot say.
-
 ## What no test covers
 
-**Ten suites in this repository establish a behaviour of this plugin, and between them they reach
-one gate, two writers, one deleter, one reporting engine, two of the doctor's nine checks, one
-hook's fast path, the shipped payload, and eight of the ten observing modules.**
+**Eleven suites in this repository establish a behaviour of this plugin, and between them they reach
+all three gates, three writers, one deleter, the session-start hook, two of the doctor's ten checks,
+one hook's fast path, the shipped payload, and all eight observing modules.**
 
 | Suite | What it establishes |
 | --- | --- |
-| `tests/gate_delegate.ps1` | 93 cases through a real pipe into a real child process: that `delegate_gate` refuses what it declares, and that the gate and the command that reports it give the same answer for the same config. |
-| `tests/evidence_states.ps1` | 47 cases against `bin/lwg-evidence.ps1`: that a probe which could not run renders `UNVERIFIED` and a probe which ran and failed still renders `NOT STARTED`; that a manifest path is read only from inside the plugin root; and that the shipped rules for the delegate gate's registration, the line-ending agreement and the installer's caveat test what their titles claim. Fifteen of them require an answer to **stay** an answer — a `pass`, a `fail`, or a rendered `NOT STARTED` where answering "unverified" to everything would have been green. |
-| `tests/stop_behaviour.ps1` | 178 cases, the helpers in process and the hooks in real child processes: pinned behaviours of `mission_drift` and `failure_capture`, including two supervisor bugs that had already shipped, the redaction helper every module's error text passes through, and that `mission_drift` puts no part of a credential pasted into a prompt into its state file or its advisory. |
-| `tests/uninstall_footprint.ps1` | 27 cases against `bin/lwg-uninstall.ps1`, asserting on the filesystem as well as on the report: that the state-data footprint names what it deletes, deletes what it named, and exits non-zero rather than calling a no-op deletion a success; that what it attributes to this plugin really is this plugin's, including all 181 `permissions.deny` rules the pre-30-July installer wrote; and that what it refuses — a reparse point, a directory holding none of this plugin's files, a `settings.json` it could not parse — it names and counts as un-removed. The only suite that tests a **deletion**. |
-| `tests/setup_merge.ps1` | 124 cases. Against `bin/lwg-setup.ps1`: that the installer's merge preserves settings it was not asked to touch, takes one backup, is idempotent and rolls back; that it recognises a marketplace install and a registration of its own scripts under another root. The only suite that tests a **write**. Its last four sections are not about the installer — they are the only coverage the **reporting surfaces** have: `statusline/statusline.ps1` (payload decoding, the three states a number can be in, the `HH` fault gauge, the reset clock, the paths and the config it reads), `bin/lwg-sitrep.ps1` (both governance counts and the command they point at), `lib/resolve.ps1` (an append that failed) and `bin/lwg-update.ps1` (`-Offline` with `-Apply`, a diverged branch, the exit-4 attribution, the junction route). Nothing exercised `bin/lwg-update.ps1` in any form before that. |
-| `tests/doctor_behaviour.ps1` | 16 cases driving `bin/lwg-doctor.ps1` from a scratch copy of the whole plugin tree against seeded configs and seeded `settings.json` files: that `config-registry` refuses a switch whose value is not a real `[bool]` rather than passing it for being present, and that `statusline` asks whose file a status line is before diagnosing it as a stale copy of this plugin's. **Two of the doctor's nine checks and no others**, and seven of the sixteen are `CONTROL` cases that pass before the fix too. A byte-identical or token-bearing foreign status line is a stated limit, not something these cases catch. |
-| `tests/toggle_behaviour.ps1` | 26 cases against `bin/lwg-toggle.ps1`'s write to `config.json`, in real child processes against a byte copy of `bin/` and `lib/`: that the write takes a backup, re-checks that the file on disk is still the one it read, keeps a BOM, refuses a config it cannot read back, and never reports exit `3` — *"config.json was not changed"* — for a run that changed it. The only suite besides the merge one that tests a **write to a file an operator owns**. `-Scope repo` is reached by no case, and that is a gap rather than a decision. |
-| `tests/subagent_scan.ps1` | 6 cases piping payloads into the real `lib/subagent_start.ps1`: that its raw-text fast path answers the **global** `modules` flag whatever order the top-level keys appear in, and agrees with the slow path it exists to avoid. The only coverage `context_injection` has. Every case asserting silence re-runs the same fixture with one bit changed and requires the injection to appear, because a bare negative is satisfied by a hook that crashed. It asserts on answers, **not on the milliseconds** the fast path exists to save. |
-| `tests/payload_guard.ps1` | 15 cases over every file `git ls-files` reports — which is the whole shipped payload, because `marketplace.json` declares `"source": "./"` and that form has no exclusion mechanism: that no tracked file carries a pull-ref narrative, a former personal address, a plan file's name, a release-plan heading, or a containment claim that inverts when visibility changes. It reads files rather than running this plugin's code, and it is a statement about **the shapes it carries**, not about everything a reader would rather not ship. |
+| `tests/gate_delegate.ps1` | 99 cases through a real pipe into a real child process: that `delegate_gate` refuses what it declares, and that the gate and the command that reports it give the same answer for the same config. |
+| `tests/stop_behaviour.ps1` | 117 cases, the helpers in process and the hooks in real child processes: pinned behaviours of `failure_capture`, `context_pressure`, `docs_coupling`, `git_hygiene` and `log_rotation`, including two supervisor bugs that had already shipped, and the redaction helper every module's error text passes through — asserted to keep no part of a credential pasted into a prompt out of a state file or an advisory. |
+| `tests/uninstall_footprint.ps1` | 35 cases against `bin/lwg-uninstall.ps1`, asserting on the filesystem as well as on the report: that the state-data footprint names what it deletes, deletes what it named, and exits non-zero rather than calling a no-op deletion a success; that what it attributes to this plugin really is this plugin's, including all 181 `permissions.deny` rules the pre-30-July installer wrote; and that what it refuses — a reparse point, a directory holding none of this plugin's files, a `settings.json` it could not parse — it names and counts as un-removed. The only suite that tests a **deletion**. |
+| `tests/setup_merge.ps1` | 198 cases. Against `bin/lwg-setup.ps1`: that the installer's merge preserves settings it was not asked to touch, takes one backup, is idempotent and rolls back; that it recognises a marketplace install and a registration of its own scripts under another root. The only suite that tests a **write**. Its last sections are not about the installer — they are the only coverage the **reporting surfaces that survive it** have: `statusline/statusline.ps1` (payload decoding, the three states a number can be in, the `HH` fault gauge, the reset clock, the paths and the config it reads) and `bin/lwg-update.ps1` (`-Offline` with `-Apply`, a diverged branch, the exit-4 attribution, the junction route). Nothing exercised `bin/lwg-update.ps1` in any form before that. |
+| `tests/doctor_behaviour.ps1` | 37 cases driving `bin/lwg-doctor.ps1` from a scratch copy of the whole plugin tree against seeded configs and seeded `settings.json` files: that `config-registry` refuses a switch whose value is not a real `[bool]` rather than passing it for being present, that `statusline` asks whose file a status line is before diagnosing it as a stale copy of this plugin's, and that it reads the `settings.json` the CLI actually reads rather than one composed from the profile. **Two of the doctor's ten checks and no others**, and a substantial minority are `CONTROL` cases that pass before the fix too. A byte-identical or token-bearing foreign status line is a stated limit, not something these cases catch. |
+| `tests/toggle_behaviour.ps1` | 28 cases against `bin/lwg-toggle.ps1`'s write to `config.override.json`, in real child processes against a byte copy of `bin/` and `lib/`: that the write takes a backup, re-checks that the file on disk is still the one it read, keeps a BOM, refuses a config it cannot read back, never reports exit `3` for a run that changed the file, and closes with an invariant that no run moved a byte of the plugin root's `config.json`. The only suite besides the merge one that tests a **write to a file an operator owns**. |
+| `tests/subagent_scan.ps1` | 13 cases piping payloads into the real `lib/subagent_start.ps1`: that its raw-text fast path answers the **global** `modules` flag whatever order the top-level keys appear in, and agrees with the slow path it exists to avoid. The only coverage `context_injection` has. Every case asserting silence re-runs the same fixture with one bit changed and requires the injection to appear, because a bare negative is satisfied by a hook that crashed. It asserts on answers, **not on the milliseconds** the fast path exists to save. |
+| `tests/payload_guard.ps1` | 22 cases over two enumerations, and the split is the point: the **shipped payload**, which since the restructure is `lw-watchtower/` alone because `marketplace.json` declares `"source": "./lw-watchtower"`, and the rest of the tracked tree, which a consumer never receives. That no tracked file carries a pull-ref narrative, a former personal address, a plan file's name, a release-plan heading, a containment claim that inverts when visibility changes, or — inside the payload — a shipped file naming a script this branch deleted. It reads files rather than running this plugin's code, and it is a statement about **the shapes it carries**, not about everything a reader would rather not ship. |
 | `tests/portability_scan.ps1` | That no tracked file names a machine. **Nothing about behaviour** — a file can be perfectly portable and completely broken. |
 | `tests/workflow_guard.ps1` | That no workflow definition reaches a runner GitHub does not host. A *file* check, not a behaviour. |
-| `tests/doc_claims.ps1` | That no tracked page states a count — of suites, cases, CI steps, doctor checks, commands or modules — that the tree contradicts. A check on the *documentation*, not on anything this plugin does. |
+| `tests/doc_claims.ps1` | That no tracked page states a count — of suites, cases, CI steps, doctor checks, commands or modules — that the tree contradicts, and that every page under `docs/` is reachable from the index the site's front door renders. A check on the *documentation*, not on anything this plugin does. |
+| `tests/config_behaviour.ps1` | 49 cases against `bin/lwg-config.ps1`, the module switchboard's write path, which nothing in `tests/` had ever executed: the refusals it is built around, the two-phase preview, the surgical JSON edit and the exit-2 read-back. Like the toggle suite it closes with an invariant that no run moved a byte of the plugin root's `config.json`. |
+| `tests/state_resolution.ps1` | 32 cases against `lib/session_start.ps1` — the one surface every session sees — which nothing in `tests/` had ever executed either: the five self-check probes, the mode words, the state-directory resolution including `CLAUDE_CONFIG_DIR`, the banner, and the `additionalContext` envelope. Its own header states why its later sections exist: **execution is not coverage**, and the hook was being run nine times by cases that asserted almost nothing about it. |
+| `tests/supervision.ps1` | 64 cases against the other two gates, `send_liveness_gate` and `completion_audit`, and against `orphan_watch`, through a real pipe into a real child process against a throwaway plugin root. Its anchor cases reproduce the measured 1 August 2026 failure exactly — a 28-minute-45-second-stale transcript with no stop record, and a completion claim whose turn ends in `SendMessage` — and require the deny, the block and the orphan alert respectively. It carries the same standing caveat as the delegate suite: a green run says these cases still behave, not that the gates are sound. |
 
-**Two of the thirteen modules are still exercised by nothing at all**, and the eleven that are covered are
-covered in the cases somebody thought to write, not in general. `stop_behaviour.ps1` reaching
-`mission_drift` and `failure_capture` moved the count from zero to two on 31 July 2026, the
-`context_pressure`, `docs_coupling`, `git_hygiene` and `log_rotation` cases added on 3 August 2026
-moved it to six, and `subagent_scan.ps1` moved it to seven by reaching `context_injection`; none of
-that made the observing half tested, and for four of the seven at most two
-properties are the whole of it — for `context_injection` it is exactly one. Read [Testing and CI](testing.md) for the current inventory rather than trusting a count
-transcribed here.
+**Every module in the registry is now reached by some suite, and that is a much weaker statement than
+it sounds.** Coverage here is the cases somebody thought to write, not coverage in general.
+`stop_behaviour.ps1` reaching `failure_capture` moved the count off zero on 31 July 2026; the
+`context_pressure`, `docs_coupling`, `git_hygiene` and `log_rotation` cases followed on 3 August 2026;
+`subagent_scan.ps1` reached `context_injection`; `supervision.ps1` reached `orphan_watch` and the two
+supervision gates; and `state_resolution.ps1` reached `self_health`'s probes through the session-start
+hook. None of that made the observing half *tested*, and for several of them one or two properties are
+the whole of it. Read [Testing and CI](testing.md) for the current inventory rather than trusting a
+count transcribed here.
 
 **A green CI run therefore says that tracked files parse, that no tracked file names a machine, that
-no tracked page states a count the tree contradicts, and that the ten suites in the table above
-still behave as their cases declare. It is not evidence that this plugin is sound, and for two of
-the ten observing modules it is not evidence of anything at all, because nothing exercises them.**
+no tracked page states a count the tree contradicts, and that the suites in the table above still
+behave as their cases declare. It is not evidence that this plugin is sound**, and for most modules
+that only observe it is evidence about one or two properties and nothing wider.
 
 Uncovered, item by item, because an absence nobody writes down reads as coverage:
 
-- **Two of the ten observing modules, and thin coverage of five more.** Six are reached by
-  `tests/stop_behaviour.ps1`, in the cases somebody thought to write: `mission_drift` and
-  `failure_capture` since 31 July 2026, and `context_pressure`, `docs_coupling`, `git_hygiene` and
-  `log_rotation` since 3 August 2026; the seventh, `context_injection`, is reached by
-  `tests/subagent_scan.ps1` on one property only. **This list said seven were exercised by nothing until that
-  second set landed and named four of them by name — it was the coverage claim itself going stale,
-  which is the failure this page exists to prevent, and nothing in `tests/` checks it.** What the
-  four new ones actually amount to, counted on 3 August 2026: `context_pressure` has TWO cases, on
-  the impossible-occupancy refusal and on a window being learned only after a second reading;
-  `log_rotation` has THREE — the on/off pair and the tail-carry; `docs_coupling` has TWO, and only
-  one of them is about `docs_coupling` itself (that its advisory is bounded), the other being about
-  the write that feeds it; `git_hygiene` has ONE, that an UNKNOWN tree state is repeated at every
-  turn end rather than once. None of them establishes that its module advises the right thing.
-  `context_injection` has ONE, that the fast scan answers the global flag whatever order the
-  top-level keys are written in; what the hook does with `worker_facts.md` has no case at all. The two
-  reached by nothing at all are `verification_gate` and `self_health` —
-  and `verification_gate` is a near miss rather than a clean absence: the class resolver it reads
-  has cases in section A, while the module that consumes them has none.
+- **Thin coverage across the modules that only observe.** Five are reached by
+  `tests/stop_behaviour.ps1`, in the cases somebody thought to write: `failure_capture` since
+  31 July 2026, and `context_pressure`, `docs_coupling`, `git_hygiene` and `log_rotation` since
+  3 August 2026. `context_injection` is reached by `tests/subagent_scan.ps1`, `orphan_watch` by
+  `tests/supervision.ps1`, and `self_health`'s probes by `tests/state_resolution.ps1`.
+  **This list said seven modules were exercised by nothing until the second set landed and named four
+  of them — it was the coverage claim itself going stale, which is the failure this page exists to
+  prevent, and nothing in `tests/` checks it.** What the four amount to, counted on 3 August 2026:
+  `context_pressure` has TWO cases, on the impossible-occupancy refusal and on a window being learned
+  only after a second reading; `log_rotation` has THREE — the on/off pair and the tail-carry;
+  `docs_coupling` has TWO, and only one of them is about `docs_coupling` itself (that its advisory is
+  bounded), the other being about the write that feeds it; `git_hygiene` has ONE, that an UNKNOWN tree
+  state is repeated at every turn end rather than once. None of them establishes that its module
+  advises the right thing. `context_injection` has ONE, that the fast scan answers the global flag
+  whatever order the top-level keys are written in; what the hook does with `worker_facts.md` has no
+  case at all.
 - **The installer's WRITER outside `statusline`.** `tests/setup_merge.ps1` establishes, for the
   `statusline` section, that `/lw-watchtower:setup` leaves unrelated settings byte-identical and in order,
   takes exactly one backup holding the original bytes, refuses `apply` without a matching `BaseHash`,
@@ -524,12 +383,15 @@ Uncovered, item by item, because an absence nobody writes down reads as coverage
   the `scope` and `projectPath` it read on the same line as the claim, and deliberately does not
   narrow the verdict on them: setup runs from wherever the session is, which is not necessarily the
   project the settings file will be used from.
-- **The `SessionStart` banner.** Asserted by nothing. A silent or wrong banner would not fail a build.
-- **The status line.** Asserted by nothing. A blanked line, a dropped segment or a nonzero exit would
-  surface only by being looked at.
+- **The `SessionStart` banner beyond its text.** `tests/state_resolution.ps1` asserts the banner and
+  the `additionalContext` envelope the hook prints; nothing asserts that the CLI displays either, so a
+  banner suppressed at the harness would not fail a build.
+- **The status line beyond what `tests/setup_merge.ps1` drives.** That suite runs
+  `statusline/statusline.ps1` from a scratch copy against real payloads — the decoding, the three
+  states a number can be in, the `HH` gauge, the reset clock. Nothing asserts that the rendered line
+  reaches a terminal; a blanked row would surface only by being looked at.
 - **That the advisory handler cannot block** — inspection of the source.
 - **That the `context_injection` escaper emits pure ASCII** — inspection of the source.
-- **That `mission_drift` treats a pivot as an anchor rather than as drift** — inspection of the source.
 - **`Get-LwgRedacted` beyond the shapes somebody enumerated.** This entry said "no test exercises
   it" until 3 August 2026 and that had been wrong since 1 August; it is corrected here rather than
   quietly deleted, because the sentence was load-bearing for a reader deciding whether to trust the
@@ -571,7 +433,7 @@ for still renders that row `DONE`. See [Branch protection](testing.md#branch-pro
 
 ## Platform, install and state
 
-- **Windows only, Windows PowerShell 5.1 only.** All ten hook registrations name the binary
+- **Windows only, Windows PowerShell 5.1 only.** All thirteen hook registrations name the binary
   `powershell`, so `pwsh` is **not** a substitute *for a hook* — but the constraint is the
   registration and not the language level. Every tracked script declares `#requires -version 5`,
   which PowerShell 7 satisfies, so running one by hand under `pwsh` is not refused by the interpreter
@@ -583,7 +445,7 @@ for still renders that row `DONE`. See [Branch protection](testing.md#branch-pro
   what a hook payload carries is pinned to that build and is a claim about it, not a law.
 - **The status line is not part of the plugin and cannot be.** `statusLine` is a top-level
   `settings.json` key; a plugin has no manifest field for it and no hook event renders a line. The
-  tracked [`statusline/statusline.ps1`](../statusline/statusline.ps1) has to be **copied** to your
+  tracked [`statusline/statusline.ps1`](../lw-watchtower/statusline/statusline.ps1) has to be **copied** to your
   profile, and **the two files then drift silently** — including the case that costs most, a fix made
   to the live file and overwritten the next time the repo copy is installed over it. The doctor
   detects the drift; nothing prevents it. See
@@ -603,33 +465,6 @@ for still renders that row `DONE`. See [Branch protection](testing.md#branch-pro
   removed. See [The trip ledger](architecture.md#the-trip-ledger--removed-and-recorded-here-as-a-design).
 - **`HH` dim (`HH-`) is not an all-clear.** It means nothing about this session was found to read.
   Green and dim are different facts and the trailing `-` is what separates them.
-
-## The preference commands are not controls
-
-Three preference commands ship. **One is enforced and two are not**, and the two that are not do less
-than their names suggest.
-
-- **`/lw-watchtower:verbosity` and `/lw-watchtower:plain` record a preference. They do not activate anything.**
-  The style Claude Code applies is the `outputStyle` key in a settings file, and **nothing in this
-  plugin writes it**. Both commands resolve which style file the two axes imply, report what the
-  settings key currently says, and tell you to run `/config` → Output style. That last step is manual.
-- **An output style cannot be switched mid-session.** It is read into the system prompt once at
-  session start, so any change needs `/clear` or a new session — and `/clear` discards the
-  conversation.
-- **Nothing can block assistant text.** There is no hook between the model and the transcript; `Stop`
-  sees `last_assistant_message` *after* it has been rendered. A style is a request the model is very
-  likely to honour and **nothing stronger**. Anyone describing it as *enforcing* an output style is
-  repeating this plugin's founding defect.
-- **Output styles reach the main conversation only.** A subagent runs its own system prompt. In a
-  delegating setup, where most text originates in a worker's report, this removes most of the surface
-  these styles appear to cover.
-- **There is no style compliance check.** The design note for one records that the half that matters
-  — the never-suppress block — is **not measurable from the answer text at all**, because an omission
-  leaves no trace in the text that omits it. See
-  [`style-compliance-check.md`](style-compliance-check.md).
-
-Detail: [What these cannot do](output-styles.md#what-these-cannot-do) and
-[the three preference commands](commands.md#the-three-preference-commands-and-what-each-one-actually-does).
 
 ## The documentation is not checked against the tree
 
@@ -667,21 +502,22 @@ Treat a dated claim as a record of what was true then. The tree is the authority
 
 ## Things that were specified and cannot be built
 
-Four names were on this project's plan and are **not merely unwritten**. Each is recorded rather than
+Five names were on this project's plan and are **not merely unwritten**. Each is recorded rather than
 deleted, so nobody re-attempts it without the evidence.
 
 | Name | Why it cannot be built |
 | --- | --- |
 | `ratelimit_escalation` | `rate_limits` is assembled in exactly one place in the claude-code 2.1.220 binary — the status-line input builder. **No hook event carries it.** The escalation therefore lives in the status line, where the data actually arrives. |
 | `cost_tracking` | Same finding for `cost.total_cost_usd` and the line counts. There is no on-disk cache to read instead: the CLI holds them in process memory, `~/.claude.json` has no such keys, and the transcript records tokens but no dollars. |
+| the subscription plan name on the status line | **There is no plan name, tier name, entitlement field or account identifier anywhere in the status-line payload**, and no hook payload carries one either. Verified against the status-line reference on 2 September 2026: the payload carries `model.*`, `cost.*`, `context_window.*`, `prompt_cache.*`, `fast_mode`, `effort.level`, `thinking.enabled`, `workspace.*`, `worktree.*`, `pr.*`, `agent.name` and `rate_limits.*` — and nothing of this class. The only proxy that exists is **presence**: `rate_limits` is absent on free and present on Pro/Max, which distinguishes two buckets and does not name a plan, so rendering it as one would be the overstatement this plugin exists to catch. It is filed as an upstream request and closes if the field is added; it is deliberately **not** to be worked around by inference from rate-limit shape, `~/.claude.json`, or any other indirect signal. |
 | `ask` | Would need a `Stop` hook refusing to end a turn while an unanswered decision is outstanding. A `Stop` hook can block turn end but **cannot stop prose that has already appeared**, and cannot detect a question that should have been asked and was not. The half that matters is unreachable. |
 | `ask_inline` | Would need something that counts and merges the questions asked in a turn. **Nothing can merge them after the fact.** |
 
-Both of the first two were carried as `planned` placeholders until 30 July 2026 and were then removed
+The first two were carried as `planned` placeholders until 30 July 2026 and were then removed
 from the switchboard, because a name that can never be built is not a plan and carrying it in a
 switchboard invites someone to switch it on. The reasoning is at
 [Attempted and blocked](modules.md#attempted-and-blocked-ratelimit_escalation-and-cost_tracking) and,
-for the interaction pair, in [`config.json`](../config.json).
+for the interaction pair, in [`config.json`](../lw-watchtower/config.json).
 
 **No amount of work inside this repository unblocks any of them.** What would: a `rate_limits` /
 `cost` block added to the hook input upstream, or a release that persists either to disk.

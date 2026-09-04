@@ -90,13 +90,24 @@
   looking for the flag with a substring search.
 
   ---------------------------------------------------------------------------
-  93 CASES, WHY NONE OF THEM MAY BE SKIPPED, AND WHAT SECTION I CANNOT SEE
+  99 CASES, WHY NONE OF THEM MAY BE SKIPPED, AND WHAT SECTION I CANNOT SEE
   ---------------------------------------------------------------------------
-  Sections A-H are 58 cases about the gate's rule. Section I is 7 more about
+  Sections A-H are 58 cases about the gate's rule. Section I is 12 more about
   the FAST PATH in lib/gate_delegate.ps1 - the scan that proves the switch off
   from the raw text of config.json and exits 0 before the JSON engine is ever
-  loaded. Section J is 10 more about the member NAMES that scan matches on, and
-  about what a non-boolean value in the switch means. Section K is 8 more, and
+  loaded. Five of those twelve - I7 to I11, added 3 September 2026 - are about
+  the OPERATOR OVERRIDE (#11): config.json became the shipped defaults, the
+  configuring commands write config.override.json under the state directory,
+  and a scan that read config.json alone would have proved the switch off over
+  an override that arms it - a gate reporting ARMED everywhere and refusing
+  nothing. Section J is 11 more about the member NAMES that scan matches on, and
+  about what a non-boolean value in the switch means. Ten of the eleven pipe a
+  payload into the gate and read what comes back; the eleventh, J7b, is the
+  only case in this file that calls the fast scan DIRECTLY, because an
+  abstention and a swallowed throw are byte-identical from outside the gate
+  process and J7 beside it therefore cannot tell them apart.
+
+  Section K is 8 more, and
   it is the only section here that runs something OTHER than the gate: it puts
   bin/lwg-toggle.ps1 - the command an operator reads the gate's state off - in
   front of the same configs and requires the same answer. That pair had already
@@ -105,8 +116,9 @@
 
   Section M is 3 more, and it is the only section here that asks a question
   about the CLI rather than about the gate: WOULD THE HOOK HAVE BEEN INVOKED?
-  Every case in A-L pipes a payload straight into the gate script, which models
-  a hook the CLI already decided to run - and the gate is tool-blind on purpose,
+  Every case in A-L but J7b pipes a payload straight into the gate script,
+  which models a hook the CLI already decided to run - and the gate is
+  tool-blind on purpose,
   so a tool the matcher never selects passes all of its cases by being handed a
   hook run that would not have happened. It is written after the section it
   covers because a suite that only tests the thing it can invoke is exactly how
@@ -114,9 +126,12 @@
   other shell tool one line away - while this header said 80 of 80.
 
   Section P is 2 more, and it is the only thing in this tree that reads a line
-  of what /lw-watchtower:status prints. It is the third reader of the same switch -
-  the gate, the toggle and the status command - and until 3 August 2026 it was
-  the one nothing checked.
+  of the informational roster bin\lwg-doctor.ps1 prints below its verdict. That
+  roster is the third reader of the same switch - the gate, the toggle and the
+  report - and until 3 August 2026 it was the one nothing checked. It used to
+  be a command of its own, bin\lwg-status.ps1; the command is deleted and these
+  two cases followed the output into the doctor rather than being deleted with
+  it, because neither property is covered anywhere else in this file.
 
   Section N is 4 more, and it is the only section here that reads PROSE. Four
   claims other files make about this gate - that no PreToolUse hook is
@@ -132,8 +147,10 @@
   SUITE instead of on something the suite tests: that the operator's live event
   log is the same size after the run as it was before it. It is the case that
   would have caught the leak described above, and it is the only shape of case
-  that could have. Every other case here reads an exit code, a stream, or a file
-  this suite created under the temp directory, and a record appended to a file in
+  that could have. Every other case here reads an exit code, a stream, a file
+  this suite created under the temp directory, or - J7b alone - the return
+  value of a function lifted out of the gate and run in a runspace of its own,
+  and a record appended to a file in
   the operator's profile moves none of those - so all 79 of them stayed green
   for as long as the leak ran. A promise that nothing real is touched is worth
   exactly what the assertion behind it is worth, and until section L there was
@@ -142,7 +159,7 @@
 
   THE COUNT ABOVE IS NOW A CONSTANT THIS FILE CHECKS, not only a sentence.
   $script:ExpectedCases is declared once below and a completed run whose tally
-  does not match it ABORTS with exit 2 instead of printing a number. 58 + 7 + 10
+  does not match it ABORTS with exit 2 instead of printing a number. 58 + 7 + 11
   + 8 + 3 + 2 + 4 + 1 is the arithmetic; if you add a case, that constant, this
   paragraph, the heading above and the tracked documents quoting the number all
   move in the same edit, which is the point of it.
@@ -207,14 +224,27 @@
 #>
 [CmdletBinding()]
 param(
-    # Repo root. Defaults to this file's parent, correct for a run from
+    # The PLUGIN PAYLOAD root - lw-watchtower\ under this file's parent, not the
+    # repository root, which is what this parameter meant before the restructure, correct for a run from
     # anywhere as long as this file stays in tests\.
     [string]$Root
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Split-Path -Parent $PSScriptRoot }
+# THE PAYLOAD ROOT, WHICH IS NO LONGER THE REPOSITORY ROOT. `Split-Path -Parent
+# $PSScriptRoot` is the parent of tests\, and tests\ stayed at the repository
+# root while the shipped plugin moved under lw-watchtower/. Everything this
+# suite composes off $Root - bin\, lib\, config.json, statusline\ - is payload,
+# so $Root is the payload root and the default says so in one place rather than
+# in every Join-Path below it.
+#
+# WHY THE DEFAULT AND NOT A -Root FROM CI. Neither .github\workflows\ci.yml nor
+# tests\doc_claims.ps1's sibling runner passes -Root at any invocation, so a
+# suite's default is the only value it ever gets on either route. Putting the
+# knowledge here is the only place it can be put.
+$script:RepoRoot = Split-Path -Parent $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Join-Path $script:RepoRoot 'lw-watchtower' }
 
 $GatePath   = Join-Path $Root 'lib\gate_delegate.ps1'
 $HooksPath  = Join-Path $Root 'hooks\hooks.json'
@@ -229,14 +259,31 @@ $TogglePath = Join-Path $Root 'bin\lwg-toggle.ps1'
 # exit 3 on a missing file - which is what happened, and it is worth saying how
 # it was missed: the fixture and the toggle live in different files, so no
 # file-level ownership boundary couples them, and the suite's tally is "N of M"
-# with M unchanged at 93, so `doc_claims` reads the M and every "93 of 93" in
-# the tree stayed green while eight cases were failing. Add a file here
-# whenever the toggle grows a dot-source.
+# with M unchanged at the number this file declares - 93 on the day this
+# happened - so `doc_claims` reads the M and every "93 of 93" in the tree stayed
+# green while eight cases were failing. Add a file here whenever the toggle
+# grows a dot-source.
 $CmdlibPath = Join-Path $Root 'bin\lwg-cmdlib.ps1'
-# The OTHER reporter. /lw-watchtower:status renders the gate's switch and the file
-# behind it, and section P is the only thing in this tree that reads what it
-# actually prints.
-$StatusPath = Join-Path $Root 'bin\lwg-status.ps1'
+# The OTHER reporter, and it MOVED. Until this edit it was bin\lwg-status.ps1,
+# a report command that did nothing else; that command is deleted and the one
+# thing it printed which nothing else did - the per-module listing and a
+# paragraph per gate - now prints at the foot of bin\lwg-doctor.ps1 as an
+# INFORMATIONAL block, below RESULT: and below the verdict prose. Section P
+# follows the output rather than the file name: it renders the gate's switch
+# and the file behind it, and section P is still the only thing in this tree
+# that reads what that surface actually prints.
+#
+# WHAT CHANGED IN THE CASES AND WHAT DID NOT. The two properties are identical -
+# the stored value is not rendered as a config.json assignment, and a registry
+# `impl` path that is not on disk is said to be missing. The EXIT ASSERTION had
+# to change and the change is not cosmetic: the report command exited 0 because
+# reporting was its whole job, while the doctor exits on its VERDICT, and
+# against a fixture root holding four files most of its nine checks fail. So
+# these cases assert the doctor COMPLETED - a `RESULT:` line, which the abort
+# path at exit 3 never prints - and deliberately assert nothing about which
+# code it chose. A case here that demanded exit 0 would be asserting the
+# fixture is a healthy plugin install, which it is not and is not meant to be.
+$DoctorPath = Join-Path $Root 'bin\lwg-doctor.ps1'
 
 # The tools the gate is registered on. Written out ONCE here, and every
 # assertion about the tool list is made against this - including the one that
@@ -256,7 +303,8 @@ $StatusPath = Join-Path $Root 'bin\lwg-status.ps1'
 #
 # The matcher named Bash and not PowerShell, so with interaction.delegate ON the main thread
 # could run any command it liked by picking the other shell, while
-# /lw-watchtower:status went on printing "1 gate(s) LIVE: delegate_gate - it can
+# the report command lw-watchtower:status (deleted; its roster now prints at the
+# foot of bin\lwg-doctor.ps1) went on printing "1 gate(s) LIVE: delegate_gate - it can
 # refuse a tool call right now". A gate reporting healthy while doing nothing is
 # the defect this repository exists to prevent, and it was open on the only OS
 # this plugin ships to.
@@ -325,7 +373,7 @@ $script:Aborted = ''
 # that reaches a verdict with the wrong number of cases behind it. A case
 # added on purpose has to move this number, the header, and the documents
 # quoting it in the same edit, which is the coupling that keeps them true.
-$script:ExpectedCases = 93
+$script:ExpectedCases = 99
 
 # The matcher string, as hooks.json actually spells it. Filled in by section A
 # from the one entry that names the gate, and read by section M.
@@ -680,35 +728,52 @@ function Invoke-Toggle {
     return @{ code = $code; out = $out; err = $err }
 }
 
-function New-LwgStatusRoot {
+function New-LwgReportRoot {
     <#
-      New-LwgToggleRoot's sibling for the OTHER command that reports the gate's
-      switch: bin\lwg-status.ps1. Same construction and for the same forced
-      reason - the command resolves its plugin root as the parent of its own
-      script directory and reads config.json from there, so the only way to
-      point it at a fixture is to stand it next to one.
+      New-LwgToggleRoot's sibling for the OTHER surface that reports the gate's
+      switch: the informational roster at the foot of bin\lwg-doctor.ps1. Same
+      construction and for the same forced reason - the script resolves its
+      plugin root as the parent of its own script directory and reads
+      config.json from there, so the only way to point it at a fixture is to
+      stand it next to one.
 
       lib\gate_delegate.ps1 is copied in as well, and not for show: section P
-      asserts that status says so when a registry entry's `impl` path is not on
-      disk, and it can only do that against a root where the file's presence is
-      something the fixture controls.
+      asserts that the roster says so when a registry entry's `impl` path is not
+      on disk, and it can only do that against a root where the file's presence
+      is something the fixture controls.
+
+      FOUR FILES IS THE WHOLE FIXTURE AND THAT IS DELIBERATE. The doctor's nine
+      checks want a plugin manifest, a hooks.json, a resolvable state dir and a
+      commands\ directory, and none of them is here - so most of them FAIL, and
+      section P asserts nothing about them. The roster is computed from the
+      module registry in lib\common.ps1 and the config.json this fixture wrote,
+      which are exactly the two things a fixture can control, and it prints
+      below the verdict prose whatever the checks decided.
     #>
     param([string]$Base, [string]$Name, [string]$Json, [bool]$WithGateFile = $true)
 
     $dir = New-LwgRawRoot -Base $Base -Name $Name -Json $Json
     [void][IO.Directory]::CreateDirectory((Join-Path $dir 'bin'))
     [void][IO.Directory]::CreateDirectory((Join-Path $dir 'lib'))
-    [IO.File]::Copy($StatusPath, (Join-Path $dir 'bin\lwg-status.ps1'), $true)
+    [IO.File]::Copy($DoctorPath, (Join-Path $dir 'bin\lwg-doctor.ps1'), $true)
     [IO.File]::Copy($CommonPath, (Join-Path $dir 'lib\common.ps1'),     $true)
     if ($WithGateFile) { [IO.File]::Copy($GatePath, (Join-Path $dir 'lib\gate_delegate.ps1'), $true) }
     return $dir
 }
 
-function Invoke-Status {
+function Invoke-Report {
     <#
-      Run `/lw-watchtower:status` against $FakeRoot in a real child process and return
+      Run the doctor against $FakeRoot in a real child process and return
       @{ code; out; err }. Same cmd-file arrangement as Invoke-Toggle, and the
       same environment window around it.
+
+      USERPROFILE IS REDIRECTED HERE AND IS NOT IN THE TOGGLE'S WINDOW. The
+      doctor's status-line check reads <profile>\.claude\settings.json, which on
+      a developer's machine is the operator's REAL one. The read is harmless and
+      the row is not asserted on, but a suite that reaches out of its scratch
+      tree for a file is a suite whose result depends on the machine it ran on,
+      and this file's own header says a case that cannot be reproduced is not a
+      case. Restored in the finally with the other two.
     #>
     param([string]$FakeRoot, [string]$WorkDir, [string]$Tag)
 
@@ -717,31 +782,54 @@ function Invoke-Status {
     $bat = Join-Path $WorkDir "$Tag.cmd"
     foreach ($f in @($of, $ef)) { if ([IO.File]::Exists($f)) { [IO.File]::WriteAllText($f, '') } }
 
+    $prof = Join-Path $FakeRoot 'profile'
+    [void][IO.Directory]::CreateDirectory((Join-Path $prof '.claude'))
+
     $lines = @(
         '@echo off'
         ('cd /d "{0}"' -f $WorkDir)
         ('powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" 1>"{1}" 2>"{2}"' -f `
-            (Join-Path $FakeRoot 'bin\lwg-status.ps1'), $of, $ef)
+            (Join-Path $FakeRoot 'bin\lwg-doctor.ps1'), $of, $ef)
         'exit /b %ERRORLEVEL%'
     )
     [IO.File]::WriteAllLines($bat, $lines, [Text.ASCIIEncoding]::new())
 
     $prevRoot = $env:CLAUDE_PLUGIN_ROOT
     $prevData = $env:CLAUDE_PLUGIN_DATA
+    $prevProf = $env:USERPROFILE
     try {
         $env:CLAUDE_PLUGIN_ROOT = $FakeRoot
         $env:CLAUDE_PLUGIN_DATA = Join-Path $FakeRoot 'data'
+        $env:USERPROFILE        = $prof
         & $env:ComSpec /c $bat | Out-Null
         $code = $LASTEXITCODE
     } finally {
         $env:CLAUDE_PLUGIN_ROOT = $prevRoot
         $env:CLAUDE_PLUGIN_DATA = $prevData
+        $env:USERPROFILE        = $prevProf
     }
 
     $out = ''; $err = ''
     try { $out = [IO.File]::ReadAllText($of) } catch { }
     try { $err = [IO.File]::ReadAllText($ef) } catch { }
     return @{ code = $code; out = $out; err = $err }
+}
+
+function Get-RosterText {
+    <#
+      Everything from the roster's heading to the end of the doctor's stdout,
+      or '' when the heading is not there.
+
+      '' IS NEVER TREATED AS A PASS by either case that calls this. A missing
+      heading means the block did not run - the doctor aborted, or the roster
+      threw into its own catch - and both are things a case must go red on
+      rather than quietly satisfy a -notmatch over an empty string. Section P
+      asserts $p1Roster/$p2Roster is non-empty alongside every match.
+    #>
+    param([string]$Text)
+    $i = $Text.IndexOf('WHAT IS SWITCHED ON')
+    if ($i -lt 0) { return '' }
+    return $Text.Substring($i)
 }
 
 function Get-ToggleEffective {
@@ -866,7 +954,11 @@ try {
     Write-Output "  gate : $GatePath"
     Write-Output ''
 
-    foreach ($p in @($GatePath, $HooksPath, $CfgPath, $CommonPath, $TogglePath)) {
+    # $DoctorPath joined this list when section P was re-pointed at the doctor's
+    # informational roster: it is copied into a fixture, and a missing source
+    # file should name itself here rather than surface as a copy exception from
+    # inside a case.
+    foreach ($p in @($GatePath, $HooksPath, $CfgPath, $CommonPath, $TogglePath, $DoctorPath)) {
         if (-not [IO.File]::Exists($p)) { throw "missing: $p" }
     }
 
@@ -1175,7 +1267,32 @@ try {
         # The stdout envelope, on one representative tool. Checked for shape
         # and for decision, because a malformed envelope is IGNORED and a gate
         # that emits one has reported a block it did not perform.
-        if ($tool -eq 'Write' -and $v.ok) {
+        #
+        # THE CONDITION IS THE TOOL AND NOTHING ELSE, and it used to be
+        # `$tool -eq 'Write' -and $v.ok`. $v.ok is the assertion of the case on
+        # the line above, so a gate that stopped denying on the main thread
+        # failed that case and DELETED these two - and these two are the ones
+        # that say HOW the refusal was malformed. The comment above is the
+        # argument against the old form: a malformed envelope is worth catching
+        # on every path, not only on the path where the block already worked.
+        #
+        # MEASURED ON THIS TREE, 3 September 2026. With the one rule in
+        # lib\gate_delegate.ps1 replaced by an unconditional `exit 0` - the gate
+        # never denies - the suite ran 91 cases and aborted:
+        #
+        #   ABORTED: 91 case(s) ran and this file declares 93 in
+        #   $script:ExpectedCases. A case was added without moving that
+        #   constant, the header and the documents quoting it, or a case
+        #   stopped being reached.
+        #
+        # $script:ExpectedCases caught the shrinkage, which is what it is for -
+        # but it caught it as "somebody edited this file wrong" rather than as
+        # "the gate stopped denying", and the two cases that would have named
+        # the empty channel had still not run. So the constant bounds this
+        # defect; it does not answer it. With the guard gone both bodies run on
+        # an allow and fail honestly: $r.out is empty, so ConvertFrom-Json
+        # fails and $okEnv is false; $r.err is empty, so neither -like matches.
+        if ($tool -eq 'Write') {
             $env0 = $null
             try { $env0 = $r.out | ConvertFrom-Json } catch { }
             $okEnv = ($null -ne $env0 -and
@@ -1454,6 +1571,134 @@ try {
     }
 
     # -------------------------------------------------------------------
+    # I7-I9. THE OPERATOR OVERRIDE - #11, AND THE FAIL-OPEN IT WOULD HAVE BEEN.
+    #
+    #    config.json is the SHIPPED DEFAULTS. Since 3 September 2026 the
+    #    configuring commands write config.override.json under the state
+    #    directory and Get-LwgConfig merges it over them, so the switch this
+    #    gate reads can be ON in a file config.json knows nothing about.
+    #
+    #    THIS SCANNER READS config.json ALONE, and every rule in it is a rule
+    #    for proving the switch OFF. Left as it was, it would have proved the
+    #    switch off from a default the operator had overridden, exited 0, and
+    #    left a gate that /lw-watchtower:doctor, the SessionStart banner and
+    #    the status line all report as ARMED refusing nothing at all. That is
+    #    strictly worse than the dirty working tree #11 is about, and it is the
+    #    reason three earlier passes were right to refuse to move the write
+    #    without moving every read.
+    #
+    #    It was MEASURED before it was fixed, at 4342980, in a throwaway plugin
+    #    root whose lib/common.ps1 was patched to make Get-LwgConfig answer
+    #    ARMED unconditionally: a main-thread Write exited 0 while the resolver
+    #    said the gate was on. The evidence is on #11. I7 is that scenario
+    #    without the patched resolver - the override file does the arming - and
+    #    it goes RED at 4342980, where nothing in this file has ever opened the
+    #    state directory.
+    #
+    #    I8 IS THE CASE THAT KEEPS I7 FROM BEING SATISFIED BY GIVING UP. An
+    #    abstain-on-any-override rule would pass I7 and cost the fast exit to
+    #    every operator who has ever set anything; an override that does not
+    #    touch the switch must still take it. I9 is the mirror of I7 in the
+    #    other direction: an override that turns the gate OFF over a config.json
+    #    that arms it must ALLOW, which no rule reading only config.json can do.
+    # -------------------------------------------------------------------
+    $ovBase = '{"version":"0.2.0","modules":{"failure_capture":true},"interaction":{"delegate":false},"repos":{"$comment":"nothing here"}}'
+    $ovOn   = '{"version":"0.2.0","modules":{"failure_capture":true},"interaction":{"delegate":true},"repos":{"$comment":"nothing here"}}'
+
+    $overrideCases = @(
+        @{
+            tag  = 'ov-arms'
+            name = 'I7  the OVERRIDE arms the gate while config.json says false -> DENY (#11)'
+            deny = $true
+            base = $ovBase
+            ov   = '{"interaction":{"delegate":true}}'
+            why  = 'the shape a fresh clone is in the moment an operator runs /lw-watchtower:delegate on. A scanner that reads config.json alone proves the switch off, exits 0, and the gate refuses nothing while everything that reports on it says ARMED'
+        }
+        @{
+            tag  = 'ov-unrelated'
+            name = 'I8  an override that does not touch the switch still takes the fast exit -> ALLOW'
+            deny = $false
+            base = $ovBase
+            ov   = '{"modules":{"git_hygiene":false}}'
+            why  = 'the guard against passing I7 by giving up: abstaining on ANY override would answer I7 correctly and charge every configured machine the slow path on every gated call'
+        }
+        @{
+            tag  = 'ov-disarms'
+            name = 'I9  the OVERRIDE turns the gate off over a config.json that arms it -> ALLOW'
+            deny = $false
+            base = $ovOn
+            ov   = '{"interaction":{"delegate":false}}'
+            why  = 'the mirror of I7. config.json is the defaults and the override wins; a scanner reading only the defaults would deny a call the operator has switched the gate off for'
+        }
+    )
+
+    foreach ($oc in $overrideCases) {
+        $rootOv = New-LwgRawRoot -Base $work -Name $oc.tag -Json $oc.base
+        # Invoke-Gate points CLAUDE_PLUGIN_DATA at <FakeRoot>\data, which
+        # New-LwgRawRoot has already created, so this is the very path
+        # Get-LwgConfigOverridePath resolves for the child.
+        [IO.File]::WriteAllText((Join-Path $rootOv 'data\config.override.json'), $oc.ov, [Text.UTF8Encoding]::new($false))
+        $r = Invoke-Gate -FakeRoot $rootOv -WorkDir $work -Tag $oc.tag `
+                         -Payload (New-Payload -Tool 'Edit' -AgentId $null -AgentType '' -Extra $editPay)
+        $v = if ($oc.deny) { Test-IsDeny $r } else { Test-IsAllow $r }
+        Add-Result $oc.name $v.ok ("$($v.why)  --  $($oc.why)")
+    }
+
+    # I10. AND THE CONTROL FOR THE WHOLE GROUP: the same three roots WITHOUT
+    #      the override file must answer the way config.json alone says, so a
+    #      reader of I7-I9 can tell the override did the work rather than the
+    #      fixture. Without it, "I7 denies" is satisfied by any change that
+    #      makes this gate deny more often.
+    $rootCtl = New-LwgRawRoot -Base $work -Name 'ov-control-off' -Json $ovBase
+    $rCtl = Invoke-Gate -FakeRoot $rootCtl -WorkDir $work -Tag 'ov-control-off' `
+                        -Payload (New-Payload -Tool 'Edit' -AgentId $null -AgentType '' -Extra $editPay)
+    $vCtl = Test-IsAllow $rCtl
+    Add-Result 'I10 CONTROL: the same config.json with NO override file still ALLOWs' `
+        $vCtl.ok `
+        ("$($vCtl.why)  --  I7's config.json is byte-identical to this one. If this denied too, I7 would be measuring the fixture rather than the override.")
+
+    # I11. THE OVERRIDE'S FILE NAME IS SPELT TWICE, AND THIS IS THE ONLY THING
+    #      HOLDING THE TWO SPELLINGS TOGETHER.
+    #
+    #      lib/common.ps1 declares it once as $script:LwgConfigOverrideName and
+    #      resolves it through Get-LwgConfigOverridePath, which every writer and
+    #      every slow-path reader uses. The fast path in lib/gate_delegate.ps1
+    #      cannot: it deliberately does not dot-source common.ps1, because
+    #      loading it is most of the cost the fast path exists to avoid. So it
+    #      carries the name as a literal.
+    #
+    #      A second copy of a rule that drifts from the first is a bug this
+    #      repository has already shipped, and this one drifts SILENTLY IN THE
+    #      WORST DIRECTION: rename the file in common.ps1 alone and the writers
+    #      write one name while the gate looks for another, so the gate proves
+    #      the switch off over an override that arms it - I7's defect, restored
+    #      by a rename. I7 itself cannot catch that, because it writes the
+    #      fixture at a path of its own and never asks the two files to agree.
+    #
+    #      Both sides are read out of the TREE rather than restated here, so
+    #      this case has no third spelling to go stale.
+    $i11Why  = ''
+    $i11Ok   = $false
+    try {
+        $i11Common = [IO.File]::ReadAllText((Join-Path $Root 'lib\common.ps1'))
+        $i11Gate   = [IO.File]::ReadAllText($GatePath)
+        $i11M = [regex]::Match($i11Common, "(?m)^\s*\`$script:LwgConfigOverrideName\s*=\s*'([^']+)'")
+        if (-not $i11M.Success) {
+            $i11Why = 'lib\common.ps1 declares no $script:LwgConfigOverrideName literal, so the name the writers use could not be read at all and this case established nothing'
+        } else {
+            $i11Name = $i11M.Groups[1].Value
+            $i11Ok = $i11Gate.Contains("'" + $i11Name + "'")
+            if (-not $i11Ok) {
+                $i11Why = ("lib\common.ps1 resolves the override as '{0}' and lib\gate_delegate.ps1 does not carry that literal anywhere, so the writers and the gate are looking at two different files" -f $i11Name)
+            }
+        }
+    } catch { $i11Why = "the two files could not be read: $($_.Exception.Message)" }
+
+    Add-Result 'I11 the fast path and Get-LwgConfigOverridePath spell the override file the same way' `
+        $i11Ok `
+        ("$i11Why  --  the fast path cannot call Get-LwgConfigOverridePath without loading common.ps1, which is the cost it exists to avoid, so it holds the name as a literal. Nothing but this case makes the two agree, and a rename that moved only one of them would put I7's defect back with no test failing.")
+
+    # -------------------------------------------------------------------
     # J. THE MEMBER NAMES, AND WHAT A NON-BOOLEAN VALUE MEANS.
     #
     #    Section I asks whether the fast path reads the right VALUE. This
@@ -1477,6 +1722,14 @@ try {
     #    implemented as "crash on a backslash": an escaped member name that has
     #    nothing to do with this gate must still produce the right answer.
     #
+    #    J7 CANNOT DO THAT ALONE, AND THAT IS WHY J7b IS NEXT TO IT. J7 asserts
+    #    exit 0 and silence, which the gate also produces when the scan threw
+    #    and the bare `catch { }` at the call site swallowed it - measured, with
+    #    the abstain rule rewritten as a throw this whole file reported 93 of 93.
+    #    J7b calls the scan in process, over J7's own config text, and requires
+    #    it to RETURN $false. Read the two together: J7b says the rule abstained,
+    #    J7 says the gate then answered correctly, and neither says the other.
+    #
     #    J8 and J9 pin M5 - a value that is not a boolean. They are the two
     #    cases in this file whose answer CHANGED, so read them with the
     #    reasoning attached rather than as pins that were always there.
@@ -1499,7 +1752,7 @@ try {
             name = 'J1  a capitalised "Interaction" block holding delegate true -> DENY'
             deny = $true; repo = $false
             json = $jHead + '"Interaction":{"delegate":true},' + $jTail
-            why  = 'ConvertFrom-Json plus PowerShell property access reads this as delegate = true, so the gate is armed. A scanner comparing names Ordinal finds no `interaction` member, calls it absent, applies the built-in default of off and exits 0 - the fail-open this section exists for, and the one /lw-watchtower:status kept reporting as a live gate'
+            why  = 'ConvertFrom-Json plus PowerShell property access reads this as delegate = true, so the gate is armed. A scanner comparing names Ordinal finds no `interaction` member, calls it absent, applies the built-in default of off and exits 0 - the fail-open this section exists for, and the one the gate roster would keep reporting as a live gate'
         }
         @{
             tag  = 'name-cap-repos'
@@ -1589,6 +1842,215 @@ try {
         Add-Result $jc.name $v.ok ("$($v.why)  --  $($jc.why)")
     }
 
+    # J7b THE CASE THAT CAN ACTUALLY SEE THE ABSTAIN RULE, because J7 above
+    #     cannot. J7 is a black-box ALLOW case and Test-IsAllow is exit 0 and
+    #     silence - which is what the fast path emits when it proves the switch
+    #     off, what the slow path emits when IT decides the switch is off, and
+    #     what lib\gate_delegate.ps1's
+    #
+    #         try { if (Test-LwgFastDelegateOff) { exit 0 } } catch { }
+    #
+    #     leaves behind when the scan THREW and was swallowed. Three states, one
+    #     observable. So J7 cannot tell "abstain" from "throw", which is the one
+    #     thing the note at the head of this section says it is here for.
+    #
+    #     MEASURED ON THIS TREE, 3 September 2026. With the escaped-name rule in
+    #     Get-LwgFastJsonMembers rewritten from `return $null` to
+    #     `throw 'MUTANT A: abstain implemented as a hard throw'` - the exact
+    #     mistake J7's note names - this suite reported
+    #
+    #         RESULT: 93 of 93 case(s) passed in 74917 ms
+    #         EXIT: 0
+    #
+    #     and J7 was one of the 93. Not one case in the file moved: J3 and J4
+    #     carry escaped names and expect DENY, and the slow path still denies
+    #     correctly. The swallow at the call site is deliberate and correct -
+    #     the consequence of swallowing is that the slow path runs and answers -
+    #     and that is precisely why nothing observable from OUTSIDE the gate
+    #     process can be the instrument for this property.
+    #
+    #     SO THE SCANNER IS CALLED IN PROCESS. The two functions are lifted out
+    #     of lib\gate_delegate.ps1 by AST - FunctionDefinitionAst, not a regex,
+    #     and NOT a dot-source, because dot-sourcing that file runs its
+    #     top-level fast path and would exit this process - and invoked over the
+    #     SAME config text J7 hands the gate, read out of the table above by tag
+    #     so the two cases cannot drift apart. J7's config spells its `version`
+    #     member with the `v` written as a \u escape, which makes it a name this
+    #     scanner cannot decode, so the scan must ABSTAIN: the contract is that
+    #     Test-LwgFastDelegateOff RETURNS $false and hands the question to the
+    #     slow path. A throw is invisible from outside; from in here it is a red
+    #     line.
+    #
+    #     WHAT THIS DOES NOT ESTABLISH, said rather than left to be assumed. It
+    #     is a white-box case over two functions, not a run of the gate. It says
+    #     the abstain rule abstains, and it says nothing about what the gate as
+    #     a whole then answers - J7 next to it is what says that, over the same
+    #     config, through a real child process. Neither is the other, and the
+    #     pair is the coverage. It also does not make J10 redundant: J10 is
+    #     still the only case here that can tell which path answered a real
+    #     invocation, and this one never invokes the gate at all.
+    #
+    #     AND IT IS NOT THE STRUCTURAL FIX. The tri-state return #135 proposes -
+    #     the fast path recording its own abstentions once the logger is up -
+    #     would let J7 assert this from the outside and would make J10's clock
+    #     unnecessary. That is a change to shipped behaviour and is not made
+    #     here. This case is what the suite can have without one.
+    #     TWO ARMS, AND THE FIRST ONE IS NOT CEREMONY. `$false` is what this
+    #     scanner returns for every doubt it has, so "it returned $false" is on
+    #     its own the same bare negative the rest of this batch is about: a
+    #     harness that lifted the scanner wrongly, or a scanner that had been
+    #     gutted to `return $false`, satisfies it. So the case first runs a
+    #     config the scan MUST prove off and requires `$true`, and only then
+    #     asks J7's config for the abstention. A failure in the first arm says
+    #     "the harness could not look", which is a different sentence from "the
+    #     rule threw" and must not be confused with it.
+    #
+    #     THAT ARM EARNED ITS PLACE IMMEDIATELY, TWICE. The first version of
+    #     this case lifted the two functions and not the script-level
+    #     $LwgFastScanChars they scan with, so every call died on
+    #     `IndexOfAny ... Value cannot be null`; the second lifted it but ran the
+    #     text through `& [scriptblock]::Create(...)`, where a bare assignment
+    #     lands in the block's own child scope and `$script:` inside the function
+    #     still resolves to THIS file's scope, so it was null again. Both times,
+    #     with only the abstain arm, the case went red under the mutant for a
+    #     reason that had nothing to do with the mutant. A red that means the
+    #     wrong thing is the same defect as a green that means nothing.
+    #
+    #     SO THE LIFTED TEXT RUNS IN A FRESH RUNSPACE, via [powershell]::Create()
+    #     and AddScript, where there is no enclosing script file and `$script:`
+    #     resolves to that runspace's own top level - which is where AddScript's
+    #     top-level assignment lands. That is also why the lifted text is used
+    #     VERBATIM: rewriting `$LwgFastScanChars =` to `$script:...` on the way
+    #     past would work today and would be a copy of the gate's source with an
+    #     edit in it, which is the thing this case exists to avoid. The runspace
+    #     is disposed in the finally, and the environment variables are restored
+    #     there too, because they are process-wide and the runspace reads them
+    #     from the same process.
+    $j7bJson = ''
+    foreach ($jc in $jCases) { if ($jc.tag -eq 'name-escaped-irrelevant') { $j7bJson = [string]$jc.json } }
+    $j7bOk   = $false
+    $j7bWhy  = 'the J7 row could not be found in $jCases by its tag, so this case had nothing to run against - it did NOT pass and it did NOT establish anything'
+    if ($j7bJson -ne '') {
+        # The abstain specimen is J7's own text, read out of the table above so
+        # the two cases cannot drift. The control is the plainest provable-off
+        # config there is: no escape anywhere, so the rule under test is not
+        # reached and the scan must conclude OFF.
+        $j7bRootAbstain = New-LwgRawRoot -Base $work -Name 'j7b-abstain' -Json $j7bJson
+        $j7bRootOff     = New-LwgRawRoot -Base $work -Name 'j7b-control' -Json (
+            $jHead + '"interaction":{"delegate":false},' + $jTail)
+        $j7bPrevRoot = $env:CLAUDE_PLUGIN_ROOT
+        $j7bPrevData = $env:CLAUDE_PLUGIN_DATA
+        # WHICH ARM WAS RUNNING WHEN SOMETHING THREW. Without this the one catch
+        # below reports every throw as "the scan THREW instead of abstaining",
+        # including a throw in the control arm - which is the misattribution this
+        # case's own comment argues against, committed by the case itself.
+        $j7bArm = 'harness'
+        try {
+            $j7bAst  = [System.Management.Automation.Language.Parser]::ParseFile($GatePath, [ref]$null, [ref]$null)
+            $j7bText = ''
+
+            # The scan characters are script-level state in the gate, not a
+            # parameter, so the two functions are useless without them. Lifted
+            # by AST like the functions rather than copied here: a literal
+            # written out in this file would be a second statement of which
+            # characters JSON structure can hide behind, and the two could
+            # disagree without anything noticing.
+            $j7bVars = @($j7bAst.FindAll({
+                param($n)
+                $n -is [System.Management.Automation.Language.AssignmentStatementAst]
+            }, $true) | Where-Object { $_.Left.Extent.Text -eq '$LwgFastScanChars' })
+            if ($j7bVars.Count -ne 1) {
+                throw ("lib\gate_delegate.ps1 holds {0} assignment(s) to `$LwgFastScanChars, expected exactly 1 - the scanner cannot be run without it" -f $j7bVars.Count)
+            }
+            $j7bText += $j7bVars[0].Extent.Text + [Environment]::NewLine
+
+            # Test-LwgFastDelegateOffText was split out of Test-LwgFastDelegateOff
+            # on 3 September 2026 so the same rules could be applied to the
+            # operator override (#11). It is lifted WHEN PRESENT rather than
+            # required, so this case still runs - and still says something -
+            # against a tree from before that split. The two names either side
+            # of it are required, because without them there is nothing to call.
+            foreach ($fnName in @('Get-LwgFastJsonMembers', 'Test-LwgFastDelegateOffText', 'Test-LwgFastDelegateOff')) {
+                $j7bDefs = @($j7bAst.FindAll({
+                    param($n)
+                    $n -is [System.Management.Automation.Language.FunctionDefinitionAst]
+                }, $true) | Where-Object { $_.Name -eq $fnName })
+                if ($j7bDefs.Count -eq 0 -and $fnName -eq 'Test-LwgFastDelegateOffText') { continue }
+                if ($j7bDefs.Count -ne 1) {
+                    throw ("lib\gate_delegate.ps1 holds {0} definition(s) of {1}, expected exactly 1 - the scanner this case is about could not be located" -f $j7bDefs.Count, $fnName)
+                }
+                $j7bText += $j7bDefs[0].Extent.Text + [Environment]::NewLine
+            }
+            $j7bScript = $j7bText + [Environment]::NewLine + 'Test-LwgFastDelegateOff'
+
+            # One call, run in a fresh runspace over whichever root the
+            # environment names. Same env-var dance Invoke-Gate does for the
+            # child process. A non-terminating error inside is treated as a
+            # throw: HadErrors is checked before the return value is read, so a
+            # scan that wrote to the error stream and returned something anyway
+            # cannot be mistaken for a clean answer.
+            $j7bCall = {
+                param([string]$Root, [string]$Script)
+                $env:CLAUDE_PLUGIN_ROOT = $Root
+                $env:CLAUDE_PLUGIN_DATA = Join-Path $Root 'data'
+                $sh = [powershell]::Create()
+                try {
+                    [void]$sh.AddScript($Script)
+                    $out = $sh.Invoke()
+                    if ($sh.HadErrors) {
+                        throw (($sh.Streams.Error | ForEach-Object { $_.ToString() }) -join ' | ')
+                    }
+                    if (@($out).Count -ne 1) { throw "the scan produced $(@($out).Count) output object(s), expected exactly 1" }
+                    return @($out)[0]
+                } finally { $sh.Dispose() }
+            }
+
+            # Arm 1, the control: the harness works and the scan can still say
+            # yes. No escape anywhere in that config, so the rule under test is
+            # never reached and the only answer is $true.
+            $j7bArm = 'control'
+            $j7bCtl = & $j7bCall $j7bRootOff $j7bScript
+            if (-not ($j7bCtl -is [bool] -and $j7bCtl -eq $true)) {
+                $j7bWhy = ("THE HARNESS COULD NOT LOOK, which is not the same as the rule being wrong: over a config with no escape in it at all the scan returned [{0}] where it must return the boolean True. Read this as 'this case established nothing', and fix it before reading anything into the arm below." -f $j7bCtl)
+            } else {
+                # Arm 2, the property: an escaped member name must abstain, and
+                # must abstain by RETURNING.
+                $j7bArm = 'abstain'
+                $j7bRet = & $j7bCall $j7bRootAbstain $j7bScript
+                $j7bOk  = ($j7bRet -is [bool] -and $j7bRet -eq $false)
+                $j7bWhy = if ($j7bOk) { '' } else {
+                    "over J7's config the scan returned [$j7bRet] of type [$(if ($null -eq $j7bRet) { 'null' } else { $j7bRet.GetType().Name })] where it must return the boolean False"
+                }
+            }
+        } catch {
+            # READ OUT BEFORE THE SWITCH, and that is not style. `switch` rebinds
+            # $_ to its own input inside every branch, so $_.Exception.Message
+            # written in there is the message of a STRING and comes back empty -
+            # measured, on the first run of this catch: the mutant threw
+            # 'MUTANT A: abstain implemented as a hard throw' and the case
+            # reported "the scan THREW instead of abstaining:" with nothing
+            # after the colon. A red with the reason deleted out of it is most
+            # of the way back to a red that means nothing.
+            $j7bErr = $_.Exception.Message
+            $j7bWhy = switch ($j7bArm) {
+                'abstain' { "the scan THREW instead of abstaining: $j7bErr" }
+                'control' { "THE HARNESS COULD NOT LOOK: the control arm threw before the rule under test was ever reached, so this case established NOTHING about the abstain rule - $j7bErr" }
+                default   { "THE HARNESS COULD NOT LOOK: the scanner could not be lifted out of lib\gate_delegate.ps1 at all, so this case established NOTHING - $j7bErr" }
+            }
+        } finally {
+            $env:CLAUDE_PLUGIN_ROOT = $j7bPrevRoot
+            $env:CLAUDE_PLUGIN_DATA = $j7bPrevData
+        }
+    }
+    Add-Result 'J7b the abstain rule abstains rather than throws, over J7''s own config, called in process' `
+        $j7bOk `
+        ("$j7bWhy  --  " +
+         'abstain is not throw. An escaped member name is a name this scanner cannot decode, so it must return $false ' +
+         'and let the slow path answer, and it must do that by RETURNING. A throw is caught by the bare `catch { }` at ' +
+         'the call site, the slow path then answers correctly, and the gate exits 0 in silence - which is byte-identical ' +
+         'to an abstention, so J7 above stays green over it. Measured: with the rule rewritten as a throw this suite ' +
+         'reported 93 of 93. This case is the only thing in the file that can see the difference.')
+
     # J10. THE ONLY CASE HERE THAT CAN SEE WHICH PATH ANSWERED, and it sees it
     #      by the clock, because the design leaves no other window: the fast
     #      path's one affirmative outcome is byte-identical to the slow path's
@@ -1619,7 +2081,7 @@ try {
     #
     #      IT IS STRICTER, SO IT FAILS MORE OFTEN, NOT LESS. Under `-lt` this
     #      case went red when the gap was <= 0; it now goes red when the gap is
-    #      < 50. The tie that motivated the change still fails - 0 is not >= 50
+    #      under the margin below. The tie that motivated the change still fails
     #      - and the blast radius is unchanged: a red here still takes
     #      tests\doc_claims.ps1 down with it, because that file aborts on any
     #      sibling suite's nonzero exit and then establishes nothing about the
@@ -1629,32 +2091,75 @@ try {
     #      instead of leaving a reader to infer whether 291 and 291 were a
     #      regression or a busy host.
     #
-    #      WHERE 50 COMES FROM, AND WHY IT IS NOT HEADROOM. Six runs of this
-    #      suite on the development machine, with seven other agents working in
-    #      the same checkout throughout: gaps of 203, 171 and 177 ms at five
-    #      samples per leg, then 330, 376 and 698 ms at nine. 50 is under a
-    #      third of the smallest of those, which is the whole of the argument
-    #      for the number, and it is a weaker argument than it looks.
+    #      WHERE THE MARGIN COMES FROM, AND IT IS NOW A FLOOR RATHER THAN
+    #      HEADROOM (#227). It was 50 ms, and the argument for 50 was "under a
+    #      third of the smallest gap anyone had observed" - which is a fraction
+    #      of the SIGNAL and says nothing about the noise the signal has to
+    #      clear. The floor is the thing a margin has to be above, so it was
+    #      measured directly rather than inferred: both legs pointed at the SAME
+    #      provable-off config - nothing for the fast path to be faster at, so
+    #      the true gap is zero - and the case run whole, three times, at
+    #      c39e782, on the machine described below.
     #
-    #      THE NOISE ON THESE MINIMA IS LARGER THAN THE SIGNAL, MEASURED. Both
-    #      legs were pointed at the SAME provable-off config - nothing for the
-    #      fast path to be faster at, so the true gap is zero - and run five
-    #      times per leg. The measured gaps were -211 ms, -334 ms and one
-    #      POSITIVE run that passed the strict inequality outright: a green line
-    #      produced by scheduler noise on a fixture with no fast path advantage
-    #      in it. That is the false green the margin is aimed at, and it is also
-    #      the number that says the margin cannot do much: if two identical legs
-    #      differ by 334 ms, a real 171 ms gap sits inside the noise and NO
-    #      margin separates them. A margin large enough to be outside that noise
-    #      would fail on the idle-machine observation.
+    #          null gap, identical legs, best of 9 :  -20 ms,   7 ms,  11 ms
+    #          real gap, this case,      best of 9 :  207 ms, 205 ms, 216 ms
     #
-    #      SO READ THIS CASE AS A SENTINEL FOR A FAST PATH THAT HAS STOPPED
-    #      ENTIRELY, and not as a measurement. It is kept because deleting it
-    #      costs the only signal this file has for that, and the header already
-    #      says the fast path silently ceasing to run "will not be caught by
-    #      this file at all". No run on a CI runner has been measured. If this
-    #      fails on windows-latest with both legs still allowing, re-measure
-    #      both legs there before reading it as a regression.
+    #      THE 211-334 MS FLOOR THIS COMMENT USED TO CARRY WAS MEASURED AT FIVE
+    #      SAMPLES PER LEG AND DOES NOT DESCRIBE THE CASE AS IT NOW RUNS. It was
+    #      correct when it was taken, and it is the reason the sample count was
+    #      raised to nine; quoting it against nine samples describes a case that
+    #      no longer exists, which is how the file came to hold a margin its own
+    #      comment said could not work. A minimum over nine interleaved spawns is
+    #      what collapses that noise, and the third run above is the evidence:
+    #      its per-leg spreads were 313 ms and 637 ms - a badly disturbed host,
+    #      six sibling worktrees building throughout - and the gap still came
+    #      back 216. THE MINIMA ARE STABLE WHEN THE SAMPLES ARE NOT, which is
+    #      the whole reason this case reads minima and not means.
+    #
+    #      So the margin is 100 ms: five times the largest null gap measured, and
+    #      under half the smallest real gap measured. Both halves of that are
+    #      load-bearing. Below the floor the case cannot tell a working fast path
+    #      from a stopped one; far above it, every extra millisecond of margin is
+    #      bought out of the headroom that keeps a busy runner from going red on
+    #      a fast path that is working perfectly.
+    #
+    #      WHAT IT STILL DOES NOT DO, WHICH IS THE HALF #227 WAS RIGHT ABOUT. It
+    #      is a THRESHOLD, not a performance number: a fast path whose saving
+    #      fell from 205 ms to 120 would pass this and nothing here would say a
+    #      word. What it can see is the fast path stopping ENTIRELY - the thing
+    #      the header says would otherwise "not be caught by this file at all" -
+    #      and it can now say so with a margin that noise has been measured
+    #      unable to reach.
+    #
+    #      AND IT HAS NOW BEEN MEASURED ON A CI RUNNER, which is a sentence this
+    #      comment could not carry until the line below started printing. The
+    #      first two, both windows-latest, on the runs that landed this change:
+    #
+    #          33834555561  fast 280 (spread  29)  slow 608 (spread  31)  gap 328
+    #          33835394065  fast 301 (spread 467)  slow 629 (spread 205)  gap 328
+    #
+    #      The same gap twice, from a quiet runner and a badly disturbed one -
+    #      467 ms of spread on the fast leg and the minimum barely moved. That is
+    #      the minimum-of-nine argument holding on a machine nobody here
+    #      controls, and it leaves the margin better than three times its
+    #      headroom there.
+    #
+    #      THIS LIST IS NOT MAINTAINED AND IS NOT MEANT TO BE. Two samples are
+    #      what it took to stop the "never measured on CI" claim being false;
+    #      every run since has printed its own line, and the log of the run in
+    #      front of you is a better answer about that machine than any number
+    #      transcribed here can be. That is the whole reason the line is printed.
+    #      If this fails on windows-latest with both legs still allowing,
+    #      re-measure both legs there before reading it as a regression.
+    #
+    #      THE NUMBERS ARE PRINTED ON EVERY RUN, NOT ONLY WHEN THE CASE FAILS,
+    #      and that is the other half of the fix. Everything above is prose
+    #      written once, about the one case in this file whose inputs are wall
+    #      clock and machine-specific - the exact shape that goes stale without
+    #      anyone noticing, as the 211-334 did. A reader on another machine
+    #      cannot re-derive the floor from a comment; they can from the line the
+    #      run prints. It is one line, and it is deliberately the only per-case
+    #      line a green run of this suite emits.
     $j10Fast = New-LwgRawRoot -Base $work -Name 'j10-fast' -Json (
         $jHead + '"interaction":{"delegate":false},' +
         '"repos":{"$comment":"Per-repo overrides keyed by the owner/name slug of the origin remote."}}')
@@ -1662,9 +2167,14 @@ try {
         $jHead + '"interaction":{"delegate":false},' +
         '"repos":{"$comment":"This comment mentions interaction, which is enough to make the fast path abstain."}}')
 
-    $j10FastMs = [int]::MaxValue
-    $j10SlowMs = [int]::MaxValue
-    $j10Bad    = ''
+    $j10FastMs  = [int]::MaxValue
+    $j10SlowMs  = [int]::MaxValue
+    # Every sample, not only the running minimum, because the SPREAD is what
+    # tells a reader whether the host was quiet - and the spread is the number
+    # that decides whether a red is worth investigating or worth re-running.
+    $j10FastAll = @()
+    $j10SlowAll = @()
+    $j10Bad     = ''
     for ($i = 0; $i -lt 9; $i++) {
         foreach ($leg in @(@{ n = 'fast'; root = $j10Fast }, @{ n = 'slow'; root = $j10Slow })) {
             $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -1674,14 +2184,26 @@ try {
             $ms = [int]$clock.Elapsed.TotalMilliseconds
             $vj = Test-IsAllow $rj
             if (-not $vj.ok -and $j10Bad -eq '') { $j10Bad = "the $($leg.n) leg did not allow: $($vj.why)" }
-            if ($leg.n -eq 'fast') { if ($ms -lt $j10FastMs) { $j10FastMs = $ms } }
-            else                   { if ($ms -lt $j10SlowMs) { $j10SlowMs = $ms } }
+            if ($leg.n -eq 'fast') { $j10FastAll += $ms; if ($ms -lt $j10FastMs) { $j10FastMs = $ms } }
+            else                   { $j10SlowAll += $ms; if ($ms -lt $j10SlowMs) { $j10SlowMs = $ms } }
         }
     }
-    $j10MarginMs = 50
+    # 100 ms, and the two numbers it sits between are in the comment above with
+    # the runs they came from. Changing it without re-measuring the null is how
+    # it came to be 50 against a floor of 211.
+    $j10MarginMs   = 100
+    $j10Gap        = $j10SlowMs - $j10FastMs
+    $j10FastSpread = ($j10FastAll | Measure-Object -Maximum).Maximum - $j10FastMs
+    $j10SlowSpread = ($j10SlowAll | Measure-Object -Maximum).Maximum - $j10SlowMs
+    # PRINTED WHETHER OR NOT THE CASE PASSES. See the comment above: this is the
+    # only case here whose inputs are wall clock, the prose describing them went
+    # stale once already, and a number in the run is the only thing a reader on
+    # another machine can re-derive the floor from.
+    Write-Output ("  J10 timing  provable-off {0} ms (spread {1}), forced-through {2} ms (spread {3}), gap {4} ms, required >= {5} ms" -f `
+        $j10FastMs, $j10FastSpread, $j10SlowMs, $j10SlowSpread, $j10Gap, $j10MarginMs)
     Add-Result 'J10 an off switch the fast path can prove still exits 0, and quicker than one it cannot' `
-        ($j10Bad -eq '' -and ($j10SlowMs - $j10FastMs) -ge $j10MarginMs) `
-        ("$j10Bad  --  best of 9: provable-off $j10FastMs ms, forced-through $j10SlowMs ms, gap $($j10SlowMs - $j10FastMs) ms, required >= $j10MarginMs ms. The gap must be at least the margin, or the fast path is no longer running and the only thing this suite would notice is the cost going back to what docs/modules.md says it used to be. A gap that is merely SMALLER than the margin is the one reading this case cannot tell apart from a noisy host - measure both legs by hand before reading it as a regression")
+        ($j10Bad -eq '' -and $j10Gap -ge $j10MarginMs) `
+        ("$j10Bad  --  best of 9 interleaved: provable-off $j10FastMs ms (spread $j10FastSpread over its 9 samples), forced-through $j10SlowMs ms (spread $j10SlowSpread), gap $j10Gap ms, required >= $j10MarginMs ms. The margin is five times the largest gap measured between two IDENTICAL legs at this sample count (-20, 7 and 11 ms over three whole runs at c39e782), so noise has been measured unable to reach it; the real gap measured 207, 205 and 216 ms over the same three runs. READ THE SPREADS BEFORE READING THIS AS A REGRESSION: a spread of a few hundred milliseconds says the host was disturbed, and the minimum is the statistic least disturbed by that - a gap that collapsed while both spreads stayed small is the fast path no longer running, which is the one thing this case exists to see, and the only other thing that would notice is the cost going back to what docs/modules.md says it used to be. The first two measurements from a CI runner, both windows-latest, returned the SAME gap of 328 ms - one from a quiet runner (spreads 29 and 31) and one from a disturbed one (spreads 467 and 205), which is the minimum-of-nine argument holding on a machine nobody here controls. Measure both legs by hand there before reading a red as a regression")
 
     # -------------------------------------------------------------------
     # K. THE REPORTER AND THE READER, ON THE SAME CONFIG.
@@ -1818,7 +2340,7 @@ try {
     #    THAT IS NOT HYPOTHETICAL. hooks/hooks.json registered the gate on
     #    Edit|Write|NotebookEdit|Bash and omitted PowerShell, on a plugin that
     #    supports Windows and only Windows, where the CLI offers both shells.
-    #    With interaction.delegate ON, /lw-watchtower:status printed
+    #    With interaction.delegate ON, the gate roster printed
     #
     #        1 gate(s) LIVE: delegate_gate - it can refuse a tool call right now
     #
@@ -1895,57 +2417,90 @@ try {
     }
 
     # -------------------------------------------------------------------
-    # P. THE THIRD READER OF THE SWITCH: /lw-watchtower:status.
+    # P. THE THIRD READER OF THE SWITCH: THE DOCTOR'S INFORMATIONAL ROSTER.
     #
-    #    Section K established that the gate and /lw-watchtower:delegate agree about a
-    #    config. /lw-watchtower:status is the surface an operator checks when they
-    #    want to know whether anything is blocking on this machine, and until
+    #    Section K established that the gate and the delegate toggle agree about
+    #    a config. The roster is the surface an operator reads when they want to
+    #    know whether anything is blocking on this machine, and until
     #    3 August 2026 nothing here read a line of what it prints.
     #
-    #    P1 IS THE SAME DEFECT SHAPE AS K1, IN A DIFFERENT COMMAND. The GATES
-    #    block printed the RESOLVED answer formatted as a config.json
-    #    assignment - "switch : interaction.delegate = false" - with the value
-    #    spelled in JSON literals, so it read as a quotation of the file. Only a
-    #    real boolean is a setting, so on a config holding "delegate": "true"
-    #    the resolver ignores the string, the default stands, and the operator
-    #    got a command telling them `interaction.delegate = false` over a file
-    #    plainly saying true, with nothing on screen saying a written value had
-    #    been rejected. bin/lwg-config.ps1 had already refused to make that
-    #    mistake, in a comment naming this exact hazard.
+    #    IT USED TO BE ITS OWN COMMAND. These two cases drove bin\lwg-status.ps1,
+    #    a report command with no other job; that command is deleted and the
+    #    block it printed - a paragraph per gate, then a per-module listing -
+    #    moved into bin\lwg-doctor.ps1 below the verdict prose. THE CASES WERE
+    #    RE-POINTED RATHER THAN DELETED because the properties are not covered
+    #    anywhere else: K8 makes the non-boolean claim about the TOGGLE, which
+    #    is a different renderer with a different output, and nothing at all in
+    #    this tree besides P2 reads an impl-path-not-on-disk note.
+    #
+    #    WHAT THE EXIT ASSERTION IS NOW, AND WHY IT IS WEAKER ON PURPOSE. The
+    #    old command exited 0 because reporting was its whole job. The doctor
+    #    exits on its verdict, and against a fixture root of four files most of
+    #    its nine checks fail - so these cases assert only that it COMPLETED,
+    #    by requiring the RESULT: line that its abort path (exit 3) never
+    #    prints. Demanding a particular code here would be asserting that a
+    #    four-file fixture is a healthy plugin install, which it is not.
+    #
+    #    P1 IS THE SAME DEFECT SHAPE AS K1, IN A DIFFERENT RENDERER. The block
+    #    printed the RESOLVED answer formatted as a config.json assignment -
+    #    "switch : interaction.delegate = false" - with the value spelled in
+    #    JSON literals, so it read as a quotation of the file. Only a real
+    #    boolean is a setting, so on a config holding "delegate": "true" the
+    #    resolver ignores the string, the default stands, and the operator was
+    #    told `interaction.delegate = false` over a file plainly saying true,
+    #    with nothing on screen saying a written value had been rejected.
+    #    bin/lwg-config.ps1 had already refused to make that mistake, in a
+    #    comment naming this exact hazard.
     #
     #    P2 IS THE OTHER HALF OF THE SAME LINE. `code:` is a registry string
     #    literal. Nothing opened the file, so a gate whose implementation had
     #    been deleted still printed its path under a heading promising that
-    #    turning the switch on would make it LIVE. status reports and does not
-    #    judge, so the fix is a note on the line rather than a failure - and
-    #    /lw-watchtower:doctor, which is where a missing file SHOULD become a FAIL
-    #    row, still does not check it. That gap is not closed by this case.
+    #    turning the switch on would make it LIVE. The roster reports and does
+    #    not judge, so the finding is a note on the line rather than a failure -
+    #    and the doctor's nine checks, which is where a missing impl file SHOULD
+    #    become a FAIL row, still do not test it. Moving the block did not close
+    #    that gap and neither case here pretends it did: P2 asserts the NOTE,
+    #    and asserts nothing about the verdict.
     # -------------------------------------------------------------------
     $pHead = '{"version":"0.4.0","modules":{"failure_capture":true},'
     $pTail = '"repos":{"$comment":"nothing here"}}'
 
-    $rootP1 = New-LwgStatusRoot -Base $work -Name 'status-string-true' -Json (
+    $rootP1 = New-LwgReportRoot -Base $work -Name 'report-string-true' -Json (
         $pHead + '"interaction":{"delegate":"true"},' + $pTail)
-    $p1 = Invoke-Status -FakeRoot $rootP1 -WorkDir $work -Tag 'status-string-true'
-    $p1Assign = ($p1.out -match '(?m)interaction\.delegate\s*=\s*(true|false)')
-    $p1Names  = ($p1.out -match '(?i)NOT A BOOLEAN' -and $p1.out -match "(?m)in file\s*:")
-    Add-Result 'P1 status does not render the resolved answer as a config.json assignment' `
-        ($p1.code -eq 0 -and -not $p1Assign -and $p1Names) `
-        ("bin\lwg-status.ps1 exited $($p1.code) on a config holding `"delegate`": `"true`". " +
-         $(if ($p1Assign) { 'It printed "interaction.delegate = <value>", which reads as a quotation of config.json and is the RESOLVED answer. ' } else { '' }) +
-         $(if (-not $p1Names) { 'It never says the stored value was not a boolean and was ignored. ' } else { '' }) +
-         "Its GATES block was:`n$(($p1.out -split "`n" | Where-Object { $_ -match 'switch|in file|resolved|delegate_gate|code' }) -join "`n")")
+    $p1 = Invoke-Report -FakeRoot $rootP1 -WorkDir $work -Tag 'report-string-true'
+    # SCOPED TO THE ROSTER, NOT TO THE WHOLE REPORT, and the difference is not
+    # hypothetical. When these cases drove bin\lwg-status.ps1 the whole of stdout
+    # WAS the roster; the doctor prints nine check rows above it, and the
+    # config-registry row's detail is free prose about the same key. A future
+    # detail string spelling `interaction.delegate = true` would red P1 over a
+    # sentence in a different component. Get-RosterText cuts at the heading, so
+    # both cases read the block they are about - and a missing heading makes
+    # $p1Ran false rather than making the negative match vacuously true, which
+    # is the failure mode a substring search invites.
+    $p1Roster = Get-RosterText $p1.out
+    $p1Ran    = ($p1.out -match '(?m)^RESULT:' -and $p1Roster -ne '')
+    $p1Assign = ($p1Roster -match '(?m)interaction\.delegate\s*=\s*(true|false)')
+    $p1Names  = ($p1Roster -match '(?i)NOT A BOOLEAN' -and $p1Roster -match "(?m)in file\s*:")
+    Add-Result 'P1 the roster does not render the resolved answer as a config.json assignment' `
+        ($p1Ran -and -not $p1Assign -and $p1Names) `
+        ("bin\lwg-doctor.ps1 exited $($p1.code) on a config holding `"delegate`": `"true`". " +
+         $(if (-not $p1Ran) { 'It printed no RESULT: line or no roster heading, so the block never ran - nothing about the rendering was established. ' } else { '' }) +
+         $(if ($p1Assign) { 'Its roster printed "interaction.delegate = <value>", which reads as a quotation of config.json and is the RESOLVED answer. ' } else { '' }) +
+         $(if (-not $p1Names) { 'Its roster never says the stored value was not a boolean and was ignored. ' } else { '' }) +
+         "Its GATES block was:`n$(($p1Roster -split "`n" | Where-Object { $_ -match 'switch|in file|resolved|delegate_gate|code' }) -join "`n")")
 
-    $rootP2 = New-LwgStatusRoot -Base $work -Name 'status-no-gate-file' -WithGateFile $false -Json (
+    $rootP2 = New-LwgReportRoot -Base $work -Name 'report-no-gate-file' -WithGateFile $false -Json (
         $pHead + '"interaction":{"delegate":false},' + $pTail)
-    $p2 = Invoke-Status -FakeRoot $rootP2 -WorkDir $work -Tag 'status-no-gate-file'
-    Add-Result 'P2 status says so when the registry names an impl file that is not on disk' `
-        ($p2.code -eq 0 -and $p2.out -match '(?i)NOT ON DISK') `
-        ("bin\lwg-status.ps1 exited $($p2.code) against a plugin root with NO lib\gate_delegate.ps1 " +
-         "and still printed the registry's impl string with nothing to say the file is absent. " +
+    $p2 = Invoke-Report -FakeRoot $rootP2 -WorkDir $work -Tag 'report-no-gate-file'
+    $p2Roster = Get-RosterText $p2.out
+    Add-Result 'P2 the roster says so when the registry names an impl file that is not on disk' `
+        (($p2.out -match '(?m)^RESULT:') -and $p2Roster -ne '' -and $p2Roster -match '(?i)NOT ON DISK') `
+        ("bin\lwg-doctor.ps1 exited $($p2.code) against a plugin root with NO lib\gate_delegate.ps1 " +
+         "and its roster still printed the registry's impl string with nothing to say the file is absent " +
+         '(or the block never ran, which the missing RESULT: line or missing heading would show). ' +
          "`$LwgModuleRegistry's status and impl fields are literals, so BUILT and code: are statements " +
          "about lib\common.ps1 rather than about disk. Its GATES block was:`n" +
-         (($p2.out -split "`n" | Where-Object { $_ -match 'code|delegate_gate' }) -join "`n"))
+         (($p2Roster -split "`n" | Where-Object { $_ -match 'code|delegate_gate' }) -join "`n"))
 
     # -------------------------------------------------------------------
     # N. WHAT THE REST OF THE TREE SAYS THIS GATE IS.
@@ -2017,16 +2572,38 @@ try {
     # something that is not in this repository at all. `git ls-files` would be
     # the exact answer and is not used, because it would make the whole suite
     # need git on the machine, which section H goes to some length to avoid.
-    $nDirs   = @('.github', 'agents', 'bin', 'commands', 'context', 'docs', 'hooks',
-                 'lib', 'output-styles', 'statusline', 'tests')
-    $nExempt = @('CHANGELOG.md', 'docs\uat-report.md', 'tests\gate_delegate.ps1')
+    # THE SWEEP SPANS TWO ROOTS SINCE THE PAYLOAD RESTRUCTURE, and it has to be
+    # spelled out rather than inferred. Seven of these directories moved under
+    # lw-watchtower/ and three - .github, docs, tests - stayed at the repository
+    # root. `if (-not [IO.Directory]::Exists($r)) { continue }` below SKIPS A
+    # DIRECTORY THAT IS NOT THERE, so a single-rooted walk after the move would
+    # have gone on passing while quietly reading none of those three: the
+    # empty-set pass, arrived at by a directory rename. `output-styles` was in
+    # this list until the directory was deleted; a dead entry here is the same
+    # silent skip written down on purpose, so it is gone.
+    $nPayloadDirs = @('agents', 'bin', 'commands', 'context', 'hooks', 'lib', 'statusline')
+    $nRepoDirs    = @('.github', 'docs', 'tests')
+    # uat-report.md moved to .github\notes\ under #183 and .github IS still swept,
+    # so the exemption has to follow it or the sweep starts reading a v0.3.0
+    # acceptance record that quotes wrong sentences on purpose.
+    $nExempt = @('CHANGELOG.md', '.github\notes\uat-report.md', 'tests\gate_delegate.ps1')
     $nFiles  = @()
-    $nRoots  = @($Root) + @($nDirs | ForEach-Object { Join-Path $Root $_ })
-    foreach ($r in $nRoots) {
+    # Each root is carried with the base its $rel is computed against, so a file
+    # found under the payload reports lw-watchtower\... and one found under docs\
+    # reports docs\... - which is what $nExempt is matched on and what a failure
+    # message has to name for anyone to find the line.
+    $nRoots  = @(
+        [pscustomobject]@{ Dir = $Root;            Base = $script:RepoRoot; Top = $true }
+        [pscustomobject]@{ Dir = $script:RepoRoot; Base = $script:RepoRoot; Top = $true }
+    )
+    foreach ($d in $nPayloadDirs) { $nRoots += [pscustomobject]@{ Dir = (Join-Path $Root $d);            Base = $script:RepoRoot; Top = $false } }
+    foreach ($d in $nRepoDirs)    { $nRoots += [pscustomobject]@{ Dir = (Join-Path $script:RepoRoot $d); Base = $script:RepoRoot; Top = $false } }
+    foreach ($rr in $nRoots) {
+        $r = $rr.Dir
         if (-not [IO.Directory]::Exists($r)) { continue }
-        $depth = if ($r -eq $Root) { [IO.SearchOption]::TopDirectoryOnly } else { [IO.SearchOption]::AllDirectories }
+        $depth = if ($rr.Top) { [IO.SearchOption]::TopDirectoryOnly } else { [IO.SearchOption]::AllDirectories }
         foreach ($f in [IO.Directory]::EnumerateFiles($r, '*', $depth)) {
-            $rel = $f.Substring($Root.Length).TrimStart('\', '/')
+            $rel = $f.Substring($rr.Base.Length).TrimStart('\', '/')
             if ($f -notmatch '\.(md|ya?ml|json|ps1)$') { continue }
             if ($nExempt -contains $rel) { continue }
             $nFiles += [pscustomobject]@{ Rel = $rel; Lines = @([IO.File]::ReadAllLines($f)) }

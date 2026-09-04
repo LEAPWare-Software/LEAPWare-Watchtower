@@ -7,7 +7,7 @@
   WHY THIS FILE EXISTS
 
   A GitHub Actions workflow is the one tracked file in this repository that can
-  execute arbitrary code on a machine nobody is watching. Three ways in, in
+  execute arbitrary code on a machine nobody is watching. Four ways in, in
   descending order of how badly they end:
 
     * A SELF-HOSTED RUNNER. There are self-hosted runners registered on the
@@ -26,6 +26,26 @@
       reference that exists is a secret that can be printed, and one reachable
       from an untrusted trigger or a self-hosted runner is a secret already
       lost.
+    * THE `permissions:` GRANT. Every step is handed an automatic GITHUB_TOKEN
+      whether it asks for one or not, and this block decides what that token
+      can do. `contents: write` rewrites the repository; `packages: write`
+      publishes under its name; `id-token: write` mints an OIDC token that can
+      be exchanged with a configured cloud identity provider, which is the one
+      grant here whose blast radius leaves GitHub entirely. It is fourth rather
+      than first because it is a capability rather than an execution path - it
+      makes the three above worse and cannot open the door on its own.
+
+  THE FOURTH ONE WAS INVISIBLE HERE UNTIL 3 SEPTEMBER 2026 (#225), and the way
+  that was found matters more than the gap. The nine rules this file shipped
+  with never read a `permissions:` block: the string appeared once in the whole
+  file, in a prose comment. So an Actions-deployed Pages job - hosted runner,
+  no `${{ secrets.* }}` at all because deploy-pages authenticates with the OIDC
+  token, a STEP-level `uses:` that the reusable-workflow rule deliberately does
+  not look at - parsed clean and exited 0 while granting `pages: write` and
+  `id-token: write`. #183 had cited this guard as the control that would stop
+  exactly that workflow. The conclusion there survives; the reason given for it
+  did not, and a scanner credited with a protection it never performed is the
+  thing the paragraph below says this file exists to refuse.
 
   WHAT IT REPLACED, AND WHY THAT MATTERED
 
@@ -121,6 +141,17 @@
   fromJSON, and the runner-label branch is proved on one unknown label and not
   on the whole space of spellings. A rule demonstrated to fire once is a floor.
 
+  `permissions-write` IS THE EXCEPTION AND IT IS DELIBERATE, because a rule
+  that reports every grant would pass a fire-once case and red this
+  repository's own two workflows on the day it landed. It carries six cases:
+  three that must FIRE - a workflow-level block, a job-level block, and the
+  `write-all` scalar - and three that must NOT. Of the three that must not, one
+  pins read/none/read-all as silent, one pins that release.yml's real
+  `contents: write` is excused AND COUNTED as allowlisted (a count of zero
+  would mean the rule never fired and the exit code passed for the wrong
+  reason), and one pins that the entry excusing that grant leaves a second
+  grant in the same file failing.
+
   WHAT IT DOES NOT COVER, so nobody reads more into a green run than is there:
 
     * Composite actions (.github\actions\**\action.yml) and any action pulled
@@ -131,6 +162,14 @@
       this file's exit-1 contract is reserved for real violations. Nothing here
       checks that any `uses:` is pinned, and nothing here checks
       persist-credentials either.
+    * THE ABSENCE of a `permissions:` block. The rule holds a block that EXISTS
+      to read-scoped values; a workflow declaring none at all is not reported,
+      and it inherits whatever the repository's default workflow permissions
+      are set to - which is repository configuration, not a tracked file, so
+      nothing here can read it. Requiring the block is a policy preference of
+      the same kind as requiring a digest pin, and the exit-1 contract is
+      reserved for real violations. Both of this repository's workflows declare
+      one, which is what makes the omission worth stating rather than hiding.
     * Workflows on other branches. This scans the working tree it is run in.
     * SCHEMA of anything. The parse-only pass above establishes that a file is
       YAML, never that it is a valid issue form or a valid Dependabot config.
@@ -159,7 +198,7 @@ param(
     # point it at anything you would mind being read.
     [string]$WorkflowDir,
 
-    # Directories whose YAML is PARSED but NOT held to the nine rules. Defaults
+    # Directories whose YAML is PARSED but NOT held to the rules. Defaults
     # to .github under $Root, minus the workflow directory already scanned. See
     # PARSE-ONLY COVERAGE in the header. Pass an empty array to turn it off.
     [string[]]$AlsoParse,
@@ -229,6 +268,11 @@ $Rules = @(
         why  = 'the called workflow chooses its own runners and its own steps, in a file this scan cannot read and whose contents can change under a mutable ref. It is the indirect route to a self-hosted runner that leaves no trace in this repository at all. A LOCAL call - ./.github/workflows/x.yml - is fine and is not reported, because that file is scanned here too.'
     }
     @{
+        id   = 'permissions-write'
+        name = 'a permissions: grant wider than read, or one this scan cannot resolve'
+        why  = 'the permissions: block decides what the automatic GITHUB_TOKEN handed to every step can do, and until 3 September 2026 nothing in this file read one - a workflow granting id-token: write, pages: write or contents: write parsed clean and exited 0, which is #225. This is the runner rule''s shape rather than a ban: read-scoped values are held to be safe - read, none, and the read-all scalar - and everything else is reported, so a new grant is a one-line reviewable allowlist entry with a stated reason instead of a line that slips into a diff. It is structural because two forms defeat a grep: the block sits at workflow level OR at job level, where it OVERRIDES the workflow''s, and the shorthand write-all is a scalar carrying no ": write" to search for. id-token: write is the one worth naming on its own - it mints an OIDC token exchangeable with a configured cloud identity provider, so it is the single grant whose blast radius leaves GitHub entirely.'
+    }
+    @{
         id   = 'unparseable'
         name = 'a workflow file this scan could not parse or could not understand'
         why  = 'a file that did not parse was not checked. Reporting it as clean would be the empty-set pass this repository has been bitten by before, so it fails instead. If the construct is legitimate YAML that the reader below does not implement, extend the reader - do not exempt the file.'
@@ -236,30 +280,89 @@ $Rules = @(
 )
 
 # ===========================================================================
-# ALLOWLIST - DELIBERATELY EMPTY.
+# ALLOWLIST - TWO ENTRIES, EACH ADDED THE DAY A STEP NEEDED IT.
 #
-# The schema is here so a future exemption has a place to go and a shape to
-# take; the list has no entries because nothing on this tree needs one, and an
-# entry written in advance of a need is an entry written without a reason.
+# It was empty from the day this file was written until 3 September 2026, and
+# the schema sat here alone so that a future exemption would have a place to go
+# and a shape to take rather than being invented under pressure. Both entries
+# arrived that same day and both belong to release.yml: the token its publish
+# step reads, and the grant that token runs under. They are separate entries on
+# purpose - one rule each, so dropping either does not quietly widen the other.
 #
 #   id     name used in the report
 #   rules  which detection rules it may excuse. '*' means any.
-#   files  workflow file names it applies to. '*' means anywhere.
+#   files  workflow file names it applies to, matched against the path relative
+#          to the scanned directory with forward slashes. '*' means anywhere.
 #   kind   which predicate decides it:
 #            match-text  the matched text
 #            line-text   the whole line the match sits on
 #   test   the regex the predicate applies
 #   why    one line, stating why this is legitimate rather than tolerated
 #
-# THE POLICY, which matters more than the schema. `secrets.GITHUB_TOKEN` is the
-# obvious candidate and it is NOT pre-approved here: the automatic token is
-# still a credential, this workflow's `permissions:` block already grants what
-# its steps need without one being referenced, and an entry added before a
-# concrete step needs it is an entry nobody will re-read. Justify the specific
-# use, on the entry, at the moment it is needed - and if the justification is
-# "the scanner is annoying", fix the workflow.
+# THE TWO KINDS ARE THE SAME PREDICATE TODAY, and that is recorded rather than
+# left for whoever writes the second entry to discover. Add-LwgHit is handed the
+# MATCHED text and never the line it sits on, so `line-text` currently applies
+# its regex to exactly what `match-text` would. Making them differ means passing
+# the raw line down to every call site, which is a change to a scanner nobody
+# needed yet; until then, write `match-text`, which is the one that says what
+# actually happens.
+#
+# THE POLICY, which matters more than the schema, and which the entry below was
+# written to obey rather than to escape. `secrets.GITHUB_TOKEN` is the obvious
+# candidate and it is still NOT pre-approved: the automatic token is a
+# credential, and an entry added before a concrete step needs it is an entry
+# nobody will re-read. Justify the specific use, on the entry, at the moment it
+# is needed - and if the justification is "the scanner is annoying", fix the
+# workflow.
+#
+# WHAT CHANGED ON 3 SEPTEMBER 2026. The premise of the old refusal was that this
+# repository's workflow needs no credential: ci.yml's steps parse files and run
+# local scripts, and its `permissions:` block already grants what they need. That
+# is still exactly true of ci.yml, which reaches no secret and is covered by no
+# entry here. It is not true of release.yml, which publishes a GitHub Release -
+# a write to the repository through the API, with no spelling that needs no
+# token. The alternative was `${{ github.token }}`: the same credential under a
+# name this file does not sweep for, which would have left the exit-0 line saying
+# no workflow reaches a secret while one did. A scanner that reports a
+# protection it has stopped checking is the thing the header above says this
+# file exists to refuse, so the honest spelling is in the workflow and the
+# exemption is here, scoped to one rule, one file and one expression.
 # ===========================================================================
-$AllowList = @()
+$AllowList = @(
+    @{
+        id    = 'release-publish-token'
+        rules = @('secrets-expression')
+        files = @('release.yml')
+        kind  = 'match-text'
+        # Anchored, so it excuses the automatic per-run token and nothing else.
+        # A second secret in that file - or this one under a different name -
+        # is a violation and stays one.
+        test  = '^\$\{\{\s*secrets\.GITHUB_TOKEN\s*\}\}$'
+        why   = 'release.yml publishes a GitHub Release through the API, which no token-free spelling can do. It is the automatic per-run token, it is bound to the env: of the single publishing step, that step is gated on every check above it and on the ref being a tag, and its grant is the job-level contents: write beside it. Nothing else in this repository is handed a credential.'
+    }
+    # THE GRANT THE ENTRY ABOVE'S TOKEN RUNS UNDER, and the reason the two are
+    # not one entry. The token is a secrets-expression hit; the grant is a
+    # permissions-write hit; they are different rules on different lines, and an
+    # entry excusing both would keep excusing one after the other was removed.
+    #
+    # ANCHORED ON THE JOB, WHICH IS TIGHTER THAN IT LOOKS. Add-LwgHit is handed
+    # the text this rule emits - `contents: write [job: release]` - so the
+    # regex below excuses that scope, at that value, in that one job. A
+    # workflow-level `contents: write` in the same file reads
+    # `[workflow-level]` and is NOT excused, which matters because a
+    # workflow-level grant reaches every job the file ever grows; that is the
+    # exact argument release.yml's own comment above its `permissions:` block
+    # makes for scoping the grant to the job. A different scope - id-token,
+    # packages, pages - is a different text and is not excused either.
+    @{
+        id    = 'release-publish-grant'
+        rules = @('permissions-write')
+        files = @('release.yml')
+        kind  = 'match-text'
+        test  = '^contents:\s*write\s+\[job:\s*release\]$'
+        why   = 'creating a GitHub Release is a WRITE to the repository, so the publishing job cannot run read-only. The grant is scoped to that one job rather than to the file - release.yml''s workflow-level block is contents: read - so every job this workflow ever grows starts read-only and has to ask. It is the narrowest grant that lets the one gated, tag-only publish step work.'
+    }
+)
 
 # ===========================================================================
 # KNOWN GITHUB-HOSTED RUNNER LABELS
@@ -286,6 +389,27 @@ $HostedRunners = @(
 )
 $HostedSet = @{}
 foreach ($h in $HostedRunners) { $HostedSet[$h] = $true }
+
+# ===========================================================================
+# THE PERMISSION VALUES THAT NEED NO REASON
+#
+# The same shape as the runner list above, and for the same reason: hold the
+# value to a known-safe set and report everything else, so a grant is a
+# one-line reviewable allowlist entry rather than a line in a diff. GitHub
+# accepts exactly three values per scope - read, write, none - plus the two
+# scalar shorthands read-all and write-all.
+#
+# READ AND NONE ARE THE SET. Neither can change anything: `none` withholds the
+# scope entirely and `read` is what this repository's two workflows already
+# declare. `write` is the one that needs justifying, on any scope - and
+# `write-all` is not on this list precisely because it is every scope at once.
+#
+# THIS IS A CHECK ON WHAT A BLOCK GRANTS, NOT ON WHETHER ONE EXISTS. See WHAT
+# IT DOES NOT COVER in the header: a workflow with no `permissions:` block at
+# all is not reported here.
+# ===========================================================================
+$SafePermissionValues = @{ 'read' = $true; 'none' = $true }
+$SafePermissionScalars = @{ 'read-all' = $true }
 
 # ---------------------------------------------------------------------------
 # SCALAR HELPERS
@@ -943,6 +1067,68 @@ function Test-LwgSecretsKeys {
     }
 }
 
+function Test-LwgPermissions {
+    <#
+      One `permissions:` entry, at the position it was found.
+
+      $Where is the position in words - 'workflow-level' or "job: build" - and
+      it goes into the reported text rather than being inferred by a reader,
+      because the two positions mean different things: a job-level block
+      OVERRIDES the workflow-level one for that job, so the same three words at
+      two indents are two different grants. It is also what makes an allowlist
+      entry able to excuse a grant on ONE job rather than on a whole file.
+
+      DELIBERATELY NOT RECURSIVE, unlike Test-LwgSecretsKeys. `permissions` is a
+      key with this meaning at exactly two places in a workflow; the same word
+      under a step's `with:` belongs to whatever action is being called, and
+      reporting it would be a false positive of the kind this file's header
+      says the parse-only pass exists to avoid.
+
+      A NODE THAT IS NEITHER A MAPPING NOR A SCALAR IS REPORTED, NOT SKIPPED -
+      the runner rule's argument, applied here. A grant this scan cannot read
+      is not a grant it has cleared.
+    #>
+    param([string]$File, $Entry, [string]$Where)
+    if ($null -eq $Entry) { return }
+    $node = $Entry.value
+
+    if ($null -eq $node) {
+        Add-LwgHit -File $File -Line $Entry.keyLine `
+            -Text ("(a permissions: key with no value) [{0}]" -f $Where) -Rule 'permissions-write'
+        return
+    }
+
+    if ($node.t -eq 'scalar') {
+        # `permissions: read-all` / `write-all`, and anything else written as a
+        # bare word - an expression, a typo, a value GitHub does not accept.
+        $v = ([string]$node.value).Trim()
+        if ($v -ne '' -and $SafePermissionScalars.ContainsKey($v.ToLowerInvariant())) { return }
+        $shown = $(if ($v -eq '') { '(empty)' } else { $v })
+        Add-LwgHit -File $File -Line $node.line `
+            -Text ("{0} [{1}]" -f $shown, $Where) -Rule 'permissions-write'
+        return
+    }
+
+    if ($node.t -eq 'map') {
+        # `permissions: {}` parses to a map with no entries, which is GitHub's
+        # spelling for "every scope at none". Nothing to report, and nothing
+        # special to write: the loop simply does not run.
+        foreach ($e in $node.entries) {
+            $vs   = @(Get-LwgScalars $e.value)
+            $val  = $(if ($vs.Count -gt 0) { ([string]$vs[0].text).Trim() } else { '' })
+            $line = $(if ($vs.Count -gt 0) { $vs[0].line } else { $e.keyLine })
+            if ($val -ne '' -and $SafePermissionValues.ContainsKey($val.ToLowerInvariant())) { continue }
+            $shown = $(if ($val -eq '') { '(no value)' } else { $val })
+            Add-LwgHit -File $File -Line $line `
+                -Text ("{0}: {1} [{2}]" -f $e.key, $shown, $Where) -Rule 'permissions-write'
+        }
+        return
+    }
+
+    Add-LwgHit -File $File -Line $Entry.keyLine `
+        -Text ("(a permissions: block that is neither a mapping nor a scalar) [{0}]" -f $Where) -Rule 'permissions-write'
+}
+
 function Test-LwgTriggers {
     # $Doc, not $Root: the script parameter $Root is [string]-typed, and
     # PowerShell variable names are case-insensitive, so a node assigned to
@@ -1058,6 +1244,31 @@ if ($SelfTest) {
         # ENTIRE job, self-hosted runner and all, behind a benign first one.
         @{ file = 'r11-dup-jobs.yml';    expect = 'unparseable'
            body = "name: fixture duplicate jobs`non:`n  workflow_dispatch:`njobs:`n  build:`n    runs-on: ubuntu-latest`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`njobs:`n  build:`n    runs-on: self-hosted`n    steps:`n      - name: Nothing`n        run: Write-Output pwned`n" }
+        # THE THREE PERMISSIONS SHAPES (#225). Each one of these parsed clean
+        # and exited 0 against every rule that existed before 3 September 2026,
+        # which is the whole finding: nothing here read a `permissions:` block.
+        #
+        # r12 IS THE SHAPE #183 WAS ARGUED AGAINST. An Actions-deployed Pages
+        # job: a hosted runner, no `${{ secrets.* }}` anywhere, a STEP-level
+        # `uses:` that the external-reusable-workflow rule deliberately does not
+        # look at, and the grant that does the work sitting in a workflow-level
+        # `permissions:` block. `id-token: write` is the one grant on that list
+        # whose blast radius leaves GitHub entirely - it mints an OIDC token
+        # exchangeable with a configured cloud identity provider. The real
+        # action is `actions/deploy-pages`; the name below is invented, because
+        # every fixture in this file names something that does not exist.
+        @{ file = 'r12-permissions-workflow.yml'; expect = 'permissions-write'
+           body = "name: fixture pages deploy grant`non:`n  workflow_dispatch:`npermissions:`n  contents: read`n  pages: write`n  id-token: write`njobs:`n  deploy:`n    runs-on: ubuntu-latest`n    environment: an-invented-environment`n    steps:`n      - name: Nothing`n        uses: an-invented-owner/an-invented-deploy-action@v0`n" }
+        # r13 is the same grant one level down. Job level OVERRIDES workflow
+        # level, so a rule that only read the top of the file would report this
+        # workflow as ungranted while the job it declares runs read-write.
+        @{ file = 'r13-permissions-job.yml';      expect = 'permissions-write'
+           body = "name: fixture job level grant`non:`n  workflow_dispatch:`njobs:`n  build:`n    runs-on: windows-latest`n    permissions:`n      contents: write`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n" }
+        # r14 is the maximal case AND the one a text scan misses outright:
+        # `write-all` is a scalar shorthand for every scope at write, and it
+        # contains no `: write` for a grep to find.
+        @{ file = 'r14-permissions-write-all.yml'; expect = 'permissions-write'
+           body = "name: fixture write-all shorthand`non:`n  workflow_dispatch:`npermissions: write-all`njobs:`n  build:`n    runs-on: windows-latest`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n" }
     )
 
     try {
@@ -1168,6 +1379,56 @@ if ($SelfTest) {
         Add-LwgCase 'two jobs each declaring runs-on: report zero violations' ($r.Out -match 'RESULT: 0 violation\(s\)') `
             "expected a RESULT line reporting 0 violations, got: $($r.Out)"
 
+        # --- permissions: the READ-SCOPED end, which must stay silent -------
+        # Without this row, "report every permissions: block" passes r12, r13
+        # and r14 and reds ci.yml and release.yml, both of which grant only
+        # `contents: read`. It also pins the two shapes that are safe and are
+        # NOT a mapping of `read`: the `read-all` scalar, and `none`.
+        $permRead = Join-Path $fx 'permissions-read'
+        $null = New-Item -ItemType Directory -Path $permRead -Force
+        Set-Content -LiteralPath (Join-Path $permRead 'ok.yml') -Encoding ASCII -Value `
+            "name: fixture read-scoped permissions`non:`n  workflow_dispatch:`npermissions:`n  contents: read`n  actions: none`njobs:`n  build:`n    runs-on: windows-latest`n    permissions: read-all`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n"
+        $r = Invoke-LwgGuard -Dir $permRead
+        Add-LwgCase 'read-scoped permissions - contents: read, actions: none and read-all - exit 0' ($r.Code -eq 0) `
+            "expected exit 0, got $($r.Code). A rule that reports every permissions: block reds this repository's own two workflows and would be turned off within a week. Output: $($r.Out)"
+        Add-LwgCase 'read-scoped permissions report zero violations' ($r.Out -match 'RESULT: 0 violation\(s\)') `
+            "expected a RESULT line reporting 0 violations, got: $($r.Out)"
+
+        # --- permissions: the ALLOWLISTED grant this repository really has --
+        # release.yml's publishing job carries `contents: write`, because
+        # creating a GitHub Release is a write to the repository and no
+        # token-free spelling can do it. The entry that excuses it is anchored
+        # on the emitted text, so this row is what keeps the entry's regex and
+        # the text Add-LwgHit produces from drifting apart: it asserts the exit
+        # code AND the allowlisted COUNT, which is 0 if the two disagree.
+        $permAllow = Join-Path $fx 'permissions-allowlisted'
+        $null = New-Item -ItemType Directory -Path $permAllow -Force
+        Set-Content -LiteralPath (Join-Path $permAllow 'release.yml') -Encoding ASCII -Value `
+            "name: fixture allowlisted release grant`non:`n  workflow_dispatch:`npermissions:`n  contents: read`njobs:`n  release:`n    runs-on: windows-latest`n    permissions:`n      contents: write`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n"
+        $r = Invoke-LwgGuard -Dir $permAllow
+        Add-LwgCase "release.yml's job-level contents: write is allowlisted and exits 0" ($r.Code -eq 0) `
+            "expected exit 0, got $($r.Code). This is the grant the repository actually declares; if it is not excused, the publish workflow cannot exist. Output: $($r.Out)"
+        Add-LwgCase 'the allowlisted release grant is REPORTED as allowlisted, not silently dropped' `
+            ($r.Out -match 'RESULT: 0 violation\(s\), 1 allowlisted') `
+            "expected 'RESULT: 0 violation(s), 1 allowlisted'. A count of 0 means the rule never fired at all and the entry excused nothing - which passes the exit-code row above for the wrong reason. Output: $($r.Out)"
+
+        # --- and the allowlist must not turn the FILE off -------------------
+        # The same shape as identity_scan.ps1's B4: an entry that excuses one
+        # grant in one file must leave every other grant in that file standing.
+        # `id-token: write` added to release.yml is the exact escalation #225
+        # was raised about, and it must still fail even though that file has an
+        # entry.
+        $permScope = Join-Path $fx 'permissions-allowlist-scope'
+        $null = New-Item -ItemType Directory -Path $permScope -Force
+        Set-Content -LiteralPath (Join-Path $permScope 'release.yml') -Encoding ASCII -Value `
+            "name: fixture release grant outside the entry`non:`n  workflow_dispatch:`npermissions:`n  contents: read`njobs:`n  release:`n    runs-on: windows-latest`n    permissions:`n      contents: write`n      id-token: write`n    steps:`n      - name: Nothing`n        run: Write-Output fixture`n"
+        $r = Invoke-LwgGuard -Dir $permScope
+        Add-LwgCase 'an allowlist entry for one grant does not excuse a second grant in the same file' ($r.Code -eq 1) `
+            "expected exit 1, got $($r.Code). release.yml is excused for contents: write ONLY; id-token: write in the same job is the escalation #225 is about. Output: $($r.Out)"
+        Add-LwgCase 'the unexcused id-token: write is named under permissions-write' `
+            ($r.Out -match 'release\.yml:\d+:[^\r\n]*id-token[^\r\n]*- permissions-write:') `
+            "no line reported release.yml under rule permissions-write naming id-token. Output: $($r.Out)"
+
         # --- the abort end of the contract ---------------------------------
         # Both of these are exit 2 and NEITHER is reachable from a live run, so
         # the only evidence they behave is here. An enumeration returning zero
@@ -1270,6 +1531,13 @@ try {
             # ---- secrets: keys, anywhere ----
             Test-LwgSecretsKeys -File $rel -Node $doc
 
+            # ---- the workflow-level permissions: block ----
+            # Read at BOTH levels, here and in the job loop below, because job
+            # level overrides workflow level: a rule that read only the top of
+            # the file would report a workflow as ungranted while the job it
+            # declares runs read-write.
+            Test-LwgPermissions -File $rel -Entry (Get-LwgMapEntry -Node $doc -Key 'permissions') -Where 'workflow-level'
+
             # ---- jobs ----
             $jobs = Get-LwgMapValue -Node $doc -Key 'jobs'
             if ($null -eq $jobs) {
@@ -1285,6 +1553,11 @@ try {
                     }
                     $usesEntry = Get-LwgMapEntry -Node $job -Key 'uses'
                     $runsOn = Get-LwgMapEntry -Node $job -Key 'runs-on'
+
+                    # Before the runner is even resolved: a caller job has no
+                    # runs-on and still carries a grant, so this must not sit
+                    # inside either branch below.
+                    Test-LwgPermissions -File $rel -Entry (Get-LwgMapEntry -Node $job -Key 'permissions') -Where ("job: " + $je.key)
 
                     if ($null -ne $usesEntry) {
                         # A JOB-level uses: is a reusable-workflow call - not a
@@ -1352,7 +1625,7 @@ try {
     # dependabot.yml and the four ISSUE_TEMPLATE files are read by GitHub and
     # were read by nothing here. See PARSE-ONLY COVERAGE in the header for what
     # this buys and, more to the point, what it does not: parsing is not schema
-    # validation, and the nine rules are deliberately NOT applied - a `secrets:`
+    # validation, and the detection rules are deliberately NOT applied - a `secrets:`
     # key in an issue form means something else entirely.
     #
     # An empty enumeration here is NOT an abort, and that is the one asymmetry
@@ -1432,10 +1705,21 @@ if ($hits.Count -gt 0) {
 
 if ($hits.Count -gt 0) {
     'EXIT: 1 (a workflow names a runner GitHub does not host, uses'
-    '         pull_request_target, reaches a secret, or could not be parsed.'
+    '         pull_request_target, reaches a secret, grants more than read, or'
+    '         could not be parsed.'
     '         Fix the workflow. Do NOT add an allowlist entry unless the use is'
     '         genuinely necessary, and if it is, state the reason on the entry.)'
     exit 1
 }
-'EXIT: 0 (no workflow names a non-hosted runner, uses pull_request_target, or reaches a secret)'
+# THE EXIT-0 LINE MUST NOT OVERSTATE WHAT HELD. It read "no workflow ... reaches
+# a secret" unconditionally, which was true for as long as the allowlist was
+# empty and became a false sentence printed by a security scanner the moment an
+# entry excused a real hit. An exempted use is still a use; the exemption is a
+# reason, not an absence.
+if ($allowedHits.Count -gt 0) {
+    "EXIT: 0 (no workflow names a non-hosted runner or uses pull_request_target; $($allowedHits.Count) rule hit(s) are excused by an allowlist entry and are listed above with the reason)"
+} else {
+    'EXIT: 0 (no workflow names a non-hosted runner, uses pull_request_target, reaches a'
+    '         secret, or grants a permission wider than read)'
+}
 exit 0

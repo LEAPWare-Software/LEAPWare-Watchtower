@@ -6,7 +6,7 @@ name: CI
 # matrix, and every step runs under Windows PowerShell 5.1 rather than the `pwsh`
 # (PowerShell 7) that GitHub's Windows runners default to.
 #
-# THERE IS ONE JOB, AND TEN OF ITS SEVENTEEN CHECK STEPS TEST BEHAVIOUR. The
+# THERE IS ONE JOB, AND ELEVEN OF ITS TWENTY CHECK STEPS TEST BEHAVIOUR. The
 # `gate-regression` job and tests\gate_regression.ps1 went on 30 July 2026 with
 # the destructive command gate; the `permissions.deny parity` step and
 # tests\deny_parity.ps1 went the same day with the secret gate. Neither is coming
@@ -19,7 +19,7 @@ name: CI
 #
 # What runs now: every tracked .json and every .ps1 PARSE; no tracked file names
 # one machine; every file under .github\workflows\ is parsed and held to the
-# workflow guard's nine rules, and the rest of .github\ - dependabot.yml and the
+# workflow guard's ten rules, and the rest of .github\ - dependabot.yml and the
 # issue-template files, which GitHub reads at run time and which no step here
 # read until 3 August 2026 - is PARSED ONLY, so a syntax error in one of them
 # fails the build while a schema mistake in one still does not; the guard is
@@ -36,13 +36,9 @@ name: CI
 # tests\uninstall_footprint.ps1 drives bin\lwg-uninstall.ps1 against throwaway
 # data directories to check that the one thing in this plugin that DELETES
 # removes exactly what its footprint said it would, and refuses to report a
-# no-op deletion as a success; and tests\evidence_states.ps1 holds
-# bin\lwg-evidence.ps1 to the distinction the whole checklist rests on - a probe
-# that RAN and found nothing, versus a probe that never got to look - against a
-# plugin root with no .git, which is the marketplace install route and is where
-# that distinction shipped broken; tests\doctor_behaviour.ps1 drives
+# no-op deletion as a success; tests\doctor_behaviour.ps1 drives
 # bin\lwg-doctor.ps1 against seeded configs and seeded settings.json files, on
-# two of its nine checks and no others, because until it landed nothing had ever
+# two of its ten checks and no others, because until it landed nothing had ever
 # RUN the component whose whole job is to notice a switch wired to nothing;
 # tests\toggle_behaviour.ps1 drives bin\lwg-toggle.ps1's WRITE to config.json,
 # the second thing here that edits a file an operator owns and the one that had
@@ -59,10 +55,10 @@ name: CI
 # A green run says the repo is syntactically sound, portable, that no workflow
 # reaches a runner GitHub does not host, that the gate still refuses what it
 # declares, that the statusline merge still behaves, that those stop-path cases
-# still behave, that the uninstaller's state-data footprint is true, that the
-# checklist does not report a state it never observed, that two of the doctor's
-# nine checks still ask the question they claim to, that the toggle's write
-# still backs up and still re-checks the file it replaces, that the SubagentStart
+# still behave, that the uninstaller's state-data footprint is true, that two
+# of the doctor's ten checks still ask the question they claim to, that the
+# toggle's write still backs up and still re-checks the file it replaces,
+# that the SubagentStart
 # fast path still answers the global flag, that no tracked file carries a
 # disclosure this guard knows the shape of, and that no page states a
 # recognised count the tree contradicts. It says nothing about the gate being
@@ -179,12 +175,26 @@ jobs:
   #     tests\stop_behaviour.ps1          70 s
   #     tests\doctor_behaviour.ps1        31 s
   #     tests\toggle_behaviour.ps1        27 s
-  #     tests\evidence_states.ps1         21 s
   #     tests\subagent_scan.ps1            9 s
   #     tests\payload_guard.ps1            7 s
   #     tests\portability_scan.ps1         4 s
   #     tests\workflow_guard.ps1           2 s   (+12 s for -SelfTest, same step)
   #     parallel wall clock, 11 jobs     236 s
+  #
+  # THE WALL-CLOCK ROW SAYS ELEVEN AND THE LIST ABOVE NOW HAS TEN, which is not
+  # an arithmetic slip. The run it records included the evidence-state suite,
+  # removed with the checklist commands; its own 21 s row went with it and the
+  # 236 s was NOT re-measured afterwards. Read the total as an upper bound.
+  #
+  # THE LIST AND THE WALL CLOCK ARE BOTH tests\ ONLY, and three suites that live
+  # there now - config_behaviour, state_resolution and supervision - have no row
+  # either, for the same reason the 236 s was not re-taken: the table is one
+  # machine's run on one date and a row measured somewhere else does not belong
+  # in it. So are the guards under .github\scripts\, which run in their own
+  # steps. The one figure that has been taken since, reported on #226 with the
+  # step that introduced it:
+  #
+  #     .github\scripts\redfirst_annotations.ps1   2 s   (fixtures + live, same step)
   #
   # ONE MACHINE, NOT THE RUNNER. These are not GitHub's hosted Windows numbers
   # and nothing here has measured those; they are stated so the budget rests on
@@ -231,7 +241,8 @@ jobs:
   # required status check on main is matched by this NAME, so renaming it would
   # silently stop satisfying the requirement and leave every PR waiting on a
   # check that can no longer report. Rename it only together with the branch
-  # protection setting - see checklist.json, P6-branch-protection.
+  # protection setting on main, which names this string and is configured in
+  # the repository settings rather than anywhere in this tree.
   fast-checks:
     name: Fast checks (JSON + PowerShell parse)
     runs-on: windows-latest
@@ -256,7 +267,7 @@ jobs:
       #
       #   * `persist-credentials` DEFAULTS TO TRUE, which writes an
       #     AUTHORIZATION header into .git\config in the runner workspace where
-      #     it stays for the rest of the job - fourteen steps, twelve of them
+      #     it stays for the rest of the job - twenty steps, fourteen of them
       #     invoking powershell.exe against a script in tests\. Nothing after this step
       #     uses git over the network: the checks run `git ls-files` and
       #     `git tag -l`, which need no credential. Turning it off is free here.
@@ -271,36 +282,31 @@ jobs:
       # NOT COVER, and a rule failing every non-digest `uses:` was deliberately
       # NOT added, because a bare tag is a policy preference and that guard's
       # exit-1 contract is reserved for real violations.
-      # FETCH-DEPTH 0, AND IT IS A CORRECTNESS FIX RATHER THAN A CONVENIENCE.
-      # The default is 1, and on a `pull_request` event the ref checked out is
-      # GitHub's ephemeral MERGE COMMIT - so at depth 1 the entire history the
-      # job can see is one commit that GitHub itself authored:
+      # FETCH-DEPTH 0. The default is 1, and on a `pull_request` event the ref
+      # checked out is GitHub's ephemeral MERGE COMMIT - so at depth 1 the
+      # entire history the job can see is one commit that GitHub itself
+      # authored:
       #
       #     $ git log --all --format='%h %ae %ce'
       #     43bad86 49699333+dependabot[bot]@users... noreply@github.com
       #
-      # tests\evidence_states.ps1's case B1 drives checklist.json's P3-identity,
-      # whose probe is `git log --all --format=%ae%n%ce` matched against the
-      # owner's chosen address. That address is on no line of a one-commit
-      # history, so the probe exited 0, the match failed, and the rule returned
-      # 'fail' - which the checklist renders as `[ ] NOT STARTED`, the product's
-      # phrasing for "a probe RAN and found the thing absent". On a rule about
-      # identity that reads as "the personal address was left in history".
-      # NOTHING MEASURED THAT: the probe never saw the history it is about.
+      # IT WAS ADDED FOR A CHECK THAT NO LONGER EXISTS, and that is recorded
+      # rather than left for someone to infer from a setting with no reason
+      # beside it. The evidence-state suite drove a checklist identity rule
+      # whose probe was `git log --all --format=%ae%n%ce` matched against the
+      # owner's chosen address. At depth 1 that address is on no line of a
+      # one-commit history, so the probe exited 0, the match failed, and the
+      # rule reported the personal address as LEFT IN HISTORY - about a history
+      # nothing had read. It failed on EVERY pull request and is why #149 was
+      # never mergeable. That suite and the checklist it scored were both
+      # removed, so NO STEP IN THIS JOB READS HISTORY TODAY and 0 is no longer
+      # load-bearing for anything here.
       #
-      # It failed on EVERY pull request and is why #149 was never mergeable.
-      # A depth-1 clone of `main` passes - main's tip is the owner's own commit -
-      # which is exactly what kept this invisible: reproducing it needs a PR
-      # merge ref, not merely a shallow clone.
-      #
-      # WHAT 0 COSTS: the whole history, which is 3 revs here. WHAT IT DOES NOT
-      # FIX: #153's other direction, where a worktree sharing the predecessor's
-      # object store sees PRE-REWRITE identities and trips the same rule's
-      # stdout_not_match half. That one is not reachable from this file - it
-      # needs the probe to tell "I could not see the history" from "the history
-      # is bad" - and no depth setting here changes it. Measured on the
-      # published remote, every ref, at full depth: three identities, none of
-      # them the pre-rewrite address.
+      # IT IS KEPT ANYWAY, as a decision and not an oversight. WHAT 0 COSTS is
+      # the whole history, which is a handful of revs here, and dropping back to
+      # 1 would be a behaviour change made for no measured gain. Any step added
+      # later that reads history then gets a real clone rather than a one-commit
+      # stub, which is the shape that produced #149 in the first place.
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -401,9 +407,10 @@ jobs:
           #
           # IT RUNS TWICE, AND THE SECOND RUN IS THE ONE WITH EVIDENCE BEHIND
           # IT. Until 3 August 2026 nothing in this repository ever ran the
-          # guard against a workflow that violates any of its rules - the
-          # checklist probe, this step and every invocation in CONTRIBUTING.md
-          # pointed it at a clean tree, where the expected answer is 0. So the
+          # guard against a workflow that violates any of its rules - this step
+          # and every invocation in CONTRIBUTING.md, plus the checklist probe
+          # that has since been removed, all pointed it at a clean tree, where
+          # the expected answer is 0. So the
           # branch that FIRES had no evidence at all, on the rule this project
           # ranks highest-consequence and describes in four places as something
           # that fails the build. -SelfTest writes one deliberately violating
@@ -427,7 +434,7 @@ jobs:
           #
           # The live run also now PARSES the rest of .github\ - dependabot.yml
           # and the five issue-template files, which GitHub reads at run time
-          # and which no step here read until now. The nine rules are NOT
+          # and which no step here read until now. The ten rules are NOT
           # applied to them and parsing is not schema validation: it catches a
           # list item indented out of its sequence, not a `type:` value GitHub
           # does not recognise.
@@ -467,7 +474,7 @@ jobs:
             & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard -SelfTest
             $selfCode = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
             if ($selfCode -ne 0) {
-              Write-Host "::error title=Workflow guard self-test::The guard reported the live tree clean, but at least one of its nine rules did NOT fire on input planted to trip it, or its exit contract did not hold (self-test exit $selfCode). A clean run from a guard that cannot fire is the exact false assurance this file replaced. Read the per-case lines above."
+              Write-Host "::error title=Workflow guard self-test::The guard reported the live tree clean, but at least one of its ten rules did NOT fire on input planted to trip it, or its exit contract did not hold (self-test exit $selfCode). A clean run from a guard that cannot fire is the exact false assurance this file replaced. Read the per-case lines above."
               if ($env:GITHUB_STEP_SUMMARY) {
                 Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Workflow guard:** SELF-TEST FAILED (exit $selfCode) - the live scan was clean but the guard was not shown able to fire."
               }
@@ -485,7 +492,7 @@ jobs:
           #   2  the guard aborted; the workflows were NOT checked. An
           #      enumeration returning zero files is an abort, never a pass.
           $label = switch ($code) {
-            0       { 'PASS - no workflow names a non-hosted runner, uses pull_request_target, or reaches a secret, every file under .github\ that GitHub reads at run time parses, and the guard was demonstrated able to fire on all nine rules. That is a statement about the FILES IN THIS REPOSITORY only: an action pulled from another repository runs code this guard never sees, and parsing dependabot.yml or an issue form is not validating it against GitHub''s schema.' }
+            0       { 'PASS - no workflow names a non-hosted runner or uses pull_request_target, every rule hit that remains is excused by an allowlist entry PRINTED ABOVE WITH ITS REASON, every file under .github\ that GitHub reads at run time parses, and the guard was demonstrated able to fire on all ten rules. READ THE ALLOWLISTED BLOCK, if there is one: an exempted use is a use, and this label stopped saying "reaches a secret" outright the day release.yml needed the automatic token to publish a Release. That is a statement about the FILES IN THIS REPOSITORY only: an action pulled from another repository runs code this guard never sees, and parsing dependabot.yml or an issue form is not validating it against GitHub''s schema.' }
             1       { 'FAIL (exit 1) - a workflow reaches a runner GitHub does not host, uses pull_request_target, uses a secret, or could not be parsed. Read the file:line list above. Do NOT add an allowlist entry to silence it unless the use is genuinely necessary and the reason is stated on the entry.' }
             2       { 'ABORT (exit 2) - the guard did not complete, so nothing about these workflows was established by this run.' }
             255     { 'NOT RUN (exit 255) - tests\workflow_guard.ps1 could not be invoked.' }
@@ -523,7 +530,7 @@ jobs:
       - name: Delegate gate regression suite
         shell: powershell
         run: |
-          # One of the ten tests of behaviour in this repository, and the only
+          # One of the eleven tests of behaviour in this repository, and the only
           # one that tests a GATE. The parse and scan steps ask whether files are
           # well formed; this asks whether the one gate this plugin ships refuses
           # what it says it refuses. The installer merge suite, the stop-hook
@@ -601,13 +608,14 @@ jobs:
           # nothing at all, and rollback restores byte for byte.
           #
           # THE STEP NAME IS NOW NARROWER THAN THE SUITE, and this comment said
-          # only the above until 3 August 2026, when four sections that are not
+          # only the above until 3 August 2026, when sections that are not
           # about the installer at all landed in the same file: the status line
-          # driven byte-exactly through a real child process, bin\lwg-sitrep.ps1
-          # and lib\resolve.ps1 against a scratch state directory, and
+          # driven byte-exactly through a real child process, and
           # bin\lwg-update.ps1 - which had no coverage of any kind before that
           # day - against a local bare repository. They are here because this
           # file already owned the only harness that runs any of them for real.
+          # Two more sections landed the same day and have since been removed
+          # with the reporting commands they drove.
           # The NAME is deliberately not changed: it is matched by a required
           # status check on main, so renaming it stops satisfying the
           # requirement - the same reason recorded against the job name above.
@@ -624,7 +632,7 @@ jobs:
           # under the temp directory, with -SettingsPath pointed into it and
           # $env:USERPROFILE swapped around each call and restored afterwards -
           # the two-knob sandbox contract documented in the installer's own
-          # header - and the four sections above add CLAUDE_PLUGIN_DATA and a
+          # header - and the sections above add CLAUDE_PLUGIN_DATA and a
           # bare repository built under the temp root, so no case reaches a
           # network and every "remote" is local. No case runs elevated or
           # constructs a destructive command.
@@ -806,66 +814,6 @@ jobs:
           }
           exit $code
 
-      - name: Evidence-state suite
-        shell: powershell
-        run: |
-          # The step that asks whether the checklist can tell a probe that RAN
-          # AND FOUND THE THING ABSENT from a probe that NEVER GOT TO LOOK.
-          # Those render as `[ ] NOT STARTED` and `[?] UNVERIFIED`, the product
-          # documents them as different states, and until 31 July 2026 the
-          # `command` evaluator in bin\lwg-evidence.ps1 could not tell them
-          # apart: on the MARKETPLACE install route the plugin directory has no
-          # .git, so every git-backed rule exited 128 having read nothing and
-          # was scored as a finding. Two rows then told a consumer that the
-          # owner's personal address WAS left in history and that the private
-          # sibling project's name IS in the tree - the opposite of the truth,
-          # about facts nothing had measured. It was found by adversarial UAT
-          # on the install route the maintainer does not use.
-          #
-          # Half the suite is the mirror: probes that genuinely ran and
-          # genuinely failed must STAY findings. Answering "unverified" to
-          # everything would be a worse defect than the one it replaced.
-          #
-          # Same capture pattern as the steps around it: a nonzero native exit
-          # code does NOT fail a PowerShell step on its own, so it is re-raised
-          # explicitly, and stderr is deliberately not merged with 2>&1 - in
-          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
-          # records and corrupts the result.
-          $ErrorActionPreference = 'Continue'
-          $suite = 'tests\evidence_states.ps1'
-
-          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
-            Write-Host "::error::$suite is missing - the evidence engine was never exercised, which is not the same as passing"
-            exit 1
-          }
-
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
-          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
-
-          # Exit-code contract of tests\evidence_states.ps1, the same three this
-          # repo's other suites use. An abort is never reported as a pass.
-          #   0  every case passed
-          #   1  at least one case failed
-          #   2  the suite aborted; the engine was NOT exercised. Zero cases
-          #      run is an abort, never an empty-set pass.
-          $label = switch ($code) {
-            0       { 'PASS - a probe that could not run still renders UNVERIFIED and a probe that ran and failed still renders NOT STARTED. That is a statement about the five could-not-run signals the suite lists, NOT that the engine can always tell the two apart.' }
-            1       { 'FAIL (exit 1) - the evidence engine mis-states what it observed. Read the per-case lines above. A case expecting UNVERIFIED that reported a finding means the checklist asserts something about a fact it never measured, which is the defect this whole plugin exists to catch.' }
-            2       { 'ABORT (exit 2) - the suite did not complete, so nothing about the evidence engine was established by this run.' }
-            255     { 'NOT RUN (exit 255) - tests\evidence_states.ps1 could not be invoked.' }
-            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
-          }
-
-          if ($code -eq 0) {
-            Write-Host "evidence-state suite: $label"
-          } else {
-            Write-Host "::error title=Evidence-state suite::$label"
-          }
-          if ($env:GITHUB_STEP_SUMMARY) {
-            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Evidence-state suite:** $label"
-          }
-          exit $code
-
       - name: Doctor behaviour suite
         shell: powershell
         run: |
@@ -889,7 +837,7 @@ jobs:
           #                    stale copy of this plugin's - with the printed
           #                    remedy being to overwrite it.
           #
-          # IT DRIVES TWO OF THE NINE CHECKS AND NO OTHERS, and a green run here
+          # IT DRIVES TWO OF THE TEN CHECKS AND NO OTHERS, and a green run here
           # says nothing about the other seven. In particular it says nothing
           # about sessionstart, which is owned by a separate issue and is
           # deliberately untouched. Read the suite header rather than this
@@ -941,7 +889,7 @@ jobs:
           #   2  the suite aborted; the doctor was NOT exercised. Zero cases run
           #      is an abort, never an empty-set pass.
           $label = switch ($code) {
-            0       { 'PASS - config-registry still refuses a quoted flag the reader ignores, and statusline still asks whose file it is before calling one a stale copy. That is TWO of the nine checks: the other seven are not driven here, and a byte-identical or token-bearing foreign status line is a stated limit rather than something this suite catches.' }
+            0       { 'PASS - config-registry still refuses a quoted flag the reader ignores, and statusline still asks whose file it is before calling one a stale copy. That is TWO of the ten checks: the other eight are not driven here, and a byte-identical or token-bearing foreign status line is a stated limit rather than something this suite catches.' }
             1       { 'FAIL (exit 1) - a doctor check did not behave as declared. Read the per-case lines above. A config-registry case that passed a non-boolean means an operator can disarm the only gate this plugin ships with a typo and be told it is armed; a statusline case that claimed a foreign file means the printed remedy is to overwrite somebody else''s status line.' }
             2       { 'ABORT (exit 2) - the suite did not complete, so nothing about the doctor was established by this run.' }
             255     { 'NOT RUN (exit 255) - tests\doctor_behaviour.ps1 could not be invoked.' }
@@ -1074,7 +1022,7 @@ jobs:
           # `"modules":` in document order at ANY nesting level, and config.json's
           # `repos` block is documented to hold per-repo `modules` objects. So a
           # config with `repos` written above `modules` injected into the worker
-          # while /lw-watchtower:status, the SessionStart banner and
+          # while /lw-watchtower:doctor, the SessionStart banner and
           # Test-LwgModule all agreed the module was off - a raw-text scanner
           # whose correctness depended on which of two sibling keys appears first
           # in a file operators are invited to hand-edit.
@@ -1153,9 +1101,11 @@ jobs:
           # The step that asks what a STRANGER receives. `.claude-plugin
           # \marketplace.json` declares `"source": "./"`, there is no exclusion
           # mechanism on that form, so EVERY TRACKED FILE IN THIS REPOSITORY IS
-          # THE SHIPPED PAYLOAD - and `/lw-watchtower:checklist` renders one of
-          # those files on the consumer's machine, because commands\checklist.md
-          # instructs the model to print the output verbatim.
+          # THE SHIPPED PAYLOAD, read on the consumer's machine by whoever
+          # installs it. Until the checklist commands were removed there was a
+          # sharper version of that: one of them rendered a tracked file into
+          # the consumer's transcript verbatim. The payload is still the payload
+          # without it, so this step is unchanged.
           #
           # Four disclosures reached the payload that way and NOTHING CAUGHT ANY
           # OF THEM, because every other guard in tests\ answers a different
@@ -1170,9 +1120,6 @@ jobs:
           #   them. A containment claim resting on the repository not being
           #   published yet carries no number, so it is not a claim that file can
           #   read at all.
-          #
-          #   tests\evidence_states.ps1 reads rules, not prose, and is
-          #   indifferent to what a caveat says.
           #
           # So the disclosures were found by AUDIT, and an audit is a person
           # remembering to look - the three that found these had to be told
@@ -1320,6 +1267,169 @@ jobs:
           }
           if ($env:GITHUB_STEP_SUMMARY) {
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Supervision suite:** $label"
+          }
+          exit $code
+
+      # THE TWO STEPS BELOW LANDED FOR #213, AND WHAT THEY CLOSE IS NOT "a suite
+      # that never ran". Both suites DID reach this runner, and that is the trap.
+      # tests\doc_claims.ps1 executes every sibling suite in parallel to read the
+      # tally each one prints about itself, so a suite with no step of its own is
+      # still executed - inside the documentation step, near the bottom of this
+      # job. Three things follow, and all three were true of these two files:
+      #
+      #   * their result was observable only through a step that is RED today for
+      #     an unrelated reason (#190's count disagreements), so a genuine
+      #     behavioural failure in either was invisible under an expected red;
+      #   * doc_claims ABORTS the moment any sibling exits non-zero, and when it
+      #     aborts these suites do not run at all and nothing in the log says so;
+      #   * the protection was a side effect of a documentation guard. Restructure
+      #     or remove that guard and these two suites silently stop being
+      #     executed by CI, with no diff anywhere near them.
+      #
+      # A suite whose only route to the runner is another suite's parallel helper
+      # is coincidentally exercised, not covered. Both are covered now, by name,
+      # above the step whose abort used to hide them.
+      #
+      # THE SEARCH BEHIND THESE TWO. This gap was found twice by accident and
+      # never by a search, so #213's done-condition asked for the enumeration:
+      # every tests\*.ps1 in the tree was matched against the steps in this file.
+      # These were the only two without a step of their own. The result is on
+      # #213 rather than repeated here, because a list of file names in a comment
+      # is a second copy of `git ls-files -- tests/*.ps1` that nothing updates.
+
+      - name: Config write-path suite
+        shell: powershell
+        run: |
+          # bin\lwg-config.ps1 backs /lw-watchtower:config and is the only
+          # supported way to change a `modules` flag, globally or for one repo.
+          # It is a WRITE path into the operator's own config.json, and until the
+          # suite this step runs existed, nothing under tests\ had executed any of
+          # it - not the refusals it is built around, not the two-phase preview,
+          # not the surgical JSON edit, not the read-back that is supposed to
+          # verify what was written.
+          #
+          # It is anchored on the two defects it was built from. #92: the
+          # unknown-module refusal tested membership case-INSENSITIVELY while its
+          # own hint says module names are case-sensitive, so a wrong-case name
+          # printed a full plan and exited 0 under a preview - a change promised
+          # that could never be made. #91: `-Repo <owner/name>` was taken
+          # verbatim, never shape-checked and never reconciled against the keys
+          # already in the file, so an override could be written under a key no
+          # hook would ever resolve and then reported as verified by a read-back
+          # that re-resolved it through the same blind lookup.
+          #
+          # WHAT IT DOES NOT ESTABLISH: the suite's own header names the fault
+          # paths it does not reach, and a green here is "these refusals still
+          # refuse", never "the write path is safe".
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly, and stderr is deliberately not merged with 2>&1 - in
+          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\config_behaviour.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - the config write path was never exercised, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\config_behaviour.ps1, the same three every
+          # suite here uses. An abort is never reported as a pass.
+          #   0  every case passed
+          #   1  at least one case failed
+          #   2  the suite aborted; the write path was NOT exercised. Zero cases
+          #      run is an abort, never an empty-set pass.
+          $label = switch ($code) {
+            0       { 'PASS - a wrong-case module name is refused before anything is planned, a -Repo slug is canonicalised and reconciled once, the preview writes nothing, and every refusal leaves config.json byte-identical. That is NOT "the write path is safe": see the suite header for the fault paths no case here reaches.' }
+            1       { 'FAIL (exit 1) - read the per-case lines above. A refusal case that exited 0 is a command promising a change it cannot make; a write case that failed means /lw-watchtower:config touched a real config.json in a way it does not admit to.' }
+            2       { 'ABORT (exit 2) - the suite did not complete, so nothing about the config write path was established by this run.' }
+            255     { 'NOT RUN (exit 255) - tests\config_behaviour.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "config write-path suite: $label"
+          } else {
+            Write-Host "::error title=Config write-path suite::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Config write-path suite:** $label"
+          }
+          exit $code
+
+      - name: State resolution suite
+        shell: powershell
+        run: |
+          # The step that runs lib\session_start.ps1 - the SessionStart hook every
+          # session goes through, and the file the banner, the model-visible
+          # context envelope, the mode word and the self-check probes all come out
+          # of. Nothing in tests\ executed it at all before the suite this step
+          # runs was written.
+          #
+          # It runs the hook through a real pipe into a real child process, with
+          # its own environment block - USERPROFILE, CLAUDE_PLUGIN_ROOT,
+          # CLAUDE_PLUGIN_DATA and CLAUDE_CONFIG_DIR all pointed at a throwaway
+          # tree - because a PowerShell object pipe never reaches [Console]::In,
+          # which is where a hook reads its payload, and because the defects it
+          # pins are about which directory gets written.
+          #
+          # The defects behind it: #146, CLAUDE_CONFIG_DIR honoured by nothing, so
+          # a relocated configuration directory meant the plugin read and wrote a
+          # tree the CLI never touches while reporting success; #60, the
+          # self-check probe whose predicate was unsatisfiable for every input and
+          # therefore reported a pass for every config.json, feeding the mode word
+          # the whole plugin presents itself through; #106, a probe file appended
+          # to on every session with no rotation, truncation or reader anywhere in
+          # the tree; #8, marketplace detection probing a directory that does not
+          # exist on a live install; and #132, nothing checking the operating
+          # system or the Claude Code build at all.
+          #
+          # WHAT IT DOES NOT COVER, and this step is not the place that fixes it:
+          # the SessionStart banner is still asserted by nothing (#144), and the
+          # two marketplace CALL SITES are untouched, so #8 stays open in both.
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly, and stderr is deliberately not merged with 2>&1 - in
+          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\state_resolution.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - the SessionStart hook was never executed, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\state_resolution.ps1, the same three every
+          # suite here uses. An abort is never reported as a pass.
+          #   0  every case passed
+          #   1  at least one case failed
+          #   2  the suite aborted; the hook was NOT executed. Zero cases run is
+          #      an abort, never an empty-set pass.
+          $label = switch ($code) {
+            0       { 'PASS - the ledger lands under CLAUDE_CONFIG_DIR and nothing under the profile, a broken module flag reaches the mode word, the probe file stays bounded and still proves the state dir writable, the marketplace cache layout is walked, and the platform is recorded. That is a statement about THESE resolutions only: the banner is still asserted by nothing (#144).' }
+            1       { 'FAIL (exit 1) - read the per-case lines above. A failure in section A means a SessionStart wrote into the operator profile while another directory was configured; a failure in section B means a self-check probe has stopped being able to fail.' }
+            2       { 'ABORT (exit 2) - the suite did not complete, so nothing about state resolution or the SessionStart hook was established by this run.' }
+            255     { 'NOT RUN (exit 255) - tests\state_resolution.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "state resolution suite: $label"
+          } else {
+            Write-Host "::error title=State resolution suite::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**State resolution suite:** $label"
           }
           exit $code
 
@@ -1547,12 +1657,42 @@ jobs:
       #
       # IT DOES NOT LIVE UNDER tests\ ON PURPOSE. Every file there exercises the
       # PLUGIN; this one checks a pull request's metadata and asserts nothing
-      # about the product. Counting it among "thirteen files in tests\, ten of
+      # about the product. Counting it among "fourteen files in tests\, eleven of
       # which test behaviour" would make both of those documented numbers LESS
       # true, and tests\doc_claims.ps1 derives them from tests\*.ps1 - so it
       # sits beside the workflow that is its only caller instead.
+      #
+      # IT RUNS EVEN WHEN AN EARLIER STEP HAS ALREADY GONE RED, and until #202
+      # it did not. GitHub halts a job at the first failing step by default, and
+      # this guard and the identity guard below it are the last things in the
+      # job - so a red `Documentation claims` took both of them out with it.
+      # Measured on the run of PR #199 into `wave1/cuts`, id 33790326016: every
+      # earlier step green, `Documentation claims` FAILURE, and the two guards
+      # after it SKIPPED. The only half of the issues protocol enforced here
+      # rather than reviewed by a person stopped running exactly when the tree
+      # was already unhappy, which is when a tree is likeliest to be carrying
+      # something else wrong as well. Nothing was missed that time; that it was
+      # not missed was luck, and luck is not a control.
+      #
+      # `!cancelled()` AND NOT `always()`, and the reason is this file's own
+      # `concurrency:` block a few lines above `jobs:`. `always()` also carries a
+      # step through a CANCELLATION, so a superseded run - precisely what
+      # `cancel-in-progress: true` exists to stop - would go on executing the two
+      # slowest guards in the job on a runner nobody is waiting for.
+      # `!cancelled()` buys independence from a sibling's failure and buys
+      # nothing else. So a grep of this file for `always()` still finds none, by
+      # decision rather than by omission.
+      #
+      # BOTH HALVES OF THE CONDITION ARE LOAD-BEARING. The `pull_request` half is
+      # the deliberate skip described above and is unchanged - a push still skips
+      # this step, and still shows it as skipped rather than as a hollow pass.
+      # The new half removes only the halt.
+      #
+      # THE COST, STATED HERE RATHER THAN DISCOVERED IN A LOG: a run that used to
+      # show one red step and two grey ones can now show three red steps. That is
+      # the point of the change, not a regression in it.
       - name: Pull-request issue reference
-        if: github.event_name == 'pull_request'
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         shell: powershell
         run: |
           $ErrorActionPreference = 'Continue'
@@ -1614,7 +1754,15 @@ jobs:
       # It lives under .github\scripts\ for the same reason the pull-request
       # guard does: it asserts nothing about the plugin, so counting it among the
       # files in tests\ would make two documented numbers less true.
+      #
+      # IT CARRIED NO CONDITION AT ALL UNTIL #202, which meant it did not run
+      # whenever anything before it failed - see the paragraphs above the
+      # previous step for the measured run and for why the condition is
+      # `!cancelled()` and not `always()`. This step's condition has no second
+      # half: the identity of a commit is the same question on a push as on a
+      # pull request, and this guard has always been asked it on both.
       - name: Commit identity
+        if: ${{ !cancelled() }}
         shell: powershell
         run: |
           $ErrorActionPreference = 'Continue'
@@ -1657,5 +1805,167 @@ jobs:
           }
           if ($env:GITHUB_STEP_SUMMARY) {
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Commit identity:** $label"
+          }
+          exit $code
+
+      # This project's closure rule is red-first, and the claim that a case was
+      # red at a named baseline is written in the suite as an annotation - "RED
+      # AT ec80e88", "confirmed RED AT fd8d023". NOTHING CHECKED THOSE
+      # SENTENCES. #152 item 1 was an annotation pointing at a case that passed
+      # at the baseline it cited, and a person reading the file found it.
+      #
+      # .github\scripts\redfirst_annotations.ps1 checks the SHAPE and says so
+      # loudly: it cannot re-run a baseline, because no clone here reaches
+      # fd8d023 (#153), so an annotation citing a real SHA against a case that
+      # could never have failed there still passes. What it closes is the
+      # cheaper half - a citation naming no commit, and a reference to a case
+      # that is not in the suite, which is what a rename or a deletion leaves
+      # behind.
+      #
+      # It lives under .github\scripts\ for the same reason the two steps above
+      # do: it reads the suites as text and asserts nothing about the plugin,
+      # so counting it among the files in tests\ would make two documented
+      # numbers less true.
+      #
+      # `!cancelled()` rather than nothing at all, which is #202's finding
+      # applied to a step written after it: a guard with no condition does not
+      # run whenever anything before it failed, and "the annotations were never
+      # checked" then reads as a build that had no annotation problem. No
+      # second half to the condition - an annotation is the same question on a
+      # push as on a pull request.
+      - name: Red-first annotations
+        if: ${{ !cancelled() }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $suite = '.github\scripts\redfirst_annotations.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - no red-first annotation was checked, which is not the same as every annotation holding up"
+            exit 1
+          }
+
+          # Fixtures first: eight cases over planted suites, each proving one
+          # rule can FIRE. A guard proved only against a tree that happens to be
+          # clean is a guard proved against nothing - the same argument the
+          # workflow guard's -SelfTest makes.
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $fixtureCode = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+          if ($fixtureCode -ne 0) {
+            Write-Host "::error title=Red-first annotations::the guard's own fixtures did not pass (exit $fixtureCode), so nothing it says about these suites can be trusted"
+            exit $fixtureCode
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite -Live
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # 0/1/2, the contract every guard here uses. Exit 2 is the ledger
+          # end: a rule that matched NOTHING anywhere in tests\ reports a
+          # coverage it does not have, which is tests\doc_claims.ps1's rule
+          # after seven of its patterns were found checking nothing.
+          $label = switch ($code) {
+            0       { 'PASS - every baseline-citing annotation names a commit, and every case an annotation names exists in its suite. That is a statement about SHAPE only: this guard cannot re-run a baseline, so an annotation citing a real SHA against a case that could not have failed there passes it. The per-suite table above is the coverage; about eighteen annotations name a working tree rather than a commit and are out of reach entirely.' }
+            1       { 'FAIL (exit 1) - read the listed annotations above. Either one claims a red-first baseline and names no commit, or it names a case its suite does not declare. Fix the sentence or restore the case; do not delete the annotation to make this green.' }
+            2       { 'ABORT (exit 2) - nothing was established: no suite was read, a suite did not parse, or a rule matched nothing anywhere in tests\. A rule that checks nothing reports a coverage it does not have. Not clean, and not a pass.' }
+            255     { 'NOT RUN (exit 255) - the guard could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "red-first annotations: $label"
+          } else {
+            Write-Host "::error title=Red-first annotations::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Red-first annotations:** $label"
+          }
+          exit $code
+
+      # THE FIVE VERSION DECLARATIONS, HELD TO EACH OTHER ON EVERY PUSH AND
+      # EVERY PULL REQUEST (#219). Until this step existed,
+      # .github\scripts\version_declarations.ps1 was invoked from `release.yml`
+      # and from nowhere else - and `release.yml` is TAG-TRIGGERED. So a
+      # declaration that had drifted out of agreement was checked at the moment
+      # a release was being cut, and at no other moment: the tag goes up, the
+      # workflow refuses, and the person cutting the release is debugging a
+      # manifest instead of shipping. `v0.4.0` is the first release this
+      # repository will ever cut, so there is no accumulated evidence that the
+      # five sites have ever agreed at a tag boundary.
+      #
+      # It is the same defect class as #213 - a guard that exists, passes, and
+      # is not run anywhere it could act - and it sits outside tests\, which is
+      # why #213's enumeration of the suites could not have covered it. The
+      # other two executables under .github\scripts\ were checked for the same
+      # gap and do not have it: pr_issue_ref.ps1 and identity_scan.ps1 are both
+      # steps above.
+      #
+      # WHAT THIS STEP ASSERTS IS NOT WHAT release.yml ASSERTS, and the
+      # difference is the reason both exist. NO TAG IS PASSED HERE, because on a
+      # push or a pull request there is no tag to pass, and inventing one would
+      # make this step answer a question nobody asked:
+      #
+      #   here (no -Tag)      the five declaration sites agree WITH EACH OTHER,
+      #                       and - when any tag is visible - the version they
+      #                       declare is not one already published. The two
+      #                       tag-shaped rules report NOT CHECKED, which the
+      #                       guard prints as a decline and never as a pass.
+      #   release.yml (-Tag)  every site states exactly what the TAG says, and
+      #                       CHANGELOG.md's heading for that version is dated.
+      #
+      # An empty `git tag -l` is reported NOT CHECKED rather than clean, so this
+      # step cannot go green on the published-tag rule by never seeing a tag -
+      # which is also why the checkout above is at fetch-depth: 0.
+      #
+      # FIXTURES FIRST, THE TREE SECOND, as in the two steps above: nine planted
+      # trees, one per rule, each proving that rule can FIRE. A guard proved only
+      # against a clean tree is proved against nothing, and until this step
+      # landed the only caller that ran those fixtures was a workflow that had
+      # never executed.
+      #
+      # `!cancelled()` AND NOT `always()`, for the reason written out in full
+      # above the pull-request step: `always()` carries a step through a
+      # CANCELLATION, so a superseded run would go on executing guards nobody is
+      # waiting for. `!cancelled()` buys independence from a sibling's failure
+      # and nothing else, and a grep of this file for `always()` still finds
+      # none. There is no second half to this condition - version declarations
+      # are the same question on a push as on a pull request.
+      - name: Version declarations
+        if: ${{ !cancelled() }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $guard = '.github\scripts\version_declarations.ps1'
+
+          if (-not (Test-Path -LiteralPath $guard -PathType Leaf)) {
+            Write-Host "::error::$guard is missing - no declaration was compared with anything, which is not the same as them agreeing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard
+          $fixtureCode = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+          if ($fixtureCode -ne 0) {
+            Write-Host "::error title=Version declarations::the guard's own fixtures did not pass (exit $fixtureCode), so nothing it says about this tree can be trusted"
+            exit $fixtureCode
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard -Live
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # The 0/1/2 contract every guard in this repository uses.
+          $label = switch ($code) {
+            0       { 'PASS - the guard''s own fixtures passed and the five version declaration sites agree with each other. NO TAG WAS PASSED, so this says nothing about whether they match a release: the tag rule and the changelog rule printed NOT CHECKED above, and release.yml is what asks them. A NOT CHECKED line is a decline, not a pass.' }
+            1       { 'FAIL (exit 1) - read the lines above. A version declaration disagrees with its siblings, or the version declared is one an existing tag already published. Bump all five sites together: .claude-plugin/marketplace.json, .claude-plugin/plugin.json, config.json, lib/common.ps1 and lib/session_start.ps1.' }
+            2       { 'ABORT (exit 2) - a declaration site was missing or unreadable, so nothing about this tree was established. Not clean, and not a pass.' }
+            255     { 'NOT RUN (exit 255) - .github\scripts\version_declarations.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "version declarations: $label"
+          } else {
+            Write-Host "::error title=Version declarations::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Version declarations:** $label"
           }
           exit $code

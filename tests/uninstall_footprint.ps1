@@ -93,8 +93,14 @@
       ones that pass no destructive flag. The uninstaller's sibling sweep hangs
       off that variable, so a case that forgot to set it would sweep the real
       ~\.claude\plugins\data - and in apply mode would delete what it found.
-      Invoke-Uninstall does it unconditionally for that reason; do not add a
-      code path that calls the script directly.
+      Invoke-Uninstall does it unconditionally for that reason. THERE IS ONE
+      OTHER INVOKER and there must not be a third: Invoke-UninstallWithConcurrent-
+      Write, which needs Process.Start to read stdout as it arrives and cannot
+      use the call operator. It keeps the same contract by the same means -
+      $env:USERPROFILE is set on THIS process, restored in a finally, and
+      inherited by the child because ProcessStartInfo.EnvironmentVariables is
+      left untouched. A new code path that calls the script directly without
+      that redirection is the thing this rule forbids.
     * The only directories any case deletes are directories the case itself
       created seconds earlier under the temp root, seeded with invented file
       contents. Nothing here is elevated and no case constructs a shell command.
@@ -104,16 +110,30 @@
   ---------------------------------------------------------------------------
   WHAT IS DELIBERATELY NOT COVERED, so a green run is not read as more
   ---------------------------------------------------------------------------
-  * A SUCCESSFUL settings.json EDIT. Whether the writer removes a statusLine
-    key or a deny entry from a readable, parseable file and leaves the rest
-    byte-identical is lib\common.ps1's writer's job, and tests\setup_merge.ps1
-    exercises that. What IS covered here is everything AROUND that edit, which
-    is this script's own: whether an entry is ATTRIBUTED to this plugin
+  * THE MECHANICS OF THE JSON SURGERY ITSELF. Whether Remove-LwgJsonMember and
+    the deny-array rewrite leave every byte they did not mean to touch exactly
+    where it was is lib\common.ps1's job, and tests\setup_merge.ps1 exercises
+    that writer at length. What IS covered here is this script's own half:
+    whether an entry is ATTRIBUTED to this plugin
     (Test-CanonicalDenyRulesAllAttributed, Test-MissingDenyKeyInventsNoEntry,
     Test-ThirdPartyStatusLineIsNotOurs), whether the two halves of the status
-    line move together (Test-StatusLineFileKeptWhenKeyHalfCannotRun), and the
-    restore path's refusals and its absent-file case. Reporting and editing are
-    two subjects and the line between them is here rather than assumed.
+    line move together (Test-StatusLineFileKeptWhenKeyHalfCannotRun), and -
+    since 3 September 2026, the six cases under THE SETTINGS.JSON WRITE PATHS -
+    whether the guarantees the file header makes about settings.json actually
+    hold: a backup taken first that holds the original bytes, a plan-time SHA256
+    that aborts rather than clobber a concurrent change, and each of the four
+    outcomes of -RestoreSettings. Reporting and editing are two subjects and the
+    line between them is here rather than assumed.
+  * A SETTINGS.JSON EDIT DRIVEN BY -RemovePermissions. The successful-edit case
+    drives the statusLine key, which is the half with a file beside it. The deny
+    half shares the same re-read, the same SHA compare and the same writer call,
+    and its ATTRIBUTION is covered, but no case here watches deny entries come
+    out of a file and the rest stay put.
+  * A CONCURRENT CHANGE ARRIVING IN THE OTHER TWO WINDOWS. Test-StaleSha256-
+    AbortsTheSettingsWrite drives the window between the plan read and the apply
+    block's re-read, which is the one the header's promise is about. The much
+    narrower window inside Save-LwgTextFile - between its own re-read and its
+    write - is lib\common.ps1's and is not reached from here.
   * THE SKILLS-JUNCTION ROW in section 1. The script refuses to remove that
     junction by design and the row is report-only, so there is no removal
     behaviour to pin. A junction under the DATA root is a different thing and IS
@@ -136,14 +156,27 @@
 #>
 [CmdletBinding()]
 param(
-    # Repo root. Defaults to this file's parent, correct for a run from anywhere
+    # The PLUGIN PAYLOAD root - lw-watchtower\ under this file's parent, not the
+    # repository root, which is what this parameter meant before the restructure, correct for a run from anywhere
     # as long as this file stays in tests\.
     [string]$Root
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Split-Path -Parent $PSScriptRoot }
+# THE PAYLOAD ROOT, WHICH IS NO LONGER THE REPOSITORY ROOT. `Split-Path -Parent
+# $PSScriptRoot` is the parent of tests\, and tests\ stayed at the repository
+# root while the shipped plugin moved under lw-watchtower/. Everything this
+# suite composes off $Root - bin\, lib\, config.json, statusline\ - is payload,
+# so $Root is the payload root and the default says so in one place rather than
+# in every Join-Path below it.
+#
+# WHY THE DEFAULT AND NOT A -Root FROM CI. Neither .github\workflows\ci.yml nor
+# tests\doc_claims.ps1's sibling runner passes -Root at any invocation, so a
+# suite's default is the only value it ever gets on either route. Putting the
+# knowledge here is the only place it can be put.
+$script:RepoRoot = Split-Path -Parent $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Join-Path $script:RepoRoot 'lw-watchtower' }
 
 $UninstallPath = Join-Path $Root 'bin\lwg-uninstall.ps1'
 
@@ -284,37 +317,202 @@ function Invoke-Uninstall {
       REMOVED when it is not, because "the variable is not set" is one of the
       cases and inheriting the caller's value would quietly defeat it.
 
+      CLAUDE_CONFIG_DIR IS SET TOO, AND ON THIS SCRIPT THAT IS A SAFETY CONTROL
+      RATHER THAN A TIDINESS ONE. From 3 September 2026 bin\lwg-uninstall.ps1
+      resolves its default configuration root through CLAUDE_CONFIG_DIR, and
+      this file drives a script that DELETES. Every case passes -ClaudeHome, and
+      an explicit parameter beats the variable by design, so nothing here
+      depends on the variable being clear - but a runner carrying it must not be
+      one edit away from a case that forgets -ClaudeHome and points a removal at
+      a real machine. -ConfigDir defaults to empty, which the child reads as
+      unset; a case about the variable passes a scratch path.
+
+      -NoClaudeHome OMITS -ClaudeHome, so the script resolves its own default.
+      Exactly one case uses it - the one about that default - and it is a switch
+      rather than the norm because every other case here must state the tree it
+      is aimed at rather than infer it. A run without it is a run whose target
+      is decided by the environment, which is not a thing to do casually to a
+      script that deletes: the case that uses it passes no removal flag.
+
       Returns @{ code; out } where `out` is the whole stdout as one string.
     #>
     param(
         [Parameter(Mandatory = $true)][hashtable]$Tree,
         [string]$DataEnv,
-        [string[]]$ScriptArgs = @()
+        [string[]]$ScriptArgs = @(),
+        [string]$ConfigDir = '',
+        [switch]$NoClaudeHome
     )
 
     $saveProfile = $env:USERPROFILE
     $saveData    = $env:CLAUDE_PLUGIN_DATA
+    $saveCfg     = $env:CLAUDE_CONFIG_DIR
     try {
-        $env:USERPROFILE = $Tree.profile
+        $env:USERPROFILE       = $Tree.profile
+        $env:CLAUDE_CONFIG_DIR = $ConfigDir
         if ([string]::IsNullOrWhiteSpace($DataEnv)) {
             Remove-Item -LiteralPath 'Env:\CLAUDE_PLUGIN_DATA' -ErrorAction SilentlyContinue
         } else {
             $env:CLAUDE_PLUGIN_DATA = $DataEnv
         }
 
-        $all = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $UninstallPath,
-                 '-ClaudeHome', $Tree.claudeHome) + $ScriptArgs
+        $all = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $UninstallPath) +
+               $(if ($NoClaudeHome) { @() } else { @('-ClaudeHome', $Tree.claudeHome) }) + $ScriptArgs
         $lines = & powershell.exe @all
         $code  = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
         return @{ code = $code; out = (@($lines) -join "`n") }
     } finally {
-        $env:USERPROFILE = $saveProfile
+        $env:USERPROFILE       = $saveProfile
+        $env:CLAUDE_CONFIG_DIR = $saveCfg
         if ($null -eq $saveData) {
             Remove-Item -LiteralPath 'Env:\CLAUDE_PLUGIN_DATA' -ErrorAction SilentlyContinue
         } else {
             $env:CLAUDE_PLUGIN_DATA = $saveData
         }
     }
+}
+
+function Invoke-UninstallWithConcurrentWrite {
+    <#
+      One real child run of bin\lwg-uninstall.ps1 WITH settings.json rewritten
+      underneath it, between the plan-time read and the write.
+
+      WHY THIS EXISTS. The header of bin\lwg-uninstall.ps1 promises that "every
+      write here re-reads it, compares a SHA256 taken at plan time, and aborts
+      rather than clobber a concurrent change". That guarantee has exactly one
+      subject - a settings.json that changed mid-run - and the script exposes no
+      seam for injecting one: the plan read (section 3) and the re-read (the
+      apply block) are in the same process with no hook between them. Adding a
+      forgeable "pretend the hash was X" parameter to a script that deletes
+      would be a worse thing than leaving the branch uncovered, so the change is
+      made from outside, for real, by this function.
+
+      HOW THE ORDERING IS MADE SAFE RATHER THAN LUCKY. Two facts about the
+      script under test bracket the write:
+
+        LOWER BOUND - the run prints its `state data:` header line before the
+        plan-time read of settings.json, and MEASURED rather than assumed, what
+        lies between them is section 1's junction row: one Get-Item metadata
+        stat on <ClaudeHome>\skills\<name>, a path no case here creates, plus
+        one Test-Path. No bulk I/O, nothing that grows with the size of a
+        fixture. So once that line has arrived on stdout, a delay of 200 ms is
+        three orders of magnitude more than the gap it has to clear.
+
+        UPPER BOUND - between that read and the apply block the run hashes
+        <ClaudeHome>\statusline.ps1 with Get-FileHash (section 3, the drift
+        line). The caller sizes that file so the hash takes roughly a second,
+        which is the window the write lands in.
+
+      Both bounds move the RIGHT WAY on a slower machine: the lower bound is a
+      few statements and does not grow with machine speed, and the upper bound
+      is bulk I/O and grows. Measured 10 runs of 10 on this machine, all 10
+      refused; the same fixture without the oversized status line refused 5 of
+      10, which is why the size is part of the fixture and not an accident.
+
+      Returns @{ code; out } exactly as Invoke-Uninstall does, plus `wroteAtMs`
+      so a failure message can say when the write actually landed.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Tree,
+        [Parameter(Mandatory = $true)][string]$SettingsPath,
+        [Parameter(Mandatory = $true)][string]$NewText,
+        [string[]]$ScriptArgs = @(),
+        [int]$DelayMs = 200
+    )
+
+    $saveProfile = $env:USERPROFILE
+    $saveData    = $env:CLAUDE_PLUGIN_DATA
+    $saveCfg     = $env:CLAUDE_CONFIG_DIR
+    try {
+        $env:USERPROFILE       = $Tree.profile
+        # Cleared for the same reason as in Invoke-Uninstall: this child
+        # DELETES, and its default configuration root now reads this variable.
+        $env:CLAUDE_CONFIG_DIR = ''
+        Remove-Item -LiteralPath 'Env:\CLAUDE_PLUGIN_DATA' -ErrorAction SilentlyContinue
+
+        $argLine = '-NoProfile -ExecutionPolicy Bypass -File "' + $UninstallPath + '" -ClaudeHome "' + $Tree.claudeHome + '"'
+        foreach ($a in $ScriptArgs) { $argLine += ' "' + $a + '"' }
+
+        $psi = New-Object Diagnostics.ProcessStartInfo
+        $psi.FileName               = 'powershell.exe'
+        $psi.Arguments              = $argLine
+        $psi.RedirectStandardOutput = $true
+        $psi.UseShellExecute        = $false
+        $psi.CreateNoWindow         = $true
+
+        $p     = [Diagnostics.Process]::Start($psi)
+        $lines = New-Object Collections.ArrayList
+        $wrote = -1
+        $sw    = [Diagnostics.Stopwatch]::StartNew()
+        while (-not $p.StandardOutput.EndOfStream) {
+            $line = $p.StandardOutput.ReadLine()
+            [void]$lines.Add($line)
+            if ($wrote -lt 0 -and $line -match '^\s+state data:') {
+                Start-Sleep -Milliseconds $DelayMs
+                [IO.File]::WriteAllText($SettingsPath, $NewText, [Text.UTF8Encoding]::new($false))
+                $wrote = [int]$sw.ElapsedMilliseconds
+            }
+        }
+        $p.WaitForExit()
+        return @{ code = $p.ExitCode; out = (@($lines) -join "`n"); wroteAtMs = $wrote; totalMs = [int]$sw.ElapsedMilliseconds }
+    } finally {
+        $env:USERPROFILE       = $saveProfile
+        $env:CLAUDE_CONFIG_DIR = $saveCfg
+        if ($null -eq $saveData) {
+            Remove-Item -LiteralPath 'Env:\CLAUDE_PLUGIN_DATA' -ErrorAction SilentlyContinue
+        } else {
+            $env:CLAUDE_PLUGIN_DATA = $saveData
+        }
+    }
+}
+
+function Set-OursStatusLineSettings {
+    <#
+      A settings.json whose statusLine.command points at
+      <ClaudeHome>\statusline.ps1 - the copy bin\lwg-setup.ps1 writes in its
+      DEFAULT mode, and therefore the one path the uninstaller's ownership test
+      attributes to this plugin without inference. `alpha` rides along so a case
+      can prove the edit removed one member and kept the other rather than
+      rewriting the file wholesale.
+
+      -StatusLineBytes sizes the status-line file. It defaults to a two-line
+      fixture; Test-StaleSha256AbortsTheSettingsWrite passes 256MB, and the
+      reason is written out in Invoke-UninstallWithConcurrentWrite.
+
+      Returns @{ settings; statusline; text } - the two paths and the exact
+      text written, so a byte comparison has something to compare against that
+      is not a re-read of the file being asserted on.
+    #>
+    param([hashtable]$Tree, [long]$StatusLineBytes = 0)
+
+    [void][IO.Directory]::CreateDirectory($Tree.claudeHome)
+    $sl = Join-Path $Tree.claudeHome 'statusline.ps1'
+    if ($StatusLineBytes -gt 0) {
+        $fs = [IO.File]::Create($sl)
+        try { $fs.SetLength($StatusLineBytes) } finally { $fs.Dispose() }
+    } else {
+        [void](New-CaseStatusLine $sl)
+    }
+    $cmd  = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $sl.Replace('\', '/') + '"'
+    $text = "{`r`n  `"statusLine`": {`r`n    `"type`": `"command`",`r`n    `"command`": `"" +
+            $cmd.Replace('\', '\\').Replace('"', '\"') + "`"`r`n  },`r`n  `"alpha`": `"keep me`"`r`n}`r`n"
+    $sp = Set-CaseSettings -Tree $Tree -Text $text
+    return @{ settings = $sp; statusline = $sl; text = $text }
+}
+
+function Get-SettingsBackupsFor {
+    <#
+      The backup files bin\lwg-uninstall.ps1 left next to a settings file,
+      newest first. Scoped by TAG - 'lwg-uninstall' and 'lwg-preRestore' are two
+      different promises and a case that globbed *.bak could be satisfied by the
+      wrong one, or by a .bak the fixture itself planted.
+    #>
+    param([string]$SettingsPath, [string]$Tag)
+
+    $dir  = Split-Path -Parent $SettingsPath
+    $leaf = Split-Path -Leaf $SettingsPath
+    return @(Get-ChildItem -LiteralPath $dir -Filter "$leaf.$Tag-*.bak" -File -ErrorAction SilentlyContinue |
+             Sort-Object Name -Descending)
 }
 
 function Get-StateDataRow {
@@ -396,6 +594,83 @@ function Test-DryRunListsRedirectedDir {
 
     Add-Result -Name 'dry run: CLAUDE_PLUGIN_DATA redirected - lists exactly that directory, deletes nothing' `
                -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | row: $row")
+}
+
+function Test-ConfigDirIsTheDefaultRootAndIsDisclosed {
+    <#
+      #146 - THE UNINSTALLER'S DEFAULT ROOT HONOURS CLAUDE_CONFIG_DIR, AND SAYS
+      SO ON THE RUN.
+
+      Until 3 September 2026 the default was Join-Path $env:USERPROFILE
+      '.claude'. On a machine that relocates the configuration directory this
+      script therefore reported a footprint of a tree the CLI does not use, and
+      with -Apply would have removed nothing while saying it had. That is
+      strictly worse than the incomplete report this file's header promises not
+      to produce: an empty footprint of the wrong tree reads as a clean machine.
+
+      THE FIXTURE PUTS THE RELOCATED ROOT OUTSIDE THE PROFILE. <case>\cfgroot
+      is a sibling of <case>\profile, so code that still resolves through the
+      profile cannot accidentally satisfy this.
+
+      NO -ClaudeHome AND NO REMOVAL FLAG. -ClaudeHome is omitted because the
+      DEFAULT is the subject; every removal flag is omitted because a run whose
+      target is decided by an environment variable is exactly the run that must
+      not be allowed to delete. The dry run is the default mode and prints the
+      whole footprint, which is all this case reads.
+
+      RED AT ec80e88: the junction row named <profile>\.claude\skills\..., and
+      the blind-spot block stated "Nothing in this plugin reads
+      CLAUDE_CONFIG_DIR" - a sentence the fix makes false and which is replaced
+      by a disclosure of the root actually used.
+    #>
+    $t   = New-CaseTree 'cfgdir-default'
+    $cfg = Join-Path $t.dir 'cfgroot'
+    [void][IO.Directory]::CreateDirectory((Join-Path $cfg 'plugins\data'))
+
+    $r = Invoke-Uninstall -Tree $t -NoClaudeHome -ConfigDir $cfg
+
+    $bad = @()
+    if ($r.code -ne 0)                   { $bad += "exit $($r.code), expected 0" }
+    if ($r.out -notlike "*$cfg*")        { $bad += "no line in the footprint names the relocated root $cfg" }
+    if ($r.out -like "*$($t.claudeHome)*") { $bad += "the footprint still names $($t.claudeHome), which is the profile default the CLI is NOT using on this machine" }
+    if ($r.out -match 'Nothing in this plugin reads CLAUDE_CONFIG_DIR') {
+        $bad += 'the blind-spot block still states that nothing reads CLAUDE_CONFIG_DIR, which this run just did'
+    }
+    if ($r.out -notmatch 'CONFIG DIRECTORY THESE ROWS DESCRIBE') {
+        $bad += 'the run does not disclose which configuration directory its rows describe'
+    }
+
+    Add-Result -Name 'default root: CLAUDE_CONFIG_DIR is honoured and the run says which root it used' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
+}
+
+function Test-ExplicitClaudeHomeBeatsConfigDir {
+    <#
+      THE OTHER HALF, AND THE ONE THAT KEEPS THIS SUITE MEANINGFUL. Every other
+      case in this file passes -ClaudeHome and asserts against that tree. If an
+      environment variable could overrule it, none of them would be testing what
+      they say they are - they would be testing whatever the runner's
+      environment happened to hold.
+
+      So: -ClaudeHome names the case tree, CLAUDE_CONFIG_DIR names a DIFFERENT
+      directory, and the footprint must describe the first and not the second.
+      Passes at ec80e88 as well - it is the invariant the #146 change had to
+      preserve, not evidence of it, and it is here to fail loudly if a later
+      change reverses the precedence.
+    #>
+    $t   = New-CaseTree 'cfgdir-overruled'
+    $cfg = Join-Path $t.dir 'cfgroot'
+    [void][IO.Directory]::CreateDirectory((Join-Path $cfg 'plugins\data'))
+
+    $r = Invoke-Uninstall -Tree $t -ConfigDir $cfg
+
+    $bad = @()
+    if ($r.code -ne 0)                     { $bad += "exit $($r.code), expected 0" }
+    if ($r.out -notlike "*$($t.claudeHome)*") { $bad += "the footprint does not name the tree -ClaudeHome gave it, $($t.claudeHome)" }
+    if ($r.out -like "*$cfg\skills*")      { $bad += "the footprint describes $cfg, which CLAUDE_CONFIG_DIR named and -ClaudeHome overruled" }
+
+    Add-Result -Name 'precedence: -ClaudeHome beats CLAUDE_CONFIG_DIR' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
 }
 
 function Test-DryRunWithRemoveDataDeletesNothing {
@@ -711,7 +986,11 @@ function Test-CanonicalDenyRulesAllAttributed {
       footprint reports; the settings.json EDIT is a different subject and is
       still out of scope for this file (see the header).
     #>
-    $fixture = Join-Path $Root 'tests\fixtures\deny_canonical.txt'
+    # $script:RepoRoot, NOT $Root: tests\ did not move with the payload, and the
+    # line below treats this file's absence as an ABORT rather than a skip because
+    # it IS the subject of this case. Composed off the payload root it would be
+    # absent on every run and abort the suite on a healthy tree.
+    $fixture = Join-Path $script:RepoRoot 'tests\fixtures\deny_canonical.txt'
     if (-not [IO.File]::Exists($fixture)) {
         throw "tests\fixtures\deny_canonical.txt is missing at $fixture. It IS the subject of this case, so its absence is an abort, not a skip"
     }
@@ -874,8 +1153,19 @@ function Test-HookRegistrationInSettingsIsDetectedAndCounted {
           reason. It named lib/session_start.ps1 until 3 August 2026, which is a
           shipped leaf, so the leaf rule covered for the CLAUDE_PLUGIN_ROOT rule
           and that branch could be deleted whole with this case still green.
-          bin/lwg-sitrep.ps1 is in this plugin and is not a hook, so only the
+          It then named bin/lwg-sitrep.ps1, which satisfied that constraint
+          until the script was deleted; a fixture naming a .ps1 this plugin does
+          NOT ship is the decoy's shape, not this one's, so it moved again.
+          bin/lwg-update.ps1 is in this plugin and is not a hook, so only the
           CLAUDE_PLUGIN_ROOT signal can reach it.
+
+          THE STRING IS THE FIXTURE, NOT A DEPENDENCY ON THE FILE. The signal
+          this branch pins is bin\lwg-uninstall.ps1's `$Text.Contains(
+          'CLAUDE_PLUGIN_ROOT')`, which reads the registration text and never
+          touches the disk, so the case would go on passing with a script that
+          does not exist. That is exactly why the name has to be maintained by
+          hand: nothing here fails when it rots, and a fixture naming a deleted
+          script quietly stops standing for the thing the case says it does.
         * an absolute path into a DIFFERENT checkout, recognisable only by the
           script leaf name, which is the shape bin\lwg-setup.ps1's own
           Get-HookIdentity keys on because the root is exactly the thing that
@@ -898,7 +1188,7 @@ function Test-HookRegistrationInSettingsIsDetectedAndCounted {
     $mine  = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $Root 'lib\gate_delegate.ps1') + '"'
     $notAHook = Join-Path $Root 'bin\lwg-doctor.ps1'
     $rootOnly = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $notAHook + '"'
-    $unsub = 'powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/bin/lwg-sitrep.ps1"'
+    $unsub = 'powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/bin/lwg-update.ps1"'
     $other = Join-Path $t.elsewhere 'another-checkout\lib\supervisor.ps1'
     $far   = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $other + '" -HookEvent Stop'
     $alien = Join-Path $t.elsewhere 'some-other-tool\bin\unrelated_thing.ps1'
@@ -919,7 +1209,7 @@ function Test-HookRegistrationInSettingsIsDetectedAndCounted {
     }
     if ($left -notlike "*$notAHook*")        { $bad += 'LEFT BEHIND never names the registration that only the clone root can identify - a script in this checkout that hooks.json does not register' }
     if ($left -notlike "*$other*")           { $bad += 'LEFT BEHIND never names the registration from another checkout, which the leaf name identifies' }
-    if ($left -notmatch 'lwg-sitrep\.ps1')   { $bad += 'LEFT BEHIND never names the unsubstituted ${CLAUDE_PLUGIN_ROOT} registration, which nothing but that signal can reach' }
+    if ($left -notmatch 'lwg-update\.ps1')   { $bad += 'LEFT BEHIND never names the unsubstituted ${CLAUDE_PLUGIN_ROOT} registration, which nothing but that signal can reach' }
     if ($left -like "*$alien*")              { $bad += "a .ps1 this plugin does not ship was attributed to it: $alien" }
 
     Add-Result -Name 'dry run: hand-added settings.json hook registrations are found in all three spellings, and a foreign one is not' `
@@ -996,6 +1286,13 @@ function Test-HookPathInArgsArrayIsRead {
       fixtures above: an args array holding ${CLAUDE_PLUGIN_ROOT} or a shipped
       leaf would be found by a scan that never looked at args at all.
 
+      IT NAMED bin\lwg-status.ps1 UNTIL THAT SCRIPT WAS DELETED. Nothing failed
+      when it went - the signal here is `$norm.Contains($RootNorm)`, a string
+      test over the registration, with no Test-Path anywhere in the chain - so
+      the case stayed green while its fixture named a file this plugin no longer
+      ships, which is the decoy's shape rather than this one's. bin\lwg-config.ps1
+      is shipped, is in this checkout, and is not a hooks.json leaf.
+
       The negative half is the same shape with an args array naming somebody
       else's script, so this pins reading args rather than counting any entry
       that happens to have them.
@@ -1003,7 +1300,7 @@ function Test-HookPathInArgsArrayIsRead {
     $bad = @()
 
     $t1 = New-CaseTree 'hooks-args-ours'
-    $ours = (Join-Path $Root 'bin\lwg-status.ps1')
+    $ours = (Join-Path $Root 'bin\lwg-config.ps1')
     $j1 = "{`r`n  `"hooks`": {`r`n    `"LwgTestEvent1`": [`r`n      {`r`n        `"hooks`": [`r`n" +
           "          { `"type`": `"command`", `"command`": `"powershell`", `"args`": [ `"-NoProfile`", `"-File`", `"" +
           $ours.Replace('\', '\\') + "`" ] }`r`n        ]`r`n      }`r`n    ]`r`n  }`r`n}`r`n"
@@ -1459,6 +1756,266 @@ function Test-RestoreIntoAnAbsentSettingsFileLands {
                -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
 }
 
+
+# ===========================================================================
+# THE SETTINGS.JSON WRITE PATHS (#143)
+# ===========================================================================
+# The six cases below are the first to exercise what the header of
+# bin\lwg-uninstall.ps1 promises about the operator's settings.json:
+#
+#     "It will not silently hand-edit ~/.claude/settings.json. That file is
+#      rewritten by the CLI underneath whatever is reading it - observed
+#      mid-edit on this machine - so every write here re-reads it, compares a
+#      SHA256 taken at plan time, and aborts rather than clobber a concurrent
+#      change. A backup is taken first, and existing backups are listed so a
+#      restore is possible."
+#
+# Until now that was a paragraph resting on inspection of the source. The two
+# -RestoreSettings cases already in this file cover the two REFUSALS reachable
+# without writing anything (a removal flag alongside the restore; a restore into
+# a settings.json that is not there). Nothing covered the write itself, the
+# backup that is supposed to precede it, the SHA comparison that is supposed to
+# stop it, or a restore over a file that DOES exist - which is the shape a real
+# restore has and the one whose blast radius is asymmetric with the installer's:
+# a bad merge writes a wrong setting, a bad restore overwrites the operator's
+# live settings with stale content and the thing it would have been recovered
+# from is the file just overwritten.
+#
+# ONE CORRECTION TO THE ISSUE, MADE HERE BECAUSE A CASE CANNOT ASSERT A CLAIM
+# THAT IS NOT TRUE. #143's done-list asks for "`-RestoreSettings` without
+# `-Apply` refuses". It does not refuse and should not: dry run is this script's
+# default and the restore branch prints the backup/current comparison, says
+# DRY RUN, writes nothing and exits 0 - which is the same contract every other
+# path here keeps. Test-RestoreWithoutApplyWritesNothing asserts the behaviour
+# that exists, and the difference is recorded on the issue rather than papered
+# over by an assertion nobody could satisfy without making the script worse.
+# ===========================================================================
+
+function Test-SettingsEditTakesABackupOfTheOriginalBytes {
+    <#
+      THE ORDINARY SUCCESSFUL WRITE, which had no case at all. A statusLine
+      key pointing at <ClaudeHome>\statusline.ps1 is the copy bin\lwg-setup.ps1
+      writes in its default mode, so it is attributable, and -RemoveStatusLine
+      -Apply is the run an operator actually makes.
+
+      Rule 1 applies - the subject is a successful removal, so the exact
+      `APPLIED:` line is asserted in both numbers. It is 2, not 1: the key and
+      the file are the two halves of one decision and both go.
+
+      THE ASSERTION THAT MATTERS is not that the edit happened but that the
+      ORIGINAL BYTES SURVIVED IT. "A backup is taken first" is only worth
+      anything if the backup holds what the file said before the write, so the
+      comparison is against the text the fixture wrote, not against a re-read of
+      anything the script produced. And `alpha` is checked on the way out: an
+      edit that rewrote the file wholesale would also have removed the
+      statusLine key and would pass every other line here.
+    #>
+    $t = New-CaseTree 'settings-edit-backup'
+    $f = Set-OursStatusLineSettings -Tree $t
+
+    $r = Invoke-Uninstall -Tree $t -ScriptArgs @('-RemoveStatusLine', '-Apply')
+
+    $baks = Get-SettingsBackupsFor -SettingsPath $f.settings -Tag 'lwg-uninstall'
+    $now  = if ([IO.File]::Exists($f.settings)) { [IO.File]::ReadAllText($f.settings) } else { '' }
+
+    $bad = @()
+    if ($r.code -ne 0)                                  { $bad += "exit $($r.code), expected 0" }
+    if ($r.out -notmatch 'APPLIED: 2 change\(s\), 0 failure\(s\)') { $bad += 'the APPLIED line does not read exactly "2 change(s), 0 failure(s)" - the key and the installed file are two halves of one decision and both should have gone' }
+    if ($baks.Count -ne 1)                              { $bad += "expected exactly 1 settings.json.lwg-uninstall-*.bak, found $($baks.Count)" }
+    elseif ([IO.File]::ReadAllText($baks[0].FullName) -ne $f.text) { $bad += 'THE BACKUP DOES NOT HOLD THE ORIGINAL BYTES, so the file cannot be put back from it' }
+    if ($r.out -notmatch '(?i)settings\.json written\. Backup:') { $bad += 'the run does not name the backup it took, so an operator cannot find it' }
+    if ($now -match '(?i)"statusLine"')                 { $bad += 'the statusLine key is still in settings.json after a run that reported removing it' }
+    if ($now -notmatch '(?i)"alpha"')                   { $bad += 'the unrelated "alpha" member was lost - this was a rewrite, not an edit' }
+    if ([IO.File]::Exists($f.statusline))               { $bad += 'the installed statusline.ps1 is still at its path, so only the key half of the pair happened' }
+
+    Add-Result -Name 'apply: a settings.json edit backs the original bytes up first, and the backup can put them back' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
+}
+
+function Test-StaleSha256AbortsTheSettingsWrite {
+    <#
+      THE CONCURRENCY GUARANTEE IN THE HEADER, DRIVEN FOR REAL. settings.json is
+      rewritten by another writer after the plan is read and before the apply
+      block re-reads it - see Invoke-UninstallWithConcurrentWrite for how the
+      ordering is bracketed rather than raced.
+
+      The property is not "it printed REFUSED". It is that the CONCURRENT
+      WRITER'S BYTES ARE STILL ON DISK, unchanged, when the run is over: an
+      abort that still wrote is the failure this guard exists to prevent, and a
+      case that only read the message could not tell them apart.
+
+      NO BARE NEGATIVE. Three positives go with it: the exit code is 1, which
+      the header defines as "REFUSED - a guard was not satisfied; NOTHING AT ALL
+      was written"; the message names both SHA prefixes so an operator can see
+      it is a comparison and not a guess; and the installed statusline.ps1 is
+      STILL THERE, because the two halves are one decision and the key half did
+      not happen. That last one is the specific regression this script shipped
+      once already, from a different direction, and it is asserted here on the
+      SHA branch because this is the branch section 3's own comment names as
+      "the likeliest".
+    #>
+    $t = New-CaseTree 'settings-stale-sha'
+    # 256 MB of status line, for the hashing window. See the helper's header.
+    $f = Set-OursStatusLineSettings -Tree $t -StatusLineBytes 256MB
+    $concurrent = "{`r`n  `"alpha`": `"written by somebody else mid-run`"`r`n}`r`n"
+
+    $r = Invoke-UninstallWithConcurrentWrite -Tree $t -SettingsPath $f.settings -NewText $concurrent `
+                                             -ScriptArgs @('-RemoveStatusLine', '-Apply')
+
+    $baks = Get-SettingsBackupsFor -SettingsPath $f.settings -Tag 'lwg-uninstall'
+    $now  = if ([IO.File]::Exists($f.settings)) { [IO.File]::ReadAllText($f.settings) } else { '<absent>' }
+
+    $bad = @()
+    if ($r.wroteAtMs -lt 0)                             { $bad += 'the concurrent write never happened - the run never printed the state-data header line this helper triggers on, so this case established NOTHING and is not a pass' }
+    if ($r.code -ne 1)                                  { $bad += "exit $($r.code), expected 1 (REFUSED - nothing at all was written)" }
+    if ($r.out -notmatch '(?i)changed between the plan above and this write') { $bad += 'the run does not say settings.json changed under it' }
+    if ($r.out -notmatch '(?i)planned against SHA256 \w+\.\.\., found \w+\.\.\.') { $bad += 'the refusal does not print both SHA prefixes, so it reads as an assertion rather than as a comparison' }
+    if ($now -ne $concurrent)                           { $bad += 'THE CONCURRENT WRITER''S SETTINGS.JSON WAS CLOBBERED - this is the exact outcome the plan-time SHA exists to prevent' }
+    if ($baks.Count -ne 0)                              { $bad += "a refused run left $($baks.Count) lwg-uninstall backup(s) behind, so it got as far as writing" }
+    if (-not [IO.File]::Exists($f.statusline))          { $bad += 'the installed statusline.ps1 was DELETED while the key survived - the two halves came apart on the branch section 3 calls the likeliest' }
+
+    Add-Result -Name 'apply: a settings.json that changed since the plan aborts the write and does not clobber it' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code), wrote at $($r.wroteAtMs) ms of $($r.totalMs) ms")
+}
+
+function Test-RestoreOverAnExistingSettingsFileIsByteForByte {
+    <#
+      THE SHAPE A REAL RESTORE HAS. Test-RestoreIntoAnAbsentSettingsFileLands
+      covers the file being GONE; this covers it being there, which is the case
+      with something to lose. Two things have to hold at once and neither
+      implies the other: the backup goes back byte for byte, AND the file it
+      replaced is itself backed up first - because a restore of the wrong backup
+      is exactly the mistake an operator makes here, and the only way out of it
+      is the pre-restore copy.
+
+      The backup's text is deliberately NOT a subset or superset of the current
+      file: a restore that merged, or that wrote a re-serialised form of either
+      side, fails the byte comparison rather than passing it by coincidence.
+      Both files are written without a BOM, because Save-LwgTextFile takes the
+      BOM from the file being REPLACED and a mismatched fixture would be
+      measuring the harness.
+    #>
+    $t = New-CaseTree 'restore-over-existing'
+    $curText = "{`r`n  `"alpha`": `"the file as it is now`",`r`n  `"zeta`": [ 1, 2, 3 ]`r`n}`r`n"
+    $sp = Set-CaseSettings -Tree $t -Text $curText
+    $bakText = "{`r`n  `"model`": `"from the backup`"`r`n}`r`n"
+    $bak = Join-Path $t.claudeHome 'settings.json.lwg-20260801-120000.bak'
+    [IO.File]::WriteAllText($bak, $bakText, [Text.UTF8Encoding]::new($false))
+
+    $r = Invoke-Uninstall -Tree $t -ScriptArgs @('-RestoreSettings', $bak, '-Apply')
+
+    $pre = Get-SettingsBackupsFor -SettingsPath $sp -Tag 'lwg-preRestore'
+    $now = if ([IO.File]::Exists($sp)) { [IO.File]::ReadAllText($sp) } else { '<absent>' }
+
+    $bad = @()
+    if ($r.code -ne 0)                { $bad += "exit $($r.code), expected 0" }
+    if ($now -ne $bakText)            { $bad += 'settings.json does not match the named backup byte for byte after the restore' }
+    if ($pre.Count -ne 1)             { $bad += "expected exactly 1 settings.json.lwg-preRestore-*.bak, found $($pre.Count) - without it the restore is not reversible" }
+    elseif ([IO.File]::ReadAllText($pre[0].FullName) -ne $curText) { $bad += 'THE PRE-RESTORE BACKUP DOES NOT HOLD THE FILE THAT WAS REPLACED, so an operator who restored the wrong backup cannot get back' }
+    if ($r.out -notmatch '(?i)RESTORED\. The file as it was before this restore:') { $bad += 'the run does not name the pre-restore backup it took' }
+    if ([IO.File]::ReadAllText($bak) -ne $bakText) { $bad += 'the backup being restored FROM was itself modified by the run' }
+
+    Add-Result -Name '-RestoreSettings -Apply over an existing settings.json restores it byte for byte and backs up what it replaced' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
+}
+
+function Test-RestoreFromAMissingBackupRefuses {
+    <#
+      The path an operator reaches by mistyping the backup name, or by naming
+      one that a cleanup already removed. The refusal has to happen BEFORE
+      anything is touched - the whole-tree fingerprint is asserted, not just
+      settings.json, because the restore branch sits after the footprint and
+      before the apply block and a refusal that fell through would take the
+      removal flags with it.
+    #>
+    $t = New-CaseTree 'restore-missing-backup'
+    $curText = "{`r`n  `"alpha`": `"keep me`"`r`n}`r`n"
+    $sp = Set-CaseSettings -Tree $t -Text $curText
+    $missing = Join-Path $t.claudeHome 'settings.json.lwg-does-not-exist.bak'
+    $before = Get-TreeFingerprint $t.dir
+
+    $r = Invoke-Uninstall -Tree $t -ScriptArgs @('-RestoreSettings', $missing, '-Apply')
+
+    $bad = @()
+    if ($r.code -ne 1)                { $bad += "exit $($r.code), expected 1" }
+    if ($r.out -notmatch '(?i)that backup does not exist') { $bad += 'the run does not say the named backup is not there' }
+    if ((Get-TreeFingerprint $t.dir) -ne $before) { $bad += 'the sandbox tree changed on a run that refused' }
+    if ([IO.File]::ReadAllText($sp) -ne $curText) { $bad += 'SETTINGS.JSON WAS WRITTEN from a backup that does not exist' }
+    if ([IO.File]::Exists($missing))  { $bad += 'the run created the backup file it was told to restore from' }
+
+    Add-Result -Name '-RestoreSettings -Apply from a backup that is not there refuses and writes nothing' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
+}
+
+function Test-RestoreFromAnUnparseableBackupRefuses {
+    <#
+      The worse half of the same mistake: the named file IS there and is not
+      settings. Restoring it would leave the operator with no settings at all
+      AND destroy the file that could have been read to rebuild them, so this
+      is the one refusal on this branch whose absence is unrecoverable.
+
+      The specimen is a .bak holding a truncated object, which reads fine and
+      does not parse - the same shape Test-StatusLineFileKeptWhenKeyHalfCannotRun
+      uses, and for the same reason: no lock, no ACL, no race.
+    #>
+    $t = New-CaseTree 'restore-unparseable-backup'
+    $curText = "{`r`n  `"alpha`": `"keep me`"`r`n}`r`n"
+    $sp = Set-CaseSettings -Tree $t -Text $curText
+    $bak = Join-Path $t.claudeHome 'settings.json.lwg-20260801-120000.bak'
+    [IO.File]::WriteAllText($bak, "{`r`n  `"model`": `"truncated`",`r`n", [Text.UTF8Encoding]::new($false))
+    $before = Get-TreeFingerprint $t.dir
+
+    $r = Invoke-Uninstall -Tree $t -ScriptArgs @('-RestoreSettings', $bak, '-Apply')
+
+    $bad = @()
+    if ($r.code -ne 1)                { $bad += "exit $($r.code), expected 1" }
+    if ($r.out -notmatch '(?i)does not parse as JSON') { $bad += 'the run does not say the backup is not valid JSON' }
+    if ((Get-TreeFingerprint $t.dir) -ne $before) { $bad += 'the sandbox tree changed on a run that refused' }
+    if ([IO.File]::ReadAllText($sp) -ne $curText) { $bad += 'SETTINGS.JSON WAS OVERWRITTEN WITH SOMETHING THAT DOES NOT PARSE - both the settings and the file they could have been rebuilt from are now gone' }
+
+    Add-Result -Name '-RestoreSettings -Apply from a backup that does not parse refuses and leaves settings.json alone' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
+}
+
+function Test-RestoreWithoutApplyWritesNothing {
+    <#
+      DRY RUN IS THE DEFAULT, AND THE RESTORE BRANCH IS NOT AN EXCEPTION. Every
+      path out of that branch is an `exit`, so a dry run that fell through would
+      not be caught by the -Apply guard further down - it would already have
+      returned.
+
+      NOT A REFUSAL, and #143 asks for one. See the section header above: the
+      script prints the comparison, says DRY RUN and exits 0, which is what
+      every other read-only path here does, and the case asserts what exists.
+
+      The two comparison lines are asserted as well as the silence, because they
+      are the whole point of the dry run: the run before -Apply is where an
+      operator finds out that the backup they are about to restore has a
+      different number of deny entries from the file they are about to lose.
+    #>
+    $t = New-CaseTree 'restore-dry-run'
+    $curText = "{`r`n  `"alpha`": `"keep me`",`r`n  `"permissions`": { `"deny`": [ `"Bash(lwg-noop-fixture)`" ] }`r`n}`r`n"
+    $sp = Set-CaseSettings -Tree $t -Text $curText
+    $bakText = "{`r`n  `"model`": `"from the backup`"`r`n}`r`n"
+    $bak = Join-Path $t.claudeHome 'settings.json.lwg-20260801-120000.bak'
+    [IO.File]::WriteAllText($bak, $bakText, [Text.UTF8Encoding]::new($false))
+    $before = Get-TreeFingerprint $t.dir
+
+    $r = Invoke-Uninstall -Tree $t -ScriptArgs @('-RestoreSettings', $bak)
+
+    $bad = @()
+    if ($r.code -ne 0)                { $bad += "exit $($r.code), expected 0" }
+    if ($r.out -notmatch '(?i)DRY RUN - nothing was written\. Add -Apply to restore\.') { $bad += 'the run does not say it was a dry run and how to make it real' }
+    if ($r.out -notmatch '(?i)backup:\s+0 deny entr\(ies\), statusLine absent')  { $bad += 'the backup side of the comparison is missing or miscounted - the backup declares no deny entries and no statusLine' }
+    if ($r.out -notmatch '(?i)current:\s+1 deny entr\(ies\), statusLine absent') { $bad += 'the current side of the comparison is missing or miscounted - the fixture declares exactly one deny entry' }
+    if ((Get-TreeFingerprint $t.dir) -ne $before) { $bad += 'the sandbox tree changed on a run with no -Apply' }
+    if ([IO.File]::ReadAllText($sp) -ne $curText) { $bad += 'SETTINGS.JSON WAS RESTORED WITHOUT -Apply' }
+    if ((Get-SettingsBackupsFor -SettingsPath $sp -Tag 'lwg-preRestore').Count -ne 0) { $bad += 'a dry run took a pre-restore backup' }
+
+    Add-Result -Name '-RestoreSettings without -Apply prints the comparison, writes nothing and exits 0' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
+}
+
 # ---------------------------------------------------------------------------
 # RUN
 # ---------------------------------------------------------------------------
@@ -1477,6 +2034,8 @@ try {
     [void][IO.Directory]::CreateDirectory($script:Work)
 
     Test-DryRunListsRedirectedDir
+    Test-ConfigDirIsTheDefaultRootAndIsDisclosed
+    Test-ExplicitClaudeHomeBeatsConfigDir
     Test-DryRunWithRemoveDataDeletesNothing
     Test-ApplyDeletesRedirectedDir
     Test-FallbackUsedWhenEnvUnset
@@ -1503,6 +2062,12 @@ try {
     Test-EnvPathThatContainsTheProfileIsRefused
     Test-RestoreWithARemovalFlagRefuses
     Test-RestoreIntoAnAbsentSettingsFileLands
+    Test-SettingsEditTakesABackupOfTheOriginalBytes
+    Test-StaleSha256AbortsTheSettingsWrite
+    Test-RestoreOverAnExistingSettingsFileIsByteForByte
+    Test-RestoreFromAMissingBackupRefuses
+    Test-RestoreFromAnUnparseableBackupRefuses
+    Test-RestoreWithoutApplyWritesNothing
 }
 catch {
     if (-not $script:Aborted) { $script:Aborted = $_.Exception.Message }
@@ -1558,6 +2123,10 @@ if ($failed -gt 0) {
     exit 1
 }
 Write-Output 'EXIT: 0 (every case passed - the footprint named the state data, the deletion'
-Write-Output '         removed exactly what it listed, and an unresolvable data directory'
-Write-Output '         exited 2 rather than reporting a no-op deletion as a success)'
+Write-Output '         removed exactly what it listed, an unresolvable data directory exited 2'
+Write-Output '         rather than reporting a no-op deletion as a success, and a settings.json'
+Write-Output '         edit backed the original bytes up before writing, aborted when the file'
+Write-Output '         changed under it, and restored a named backup byte for byte. Read it as'
+Write-Output '         nothing wider: -RemovePermissions is covered for ATTRIBUTION only, and'
+Write-Output '         the JSON surgery itself belongs to lib\common.ps1 and to setup_merge)'
 exit 0

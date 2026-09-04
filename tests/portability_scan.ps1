@@ -108,15 +108,54 @@
   channel the header says a CI job reads. A file that is skipped is still not
   scanned.
 
+  A RULE THAT ASKED NOTHING IS NOT A RULE THAT FOUND NOTHING, AND UNTIL 3
+  SEPTEMBER 2026 THE TWO EXITED THE SAME WAY. A rule may carry a `scope` - path
+  globs limiting it to the files whose ROLE makes its question meaningful. Those
+  globs are matched against what `git ls-files` prints, which is repo-root
+  relative, so ONE path change breaks all of a rule's globs at once: moving the
+  shipped payload under lw-watchtower/ left every glob in
+  claude-home-composition's scope matching nothing. The run PRINTED the zero -
+  and exited 0, because nothing consumed that line. A rule switched off by an
+  unrelated rename was therefore indistinguishable, on the only channel a CI job
+  reads, from a rule that ran everywhere and found nothing. It is now exit 2 and
+  the rule is NAMED, which is the answer tests\payload_guard.ps1's S7 already
+  gave to the same question in the sibling guard.
+
+  THE REACH OF AN ALLOWLIST ENTRY IS THE OPPOSITE QUESTION AND GETS THE OPPOSITE
+  ANSWER: IT IS MEASURED AND PRINTED, NOT FAILED. An entry's `files` globs go
+  dead exactly the way a scope does - the same move broke three of them - but
+  the consequence is inverted, and that is the whole of the argument for
+  answering the two differently:
+
+    * A DEAD SCOPE MAKES THIS SCAN SILENTLY ASK LESS. The question stops being
+      put, no line is produced by the files that would have answered it, and the
+      exit code is the same 0 as a clean tree. Nobody is told.
+    * A DEAD ALLOWLIST ENTRY CAN ONLY MAKE IT ASK MORE. The matches that entry
+      would have excused become violations: the run goes RED, names the file and
+      the line, and prints the rule. The failure announces itself in the loudest
+      channel this file has, so an assertion adds nothing a reader would not
+      already have been handed - and it would go red on a CORRECT deletion,
+      because a defensive entry is allowed to name a file that does not exist
+      yet or does not exist any more. That is the reason payload_guard prints
+      its historical mentions rather than failing them.
+
+  Asymmetric failure modes get asymmetric answers. What the ledger prints per
+  entry is now TWO numbers, because one cannot answer for the other: the matches
+  the entry excused, and the number of scanned files its globs REACH. Zero
+  excused of two in reach is a defensive entry doing its job; zero excused of
+  ZERO in reach is an entry that cannot fire at all, and only the second number
+  can tell them apart.
+
   EXIT CODES - a CI job reads these and nothing else.
 
       0  every tracked file was scanned and nothing machine-specific was found
       1  at least one violation - a local environment dependency is in the tree
       2  the scan ABORTED, or it could not read every tracked file, or an owner
-         file left an exempt region open; the tree was NOT fully checked, which
-         is not the same as passing. An enumeration returning zero files is an
-         abort, never a pass, and 2 takes precedence over 1 - a run that did not
-         read everything cannot report "checked, and dirty" either.
+         file left an exempt region open, or a SCOPED RULE was applied to no
+         file at all; the tree was NOT fully checked, which is not the same as
+         passing. An enumeration returning zero files is an abort, never a pass,
+         and 2 takes precedence over 1 - a run that did not read everything, or
+         did not ask everything, cannot report "checked, and dirty" either.
 
   No network. No writes of any kind. Nothing here deletes, moves or modifies a
   file: it opens tracked files for reading and prints.
@@ -180,13 +219,36 @@ $RegionMarker = '^\s*(?:#|<!--)\s*LWG-SCAN-REGION:\s*(begin|end)\b'
 #   why     what goes wrong on someone else's machine when this ships
 #   pattern the regex. Group 1, where present, is the part the allowlist
 #           inspects (currently only the profile-name segment).
+#   scope   OPTIONAL. Path globs the rule is applied to. Omit it and the rule
+#           runs on every tracked file, which is the default and the right
+#           answer for every rule that asks "does this name one machine?" -
+#           that question has the same answer in a test as in a shipped
+#           script. A rule is scoped only when the thing it forbids is a
+#           property of RUNNING CODE rather than of text. The count of files
+#           each scoped rule actually ran on is printed in the summary, and a
+#           count of ZERO EXITS 2 with the rule named: a scope that matches
+#           nothing is a rule switched off without anyone saying so, and it is
+#           printed AND asserted rather than only printed. The count is the
+#           half that catches a scope which merely NARROWED - nine globs down
+#           to one after a rename is a rule still "applied" and barely asking,
+#           which no boolean can see.
 # ===========================================================================
 $Rules = @(
     @{
         id      = 'profile-path'
         name    = 'a user-profile path naming a specific profile'
         why     = 'the profile name differs on every machine, so the path resolves to nothing - or, worse, to someone else''s data. This also covers a %USERPROFILE% or $HOME that was expanded to a literal before being written down.'
-        pattern = '(?:[A-Za-z]:|(?<![\w./\\])/[A-Za-z])[\\/]Users[\\/](<[^>]+>|[^\\/\s"''`,;:|()\[\]{}]+)'
+        # THE `(?i)` IS LOAD-BEARING AND WAS MISSING UNTIL 3 SEPTEMBER 2026.
+        # The drive letter was already covered by [A-Za-z]; the literal `Users`
+        # was not, and this engine adds no IgnoreCase of its own - both Regex
+        # constructions below pass RegexOptions::Compiled and nothing else. So
+        # `c:\users\someone\...` matched NOTHING, and the scan's clean verdict
+        # on that spelling was guaranteed rather than earned. Lowercase drive
+        # paths are the everyday spelling in Git Bash output and in anything
+        # copied out of a POSIX-shaped tool on this platform, so the blind spot
+        # was in the ordinary case rather than an exotic one. Every sibling rule
+        # already carried (?i); this was the only content rule without it.
+        pattern = '(?i)(?:[A-Za-z]:|(?<![\w./\\])/[A-Za-z])[\\/]Users[\\/](<[^>]+>|[^\\/\s"''`,;:|()\[\]{}]+)'
     }
     @{
         id      = 'owner-username'
@@ -219,6 +281,59 @@ $Rules = @(
         pattern = '(?i)[A-Za-z]:[\\/][^\s"''`]*\.claude[\\/](?:skills[\\/]lw-watchtower|plugins[\\/]repos)'
     }
     @{
+        id      = 'claude-home-composition'
+        name    = 'a configuration-directory path composed from $env:USERPROFILE'
+        why     = 'CLAUDE_CONFIG_DIR relocates Claude Code''s configuration directory, and a path composed from $env:USERPROFILE and a literal .claude ignores it. Every component then fails DIFFERENTLY and silently against the same misconfiguration: setup writes a settings.json the CLI does not read and reports success, the doctor health-checks that unread file and reports green, the uninstaller reports a footprint from the wrong tree, the status line reads a data root nothing wrote to. Resolve through Get-LwgClaudeHomeInfo (lib/common.ps1) or LwgClaudeHome (statusline/statusline.ps1) instead - both consult CLAUDE_CONFIG_DIR first and fall back to the profile in ONE place.'
+        # WHAT THIS RULE DELIBERATELY DOES NOT CATCH, said plainly rather than
+        # left to be discovered. It reads ONE LINE AT A TIME, like every rule
+        # here, so:
+        #
+        #   * A COMMENT IS NOT A COMPOSITION. Six tracked comments record the
+        #     old shape - `Join-Path $env:USERPROFILE '.claude'` and friends -
+        #     as history, and a comment resolves no path. The lookbehind
+        #     refuses a match with a `#` earlier on the same line rather than
+        #     asking six files to be edited, or six allowlist entries to be
+        #     written, for prose that is correct. A live composition written
+        #     after a `#` on the same line is invisible to this, and that is
+        #     the price.
+        #   * THE RESOLVERS THEMSELVES compose across TWO lines - `$p =
+        #     $env:USERPROFILE` on one, the Combine on the next - so they do
+        #     not match at all and are not what the allowlist entry below is
+        #     excusing today. It is there for a reflow, and says so.
+        #
+        # It is a REGRESSION guard for the shape #146 removed from four files,
+        # not a proof that no path escapes the resolver.
+        pattern = '(?i)(?<!#[^\n]{0,400})\$env:USERPROFILE[^\n]{0,80}?[\\/''"]\.claude\b'
+        # SCOPED TO THE SHIPPED EXECUTABLE PAYLOAD, and this is the one rule in
+        # the file that is scoped at all. What it forbids is a resolution done
+        # by RUNNING CODE, and the fourteen sites outside this scope are not
+        # that: eight are documentation and CONTRIBUTING.md telling a reader to
+        # type the default location, which is correct on a machine that has not
+        # relocated it (the pages needing a CLAUDE_CONFIG_DIR sentence is #146
+        # item 5, a document pass, and it is filed there rather than enforced
+        # here); five are suite HEADER PROSE inside <# #> blocks describing the
+        # sandbox, which the one-line `#` lookbehind cannot see; and one is a
+        # doc_claims -Expected string quoting an install page. A rule that went
+        # red on all fourteen would be answering a different question from the
+        # one it was written for - "does a page name the default path?" rather
+        # than "does a shipped script resolve without the variable?" - and the
+        # honest way to say so is a scope with a reason, not a rule that fires
+        # and an allowlist that catches it back.
+        # EVERY GLOB HERE IS MATCHED AGAINST WHAT `git ls-files` PRINTS, which is
+        # repo-root-relative, and the shipped payload moved under lw-watchtower/.
+        # Left unprefixed after that move these globs match NOTHING, and the rule
+        # is then switched off. That used to print a line and exit 0 - the one
+        # shape this whole file is written to refuse, built into the file itself.
+        # It now exits 2 and names this rule; see the header. The globs stay
+        # spelled out one directory at a time rather than as `lw-watchtower/*`
+        # because the scope is a statement about which ROLES are asked, and a
+        # single wildcard would silently absorb whatever is added beside them.
+        scope   = @('lw-watchtower/bin/*', 'lw-watchtower/lib/*', 'lw-watchtower/hooks/*',
+                    'lw-watchtower/statusline/*', 'lw-watchtower/context/*',
+                    'lw-watchtower/commands/*', 'lw-watchtower/agents/*',
+                    'lw-watchtower/config.json', 'lw-watchtower/.claude-plugin/*')
+    }
+    @{
         id      = 'region-marker'
         name    = 'a scanner-exempt region declared outside the two owner files'
         why     = 'the exempt-region mechanism exists so this file and the mandate can quote the patterns. Any other file using it is opting itself out of the scan, which is the thing the scan is for.'
@@ -246,6 +361,14 @@ $Rules = @(
 #   files  repo-relative path globs it applies to. '*' means anywhere.
 #   test   the regex the predicate applies
 #   why    one line, stating why this is legitimate rather than tolerated
+#
+# THE `files` GLOBS ARE MATCHED AGAINST `git ls-files` OUTPUT, exactly like a
+# rule's `scope`, and a path change breaks them the same way - the payload move
+# under lw-watchtower/ broke three of the entries below. The ledger therefore
+# prints, per entry, how many scanned files its globs REACH alongside how many
+# matches it excused. That reach is PRINTED AND NOT ASSERTED, unlike a rule's
+# scope, and the header says why in full: a dead scope makes this scan silently
+# ask less, while a dead entry can only make it ask more and go loudly red.
 # ===========================================================================
 $AllowList = @(
     @{
@@ -300,9 +423,60 @@ $AllowList = @(
         id    = 'universal-windows-root'
         kind  = 'line-text'
         rules = @('interpreter-path')
-        files = @('*')
-        test  = '(?i)(?:^|[^A-Za-z])\[a-z\]:|(?:Bash|PowerShell|Read|Edit)\(|Get-LwgTargetClass|catastrophic'
-        why   = 'C:/Windows, C:/ProgramData, C:/Program Files and the bare C:/Users root were named as things to REFUSE, never as paths anything builds from - they are universal on every Windows install. ALL THREE SOURCES OF THESE LITERALS ARE NOW GONE: lib\gate_bash.ps1 was deleted on 30 July 2026 with the destructive command gate, the deny table in bin\lwg-setup.ps1 emptied the same day with secret_scan, and lib\trips.ps1 - whose Get-LwgTargetClass classified a trip target - went with the trip ledger hours later. So this excuses nothing on the current tree and is kept as a defensive entry: a future gate that reinstates any of them would otherwise fail this scan for being correct. Get-LwgTargetClass is still named in the test pattern for that reason, not because the function exists.'
+        # NARROWED ON 3 SEPTEMBER 2026, AND THE OLD SHAPE IS RECORDED HERE
+        # BECAUSE THE NARROWING IS THE POINT. This entry read
+        # `files = @('*')` with a test that matched any line carrying
+        # `Bash(`, `PowerShell(`, `Read(`, `Edit(` or the word `catastrophic`.
+        # Those are not rare strings in this tree - they are how every
+        # permissions rule, every hook matcher and every tool name is written -
+        # so a `line-text` entry keyed on them disarmed `interpreter-path`
+        # TREE-WIDE, on every file, forever. It excused nothing on the tree the
+        # day it was measured, which is exactly what makes it dangerous: the
+        # entry's own `why` asserted "this excuses nothing on the current
+        # tree", nothing checked that claim, and the first line to combine a
+        # `Program Files` path with the word `catastrophic` would have been
+        # waved through in silence. Read the COUNT to the left of this entry in
+        # the report, never this prose.
+        #
+        # WHAT THE NARROWING IS DERIVED FROM, rather than guessed at. The rule
+        # this entry is scoped to can only ever fire on an `X:\Program Files\`
+        # prefix or on a `/python.exe`-shaped interpreter name. So:
+        #
+        #   * `C:/Windows`, `C:/ProgramData` and the bare `C:/Users` root -
+        #     three of the four roots the old `why` named - MATCH NO RULE IN
+        #     THIS FILE. The canonical deny fixture carries three of them
+        #     (`Bash(rm -rf C:/Windows*)` and friends) and this scan has never
+        #     had anything to say about those lines. They never needed
+        #     excusing, and the entry never excused them.
+        #   * THE `[a-z]:` BRACKET SPELLING WAS UNREACHABLE and is dropped. In
+        #     `[a-z]:/Program Files/`, the character before the colon is `]`,
+        #     and `interpreter-path` requires a LETTER there - so that
+        #     alternative could not have excused anything under any tree. It is
+        #     removed rather than kept "just in case": an alternative that
+        #     cannot fire is the same defect one level down.
+        #
+        # What is left is the two shapes that can actually reach the rule: a
+        # tool-call rule naming a universal root or an interpreter, which is
+        # what a reinstated gate writes, and a call to the deleted trip-target
+        # classifier, which would sit on a line carrying such a path.
+        # THREE OF THESE SIX MOVED WITH THE PAYLOAD AND THREE DID NOT: the setup
+        # and uninstall scripts and the gate library are under lw-watchtower/ now;
+        # the fixture, the suite and the page stayed at the repository root.
+        files = @('lw-watchtower/bin/lwg-setup.ps1', 'lw-watchtower/bin/lwg-uninstall.ps1',
+                  'lw-watchtower/lib/gate_*.ps1',
+                  'tests/fixtures/deny_canonical.txt', 'tests/uninstall_footprint.ps1',
+                  'docs/gates-removed.md')
+        test  = '(?i)Get-LwgTargetClass' +
+                '|(?i)(?:Bash|PowerShell|Read|Edit)\([^)\r\n]*(?:[A-Za-z]:[\\/]Program Files|[\\/](?:python\d*|node|bash|gh|winget)\.exe)'
+        why   = 'a universal Windows root or an interpreter named INSIDE A DENY RULE - `Bash(rm -rf C:/Program Files/**)` - is a thing to REFUSE, never a path anything builds from, so it is portable in the only sense this scan measures. ALL THREE SOURCES OF THOSE LITERALS ARE GONE: lib\gate_bash.ps1 was deleted on 30 July 2026 with the destructive command gate, the deny table in bin\lwg-setup.ps1 emptied the same day with secret_scan, and lib\trips.ps1 - whose Get-LwgTargetClass classified a trip target - went with the trip ledger hours later. So this excuses nothing today and is kept as a defensive entry: a future gate that reinstates any of them would otherwise fail this scan for being correct. It is scoped to the six paths such a rule could live in, and its test requires the tool-call spelling rather than the bare presence of a tool name anywhere on a line.'
+    }
+    @{
+        id    = 'claude-home-resolver'
+        kind  = 'line-text'
+        rules = @('claude-home-composition')
+        files = @('lw-watchtower/lib/common.ps1', 'lw-watchtower/statusline/statusline.ps1')
+        test  = '\$info\.path\s*=\s*\[IO\.Path\]::Combine|return\s+\[IO\.Path\]::Combine\(\$p\.TrimEnd'
+        why   = 'the ONE place each resolver is allowed to compose the historical default, reached only after CLAUDE_CONFIG_DIR has been consulted and found empty. IT EXCUSES NOTHING TODAY AND THE COUNT TO THE LEFT SAYS SO: both resolvers read the variable on one line and Combine on the next, so a line-based rule does not see a composition at all. This entry exists for the reflow that would put them on one line - a resolver reported as the defect it prevents is how a correct fix gets reverted - and it is scoped to those two files and to the two Combine statements rather than to a file or a `*`, so it cannot excuse a second composition added elsewhere in either file.'
     }
     @{
         id    = 'changelog-removed-literal'
@@ -373,6 +547,20 @@ function Test-Attributed {
     return $false
 }
 
+function Test-InScope {
+    <#
+      Whether a rule applies to this file. A rule with no `scope` key applies
+      everywhere, which is the default and what every rule but one uses. This
+      is deliberately NOT an exemption channel: it decides whether the QUESTION
+      is asked of a file, where the allowlist decides whether an ANSWER is
+      excused, and the two are reported separately for that reason.
+    #>
+    param([hashtable]$Rule, [string]$RelPath)
+    if (-not $Rule.ContainsKey('scope')) { return $true }
+    foreach ($g in $Rule.scope) { if ($g -eq '*' -or $RelPath -like $g) { return $true } }
+    return $false
+}
+
 function Test-Allowed {
     <# The first allowlist entry that excuses this match, or $null. #>
     param(
@@ -410,6 +598,30 @@ $violations  = New-Object System.Collections.ArrayList
 $allowedHits = New-Object System.Collections.ArrayList
 $allowCount  = @{}
 foreach ($a in $AllowList) { $allowCount[$a.id] = 0 }
+# How many tracked files each SCOPED rule was actually applied to. A scope that
+# matches nothing is a rule that has been switched off, and the difference
+# between "asked everywhere and found nothing" and "never asked" is the whole
+# subject of this file's exit-code table. Unscoped rules are absent from this
+# map on purpose: they run on everything, and a count equal to the file count
+# would be noise printed on every run.
+#
+# SEEDED FROM $Rules HERE RATHER THAN CREATED INSIDE THE FILE LOOP, and that is
+# the difference between a check and a check that can be skipped. Populated
+# lazily, a scoped rule was absent from this map entirely on a run that read no
+# files at all - so the assertion below would have iterated an empty set and
+# found nothing to complain about in precisely the state where the rule most
+# certainly asked nothing. The zero has to exist before the loop that fails to
+# increment it.
+$scopedFiles = @{}
+foreach ($r in $Rules) { if ($r.ContainsKey('scope')) { $scopedFiles[$r.id] = 0 } }
+# How many scanned files each allowlist entry's `files` globs REACH - a
+# different number from how many matches it excused, and the only one that can
+# tell a defensive entry apart from an entry pointing at paths that are not in
+# the tree. Entries scoped to '*' are absent on purpose: their reach is every
+# file by construction, so the number would be noise. PRINTED, NEVER ASSERTED;
+# the header carries the argument for the asymmetry with a rule's scope.
+$allowReach = @{}
+foreach ($a in $AllowList) { if ($a.files -notcontains '*') { $allowReach[$a.id] = 0 } }
 $scanned = 0
 # $binary was a bare counter, so the summary could say "skipped 1 binary" and a
 # UTF-16 re-encode of a tracked page was indistinguishable from a committed
@@ -506,6 +718,21 @@ try {
         $lines = ([Text.Encoding]::UTF8.GetString($bytes).TrimStart([char]0xFEFF)) -split "`r`n|`n|`r"
         $scanned++
 
+        foreach ($r in $Rules) {
+            if (-not $r.ContainsKey('scope')) { continue }
+            if (Test-InScope -Rule $r -RelPath $rel) { $scopedFiles[$r.id]++ }
+        }
+
+        # Counted over the SAME set the scope count is counted over - files that
+        # were actually read - so the two numbers in the ledger are comparable.
+        # A file that could not be read is not in reach of anything, and saying
+        # otherwise would let an entry look live because of a path the scan
+        # never opened.
+        foreach ($a in $AllowList) {
+            if (-not $allowReach.ContainsKey($a.id)) { continue }
+            foreach ($g in $a.files) { if ($rel -like $g) { $allowReach[$a.id]++; break } }
+        }
+
         $isOwner  = $ownerPaths -contains $rel
         $inRegion = $false
         $skippedHere = 0
@@ -529,6 +756,7 @@ try {
                 # working as designed, so the rule that reports it elsewhere does
                 # not fire on them.
                 if ($r.id -eq 'region-marker' -and $isOwner) { continue }
+                if (-not (Test-InScope -Rule $r -RelPath $rel)) { continue }
 
                 foreach ($m in $compiled[$r.id].Matches($line)) {
                     $captured = ''
@@ -574,16 +802,50 @@ if ($aborted) {
     exit 2
 }
 
-# ---- allowlisted, and why -------------------------------------------------
+# ---- the allowlist ledger, ALWAYS printed ---------------------------------
+# EVERY ENTRY, EVERY RUN, WHETHER OR NOT ANYTHING WAS ALLOWLISTED. This block
+# used to sit inside `if ($allowedHits.Count -gt 0)`, so on a tree where no
+# entry excused anything the whole list vanished and the report said nothing
+# about the allowlist at all - the one state in which "which entries are doing
+# work?" is hardest to answer and easiest to stop asking. The counts are the
+# only honest answer to that question: an entry's `why` is prose written once
+# and the number beside it is derived every run, and this repository has
+# already shipped an allowlist entry whose prose asserted "excuses nothing on
+# the current tree" beside a count of three.
+#
+# The zero rows matter more than the non-zero ones. An entry excusing nothing
+# is not automatically dead - several here are deliberately defensive - but it
+# is the first thing to re-read when this list is reviewed, and an entry that
+# has quietly gone from 0 to 1 is a defensive entry that has become
+# load-bearing without anyone deciding it should.
+#
+# AND THE COUNT ALONE CANNOT ANSWER THE QUESTION IT LOOKS LIKE IT ANSWERS. A
+# zero beside an entry has two causes that read identically: the entry was
+# offered matches and excused none of them, or its `files` globs reach no
+# scanned file at all and it could not have been offered anything. The first is
+# a defensive entry doing exactly what it is for; the second is an entry aimed
+# at paths that are not in this tree - which is what a directory rename does to
+# three of the entries above in one commit. The reach is printed beside the
+# count for entries that name paths, and it is deliberately NOT asserted: see
+# the header for why a dead entry, unlike a dead rule scope, can only make this
+# scan stricter and louder.
+"ALLOWLIST - every entry, how many matches it excused on this tree ($($allowedHits.Count) total),"
+"           and - for entries that name paths - how many of the $scanned scanned file(s) it reaches:"
+foreach ($a in $AllowList) {
+    $n = $allowCount[$a.id]
+    $reach = $(if ($allowReach.ContainsKey($a.id)) { $allowReach[$a.id] } else { $null })
+    $note = $(if ($n -gt 0) {
+        $a.why
+    } elseif ($null -ne $reach -and $reach -eq 0) {
+        'CANNOT FIRE - its files globs reach none of the scanned files, so the paths it names are not in this tree. This is printed and not failed on purpose: a dead entry can only make the scan stricter, and a defensive entry is allowed to name a file that does not exist yet. Read it, decide, and either fix the globs or say in the entry why the path is not there.'
+    } elseif ($null -ne $reach) {
+        "(unused on this tree - defensive; in reach of $reach scanned file(s), so it was offered nothing rather than unreachable)"
+    } else {
+        '(unused on this tree - defensive; in reach of every scanned file)'
+    })
+    "  {0,4}  {1,-28}  {2}" -f $n, $a.id, $note
+}
 if ($allowedHits.Count -gt 0) {
-    "ALLOWLISTED - matched a rule, and is legitimate ($($allowedHits.Count)):"
-    foreach ($a in $AllowList) {
-        $n = $allowCount[$a.id]
-        # An entry excusing nothing is called out rather than hidden. It is not
-        # automatically dead - several are deliberately defensive - but it is
-        # the first thing to re-read when this list is reviewed.
-        "  {0,4}  {1,-26}  {2}" -f $n, $a.id, $(if ($n -eq 0) { '(unused on this tree - defensive)' } else { $a.why })
-    }
     if ($ShowAllowed) {
         ''
         foreach ($h in $allowedHits) {
@@ -592,8 +854,8 @@ if ($allowedHits.Count -gt 0) {
     } else {
         '     (-ShowAllowed lists each one with the file and line it is on)'
     }
-    ''
 }
+''
 
 # ---- violations -----------------------------------------------------------
 if ($violations.Count -gt 0) {
@@ -634,6 +896,17 @@ if ($binaryAllowed.Count -gt 0) {
     foreach ($b in $binaryAllowed) { "    $($b.file) - $($b.why)" }
 }
 
+# ---- what was NOT ASKED ---------------------------------------------------
+# The other way this scan can check less than it says it did, and the one it
+# could not see. Everything above is a FILE that was not read; this is a RULE
+# that was not put. Both leave the report describing work that did not happen,
+# so both are named here, in the block a reader is sent to, and both reach the
+# same exit code.
+$emptyScope = @($scopedFiles.Keys | Where-Object { $scopedFiles[$_] -eq 0 } | Sort-Object)
+foreach ($k in $emptyScope) {
+    "  NOT ASKED  rule $k - its scope matched none of the $scanned scanned file(s), so it asked nothing of anything and cannot have found anything. Scope globs are matched against what ``git ls-files`` prints, which is repo-root-relative, so one directory rename breaks every glob of a rule at once. Fix the globs; deleting the rule is also an answer, but it has to be one somebody makes."
+}
+
 '==========================================================================='
 "scanned $scanned file(s) in $([int]$sw.Elapsed.TotalMilliseconds) ms" +
     $(if ($binary.Count -gt 0)        { ", $($binary.Count) unreadable as text" } else { '' }) +
@@ -643,19 +916,54 @@ if ($binaryAllowed.Count -gt 0) {
 foreach ($k in ($exemptLines.Keys | Sort-Object)) {
     "  $($exemptLines[$k]) line(s) of $k were inside a declared exempt region and were not read"
 }
+# A scoped rule was NOT asked of every file, and a run that does not say so
+# reads as though it was. Zero is the number to look at: a scope that matches
+# nothing is a rule switched off with no announcement, which is the shape this
+# whole file exists to refuse - and it now exits 2, named in the NOT ASKED line
+# above. THE COUNT IS STILL PRINTED EVERY RUN, NOT ONLY WHEN IT IS ZERO, and
+# that is not redundancy with the assertion: the assertion fails at zero, which
+# catches a scope switched off entirely, and says nothing about a scope that
+# quietly NARROWED. Nine globs down to one after a rename is a rule still
+# "applied" and barely asking. A reader comparing two runs sees the corpus
+# shrink; a reader of an exit code does not.
+foreach ($k in ($scopedFiles.Keys | Sort-Object)) {
+    $n = $scopedFiles[$k]
+    "  rule $k is SCOPED and was applied to $n of $scanned file(s)" +
+        $(if ($n -eq 0) { ' - ZERO, so it asked nothing of anything and cannot have found anything' } else { '' })
+}
 "RESULT: $($violations.Count) violation(s), $($allowedHits.Count) allowlisted"
 
 # ORDER: 2 BEFORE 1, AND THAT IS THE DELIBERATE PART. Exit 1 means "the tree was
 # checked and is dirty" and its own text tells the reader to fix a file. A run
-# that could not read every tracked file has not established the first half, so
-# it must not claim it - the violations it DID find are printed above either
-# way, and this block says so rather than letting the exit code swallow them.
-if ($notScanned.Count -gt 0) {
-    "EXIT: 2 ($($notScanned.Count) tracked file(s) were not fully read, so this run cannot say"
-    '         every tracked file is clean. Each is named above with the reason. A UTF-16'
-    '         file - which is what Windows PowerShell Set-Content and > write by default -'
-    '         lands here: re-save it as UTF-8. A real binary belongs in $BinaryAllowList'
-    '         with a reason. An unclosed LWG-SCAN-REGION marker is a bug in the file.'
+# that could not read every tracked file, OR that never put one of its rules,
+# has not established the first half, so it must not claim it - the violations
+# it DID find are printed above either way, and this block says so rather than
+# letting the exit code swallow them.
+#
+# A ZERO SCOPE IS EXIT 2 AND NOT EXIT 1, and the reason is the one the header
+# gives for the two channels already here. Exit 1's own text sends a reader to
+# "fix the file", which is unactionable advice about a rule that never ran and
+# a file that may be perfectly clean; and a run whose rule asked nothing has not
+# checked the tree, so it cannot report "checked, and dirty" any more than a run
+# that could not read a file can. Conflating "dirty" with "not asked" is the
+# same collapse this table was built to prevent.
+if ($notScanned.Count -gt 0 -or $emptyScope.Count -gt 0) {
+    $why2 = @()
+    if ($notScanned.Count -gt 0) { $why2 += "$($notScanned.Count) tracked file(s) were not fully read" }
+    if ($emptyScope.Count -gt 0) { $why2 += "$($emptyScope.Count) scoped rule(s) were applied to no file at all" }
+    "EXIT: 2 ($($why2 -join ', and '), so this run cannot say"
+    '         every tracked file is clean. Each is named above with the reason.'
+    if ($notScanned.Count -gt 0) {
+        '         A UTF-16 file - which is what Windows PowerShell > and Out-File write by'
+        '         default, Set-Content writes ASCII - lands here: re-save it as UTF-8. A real'
+        '         binary belongs in $BinaryAllowList with a reason. An unclosed'
+        '         LWG-SCAN-REGION marker is a bug in the file.'
+    }
+    if ($emptyScope.Count -gt 0) {
+        "         The rule(s) that asked nothing: $($emptyScope -join ', '). A scope is path globs"
+        '         matched against `git ls-files` output, so a directory rename switches the rule'
+        '         off wholesale. Fix the globs and re-run; do not delete the rule to clear this.'
+    }
     if ($violations.Count -gt 0) {
         "         NOTE: $($violations.Count) violation(s) were also found and are listed above."
         '         They are real and still have to be fixed; this run simply cannot also'
@@ -669,5 +977,11 @@ if ($violations.Count -gt 0) {
     '         portable, and if it is, say why in the entry. docs\portability.md)'
     exit 1
 }
-'EXIT: 0 (every tracked file was read, and none carries a local environment dependency)'
+# THE SENTENCE THAT DEFINES A GREEN RUN, AND IT NOW CARRIES BOTH HALVES. It
+# used to assert only that every file was READ, while the rules deciding what
+# reading meant could have been switched off underneath it. A guard whose pass
+# line claims more than the run established is the shape this repository is
+# named for, so the claim is made no larger than the two things above it.
+'EXIT: 0 (every tracked file was read, every scoped rule was asked of at least one of'
+'         them, and none carries a local environment dependency)'
 exit 0

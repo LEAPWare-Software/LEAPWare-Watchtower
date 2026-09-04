@@ -6,9 +6,14 @@ Start here:
 /lw-watchtower:doctor
 ```
 
-It runs nine checks and **is built to be able to fail**. A non-zero exit is a real finding, not a
-glitch — and `2` (warnings, no failures) is the ordinary result on a machine where the status line
-has not been installed. See [Commands](commands.md#lw-watchtowerdoctor) for the exit codes.
+It runs 10 checks and **is built to be able to fail**. A non-zero exit is a real finding, not a
+glitch — and **`1` is the ordinary result on a machine where the status line has not been installed,
+not `2`**: the `statusline` check FAILS when there is no `statusLine.command` at all, and only WARNS
+when the command names a file it could not identify or read, or when the installed copy DIFFERS from
+the tracked one. On a first install `state-dir` and `sessionstart` fail too, until a session has run
+with the plugin enabled. `0` means every check passed, `1` at least one FAILED, `2` at least one
+WARNING and no failure, `3` it could not complete. See
+[Commands](commands.md#lw-watchtowerdoctor) for what each check asserts.
 
 Remember what a green doctor does **not** mean: it checks the plugin's *wiring*, not its
 *behaviour*. It does not establish that any advisory fires, or that Claude Code has the plugin
@@ -40,7 +45,7 @@ about whether it would refuse anything if you armed it. See
 
 ## The banner says `unverified`
 
-`self_health` is switched off in [`config.json`](../config.json), so the self-check did not run.
+`self_health` is switched off in [`config.json`](../lw-watchtower/config.json), so the self-check did not run.
 **Nothing failed and nothing was checked.** Set `self_health: true` and start a new session.
 
 ## The banner says `degraded`
@@ -56,8 +61,8 @@ gate does ship — `delegate_gate` — and it is switched off, which is where it
 older gates were removed on 30 July 2026 by explicit owner decision and are not coming back; see
 [Both gates were removed](modules.md#both-gates-were-removed).
 
-Switching an observing module off does **not** change the word — `mission_drift: false` changes
-`9/10 (1 off)` to `8/10 (2 off)` and leaves the mode at `observe-only`, because the mode ladder tests
+Switching an observing module off does **not** change the word — `docs_coupling: false` lowers the
+enabled count on the banner by one and leaves the mode at `observe-only`, because the mode ladder tests
 the live gate count first. **The one setting that does change it** is
 `/lw-watchtower:delegate on`, which arms the gate: the mode then reads `enforcing`, or `partial` if
 anything else is switched off. Read [`delegate_gate`](modules.md#delegate_gate) before running it —
@@ -86,8 +91,8 @@ the `modules` block in `config.json`.
 This is the one to take seriously. It means every log write is going to a directory the live plugin
 never reads.
 
-The state directory is `$CLAUDE_PLUGIN_DATA`, which **only a hook receives**. The status line,
-`lib/resolve.ps1` and any out-of-harness run are not hooks and must discover it instead. See
+The state directory is `$CLAUDE_PLUGIN_DATA`, which **only a hook receives**. The status line and
+any out-of-harness run are not hooks and must discover it instead. See
 [State directory](architecture.md#state-directory) for the resolution order.
 
 If discovery reports `unresolved`, no suffixed candidate was found under
@@ -99,7 +104,7 @@ identical. The product was renamed from `lw-gmhh` to `lw-watchtower` that day. T
 name comes from the plugin id, so it moved: discovery now looks for `lw-watchtower*` and the old
 `lw-gmhh*` directory is not a candidate and never will be. **Nothing migrates it, and no data was
 deleted** — the old directory and its `lw-gmhh.jsonl` are exactly where they were. What you lose is
-continuity, not records: the status line, `/lw-watchtower:sitrep` and the health count all start
+continuity, not records: the status line and the health count both start
 from empty. `/lw-watchtower:uninstall` still finds and reports the old directory, marked `LEGACY`,
 so removing this plugin does not strand it. The whole of what the rename does and does not move is
 written out under `## [0.4.0]` in [CHANGELOG.md](../CHANGELOG.md).
@@ -154,10 +159,16 @@ working. A green `HH` you have not corroborated is worth less than the doctor's 
 
 ## `doctor` warns about status-line drift
 
-`~/.claude/statusline.ps1` and this repo's [`statusline/statusline.ps1`](../statusline/statusline.ps1)
+`~/.claude/statusline.ps1` and this repo's [`statusline/statusline.ps1`](../lw-watchtower/statusline/statusline.ps1)
 are two independent files and nothing keeps them in step. Re-copy in whichever direction is correct
 and compare hashes — see
 [Install § this is a copy](install.md#this-is-a-copy-and-it-can-drift).
+
+## `/lw-watchtower:update` says the worktree is dirty
+
+It is naming real uncommitted work in the plugin's checkout. It is no longer something the plugin did
+to itself: configuring it writes `config.override.json` outside the repository. Before 3 September
+2026 arming the gate dirtied `config.json` and made this refusal permanent — #11.
 
 ---
 
@@ -221,7 +232,7 @@ only ever return `none` and the segment could only ever render the dim `GM-`. An
 report exactly one value reports nothing, so it was deleted rather than left as decoration.
 
 Nothing was lost with it. `HH` still reports health faults, and historical gate denials are still in
-`lw-watchtower.jsonl` where `/lw-watchtower:sitrep` counts them under `GOVERNANCE`. There is no longer any
+`lw-watchtower.jsonl`, which nothing reads back as an open item. There is no longer any
 command that opens them one at a time — that was `lw-watchtower:tripped`, removed in the same change.
 
 ---
@@ -255,15 +266,6 @@ arithmetically impossible, so the denominator is wrong. The module suppresses th
 than report a false `100% CRITICAL`, and logs `ContextWindowUnknown` naming the model to add to
 `module_config.context_pressure.window_tokens`.
 
-## `verification_gate` nags about work I verified myself
-
-Despite the name it is **not a gate** and never was — it is an advisory on `Stop` that warns and
-never blocks.
-
-It sees **subagents only**, via `SubagentStop` records. Verification you did yourself leaves no
-record. Tune `module_config.verification_gate.work_agents` and `verify_agents`, or switch the module
-off. Its full blind-spot list is in [Modules](modules.md#verification_gate).
-
 ---
 
 ## The verify command is gone
@@ -273,18 +275,21 @@ command gate. There is no replacement, and no command in this plugin tests behav
 is a sub-second **wiring** check — use it, while being clear that wiring is not behaviour. See
 [Testing](testing.md).
 
-The `permissions.deny` parity test went the same day with `secret_scan`. **Thirteen test files remain**,
-and **ten of them test behaviour**: `tests/gate_delegate.ps1` (the one gate), `tests/setup_merge.ps1`
-(the installer's `statusline` merge and what its `hooks` section decides),
-`tests/stop_behaviour.ps1` (the two turn-end hooks),
+The `permissions.deny` parity test went the same day with `secret_scan`. **14 test files remain**,
+and **11 of them test behaviour**: `tests/gate_delegate.ps1` (the delegate gate),
+`tests/supervision.ps1` (the other two gates and `orphan_watch`), `tests/setup_merge.ps1`
+(the installer's `statusline` merge, what its `hooks` section decides, and the status line itself),
+`tests/stop_behaviour.ps1` (the turn-end hooks),
+`tests/state_resolution.ps1` (the `SessionStart` hook, its probes and its state-directory resolution),
 `tests/uninstall_footprint.ps1` (the uninstaller's state-data deletions),
-`tests/evidence_states.ps1` (the evidence engine), `tests/doctor_behaviour.ps1` (two of the doctor's
-nine checks), `tests/toggle_behaviour.ps1` (the toggle's write to `config.json`),
-`tests/subagent_scan.ps1` (the `SubagentStart` fast path) and `tests/payload_guard.ps1` (what the
-shipped payload discloses). The other three — `tests/workflow_guard.ps1`,
-`tests/portability_scan.ps1` and `tests/doc_claims.ps1` — check tracked files and their stated
-counts, and assert nothing about behaviour. **None of the eight is reachable from a command**; they
-are run by CI and by hand, which is why no command here can tell you whether this plugin works.
+`tests/doctor_behaviour.ps1` (two of the doctor's ten checks),
+`tests/config_behaviour.ps1` and `tests/toggle_behaviour.ps1` (the two writers of
+`config.override.json`), `tests/subagent_scan.ps1` (the `SubagentStart` fast path) and
+`tests/payload_guard.ps1` (what the shipped payload discloses). The other three —
+`tests/workflow_guard.ps1`, `tests/portability_scan.ps1` and `tests/doc_claims.ps1` — check tracked
+files and their stated counts, and assert nothing about behaviour. **None of them is reachable from a
+command**; they are run by CI and by hand, which is why no command here can tell you whether this
+plugin works.
 
 ---
 

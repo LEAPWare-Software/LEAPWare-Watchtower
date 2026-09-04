@@ -1,0 +1,222 @@
+name: Release
+
+# WHY THIS FILE EXISTS
+#
+# This repository had no release mechanism at all. Measured on 3 September 2026:
+# `git tag --list` empty, `git ls-remote --tags origin` empty, `gh release list`
+# empty, and `.github\workflows\` holding only `ci.yml`, which reacts to a push,
+# a pull request and a manual dispatch and to nothing else. CONTRIBUTING.md has
+# carried a release checklist and the rule the checklist exists for - `main`
+# must never declare a version a tag has already published - since before any of
+# that was true, and nothing enforced either at the one moment they can still be
+# acted on cheaply, which is when a tag is pushed. See #185.
+#
+# WHAT IT REFUSES TO DO, WHICH IS THE POINT
+#
+# Publishing is the LAST step and it is gated on every check above it. A tag
+# whose tree declares a different version, or whose CHANGELOG.md heading still
+# reads `unreleased`, does not become a Release: the job goes red and the tag
+# stays a tag. That is deliberately the cheap failure - a tag can be deleted and
+# re-pushed, a published Release is a thing strangers have already fetched.
+#
+# IT DOES NOT TAG ANYTHING. A tag is a person's decision, taken on the exact
+# commit a final acceptance pass cleared, and nothing here creates one, moves
+# one or deletes one. This workflow only ever reacts to a tag that already
+# exists.
+#
+# THE MANUAL RUN IS A DRY RUN, AND ALWAYS WILL BE. `workflow_dispatch` on a
+# branch checks the declarations against each other and stops - `github.ref_type`
+# is `branch`, so the publishing step is skipped and the credential below is
+# never handed to a step. That is what makes this mechanism exercisable before
+# any tag exists, which matters on a repository that has never cut one.
+#
+# NO PATH FILTER, THE SAME WAY `ci.yml` HAS NONE. A filter on a tag trigger
+# would compare the pushed ref's changed paths, which for a tag push is a
+# question with no useful answer, and a release that silently did not happen is
+# worse than one that failed loudly.
+
+on:
+  push:
+    # Tags only, and shaped: `v` then three dot-separated numbers. A branch push
+    # must not reach this file - `ci.yml` is what runs on a branch - and a
+    # loose `v*` would fire on `v-old-experiment` and try to publish it.
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+
+# READ AT THE TOP, WRITE ON THE ONE JOB THAT NEEDS IT. A workflow-level
+# `contents: write` would hand every job this file ever grows a token that can
+# rewrite the repository; scoping it to the job keeps the grant next to the
+# reason for it.
+permissions:
+  contents: read
+
+# NEVER CANCEL A PUBLISH. `ci.yml` sets `cancel-in-progress: true` because a
+# superseded check run is waste; a superseded release run is a half-published
+# Release, so this one queues instead.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: powershell
+
+jobs:
+  release:
+    name: Publish the Release for a pushed tag
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      # The digest pin and `persist-credentials: false` are copied verbatim from
+      # `ci.yml`, including the trailing tag comment Dependabot keys on. The
+      # reasoning for both is written out above that step and is not repeated
+      # here, so the two lines cannot drift apart with two different rationales
+      # beside them.
+      #
+      # `fetch-depth: 0` is load-bearing HERE in a way it is not there: the
+      # version guard below asks `git tag -l` what has already been published,
+      # and at the default depth that command prints nothing on a repository
+      # with a hundred tags. The guard reports an empty list as NOT CHECKED
+      # rather than as a pass, so a shallow checkout would not go green
+      # falsely - it would go quiet, which is the failure this repository keeps
+      # writing guards about.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # THE REF NAME IS READ FROM THE ENVIRONMENT, NEVER INTERPOLATED INTO THE
+      # SCRIPT. `ci.yml` records what interpolation cost the first version of its
+      # pull-request guard: a `${{ }}` expression is substituted into the WORKFLOW
+      # TEXT before the YAML is parsed, so the value's own characters become
+      # workflow syntax. A tag name is a narrower input than a pull-request body
+      # and the people who can push one already have write access - which is an
+      # argument for care being cheap here, not for skipping it.
+      - name: Version declarations match the tag
+        shell: powershell
+        env:
+          LWG_REF_TYPE: ${{ github.ref_type }}
+          LWG_REF_NAME: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $guard = '.github\scripts\version_declarations.ps1'
+
+          if (-not (Test-Path -LiteralPath $guard -PathType Leaf)) {
+            Write-Host "::error::$guard is missing - no declaration was compared with anything, which is not the same as them agreeing"
+            exit 1
+          }
+
+          # Fixtures first, then the tree. A green run of the guard against a
+          # tree it cannot fail on establishes nothing. ci.yml runs the same
+          # fixtures on every push and pull request (#219), so by the time a tag
+          # reaches here they have already fired - but this workflow runs them
+          # again rather than assuming it: this is the only invocation that
+          # publishes anything, and it does not take a sibling workflow's word
+          # for whether the guard it is about to trust still works.
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard
+          $fixtureCode = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+          if ($fixtureCode -ne 0) {
+            Write-Host "::error title=Version declarations::the guard's own fixtures did not pass (exit $fixtureCode), so nothing it says about this tree can be trusted"
+            exit $fixtureCode
+          }
+
+          New-Item -ItemType Directory -Path 'release-notes' -Force | Out-Null
+          $notes = Join-Path (Get-Location).Path 'release-notes\body.md'
+
+          if ($env:LWG_REF_TYPE -eq 'tag') {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard -Live -Tag $env:LWG_REF_NAME -NotesPath $notes
+          } else {
+            Write-Host "not a tag ref ($($env:LWG_REF_TYPE)) - this is the dry run: the declarations are held to each other, nothing is published"
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard -Live
+          }
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # The 0/1/2 contract every guard in this repository uses.
+          $label = switch ($code) {
+            0       { 'PASS - every declaration site states the same version, and on a tag ref that version is the tag and its changelog heading is dated. A line reported NOT CHECKED is not a pass and says so.' }
+            1       { 'FAIL (exit 1) - read the lines above. A declaration disagrees with a sibling or with the tag, or the changelog heading for this version is missing or still reads unreleased. Nothing is published from this run.' }
+            2       { 'ABORT (exit 2) - a declaration site was missing or unreadable, so nothing about this tree was established. Not clean, and not a pass.' }
+            255     { 'NOT RUN (exit 255) - the guard could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "version declarations: $label"
+          } else {
+            Write-Host "::error title=Version declarations::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Version declarations:** $label"
+          }
+          exit $code
+
+      # THE ONLY STEP IN THIS REPOSITORY THAT IS HANDED A CREDENTIAL, and the
+      # only one that writes anything outside the runner.
+      #
+      # `tests\workflow_guard.ps1` reports a `${{ secrets.* }}` expression as a
+      # violation, and its allowlist was empty because `ci.yml` genuinely needs
+      # no credential - its steps parse files and run local scripts. Publishing a
+      # Release is not that: it is a write to the repository through the API, and
+      # there is no spelling of it that needs no token. `github.token` is the SAME
+      # credential under a name the scanner does not sweep for, so using it would
+      # leave the guard reporting a protection it had stopped checking - the one
+      # thing that guard's own header says it exists to refuse. So the honest
+      # spelling is here and the exemption is an allowlist entry with a reason on
+      # it, scoped to this rule, this file and this expression, which is the
+      # procedure that guard's ALLOWLIST section describes.
+      #
+      # WHAT THE TOKEN CAN DO, stated rather than left to the reader. It is the
+      # automatic per-run token, it exists only inside this step's environment,
+      # the job that holds it is gated on every check above, and its grant is the
+      # job-level `contents: write` a few lines up - enough to create a Release,
+      # and nothing this workflow does not do.
+      - name: Publish the GitHub Release
+        if: github.ref_type == 'tag'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LWG_REF_NAME: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $tag   = $env:LWG_REF_NAME
+          $notes = 'release-notes\body.md'
+
+          if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) {
+            Write-Host "::error title=Publish the GitHub Release::$notes was never written, so the notes would have come from nowhere. Nothing published."
+            exit 1
+          }
+
+          # IT REFUSES TO REPLACE ONE. A Release that already exists was either
+          # published by an earlier run of this file or written by a person, and
+          # overwriting either from here would destroy a record with no trace of
+          # what it said.
+          & gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "::error title=Publish the GitHub Release::a Release for $tag already exists. This workflow never replaces one - delete it deliberately if that is what you mean to do."
+            exit 1
+          }
+
+          & gh release create $tag --verify-tag --title $tag --notes-file $notes
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+          if ($code -ne 0) {
+            Write-Host "::error title=Publish the GitHub Release::gh release create exited $code - no Release was published for $tag."
+            exit $code
+          }
+
+          Write-Host "published the Release for $tag"
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Published:** the Release for ``$tag``"
+          }
+
+          # THE BUMP IS NOT AUTOMATED, ON PURPOSE. CONTRIBUTING.md's checklist
+          # ends with bumping the five declaration sites on the default branch,
+          # because from the instant this tag exists the branch declaring that
+          # number is the defect the version rule describes. A workflow that did
+          # it would be pushing to the default branch with the token above, which
+          # is a much larger grant than publishing, and it would land a commit
+          # nobody reviewed. So this prints the reminder and stops.
+          Write-Host "::notice title=Next::bump the five declaration sites on the default branch now - see CONTRIBUTING.md. This workflow deliberately does not."

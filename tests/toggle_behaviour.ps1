@@ -7,11 +7,18 @@
 
   WHAT THIS IS
 
-  bin\lwg-toggle.ps1 backs /lw-watchtower:delegate, :plain and :verbosity, and it
-  WRITES config.json. Nothing in tests\ had ever driven that write. tests\gate_delegate.ps1
+  bin\lwg-toggle.ps1 backs /lw-watchtower:delegate, and it WRITES config.json.
+  Nothing in tests\ had ever driven that write. tests\gate_delegate.ps1
   exercises lib\gate_delegate.ps1 - the READER of interaction.delegate - end to end;
   the writer was covered by nothing at all, which is why three defects in it
   survived being read several times.
+
+  IT BACKED THREE COMMANDS UNTIL THE OUTPUT-STYLE FEATURE WAS REMOVED. The
+  toggle also wrote output_style.verbosity and output_style.plain, for two
+  commands whose keys nothing in this plugin ever read. Those flags, their
+  commands, the output-styles\ directory and config.json's `output_style` block
+  are all gone, and the cases that drove them went with them - see the note on
+  SECTION F, which lost three of its four.
 
   The three this suite pins:
 
@@ -25,15 +32,22 @@
           embeds the whole input - into operator output.
     #27   a config.json with no top-level `modules` block made the toggle WRITE
           the file and then exit 3, while bin\lwg-toggle.ps1's own header and
-          commands\delegate.md, plain.md and verbosity.md all define exit 3 as
-          "config.json was not changed".
+          commands\delegate.md both define exit 3 as "config.json was not
+          changed".
 
-  And a fourth, from review rather than from an issue, in SECTION F: a SECOND
-  route to exit 3 on a file that was written. The write is fine and the REPORT
-  after it throws - with USERPROFILE unset, the ACTIVATION block builds a
-  settings path out of that variable - and every throw in that file lands in one
-  handler that exits 3. It reaches only the two `style` flags. Measured at both
-  baselines: `-Flag plain on` -> exit 3, file CHANGED.
+  A FOURTH DEFECT USED TO BE PINNED HERE AND NO LONGER IS, and it is recorded
+  rather than quietly dropped. Found by review rather than by an issue, it was a
+  SECOND route to exit 3 on a file that was written: the write is fine and the
+  REPORT after it throws - with USERPROFILE unset, the output-style ACTIVATION
+  block built a settings path out of that variable - and every throw in that
+  file lands in one handler that exits 3. It reached ONLY the two `style` flags,
+  measured at both baselines as `-Flag plain on` -> exit 3, file CHANGED, and
+  those flags no longer exist. Three cases drove it and are deleted. The GUARD
+  in the toggle's catch is still there and is deliberately not deleted with
+  them - it guards the class rather than that one line - but NO CASE HERE
+  REACHES IT any more, and this file states that rather than leaving a reader to
+  infer coverage from a section heading. Section F is now its former control
+  alone. See the note on WHAT A GREEN RUN DOES NOT MEAN.
 
   ---------------------------------------------------------------------------
   HOW A CASE IS RUN, AND THE SANDBOX CONTRACT
@@ -62,7 +76,10 @@
       CLAUDE_CODE_PLUGIN_CACHE_DIR   cleared
 
   Section F is the one place that deliberately runs with USERPROFILE UNSET, and
-  it puts it back in the same finally as everything else.
+  it puts it back in the same finally as everything else. It ran that way to
+  reach a defect in the output-style report block; with that block gone the one
+  case left there asserts the other direction - that nothing on the surviving
+  path reads USERPROFILE at all.
 
   ONE ENVIRONMENT TRAP THAT IS NOT THIS SUITE'S DOING, recorded so the next
   person does not lose an hour to it: if the shell that launches this file
@@ -103,8 +120,9 @@
   Section E has NO fd8d023 baseline: -ConfigPath does not exist there, so the
   child dies on a parameter-binding error. Those two cases pin new surface.
 
-  Section F's baseline is BOTH commits, and its defect predates all three fixes:
-  the same input gives exit 3 with the file changed at fd8d023 and at 19bb85d.
+  Section F's remaining case has fd8d023 as its baseline and passes there, like
+  every other control. The defect that section was written for is unreachable
+  now that the flags carrying it are deleted; see the note above.
 
   ---------------------------------------------------------------------------
   WHICH CASE CARRIES WHICH DEFECT - because "it went red" is not the same as
@@ -145,6 +163,16 @@
       still disagree. An automatic rollback lived in that handler for one day
       and was removed: it could only fire in a state where firing it would
       overwrite another writer's file.
+    * the $script:LwgVerified guard in the toggle's catch - the exit-0-after-a
+      -verified-write path. Three cases in section F drove it through the
+      output-style ACTIVATION block, the only line that ever threw there
+      deterministically, and that block was deleted with the two style flags.
+      Nothing here reaches the guard now, and nothing CAN: every line printed
+      after that flag is set is a Write-Output over already-resolved values. The
+      guard stays in the toggle on the same terms as the read-back handler above
+      - it covers the class, and the next report line someone adds is what it is
+      for. This is a COVERAGE LOSS rather than a decision, and it is written
+      down as one so nobody reads section F's survivor as covering it.
 
   Read G for the property that is actually general.
 
@@ -157,18 +185,27 @@
   is not "was run", and no case here ran one. A case would need a scratch repo
   with a local bare origin, as tests\setup_merge.ps1 section 26 builds.
 
-  CONTROL CASES ARE LABELLED. EIGHT of the cases below pass before the fix as
+  CONTROL CASES ARE LABELLED. SEVEN of the cases below pass before the fix as
   well as after it, on purpose - they pin the other direction, so a "fix" that
   simply refuses everything, or that reformats the file, or that turns every run
   into a reported fault, fails them. They are marked CONTROL in their name and
   none is offered as evidence of a fix.
 
-  TEN of the twenty-six passed at fd8d023, and the same ten at 19bb85d - both
-  measured, not reasoned. Those eight CONTROLs, plus two that are NOT controls
-  and pass there for their own reasons: the BOM-bearing file still exits 0 at
-  both baselines (it just loses the BOM), and section E's second case passes
-  vacuously because the child never starts. That is stated here so a reader
-  counting greens in a red run does not read those two as coverage.
+  THE BASELINE COUNT IS NOW DERIVED, NOT MEASURED, and it is labelled as such.
+  TEN of twenty-six passed at fd8d023 and the same ten at 19bb85d, both measured
+  on those commits. Four cases have since been deleted with the output-style
+  flags they drove: section F's three, none of which passed at either baseline,
+  and one CONTROL - the level axis - which passed at both. Only that CONTROL
+  comes off the ten, so NINE of twenty-two is what subtraction from those
+  per-case baselines gives. Nobody has re-run the suite against
+  fd8d023 since the deletion, and the deleted cases cannot be re-run there in
+  this form anyway. Treat the nine as arithmetic over a measurement, not as one.
+
+  Those seven CONTROLs, plus two that are NOT controls and pass at the baselines
+  for their own reasons: the BOM-bearing file still exits 0 at both (it just
+  loses the BOM), and section E's second case passes vacuously because the child
+  never starts. That is stated here so a reader counting greens in a red run
+  does not read those two as coverage.
 
   ---------------------------------------------------------------------------
   EXIT CODES - a CI job reads these and nothing else
@@ -181,14 +218,26 @@
 #>
 [CmdletBinding()]
 param(
-    # Repo root. Defaults to this file's parent, correct for a run from anywhere
+    # The PLUGIN PAYLOAD root - lw-watchtower\ under this file's parent, not the
+    # repository root, which is what this parameter meant before the restructure, correct for a run from anywhere
     # as long as this file stays in tests\.
     [string]$Root
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Split-Path -Parent $PSScriptRoot }
+# THE PAYLOAD ROOT, WHICH IS NO LONGER THE REPOSITORY ROOT. `Split-Path -Parent
+# $PSScriptRoot` is the parent of tests\, and tests\ stayed at the repository
+# root while the shipped plugin moved under lw-watchtower/. Everything this
+# suite composes off $Root - bin\, lib\, config.json, statusline\ - is payload,
+# so $Root is the payload root and the default says so in one place rather than
+# in every Join-Path below it.
+#
+# WHY THE DEFAULT AND NOT A -Root FROM CI. Neither .github\workflows\ci.yml nor
+# tests\doc_claims.ps1's sibling runner passes -Root at any invocation, so a
+# suite's default is the only value it ever gets on either route. Putting the
+# knowledge here is the only place it can be put.
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Join-Path (Split-Path -Parent $PSScriptRoot) 'lw-watchtower' }
 
 $script:Pass    = 0
 $script:Results = New-Object System.Collections.ArrayList
@@ -253,10 +302,6 @@ function New-ConfigText {
   "interaction": {
     "delegate": @DELEGATE@
   },
-  "output_style": {
-    "verbosity": "default",
-    "plain": false
-  },
   "repos": {},
   "thresholds": {}
 }
@@ -292,6 +337,42 @@ function New-ConfigText {
     return $t
 }
 
+function New-OverrideText {
+    <#
+      The OPERATOR OVERRIDE fixture - the document bin\lwg-toggle.ps1 actually
+      writes since #11. Small, because that is what it is in life: it holds only
+      what somebody has set.
+
+      It carries an apostrophe and an angle bracket in a "$comment" for the same
+      reason New-ConfigText does, and the reason now applies to this file rather
+      than to config.json: PowerShell 5.1's ConvertTo-Json escapes both, so the
+      surgical-edit case in section D would catch a ConvertFrom-Json /
+      ConvertTo-Json round trip creeping into the write path.
+
+        -Delegate  the LITERAL written for interaction.delegate. Default false;
+                   '"false"' (a STRING) makes the toggle log a ConfigInvalidFlag
+                   record, which is A5's clock.
+        -Empty     an override holding nothing at all, which is the state a
+                   machine is in before anything has ever been configured.
+    #>
+    param([string]$Delegate = 'false', [switch]$Empty)
+
+    if ($Empty) { return "{}" }
+
+    $t = @'
+{
+  "@C@": "scratch override fixture - it's here so a <round trip> would be visible",
+  "interaction": {
+    "delegate": @D@
+  }
+}
+'@
+    $t = $t.Replace('@C@', ([char]36 + 'comment'))
+    $t = $t.Replace('@D@', $Delegate)
+    $t = ($t -replace "`r`n", "`n") -replace "`n", "`r`n"
+    return $t.TrimEnd([char]13, [char]10)
+}
+
 function Write-ConfigFile {
     <# Seed a config fixture, with or without a UTF-8 BOM. Bytes, not Set-Content. #>
     param([string]$Path, [string]$Text, [switch]$Bom)
@@ -315,10 +396,14 @@ function Get-B64 {
 
 function New-Sandbox {
     <#
-      A throwaway plugin root: byte copies of bin\ and lib\ (and output-styles\,
-      which the style flags probe with Test-Path), plus the four scratch
-      directories the child is pointed at. The code under test is copied ONCE per
-      run - it does not change between cases - and only config.json is reseeded.
+      A throwaway plugin root: byte copies of bin\ and lib\, plus the four
+      scratch directories the child is pointed at. The code under test is copied
+      ONCE per run - it does not change between cases - and only config.json is
+      reseeded.
+
+      output-styles\ was copied too until that directory was deleted with the
+      output-style feature; the two flags that probed it with Test-Path are gone
+      with it.
     #>
     # NOT $root: PowerShell variable names are case-insensitive, so a local $root
     # would shadow this script's $Root parameter and the copy below would take
@@ -334,14 +419,21 @@ function New-Sandbox {
     foreach ($d in @($sand.root, $sand.plugin, $sand.data, $sand.profile, $sand.work)) {
         [void](New-Item -ItemType Directory -Path $d -Force)
     }
-    foreach ($sub in @('bin', 'lib', 'output-styles')) {
+    foreach ($sub in @('bin', 'lib')) {
         $src = Join-Path $Root $sub
         if (Test-Path -LiteralPath $src) {
             Copy-Item -LiteralPath $src -Destination (Join-Path $sand.plugin $sub) -Recurse -Force
         }
     }
     $sand.toggle = Join-Path $sand.plugin 'bin\lwg-toggle.ps1'
+    # THE TWO FILES - #11. config.json in the copied plugin root is the SHIPPED
+    # DEFAULTS and this command no longer writes it; the operator's choice goes
+    # to config.override.json under the state directory, which Get-LwgConfig
+    # merges over the defaults. Every case below that is about the WRITE now
+    # points at .ov, and section G asserts that no run of this suite ever
+    # changed .cfg at all.
     $sand.cfg    = Join-Path $sand.plugin 'config.json'
+    $sand.ov     = Join-Path $sand.data   'config.override.json'
     if (-not (Test-Path -LiteralPath $sand.toggle -PathType Leaf)) {
         throw "the copied tree has no bin\lwg-toggle.ps1 at $($sand.toggle)"
     }
@@ -352,9 +444,11 @@ function Push-ChildEnv {
     <#
       Returns the previous values so the caller can restore them in a finally.
 
-      -NoUserProfile leaves USERPROFILE UNSET for the child. Section F needs it:
-      the report block builds a settings path out of that variable, and an unset
-      one is the state that made a written file exit 3.
+      -NoUserProfile leaves USERPROFILE UNSET for the child. Section F uses it.
+      It was added because the deleted output-style report block built a
+      settings path out of that variable, and an unset one was the state that
+      made a written file exit 3; what is left asserts that no surviving path
+      reads it.
     #>
     param([hashtable]$Sand, [switch]$NoUserProfile)
     $prev = @{
@@ -362,11 +456,21 @@ function Push-ChildEnv {
         dat = $env:CLAUDE_PLUGIN_DATA
         rt  = $env:CLAUDE_PLUGIN_ROOT
         cd_ = $env:CLAUDE_CODE_PLUGIN_CACHE_DIR
+        cfg = $env:CLAUDE_CONFIG_DIR
     }
     $env:USERPROFILE                  = $(if ($NoUserProfile) { $null } else { $Sand.profile })
     $env:CLAUDE_PLUGIN_DATA           = $Sand.data
     $env:CLAUDE_PLUGIN_ROOT           = $null
     $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $null
+    # CLAUDE_CONFIG_DIR JOINED THE SANDBOX ON 3 SEPTEMBER 2026. No path in
+    # bin\lwg-toggle.ps1 itself composes a configuration root any more - the
+    # output-style block that did was deleted, which is what -NoUserProfile is
+    # left asserting - but the child dot-sources lib\common.ps1, whose state-dir
+    # resolver falls back to <configuration root>\plugins\data when
+    # CLAUDE_PLUGIN_DATA is not set. A runner carrying the variable would point
+    # that fallback at the real machine while USERPROFILE pointed harmlessly at
+    # the sandbox. Cleared, so the sandbox is the whole sandbox.
+    $env:CLAUDE_CONFIG_DIR            = $null
     return $prev
 }
 
@@ -377,6 +481,7 @@ function Pop-ChildEnv {
     $env:CLAUDE_PLUGIN_DATA           = $Prev.dat
     $env:CLAUDE_PLUGIN_ROOT           = $Prev.rt
     $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $Prev.cd_
+    $env:CLAUDE_CONFIG_DIR            = $Prev.cfg
 }
 
 function Invoke-Toggle {
@@ -400,13 +505,14 @@ function Invoke-Toggle {
         [string]$ScriptArgs,
         [string]$Tag,
         # The file whose bytes this run is expected to touch. Defaults to the
-        # copied tree's own config.json.
+        # override under the state directory, which is the file bin\lwg-toggle.ps1
+        # writes since #11.
         [string]$CfgPath,
         # Run the child with USERPROFILE unset - see Push-ChildEnv.
         [switch]$NoUserProfile
     )
 
-    if ([string]::IsNullOrWhiteSpace($CfgPath)) { $CfgPath = $Sand.cfg }
+    if ([string]::IsNullOrWhiteSpace($CfgPath)) { $CfgPath = $Sand.ov }
 
     $of  = Join-Path $Sand.work "$Tag.out"
     $ef  = Join-Path $Sand.work "$Tag.err"
@@ -416,6 +522,11 @@ function Invoke-Toggle {
     [IO.File]::WriteAllLines($bat, @('@echo off', ('cd /d "{0}"' -f $Sand.work), $cmd, 'exit /b %ERRORLEVEL%'), [Text.ASCIIEncoding]::new())
 
     $before = Get-Bytes -Path $CfgPath
+    # THE SHIPPED DEFAULTS, TRACKED SEPARATELY AND ON EVERY RUN - #11. This is
+    # what section G reads: the whole point of the change is that no invocation
+    # of this command, on any path, for any reason, moves a byte of the file
+    # that is inside the plugin's git working tree.
+    $baseBefore = Get-Bytes -Path $Sand.cfg
     $prev = Push-ChildEnv -Sand $Sand -NoUserProfile:$NoUserProfile
     try {
         & $env:ComSpec /c $bat | Out-Null
@@ -423,28 +534,40 @@ function Invoke-Toggle {
     } finally {
         Pop-ChildEnv -Prev $prev
     }
-    $after = Get-Bytes -Path $CfgPath
+    $after     = Get-Bytes -Path $CfgPath
+    $baseAfter = Get-Bytes -Path $Sand.cfg
 
     $out = ''; $err = ''
     try { $out = [IO.File]::ReadAllText($of) } catch { }
     try { $err = [IO.File]::ReadAllText($ef) } catch { }
 
     $r = @{
-        code    = $code
-        out     = $out
-        err     = $err
-        before  = $before
-        after   = $after
-        changed = ((Get-B64 $before) -ne (Get-B64 $after))
-        tag     = $Tag
+        code         = $code
+        out          = $out
+        err          = $err
+        before       = $before
+        after        = $after
+        changed      = ((Get-B64 $before) -ne (Get-B64 $after))
+        base_before  = $baseBefore
+        base_after   = $baseAfter
+        base_changed = ((Get-B64 $baseBefore) -ne (Get-B64 $baseAfter))
+        tag          = $Tag
     }
-    [void]$script:Runs.Add([pscustomobject]@{ tag = $Tag; code = $code; changed = $r.changed })
+    [void]$script:Runs.Add([pscustomobject]@{
+        tag = $Tag; code = $code; changed = $r.changed; base_changed = $r.base_changed })
     return $r
 }
 
 function Get-BackupFiles {
+    <#
+      The .bak copies Save-LwgTextFile takes, which live BESIDE THE FILE IT
+      WRITES - so since #11 they are in the state directory next to the
+      override, not in the plugin root next to config.json. That is also why
+      #11 needs no .gitignore rule: the backups left the working tree with the
+      write that produced them.
+    #>
     param([hashtable]$Sand)
-    return @(Get-ChildItem -LiteralPath $Sand.plugin -Filter 'config.json.*.bak' -File -ErrorAction SilentlyContinue)
+    return @(Get-ChildItem -LiteralPath $Sand.data -Filter 'config.override.json.*.bak' -File -ErrorAction SilentlyContinue)
 }
 
 # ===========================================================================
@@ -473,16 +596,18 @@ try {
 
     # --- A1/A2 ---------------------------------------------------------------
     Write-ConfigFile -Path $sand.cfg -Text (New-ConfigText)
-    $orig = Get-Bytes -Path $sand.cfg
+    Write-ConfigFile -Path $sand.ov  -Text (New-OverrideText)
+    $orig     = Get-Bytes -Path $sand.ov
+    $baseOrig = Get-Bytes -Path $sand.cfg
     foreach ($b in (Get-BackupFiles -Sand $sand)) { Remove-Item -LiteralPath $b.FullName -Force }
     $a = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate on' -Tag 'a1'
     $baks = @(Get-BackupFiles -Sand $sand)
 
     # fd8d023 leaves zero .bak files: `grep -n 'Copy-Item\|\.bak' bin\lwg-toggle.ps1`
     # matches nothing in that tree.
-    Add-Result 'backup: a .bak of config.json is taken beside it' `
+    Add-Result 'backup: a .bak of the written file is taken beside it' `
         ($baks.Count -eq 1) `
-        ("expected exactly one config.json.*.bak next to the config; found {0}. Without one, an operator told the file is unchanged has no way to find out otherwise" -f $baks.Count)
+        ("expected exactly one config.override.json.*.bak next to the file that was written; found {0}. Without one, an operator told the file is unchanged has no way to find out otherwise" -f $baks.Count)
 
     $bakBytes = if ($baks.Count -eq 1) { Get-Bytes -Path $baks[0].FullName } else { $null }
     Add-Result 'backup: the .bak holds the file EXACTLY as it was before the write' `
@@ -491,16 +616,46 @@ try {
 
     Add-Result 'backup: the path of the backup is PRINTED' `
         (($baks.Count -eq 1) -and ($a.out -like ('*' + $baks[0].Name + '*'))) `
-        ("stdout must name the backup, as bin\lwg-config.ps1:443 does. A backup nobody is told about is not a recovery mechanism. stdout was: " + (($a.out -split "`r?`n" | Where-Object { $_ -match 'backup' }) -join ' | '))
+        ("stdout must name the backup, as bin\lwg-config.ps1 does. A backup nobody is told about is not a recovery mechanism. stdout was: " + (($a.out -split "`r?`n" | Where-Object { $_ -match 'backup' }) -join ' | '))
+
+    # --- A1c-A1f: THE POINT OF #11 -------------------------------------------
+    # Arming the one gate this plugin ships used to rewrite config.json, which
+    # is TRACKED and inside the plugin's own git working tree - so the checkout
+    # went dirty and /lw-watchtower:update refused to pull for good, on the
+    # first thing the documentation tells a new operator to do.
+    #
+    # These go RED at 4342980, where the write lands in config.json and no
+    # override file is ever created. A1e is the one that keeps A1c from being
+    # satisfied by a command that writes nothing at all: the value has to be
+    # somewhere, and the report has to say where.
+    Add-Result 'the plugin root config.json is byte-identical after the write (#11)' `
+        ((Get-B64 (Get-Bytes -Path $sand.cfg)) -eq (Get-B64 $baseOrig)) `
+        'config.json is the SHIPPED DEFAULTS and is tracked. A write into it is what makes /lw-watchtower:update refuse to pull, and it is what this issue is'
+
+    Add-Result 'nothing at all is left in the plugin root that was not there before (#11)' `
+        (@(Get-ChildItem -LiteralPath $sand.plugin -File -ErrorAction SilentlyContinue).Count -eq 1) `
+        ("the plugin root must hold config.json and nothing else after a write - not a .bak either, or `git status` is still dirty. Found: " +
+         ((@(Get-ChildItem -LiteralPath $sand.plugin -File -ErrorAction SilentlyContinue) | ForEach-Object { $_.Name }) -join ', '))
+
+    $ovAfterText = if ([IO.File]::Exists($sand.ov)) { [Text.UTF8Encoding]::new($false).GetString((Get-Bytes -Path $sand.ov)).TrimStart([char]0xFEFF) } else { '<absent>' }
+    Add-Result 'the value IS recorded - an override document exists under the state dir (#11)' `
+        ([IO.File]::Exists($sand.ov) -and $ovAfterText.Contains('"delegate": true')) `
+        ('a clean checkout is trivially achieved by writing nowhere. The setting has to land somewhere a hook reads, and this is that place. File: ' + $ovAfterText)
+
+    Add-Result 'and the report NAMES the file it wrote and the file it merged over (#11)' `
+        (($a.out -like ('*' + $sand.ov + '*')) -and ($a.out -like ('*' + $sand.cfg + '*'))) `
+        ('an operator told only one of the two paths goes and edits the wrong file - config.json looks like the settings file and is no longer written. stdout: ' +
+         (($a.out -split "`r?`n" | Where-Object { $_ -match 'stored in|merged over|override' }) -join ' | '))
 
     # --- A3/A4: BOM ----------------------------------------------------------
     # fd8d023 hardcodes [Text.UTF8Encoding]::new($false), so the EF BB BF is gone
     # after the first toggle of a file another tool wrote with one.
-    Write-ConfigFile -Path $sand.cfg -Text (New-ConfigText) -Bom
+    Write-ConfigFile -Path $sand.cfg -Text (New-ConfigText)
+    Write-ConfigFile -Path $sand.ov  -Text (New-OverrideText) -Bom
     $b = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate on' -Tag 'a3'
     $after = $b.after
     $hasBom = ($null -ne $after -and $after.Length -ge 3 -and $after[0] -eq 0xEF -and $after[1] -eq 0xBB -and $after[2] -eq 0xBF)
-    Add-Result 'BOM: a config.json that carried a UTF-8 BOM still carries one after a write' `
+    Add-Result 'BOM: a settings file that carried a UTF-8 BOM still carries one after a write' `
         ($hasBom -and $b.changed) `
         ("the first three bytes after the write were {0}; the file must keep the BOM another tool gave it (bin\lwg-config.ps1:434 passes -Bom for this reason), and the run must actually have written (changed={1})" -f `
             $(if ($null -ne $after -and $after.Length -ge 3) { ('{0:X2} {1:X2} {2:X2}' -f $after[0], $after[1], $after[2]) } else { '<too short>' }), $b.changed)
@@ -511,10 +666,11 @@ try {
             $b.code, (($b.out -split "`r?`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -Last 2) -join ' | '))
 
     Write-ConfigFile -Path $sand.cfg -Text (New-ConfigText)
+    Write-ConfigFile -Path $sand.ov  -Text (New-OverrideText)
     $c = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate on' -Tag 'a4'
     $afterNo = $c.after
     $gainedBom = ($null -ne $afterNo -and $afterNo.Length -ge 3 -and $afterNo[0] -eq 0xEF -and $afterNo[1] -eq 0xBB -and $afterNo[2] -eq 0xBF)
-    Add-Result 'CONTROL BOM: a config.json WITHOUT a BOM does not gain one' `
+    Add-Result 'CONTROL BOM: a settings file WITHOUT a BOM does not gain one' `
         ((-not $gainedBom) -and $c.code -eq 0) `
         'the other direction: preserving a BOM must not mean adding one. This case passes at fd8d023 as well and pins that the fix did not flip the default'
 
@@ -557,9 +713,19 @@ try {
     $a5 = $null
     $a5note = ''
     for ($attempt = 1; $attempt -le 3 -and $null -eq $a5; $attempt++) {
+        # THE PAD STAYS ON config.json AND THE MUTATION MOVES TO THE OVERRIDE.
+        # The 700 KB of defaults is what makes the run take long enough to be
+        # interrupted at all - the toggle parses that file twice through
+        # Get-LwgConfig before it writes - and the STRING "false" in it is
+        # A5's clock, because resolving it makes the toggle log a
+        # ConfigInvalidFlag record into the scratch state dir. What
+        # Save-LwgTextFile hashes, though, is the file it WRITES, so the two
+        # bytes have to be appended to the override or the changed-under-us
+        # check has nothing to notice.
         Write-ConfigFile -Path $sand.cfg -Text (New-ConfigText -Delegate '"false"' -PadKb 700)
-        $seed = [IO.File]::ReadAllText($sand.cfg)
         Remove-Item -LiteralPath (Join-Path $sand.data '*') -Recurse -Force -ErrorAction SilentlyContinue
+        Write-ConfigFile -Path $sand.ov -Text (New-OverrideText -Delegate '"false"')
+        $seed = [IO.File]::ReadAllText($sand.ov)
 
         $of = Join-Path $sand.work "a5-$attempt.out"
         $ef = Join-Path $sand.work "a5-$attempt.err"
@@ -600,7 +766,7 @@ try {
                 }
                 # The file may be open for writing at this instant; a failed
                 # append is not a failed case, the next one is 50 ms away.
-                try { [IO.File]::AppendAllText($sand.cfg, "`r`n", [Text.UTF8Encoding]::new($false)); $appends++ } catch { }
+                try { [IO.File]::AppendAllText($sand.ov, "`r`n", [Text.UTF8Encoding]::new($false)); $appends++ } catch { }
                 Start-Sleep -Milliseconds 50
             }
             $null = $p.WaitForExit(120000)
@@ -613,7 +779,7 @@ try {
 
         $out = ''
         try { $out = [IO.File]::ReadAllText($of) } catch { }
-        $now = [IO.File]::ReadAllText($sand.cfg)
+        $now = [IO.File]::ReadAllText($sand.ov)
         # The seeded text survives as an exact PREFIX only if this run did not
         # replace the file; the appended bytes make it strictly longer.
         $seedHeld  = ($now.StartsWith($seed) -and $now.Length -gt $seed.Length)
@@ -673,6 +839,7 @@ try {
     Write-Output 'B. an already-broken config.json (#105)'
 
     Write-ConfigFile -Path $sand.cfg -Text (New-ConfigText -BreakJson -PadKb 30)
+    Write-ConfigFile -Path $sand.ov  -Text (New-OverrideText)
     $bBytes = Get-Bytes -Path $sand.cfg
     $d = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate on' -Tag 'b1'
 
@@ -698,6 +865,7 @@ try {
     # small. With a multi-line fixture this case stayed green when that limit was
     # raised from 160 to 100000, which is the vacuity it is written to avoid.
     Write-ConfigFile -Path $sand.cfg -Text (New-ConfigText -BreakJson -PadKb 60 -Minify)
+    Write-ConfigFile -Path $sand.ov  -Text (New-OverrideText)
     $bMin = Get-Bytes -Path $sand.cfg
     $dMin = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate on' -Tag 'b3'
     $bMinText = [Text.UTF8Encoding]::new($false).GetString($bMin)
@@ -727,18 +895,20 @@ try {
     # SECTION C - exit 3 means config.json was not changed  (#27)
     # BASELINE fd8d023, executed: with the modules-less fixture the write at line
     # 786 lands, the read-back throw at 803 fires, and line 1051 exits 3 - while
-    # bin\lwg-toggle.ps1:68-70 and commands\{delegate,plain,verbosity}.md all
-    # define 3 as "config.json was not changed".
+    # bin\lwg-toggle.ps1's exit-code table and commands\delegate.md both define
+    # 3 as "config.json was not changed".
     # =======================================================================
     Write-Output ''
     Write-Output 'C. exit 3 means the file was not changed (#27)'
 
     Write-ConfigFile -Path $sand.cfg -Text (New-ConfigText -NoModules)
+    Write-ConfigFile -Path $sand.ov  -Text (New-OverrideText)
     $f = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate on' -Tag 'c1'
 
     Add-Result 'modules-less config: the file is NOT written' `
-        (-not $f.changed) `
-        ("exit was {0} and config.json {1}. fd8d023 writes it and then exits 3, so an operator reading commands\delegate.md:49 verbatim is told the opposite of what happened" -f $f.code, $(if ($f.changed) { 'CHANGED on disk' } else { 'was untouched' }))
+        ((-not $f.changed) -and (-not $f.base_changed)) `
+        ("exit was {0}; the override {1} and config.json {2}. fd8d023 writes and then exits 3, so an operator reading commands\delegate.md:49 verbatim is told the opposite of what happened. Both files are checked because the refusal has to hold for the file this command writes AND for the one it reads" -f `
+            $f.code, $(if ($f.changed) { 'CHANGED on disk' } else { 'was untouched' }), $(if ($f.base_changed) { 'CHANGED on disk' } else { 'was untouched' }))
 
     Add-Result 'modules-less config: refused with exit 3 and a reason naming the modules block' `
         ($f.code -eq 3 -and ($f.out -like '*modules*') -and ($f.out -like '*BUILT-IN DEFAULTS*')) `
@@ -760,7 +930,9 @@ try {
     Write-Output 'D. controls - what the fix must not have broken'
 
     $good = New-ConfigText
+    $goodOv = New-OverrideText
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $g = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate on' -Tag 'd1'
     $gTextAfter = [Text.UTF8Encoding]::new($false).GetString($g.after)
 
@@ -769,84 +941,100 @@ try {
         ("exit {0}; the file must hold `"delegate`": true and the report must say ON" -f $g.code)
 
     Add-Result 'CONTROL: the edit is SURGICAL - only the one literal moved' `
-        ($gTextAfter -eq $good.Replace('"delegate": false', '"delegate": true')) `
-        'the whole point of the text editor in this script is that config.json keeps its bytes except the edited value; a ConvertFrom-Json / ConvertTo-Json round trip would escape the apostrophe and the angle bracket in the fixture''s comment and fail here'
+        ($gTextAfter -eq $goodOv.Replace('"delegate": false', '"delegate": true')) `
+        'the whole point of the text editor in this script is that the file it writes keeps its bytes except the edited value; a ConvertFrom-Json / ConvertTo-Json round trip would escape the apostrophe and the angle bracket in the fixture''s comment and fail here'
 
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $h = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate maybe' -Tag 'd3'
     Add-Result 'CONTROL: a rejected argument still exits 2, prints usage, writes nothing' `
         ($h.code -eq 2 -and (-not $h.changed) -and ($h.out -like '*Usage:*')) `
         ("exit was {0} and the file {1}; 2 and 3 are separate on purpose (bin\lwg-toggle.ps1:72-74)" -f $h.code, $(if ($h.changed) { 'CHANGED' } else { 'was untouched' }))
 
-    Write-ConfigFile -Path $sand.cfg -Text $good
-    $i = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag verbosity brief' -Tag 'd4'
-    $iTextAfter = [Text.UTF8Encoding]::new($false).GetString($i.after)
-    Add-Result 'CONTROL: the level axis writes its name and reads it back - exit 0' `
-        ($i.code -eq 0 -and $iTextAfter.Contains('"verbosity": "brief"')) `
-        ("exit {0}; the other axis has to keep working - it goes through the same read, write and read-back path" -f $i.code)
+    # A FOURTH CONTROL WAS HERE - `-Flag verbosity brief`, pinning that the
+    # level axis wrote its name and read it back. There is no second axis any
+    # more: `verbosity` was deleted with the output-style feature, and a bool is
+    # the only shape this script writes.
 
     # =======================================================================
     # SECTION E - the -ConfigPath seam.  NEW SURFACE, NOT A REGRESSION CASE.
     # -ConfigPath does not exist at fd8d023; the child there dies on a parameter
-    # binding error. These two say what the new parameter does, nothing more.
+    # binding error.
+    #
+    # WHAT IT MEANS CHANGED WITH #11, and the cases changed with it rather than
+    # being deleted. -ConfigPath used to name the file the toggle READ AND WROTE.
+    # Since the write moved to the override under the state directory it names
+    # the file the toggle READS - the shipped DEFAULTS - and nothing else. So
+    # the two cases below now pin that: the defaults are taken from the file it
+    # was given, and the write still lands in the override rather than in the
+    # file named on the command line. The second one is the load-bearing half:
+    # a -ConfigPath that could still be written would be a way to put operator
+    # state back into any path a caller names, which is the defect this whole
+    # change is about.
     # =======================================================================
     Write-Output ''
     Write-Output 'E. the -ConfigPath seam (NEW SURFACE - no fd8d023 baseline)'
 
     Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $ownBefore = Get-Bytes -Path $sand.cfg
+    # DELEGATE IS ALREADY true IN THESE DEFAULTS, and it is the only way this
+    # case can tell that -ConfigPath was read at all: the report's `global
+    # default` line comes from the defaults under the override, so a run that
+    # ignored -ConfigPath would show the shipped false instead.
+    $altText = $good.Replace('"delegate": false', '"delegate": true')
     $alt = Join-Path $sand.work 'elsewhere.json'
-    Write-ConfigFile -Path $alt -Text $good
-    $j = Invoke-Toggle -Sand $sand -ScriptArgs ('-Flag delegate on -ConfigPath "' + $alt + '"') -Tag 'e1' -CfgPath $alt
+    Write-ConfigFile -Path $alt -Text $altText
+    $altBefore = Get-Bytes -Path $alt
+    $j = Invoke-Toggle -Sand $sand -ScriptArgs ('-Flag delegate off -ConfigPath "' + $alt + '"') -Tag 'e1'
     $jText = [Text.UTF8Encoding]::new($false).GetString($j.after)
 
-    Add-Result 'NEW SURFACE: -ConfigPath writes the file it was given' `
-        ($j.code -eq 0 -and $jText.Contains('"delegate": true')) `
-        ("exit {0}; without this seam nothing in tests\ can drive this file's write path at all" -f $j.code)
+    Add-Result 'NEW SURFACE: -ConfigPath supplies the DEFAULTS the override is merged over' `
+        ($j.code -eq 0 -and ($j.out -like '*merged over*' + $alt + '*')) `
+        ("exit {0}; the report must name the file it was given as the defaults it resolved against. stdout: {1}" -f `
+            $j.code, (($j.out -split "`r?`n" | Where-Object { $_ -match 'stored in|merged over' }) -join ' | '))
+
+    Add-Result 'NEW SURFACE: the write still lands in the override, not in the file -ConfigPath named' `
+        ($jText.Contains('"delegate": false') -and ((Get-B64 (Get-Bytes -Path $alt)) -eq (Get-B64 $altBefore))) `
+        'a -ConfigPath that could be WRITTEN would put operator state back into any path a caller names, which is exactly what #11 moved it out of'
 
     Add-Result 'NEW SURFACE: -ConfigPath leaves the plugin''s own config.json alone' `
         ((Get-B64 (Get-Bytes -Path $sand.cfg)) -eq (Get-B64 $ownBefore)) `
         'a seam that still touched the real file would be a sandbox that is not one'
 
     # =======================================================================
-    # SECTION F - a report that throws AFTER a verified write
-    # BASELINE 19bb85d AND fd8d023 - this one PRE-DATES the three fixes and was
-    # found by review rather than by an issue. With USERPROFILE unset,
-    # `Join-Path $env:USERPROFILE '.claude\settings.json'` in the ACTIVATION
-    # block - reached only for a `style` flag - throws under
-    # $ErrorActionPreference='Stop', lands in the single catch at the bottom of
-    # bin\lwg-toggle.ps1 and exits 3 on a config.json that HAD been written.
-    # Measured at 19bb85d: `-Flag plain on` -> exit 3, file CHANGED.
+    # SECTION F - nothing on the write or report path reads USERPROFILE
+    #
+    # THREE CASES WERE DELETED FROM THIS SECTION and this comment is what
+    # replaces them. They pinned a report that throws AFTER a verified write: at
+    # fd8d023 AND 19bb85d, with USERPROFILE unset, `Join-Path $env:USERPROFILE
+    # '.claude\settings.json'` in the output-style ACTIVATION block threw under
+    # $ErrorActionPreference='Stop', landed in the single catch at the bottom of
+    # bin\lwg-toggle.ps1 and exited 3 on a config.json that HAD been written -
+    # measured as `-Flag plain on` -> exit 3, file CHANGED. That block was
+    # reached ONLY by the two `style` flags, and it went with them when the
+    # output-style feature was deleted, so there is no input left that drives
+    # it. The $script:LwgVerified guard those cases proved is still in the
+    # toggle and is still correct to keep - it guards the class, not that line -
+    # but NOTHING HERE EXERCISES IT NOW. That is recorded in the header under
+    # WHAT A GREEN RUN DOES NOT MEAN rather than papered over.
+    #
+    # What survives is the former CONTROL, which is now the whole point of the
+    # section: with the environment-fed line gone, an unset USERPROFILE must be
+    # of no consequence to any run at all. BASELINE fd8d023, where it also
+    # passes - `delegate` never reached the ACTIVATION block there either.
     # =======================================================================
     Write-Output ''
-    Write-Output 'F. a report that throws after a verified write (baseline 19bb85d, not an issue)'
+    Write-Output 'F. USERPROFILE unset is of no consequence (three cases deleted - see the comment)'
 
     Write-ConfigFile -Path $sand.cfg -Text $good
-    $k = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag plain on' -Tag 'f1' -NoUserProfile
-    $kText = [Text.UTF8Encoding]::new($false).GetString($k.after)
-
-    Add-Result 'report failure after a verified write does NOT exit 3' `
-        ($k.code -eq 0 -and $k.changed -and $kText.Contains('"plain": true')) `
-        ("exit was {0} and config.json {1}. The write happened and the file reads back as asked; exit 3 would state, in the words of all three command documents, that it did not. At 19bb85d this is exit 3 with the file changed" -f `
-            $k.code, $(if ($k.changed) { 'CHANGED - correctly' } else { 'was NOT changed' }))
-
-    Add-Result 'report failure after a verified write SAYS the change was made' `
-        (($k.out -like '*WAS MADE*') -and ($k.out -like '*report*')) `
-        ('the operator must be told both facts: the file changed, and the report after it is incomplete. stdout tail: ' + (($k.out -split "`r?`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -Last 3) -join ' | '))
-
-    Add-Result 'report failure after a verified write still names its backup' `
-        ($k.out -match 'config\.json\.lwg-toggle-\d{8}-\d{6}\.bak') `
-        'the backup is the only recovery route, and this is the path on which the report that would normally print it did not get that far'
-
-    # CONTROL: the same environment on a flag that never reaches the ACTIVATION
-    # block. `delegate` is kind 'interaction', so nothing there reads
-    # USERPROFILE and the run must be an ordinary success - which is what makes
-    # F1 a statement about the guard rather than about USERPROFILE.
-    Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $l = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate on' -Tag 'f4' -NoUserProfile
-    Add-Result 'CONTROL: with USERPROFILE unset a non-style flag is an ordinary exit 0' `
-        ($l.code -eq 0 -and $l.changed -and ($l.out -notlike '*WAS MADE*')) `
-        ("exit was {0}; the guard must not turn every run into a reported fault" -f $l.code)
+    $lText = [Text.UTF8Encoding]::new($false).GetString($l.after)
+    Add-Result 'CONTROL: with USERPROFILE unset the write is an ordinary exit 0' `
+        ($l.code -eq 0 -and $l.changed -and $lText.Contains('"delegate": true') -and ($l.out -notlike '*WAS MADE*')) `
+        ("exit was {0} and the override {1}. No line on this path may read USERPROFILE: one that did threw here until the output-style report block was deleted, and the WAS MADE banner - the catch's exit-0-after-a-verified-write route - must not appear on an ordinary run. CLAUDE_PLUGIN_DATA is still set, so the state directory resolves without it" -f `
+            $l.code, $(if ($l.changed) { 'CHANGED - correctly' } else { 'was NOT changed' }))
 
     # =======================================================================
     # SECTION G - the invariant, over every run this suite made
@@ -866,8 +1054,26 @@ try {
     # this suite exists to catch in someone else's code.
     Add-Result 'INVARIANT: every exit 3 in this run left config.json free of the toggle''s own edit' `
         ($threes.Count -ge 3 -and $liars.Count -eq 0) `
-        ("{0} run(s) of {1} exited 3 and {2} of them carried the toggle's edit: {3}. bin\lwg-toggle.ps1's exit-code table and all three command documents define 3 as 'nothing was written', so a single one here is a documented claim the code contradicts. (At least 3 exit-3 runs are required, so this cannot pass by there being none.)" -f `
+        ("{0} run(s) of {1} exited 3 and {2} of them carried the toggle's edit: {3}. bin\lwg-toggle.ps1's exit-code table and commands\delegate.md both define 3 as 'nothing was written', so a single one here is a documented claim the code contradicts. (At least 3 exit-3 runs are required, so this cannot pass by there being none.)" -f `
             $threes.Count, $script:Runs.Count, $liars.Count, $(if ($liars.Count) { ($liars | ForEach-Object { $_.tag }) -join ', ' } else { 'none' }))
+
+    # THE #11 INVARIANT, over the same set. Every case above says something
+    # about one run; this says the thing that has to be true of ALL of them,
+    # which is what the issue actually asks for: after any invocation of this
+    # command - a write, a refusal, a rejected argument, a report - the file
+    # inside the plugin's git working tree is byte-for-byte what it was. A
+    # `git status` on a fresh clone is clean, and /lw-watchtower:update has
+    # nothing to refuse over.
+    #
+    # It goes RED at 4342980 on the writing runs, and the floor is what stops it
+    # passing on a suite that stopped writing: at least three runs here must
+    # have exited 0 having changed the override.
+    $wrote     = @($script:Runs | Where-Object { $_.code -eq 0 -and $_.changed })
+    $dirtiers  = @($script:Runs | Where-Object { $_.base_changed })
+    Add-Result 'INVARIANT: no run of this command changed the plugin root config.json at all (#11)' `
+        ($wrote.Count -ge 3 -and $dirtiers.Count -eq 0) `
+        ("{0} run(s) of {1} moved a byte of config.json: {2}. config.json is TRACKED and inside the plugin's own git working tree, so any one of them leaves the checkout dirty and makes /lw-watchtower:update refuse to pull for good - which is #11. ({3} run(s) wrote the override and exited 0; at least 3 are required, so this cannot pass by the command having stopped writing.)" -f `
+            $dirtiers.Count, $script:Runs.Count, $(if ($dirtiers.Count) { ($dirtiers | ForEach-Object { $_.tag }) -join ', ' } else { 'none' }), $wrote.Count)
 
 } catch {
     $script:Aborted = $_.Exception.Message
@@ -911,6 +1117,7 @@ Write-Output ''
 Write-Output 'Every case above passed. Read that as "the toggle takes a backup, re-checks'
 Write-Output 'the file, keeps a BOM, refuses a config it cannot read back, and never returns'
 Write-Output 'exit 3 after changing the file" - and NOT as "the write path is safe". See the'
-Write-Output 'header for the two guards no case here reaches.'
+Write-Output 'header for the three guards no case here reaches - one of which lost its only'
+Write-Output 'coverage when the output-style flags were deleted.'
 Write-Output 'EXIT: 0'
 exit 0

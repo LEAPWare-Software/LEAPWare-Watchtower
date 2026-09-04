@@ -14,7 +14,7 @@
   it had never been driven at all, and both were wrong in the same direction:
   they answered a question that is cheaper than the one they claim to answer.
 
-  This file drives TWO of the nine checks and no others:
+  This file drives SIX of the doctor's ten checks and no others:
 
     config-registry  #41. It tested a declared switch for PRESENCE and stopped,
                      so `"delegate": "true"` - quoted - passed while
@@ -31,10 +31,71 @@
                      stale copy of this plugin's, with the printed remedy being
                      to overwrite it. The inverse was quieter and also wrong: an
                      identical file attested an install that never happened.
+                     #146 is the same row's other half and is about WHICH FILE
+                     it opens: the settings path was composed from
+                     $env:USERPROFILE and a literal `.claude` - the last live
+                     composition of that shape in the tree - so on a machine
+                     that sets CLAUDE_CONFIG_DIR the row health-checked a
+                     settings.json the CLI does not read and reported green
+                     about it. One case drives the relocated directory and every
+                     statusline case above it holds the profile branch that must
+                     not be lost to it. The number of those is not written here:
+                     it is a count, it would go stale, and "every one of them" is
+                     what the claim actually needs.
+    sessionstart     #42. It read at most the last 256 KB of the event log and,
+                     finding no SessionStart record in that window, reported
+                     "the hook is not firing" and failed the run - a definite
+                     fault claim, with the remedy of reinstalling the plugin,
+                     produced by a read that never established absence. A log
+                     that grew past 256 KB since the session started is enough.
+    commands         #204. It enumerated the FILESYSTEM under the plugin root
+                     with two name filters and scanned everything else, tracked
+                     or not, so an untracked directory of generated output made
+                     it report the plugin NOT healthy from a checkout whose
+                     tracked tree was clean. The enumeration is now the tracked
+                     tree when git can answer for the directory, the walk when
+                     it cannot - and the row names which one it used, because a
+                     scan that read nothing must never be readable as a clean
+                     one.
+    platform         #132. Nothing in this plugin read the operating system.
+                     hooks\hooks.json invokes `powershell` by that name in every
+                     registration and every path composed anywhere is
+                     NTFS-shaped, so a non-Windows machine is a SILENT
+                     non-install. Only the PASS branch is reachable from a
+                     Windows runner, and the case says so.
+    claude-version   #132. Three of the registered events were read out of one
+                     specific binary; on a build without them the registrations
+                     are inert, and an inert hook is silent while the banner
+                     goes on counting the modules that need them as active. All
+                     three states are driven - unread, below, at or above -
+                     because an unread build must not render as one that was
+                     read and matched. Since #218 that distinction lives in the
+                     row's DETAIL and not in its status: unread is a PASS whose
+                     text says it was not read, and only a build that WAS read
+                     and disagrees warns. Cases 27 and 28 assert the exit code
+                     on both sides of that line, because it is the exit code
+                     that #218 was about.
 
-  It does NOT drive the other seven checks, and a green run here says nothing
-  about them. In particular it says nothing about sessionstart, which is owned
-  by a separate issue and deliberately untouched here.
+  It does NOT drive the other four checks. Case 25 establishes that they RAN and
+  nothing else, and a green run here says nothing about what any of them
+  answered.
+
+  IT ALSO DRIVES ONE THING THAT IS NOT A CHECK AT ALL: the informational roster
+  at the foot of the report - the per-gate paragraphs and the module table that
+  used to be bin\lwg-status.ps1, a report command now deleted. Cases 16-18 are
+  about the BOUNDARY that move has to keep rather than about the content: the
+  roster must print, it must print below the RESULT: line, it must add no row
+  the header counts, and the exit code must stay the one the tally implies. A
+  report merged into a diagnosis is one edit away from becoming part of the
+  diagnosis, and every gate here ships OFF, so a leak would fail a correct
+  default install.
+
+  AND IT PINS WHICH CHECKS EXIST AT ALL. Case 25 asserts the SET of check ids
+  the doctor printed against the literal list at $script:ExpectedCheckIds, for
+  the reason written above that list: until it existed, a doctor with a whole
+  Invoke-Check block deleted reported 19 of 19 and exit 0 here. It is the only
+  thing in this file that says anything about the other four checks, and what it
+  says is that they RAN - never what they answered.
 
   ---------------------------------------------------------------------------
   HOW A CASE IS RUN, AND WHY IT CANNOT REACH THE OPERATOR'S OWN STATE
@@ -71,16 +132,35 @@
   ---------------------------------------------------------------------------
   BASELINES - each case states its own, and they are not all the same
   ---------------------------------------------------------------------------
-  fd8d023 is the baseline for every case here. Both defects predate the current
-  wave and the two checks are byte-identical between fd8d023 and 19bb85d apart
-  from the lw-gmhh -> lw-watchtower rename, so the red proof was taken by
-  restoring bin\, lib\ and statusline\ to fd8d023 with this file left in place.
+  fd8d023 is the baseline for every case here. All three defects predate the
+  current wave and the three checks are byte-identical between fd8d023 and
+  19bb85d apart from the lw-gmhh -> lw-watchtower rename, so the red proof was
+  taken by restoring bin\, lib\ and statusline\ to fd8d023 with this file left
+  in place. The two #42 cases added afterwards were proved red against the tree
+  they landed in, which carries that check unchanged from fd8d023.
 
-  SEVEN OF THE SIXTEEN CASES PASS AT fd8d023 TOO, and every one of them is
-  labelled CONTROL in its name and in its comment. None is offered as evidence
-  that anything was fixed. They exist because the cheapest way to pass the other
-  nine is to answer "not ours" to everything and "FAIL" to every config, and the
-  controls are what make that not work.
+  ELEVEN OF THE THIRTY CASES ARE LABELLED CONTROL, in the name and in the
+  comment. None is offered as evidence that anything was fixed. They exist
+  because the cheapest way to pass the others is to answer "not ours" to
+  everything, "FAIL" to every config, "PASS" to every log, to read no file at
+  all and to WARN at every build, and the controls are what make that not work.
+  EIGHT of the eleven pass at fd8d023 too. The two #204 controls do not - they
+  assert the phrase naming the enumeration, which no row carried there - and
+  neither does the #132 one, over a check that did not exist there.
+
+  THE #204 CASES BASELINE ON c3e4139, NOT ON fd8d023 - that is the tree the
+  defect was reproduced on and the tree they were proved red against, and each
+  says so in its own comment.
+
+  NINE OF THE THIRTY HAVE NO fd8d023 BASELINE AT ALL - cases 16-18, on the
+  informational roster, which did not exist there and is not a defect being
+  fixed; case 24, on a code path that did not exist there either; case 25, which
+  pins WHICH CHECKS RUN and would pass at fd8d023 only for a doctor carrying the
+  same ids; and cases 26-29, on the platform and build rows, which no earlier
+  tree carries at all - their red is the absence of the row, and Get-DoctorRow
+  returning found = $false is never a pass here. They pin a boundary rather than
+  a repair, and their red proof is a mutation or an absent row stated in their
+  own comment, not an old commit.
 
   ---------------------------------------------------------------------------
   WHAT IS DELIBERATELY NOT COVERED
@@ -107,9 +187,16 @@
     prose says the HH segment will not be rendered for a foreign status line;
     nothing here executes anything to confirm that, and
     tests\setup_merge.ps1 section 23 is where the renderer is driven.
-  * THE OTHER SEVEN CHECKS, and the doctor's exit code on anything but the two
+  * THE OTHER FIVE CHECKS, and the doctor's exit code on anything but the three
     rows below. Case 3 asserts exit 1 for a seeded non-boolean switch because
-    that is the fault's contract with a caller; no other case reads the code.
+    that is the fault's contract with a caller. Cases 17 and 18 read the code
+    without asserting a VALUE for it - 17 requires it to equal what the printed
+    tally implies, 18 requires the -Quiet run to match the loud one - so neither
+    says anything about which code a healthy tree produces.
+  * WHAT THE ROSTER SAYS. Cases 16-18 assert that it renders, where it renders
+    and what it may not touch. Whether a gate's `resolved:` line is CORRECT is
+    tests\gate_delegate.ps1 section P, which drives the same block against
+    fixture configs this suite has no way to build.
   * CONFIGINVALIDFLAG IN THE EVENT LOG. Test-LwgFlag writes one and no command
     surfaces it. Surfacing it is a new capability rather than this defect, and
     nothing here asserts on the log's contents.
@@ -125,14 +212,26 @@
 #>
 [CmdletBinding()]
 param(
-    # Repo root. Defaults to this file's parent, correct for a run from anywhere
+    # The PLUGIN PAYLOAD root - lw-watchtower\ under this file's parent, not the
+    # repository root, which is what this parameter meant before the restructure, correct for a run from anywhere
     # as long as this file stays in tests\.
     [string]$Root
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Split-Path -Parent $PSScriptRoot }
+# THE PAYLOAD ROOT, WHICH IS NO LONGER THE REPOSITORY ROOT. `Split-Path -Parent
+# $PSScriptRoot` is the parent of tests\, and tests\ stayed at the repository
+# root while the shipped plugin moved under lw-watchtower/. Everything this
+# suite composes off $Root - bin\, lib\, config.json, statusline\ - is payload,
+# so $Root is the payload root and the default says so in one place rather than
+# in every Join-Path below it.
+#
+# WHY THE DEFAULT AND NOT A -Root FROM CI. Neither .github\workflows\ci.yml nor
+# tests\doc_claims.ps1's sibling runner passes -Root at any invocation, so a
+# suite's default is the only value it ever gets on either route. Putting the
+# knowledge here is the only place it can be put.
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Join-Path (Split-Path -Parent $PSScriptRoot) 'lw-watchtower' }
 
 $ManifestPath = Join-Path $Root '.claude-plugin\plugin.json'
 
@@ -146,6 +245,49 @@ $script:Work    = ''
 # statusline\statusline.ps1 carries on a comment line near its top. A third
 # spelling of it in this file is a third place for it to go stale.
 $script:Marker = 'LWG-STATUSLINE-IDENTITY'
+
+# THE CHECK SURFACE, PINNED BY IDENTITY AND NOT BY SIZE (#205).
+#
+# WHAT WAS WRONG. This suite could not tell that a check had DISAPPEARED. An
+# independent QA agent deleted a whole Invoke-Check block from a scratch copy of
+# bin\lwg-doctor.ps1 and ran the suite against it:
+#
+#     doctor with 8 checks  ->  19 of 19, exit 0
+#     doctor with 7 checks  ->  19 of 19, exit 0
+#
+# Green both times. The reason is that the one case reading the header - the
+# roster case - asserts the printed rows against the number the DOCTOR derived
+# at run time, and header and rows come from the same ArrayList. They agree at
+# any count. That derivation is correct and stays: it is why the doctor has
+# never transcribed its own number and why the count could not drift silently
+# when agent-roles was deleted with verification_gate. The gap was that nothing
+# held the other end.
+#
+# WHY NOT `Rows.Count -eq 8`. A bare count buys the guard and hands back the
+# coupling tax this project has already measured (#195): a number asserted here
+# AND in every page that counts checks, so adding one check moves assertions
+# across the tree. Worse, it reports a smaller number and leaves the reader to
+# work out which check went.
+#
+# WHAT THIS LIST IS. The IDENTITY of the surface, and it is deliberately a
+# literal - a list derived from the doctor would be the same tautology the
+# header/rows comparison already is. It fails loudly and NAMES the id when a
+# check vanishes; it fails when one is ADDED too, which is the moment that
+# check's documentation and every row-count claim need writing, so the failure
+# is the reminder; and it reads as a decision in the diff - `+ 'platform'` says
+# something, `8 -> 9` does not. The count stays derived everywhere else.
+$script:ExpectedCheckIds = @(
+    'plugin-manifest'
+    'marketplace'
+    'hooks-declared'
+    'config-registry'
+    'state-dir'
+    'sessionstart'
+    'statusline'
+    'commands'
+    'platform'
+    'claude-version'
+)
 
 function Add-Result {
     param([string]$Name, [bool]$Ok, [string]$Detail)
@@ -214,13 +356,58 @@ function Invoke-Doctor {
       stdout is captured and stderr is deliberately NOT merged with 2>&1: in
       Windows PowerShell 5.1 that wraps a native command's stderr in
       NativeCommandError records and corrupts both the output and $?.
-    #>
-    param([string]$ProfileDir, [string]$StateDir)
 
+      -DoctorPath NAMES A DIFFERENT COPY and defaults to the one shared tree
+      every other case drives. The #204 cases need a SECOND plugin copy - one
+      with a real .git and an index - because the shared copy is made by
+      Copy-PluginTree, which drops .git by design, and the enumeration under
+      test is exactly "the tracked tree, or the filesystem when git cannot
+      answer". Passing the path is preferred to reassigning $script:DoctorPath:
+      a case that forgot to put it back would silently move every case after it
+      onto a tree it was not written for.
+
+      CLAUDE_CODE_VERSION IS A FOURTH SANDBOX VARIABLE and it is SEEDED rather
+      than cleared. It is seeded to make every case in this file INDEPENDENT OF
+      THE MACHINE IT RUNS ON: the variable is inherited, and a host that carried
+      an old value would put a claude-version WARN - and therefore exit 2 - on
+      every case here that has nothing to do with what it seeded. The default
+      seed is the verified build READ OUT OF lib\common.ps1, never spelled here:
+      a second copy of that number in this file is a second thing to go stale,
+      and it would go stale silently in the direction of a passing case.
+
+      IT USED TO BE SEEDED FOR A SECOND REASON THAT NO LONGER HOLDS, recorded
+      because the seed outlived it. An unread build was a WARN until #218, so a
+      sandbox that left the variable unset put every exit-0 case in this file on
+      a permanent warning and case 1 could not establish that a healthy tree
+      reaches 0. An unread build is now a PASS whose detail says it was not
+      read, so an unset variable no longer costs the run its exit code - case 27
+      is exactly that assertion. The seed stays for the first reason only.
+
+      -Build overrides the seed, and passing '' clears the variable outright,
+      which is how the "the build was not read" case is driven. An omitted
+      -Build is not the same as an empty one; $PSBoundParameters is what tells
+      them apart.
+
+      CLAUDE_CODE_VERSION IS A FIFTH SANDBOX VARIABLE AND IT IS CLEARED (#146).
+      The statusline check resolves the configuration directory through
+      lib\common.ps1's Get-LwgClaudeHomeInfo, whose precedence puts
+      CLAUDE_CONFIG_DIR AHEAD of USERPROFILE - so on a machine that sets it,
+      every case here would silently run against the operator's real
+      configuration directory instead of the scratch profile it seeded, and the
+      statusline cases would report on somebody's live settings.json. Cleared by
+      default, and -ConfigDir is how the one case that wants it set gets it.
+    #>
+    param([string]$ProfileDir, [string]$StateDir, [switch]$QuietRun, [string]$DoctorPath, [string]$Build, [string]$ConfigDir)
+
+    if ([string]::IsNullOrWhiteSpace($DoctorPath)) { $DoctorPath = $script:DoctorPath }
+    $seedBuild = if ($PSBoundParameters.ContainsKey('Build')) { $Build } else { $script:VerifiedBuild }
+
+    $prevV = $env:CLAUDE_CODE_VERSION
     $prev  = $env:USERPROFILE
     $prevD = $env:CLAUDE_PLUGIN_DATA
     $prevR = $env:CLAUDE_PLUGIN_ROOT
     $prevC = $env:CLAUDE_CODE_PLUGIN_CACHE_DIR
+    $prevH = $env:CLAUDE_CONFIG_DIR
     $out  = ''
     $code = 255
     try {
@@ -228,7 +415,17 @@ function Invoke-Doctor {
         $env:CLAUDE_PLUGIN_DATA           = $StateDir
         $env:CLAUDE_PLUGIN_ROOT           = ''
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = ''
-        $lines = & powershell -NoProfile -ExecutionPolicy Bypass -File $script:DoctorPath
+        $env:CLAUDE_CONFIG_DIR            = $ConfigDir
+        $env:CLAUDE_CODE_VERSION          = $seedBuild
+        # -Quiet is passed as a real switch on the child's command line rather
+        # than spliced into a string: the only case that uses it asserts what
+        # the shipped switch does, and a hand-built argument list is a second
+        # thing that can be wrong.
+        $lines = if ($QuietRun) {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $DoctorPath -Quiet
+        } else {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $DoctorPath
+        }
         $code  = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
         $out   = ($lines | Out-String)
     } finally {
@@ -236,6 +433,8 @@ function Invoke-Doctor {
         $env:CLAUDE_PLUGIN_DATA           = $prevD
         $env:CLAUDE_PLUGIN_ROOT           = $prevR
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = $prevC
+        $env:CLAUDE_CONFIG_DIR            = $prevH
+        $env:CLAUDE_CODE_VERSION          = $prevV
     }
     return @{ code = $code; out = $out }
 }
@@ -265,7 +464,7 @@ function Get-DoctorRow {
     param([string]$Text, [string]$Id)
 
     foreach ($line in ($Text -split "`r?`n")) {
-        $m = [regex]::Match($line, '^\s+\[(PASS|WARN|FAIL)\]\s+(\S+)\s+(.*)$')
+        $m = [regex]::Match($line, '^\s+\[(PASS|INFO|WARN|FAIL)\]\s+(\S+)\s+(.*)$')
         if ($m.Success -and $m.Groups[2].Value -eq $Id) {
             return @{ found = $true; status = $m.Groups[1].Value; detail = $m.Groups[3].Value.Trim() }
         }
@@ -348,6 +547,30 @@ function Get-EventLogLeafName {
     return $m.Groups[1].Value
 }
 
+function Get-VerifiedBuild {
+    <#
+      The Claude Code build the hook events were read out of, READ OUT OF
+      lib\common.ps1 rather than spelled here - the same rule, and for the same
+      reason, as Get-EventLogLeafName above it.
+
+      Every case in this file that expects exit 0 depends on the seeded build
+      being at or above this number, so a second copy of it here would go stale
+      silently in the direction of a case that passes. When the plugin's
+      verified build moves, the seed moves with it because it IS it.
+
+      A build that cannot be read ABORTS. Guessing one would seed a version
+      below the real number and turn every exit-0 case into a WARN nobody wrote.
+    #>
+    param([string]$CommonSource)
+
+    $txt = [IO.File]::ReadAllText($CommonSource, [Text.Encoding]::UTF8)
+    $m = [regex]::Match($txt, '\$script:LwgVerifiedBuild\s*=\s*''([^'']+)''')
+    if (-not $m.Success) {
+        throw "could not read `$script:LwgVerifiedBuild out of $CommonSource, so no case here could seed the build the claude-version check compares against"
+    }
+    return $m.Groups[1].Value
+}
+
 function New-HealthyCase {
     <#
       A case tree whose sandbox the doctor can actually return EXIT 0 for.
@@ -387,13 +610,153 @@ function New-HealthyCase {
     return $t
 }
 
+function Add-LogFiller {
+    <#
+      Append well-formed event records that are NOT SessionStart until the log
+      is at least $MinBytes long, and return the length it reached.
+
+      THE RECORDS ARE VALID JSON ON PURPOSE. Check 6 skips a line it cannot
+      parse, so filler that does not decode would prove only that the check
+      ignores garbage. What is under test is a window, so the filler has to be
+      the thing a window pushes out: real records the check reads and discards
+      because their event is not the one it wants.
+
+      Written in ONE append rather than per record. A 9 MB log built line by
+      line through the filesystem costs minutes; built in memory and written
+      once it costs milliseconds, and the file on disk is identical.
+    #>
+    param([string]$Path, [int]$MinBytes)
+
+    $have = if ([IO.File]::Exists($Path)) { (Get-Item -LiteralPath $Path).Length } else { 0 }
+    $enc  = New-Object Text.UTF8Encoding($false)
+    $sb   = New-Object Text.StringBuilder
+    $n    = 0
+    while (($have + $sb.Length) -lt $MinBytes) {
+        $rec = [ordered]@{
+            event = 'PostToolUse'
+            ts    = (Get-Date).ToUniversalTime().ToString('o')
+            n     = $n
+            pad   = ('x' * 160)
+        }
+        [void]$sb.AppendLine((ConvertTo-Json -InputObject ([pscustomobject]$rec) -Depth 5 -Compress))
+        $n++
+    }
+    [IO.File]::AppendAllText($Path, $sb.ToString(), $enc)
+    return (Get-Item -LiteralPath $Path).Length
+}
+
+function Invoke-GitQuiet {
+    <#
+      One git command in $Dir. Returns its exit code and swallows both streams.
+
+      stderr is sent to nul and ErrorActionPreference is dropped to 'Continue'
+      for the call. In Windows PowerShell 5.1 a native command's stderr comes
+      back as NativeCommandError records under 'Stop', and git writes to stderr
+      on the ordinary path - `init` prints its hint, `add` prints the CRLF
+      warning - so without this every case below would ABORT the suite on a
+      command that succeeded.
+
+      -1 means git could not be invoked at all. That is never treated as a pass
+      by any case here: a case that cannot build its fixture says so and fails,
+      because a skipped case that reports success is the failure mode this
+      whole suite exists to argue against.
+    #>
+    param([string]$Dir, [string[]]$GitArgs)
+
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $all = @('-C', $Dir) + $GitArgs
+        # Reset first: a missing git binary leaves $LASTEXITCODE untouched, and
+        # a stale 0 from some earlier native call would read as success.
+        $global:LASTEXITCODE = -1
+        & git @all 2>$null | Out-Null
+        return $(if ($null -eq $LASTEXITCODE) { -1 } else { $LASTEXITCODE })
+    } catch {
+        return -1
+    } finally { $ErrorActionPreference = $eap }
+}
+
+function New-PluginCopy {
+    <#
+      A SECOND copy of the plugin tree, its own directory under the work root,
+      returned as @{ root; doctor }.
+
+      The shared $Plug copy cannot be used for the #204 cases: they plant an
+      untracked file in the tree, and a plant left in the copy every other case
+      runs would change what those cases measure. A fresh copy per case keeps
+      each fixture to itself.
+    #>
+    param([string]$Tag, [string]$From)
+
+    $root = Join-Path $script:Work ($Tag + '-tree')
+    Copy-PluginTree -From $From -To $root
+    return @{ root = $root; doctor = (Join-Path $root 'bin\lwg-doctor.ps1') }
+}
+
+function Initialize-TrackedCopy {
+    <#
+      Turn a plugin copy into a real repository with a real index: `git init`
+      then `git add`, so `git ls-files` inside it answers with exit 0 and a
+      non-empty listing. No commit is made - ls-files reads the INDEX, and a
+      commit would need an identity this suite has no business setting.
+
+      -Only restricts what is added, which is how the zero-references case is
+      built: a tree where git answers and the answer is one file that mentions
+      no command at all.
+
+      Returns the number of files git then lists, or -1 if any git call failed.
+      The caller asserts on that rather than assuming the fixture was built.
+    #>
+    param([string]$Root, [string[]]$Only)
+
+    # A branch name is supplied so git does not print its default-branch advice,
+    # and autocrlf is pinned off so a checkout's global setting cannot rewrite
+    # bytes on the way into the index.
+    if ((Invoke-GitQuiet -Dir $Root -GitArgs @('-c', 'init.defaultBranch=fixture', 'init', '-q')) -ne 0) { return -1 }
+    $add = if ($Only) { @('-c', 'core.autocrlf=false', 'add', '--') + $Only }
+           else       { @('-c', 'core.autocrlf=false', 'add', '-A') }
+    if ((Invoke-GitQuiet -Dir $Root -GitArgs $add) -ne 0) { return -1 }
+
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $global:LASTEXITCODE = -1
+        $listed = & git -C $Root -c core.quotePath=false ls-files 2>$null
+        if ($LASTEXITCODE -ne 0) { return -1 }
+        return @($listed | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
+    } catch { return -1 } finally { $ErrorActionPreference = $eap }
+}
+
+function Add-UntrackedOffender {
+    <#
+      An untracked file in the plugin copy's root that references two command
+      names which do not exist - the shape of the generated-output directory
+      that reproduced #198's failure chain from a checkout whose TRACKED tree
+      was clean.
+
+      The names are built from the manifest's own plugin id and are deliberately
+      names no commands\*.md carries. Returns the path written.
+    #>
+    param([string]$Root, [string]$PluginName)
+
+    $dir = Join-Path $Root 'generated-output'
+    [void][IO.Directory]::CreateDirectory($dir)
+    $f = Join-Path $dir 'notes.md'
+    [IO.File]::WriteAllText($f,
+        "generated output, no part of the plugin`r`n" +
+        "run /${PluginName}:tripped then /${PluginName}:status to see the ledger`r`n",
+        (New-Object Text.UTF8Encoding($false)))
+    return $f
+}
+
 function Get-RowMap {
     <# Every row in a doctor report as id -> status. Used only to compare two
        runs of the SAME sandbox against each other. #>
     param([string]$Text)
     $map = [ordered]@{}
     foreach ($line in ($Text -split "`r?`n")) {
-        $m = [regex]::Match($line, '^\s+\[(PASS|WARN|FAIL)\]\s+(\S+)\s+(.*)$')
+        $m = [regex]::Match($line, '^\s+\[(PASS|INFO|WARN|FAIL)\]\s+(\S+)\s+(.*)$')
         if ($m.Success) { $map[$m.Groups[2].Value] = $m.Groups[1].Value }
     }
     return $map
@@ -463,7 +826,7 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 try {
     Write-Output 'LW-WATCHTOWER doctor behaviour regression suite'
     Write-Output "  repo    : $Root"
-    Write-Output '  under   : bin\lwg-doctor.ps1, checks config-registry and statusline only'
+    Write-Output '  under   : bin\lwg-doctor.ps1, checks config-registry, statusline, sessionstart, commands, platform and claude-version only'
     Write-Output ''
 
     foreach ($p in @((Join-Path $Root 'bin\lwg-doctor.ps1'),
@@ -502,6 +865,10 @@ try {
     }
 
     $LogLeaf = Get-EventLogLeafName -DoctorSource $script:DoctorPath
+
+    # Read from the COPY, which is the lib\common.ps1 the doctor under test
+    # dot-sources - not from the checkout, which is one file removed from it.
+    $script:VerifiedBuild = Get-VerifiedBuild -CommonSource (Join-Path $Plug 'lib\common.ps1')
 
     # -------------------------------------------------------------------
     # 1. CONTROL, and it passes at fd8d023 too.
@@ -660,6 +1027,121 @@ try {
     Add-Result 'the modules-block row says the module stays ON, which is the polarity' `
         ($row.found -and $row.detail -match '(?i)stays ON') `
         "expected the detail to say the module stays on; got [$($row.status)] $($row.detail)"
+
+    # -------------------------------------------------------------------
+    # 6a. #11. AN OPERATOR OVERRIDE THAT WAS READ AND THEN DISCARDED.
+    #
+    #     Since 3 September 2026 config.json is the SHIPPED DEFAULTS and nothing
+    #     writes it: the operator's ON/OFF choices go to config.override.json
+    #     under the state directory, and Get-LwgConfig merges that over the
+    #     defaults. It IGNORES an override it cannot parse rather than throwing -
+    #     the right polarity, because a half-written settings file must not arm a
+    #     gate and must not take the plugin down - and carries the reason out in
+    #     _override_error.
+    #
+    #     _source IS STILL 'file' ON THAT PATH, which is why this needs its own
+    #     case. config.json parsed perfectly; it is the second document that did
+    #     not. So every check below, the roster at the foot and the SessionStart
+    #     banner report the SHIPPED DEFAULTS while an operator's entire
+    #     configuration sits in a file nothing read - and until this row the
+    #     doctor called that machine healthy and exited 0. Both configuring
+    #     commands already refuse to write in this state and name the file; this
+    #     is the reporting half of the same rule.
+    #
+    #     THE FIXTURE IS TRUNCATED JSON, not gibberish: it is what a settings
+    #     file looks like after a crashed or interrupted write, which is how an
+    #     operator gets into this state without doing anything wrong.
+    #
+    #     BASELINE c39e782: '[PASS] config-registry  parses; all 9 module flags
+    #     match the registry exactly ...' and exit 0 - the doctor reported a
+    #     healthy machine over a configuration it had thrown away.
+    # -------------------------------------------------------------------
+    Set-CaseConfig -Mutate $null
+    $t = New-HealthyCase -Tag 'cfg-override-broken' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $ovBroken = Join-Path $t.state 'config.override.json'
+    [IO.File]::WriteAllText($ovBroken, '{ "modules": { "docs_coupling": fal',
+                            (New-Object Text.UTF8Encoding($false)))
+    $rOv  = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $rowOv = Get-DoctorRow -Text $rOv.out -Id 'config-registry'
+
+    Add-Result 'an operator override that does not parse FAILS config-registry, naming the file (#11)' `
+        ($rowOv.found -and $rowOv.status -eq 'FAIL' -and
+         $rowOv.detail -match [regex]::Escape($ovBroken) -and $rowOv.detail -match '(?i)ignored') `
+        ("expected FAIL naming $ovBroken and saying its contents are being ignored; got [$($rowOv.status)] $($rowOv.detail). " +
+         "config.json parses here, so _source is 'file' and the existing checks see nothing wrong. Full output:`n$($rOv.out)")
+
+    # -------------------------------------------------------------------
+    # 6b. THE SAME SEED, READ THE WAY A CALLER READS IT. Same argument as
+    #     case 3: a row that says FAIL under an exit 0 is a diagnosis nothing
+    #     acts on, and case 1 established that this sandbox reaches 0 without
+    #     the seed.
+    #
+    #     BASELINE c39e782: exit 0.
+    # -------------------------------------------------------------------
+    Add-Result 'a discarded override makes the doctor exit 1, not 0 (#11)' `
+        ($rOv.code -eq 1) `
+        "expected exit 1; got $($rOv.code), and case 1 showed this sandbox reaching 0 without the seed. Full output:`n$($rOv.out)"
+
+    # -------------------------------------------------------------------
+    # 6c. AND THE ROSTER SAYS WHICH FILE, beside the one it already names.
+    #
+    #     The `config:` line at the foot of the report named config.json alone,
+    #     which on a configured machine credits every operator setting to a file
+    #     that holds none of them. The wording is lifted from bin\lwg-config.ps1's
+    #     own source line so the two commands describe one machine in one
+    #     vocabulary.
+    #
+    #     THE ROSTER IS NOT A ROW, so this is asserted against the whole report
+    #     text. It is also informational and cannot fail the run, which is
+    #     exactly why the row above exists as well: a reader who stops at the
+    #     verdict must still be told.
+    #
+    #     BASELINE c39e782: the line read 'resolved for repo: ...   config:
+    #     config.json' and said nothing about an override at all.
+    # -------------------------------------------------------------------
+    Add-Result 'and the roster names the discarded override rather than crediting config.json (#11)' `
+        ($rOv.out -match ('(?m)^\s+resolved for repo:.*override: IGNORED - ' + [regex]::Escape($ovBroken))) `
+        "expected the roster's resolved-for-repo line to carry 'override: IGNORED - $ovBroken'. Full output:`n$($rOv.out)"
+
+    # -------------------------------------------------------------------
+    # 6d. CONTROL. A VALID override is NOT a finding, and the roster names it.
+    #
+    #     Without this, "FAIL whenever an override exists" passes 6a, 6b and 6c
+    #     and breaks every configured machine - which is the shape of over-fix
+    #     this file's other controls exist to catch. The override here switches a
+    #     real module off, which is the ordinary state of any machine that has
+    #     ever run /lw-watchtower:config.
+    #
+    #     BASELINE c39e782: the row PASSED (correctly) and the roster named no
+    #     override, so the second half of this case is red there and the first
+    #     is green - which is what makes it a control rather than a duplicate.
+    # -------------------------------------------------------------------
+    $t2 = New-HealthyCase -Tag 'cfg-override-valid' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $ovGood = Join-Path $t2.state 'config.override.json'
+    [IO.File]::WriteAllText($ovGood, '{ "modules": { "docs_coupling": false } }',
+                            (New-Object Text.UTF8Encoding($false)))
+    $rGood  = Invoke-Doctor -ProfileDir $t2.profile -StateDir $t2.state
+    $rowGood = Get-DoctorRow -Text $rGood.out -Id 'config-registry'
+
+    Add-Result 'CONTROL: a VALID override is not a finding, and the roster names it as the file in effect (#11)' `
+        ($rowGood.found -and $rowGood.status -eq 'PASS' -and $rGood.code -eq 0 -and
+         $rGood.out -match ('(?m)^\s+resolved for repo:.*override: ' + [regex]::Escape($ovGood))) `
+        ("expected a PASS row, exit 0 and the roster naming $ovGood; got [$($rowGood.status)] at exit $($rGood.code). Full output:`n$($rGood.out)")
+
+    # -------------------------------------------------------------------
+    # 6e. CONTROL. NO override at all - a fresh install - says so positively.
+    #
+    #     'none - these are the shipped defaults' is not decoration: the other
+    #     two states are a path, and a blank there would be indistinguishable
+    #     from a line that failed to render. This is also what stops the roster
+    #     printing the word `override` only when something is wrong, which would
+    #     make its absence the thing a reader has to notice.
+    #
+    #     BASELINE c39e782: no override text on that line in any state.
+    # -------------------------------------------------------------------
+    Add-Result 'CONTROL: with no override the roster says so, rather than leaving the line silent (#11)' `
+        ($clean.out -match '(?m)^\s+resolved for repo:.*override: none - these are the shipped defaults') `
+        "case 1's sandbox has no config.override.json, so the roster must say so positively. Full output:`n$($clean.out)"
 
     # -------------------------------------------------------------------
     # 7. #55. A THIRD PARTY'S STATUS LINE MUST NOT BE DIAGNOSED AS OURS.
@@ -869,7 +1351,661 @@ try {
         "expected a WARN saying provenance was not established, with no remedy anywhere in the report; got [$($row.status)] $($row.detail). Full output:`n$($r.out)"
 
     # -------------------------------------------------------------------
-    # 16. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
+    # 16-18. THE INFORMATIONAL ROSTER AT THE FOOT, AND THE THING IT MUST NOT
+    #        TOUCH.
+    #
+    #        bin\lwg-status.ps1 was a report command with no other job; it is
+    #        deleted, and the one thing it printed that the doctor did not - a
+    #        paragraph per gate and a per-module ON/OFF listing - moved to the
+    #        foot of bin\lwg-doctor.ps1. THE RISK THE MOVE CREATES IS THE ONLY
+    #        REASON THESE CASES EXIST: a report merged into a diagnosis is one
+    #        edit away from becoming part of the diagnosis. An OFF gate is the
+    #        SHIPPED state of all three gates this plugin has, so a roster that
+    #        leaked into the verdict would turn a correct default install into
+    #        "NOT healthy" - the false alarm this repository exists to prevent,
+    #        pointing the other way.
+    #
+    #        WHY THE ASSERTIONS ARE SHAPED THE WAY THEY ARE, since the obvious
+    #        shape is wrong. "The doctor still exits 0" cannot be used: the copy
+    #        this suite drives is the checkout, its commands check scans the
+    #        whole tree, and the moment any tracked file references a command
+    #        whose markdown is gone that check FAILS for reasons that have
+    #        nothing to do with this block. So case 17 DERIVES the expected code
+    #        from the RESULT tally the doctor printed - a tally computed above
+    #        the roster, from rows the roster cannot add to - and asserts the
+    #        process agreed with it. That holds at exit 0, 1 and 2 alike, and it
+    #        goes red exactly when the roster starts moving the verdict.
+    #
+    #        BASELINE: there is no fd8d023 baseline for these three. The block
+    #        did not exist there and neither did the command it came from in its
+    #        current shape; what they pin is the boundary the move must keep,
+    #        and the red proof for that boundary is a mutation rather than an
+    #        old commit. Case 17 records both mutations, what each case actually
+    #        reported under them, and the one mutation shape neither reaches.
+    # -------------------------------------------------------------------
+
+    # -------------------------------------------------------------------
+    # 16. IT RENDERS, IT RENDERS AFTER THE VERDICT LINE, AND IT ADDS NO ROW.
+    #
+    #     Four facts, and the last is the one with teeth. The doctor's header
+    #     counts CHECKS, Get-DoctorRow and the CI log both key on the
+    #     `  [PASS] id  detail` row shape, and this suite's other fifteen cases
+    #     read rows by that pattern - so a roster line that happened to be
+    #     shaped like a row would be read as a tenth check by every one of them.
+    #     The count of row-shaped lines is therefore asserted against the number
+    #     in the header rather than against a literal 9, which keeps this case
+    #     true when a tenth check is written on purpose and false when the
+    #     roster grows one by accident.
+    # -------------------------------------------------------------------
+    Set-CaseConfig -Mutate $null
+    $t = New-HealthyCase -Tag 'roster-render' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $rr = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+
+    $hdr        = [regex]::Match($rr.out, '(?m)^LW-WATCHTOWER doctor - (\d+) checks')
+    $rowLines   = @([regex]::Matches($rr.out, '(?m)^\s+\[(?:PASS|INFO|WARN|FAIL)\]\s+\S+'))
+    $iResult    = $rr.out.IndexOf('RESULT:')
+    $iRoster    = $rr.out.IndexOf('WHAT IS SWITCHED ON')
+    $gateBlock  = ($rr.out -match '(?m)^\s+GATES\s*$' -and
+                   $rr.out -match '(?m)^\s+delegate_gate\s+(LIVE|OFF)' -and
+                   $rr.out -match '(?m)^\s+switch  :' -and
+                   $rr.out -match '(?m)^\s+in file :' -and
+                   $rr.out -match '(?m)^\s+resolved:' -and
+                   $rr.out -match '(?m)^\s+code    :')
+    $modTable   = ($rr.out -match '(?m)^\s+MODULE\s+KIND\s+BUILT\s+ENABLED\s+STATE' -and
+                   $rr.out -match '(?m)^\s+delegate_gate\s+gate\s+')
+    $counts     = ($rr.out -match '(?m)^\s+\d+ gate\(s\) SHIPPED:' -and $rr.out -match '(?m)^\s+\d+ gate\(s\) LIVE:')
+    $rowsMatchHeader = ($hdr.Success -and $rowLines.Count -eq [int]$hdr.Groups[1].Value)
+
+    Add-Result 'the informational roster renders below RESULT: and adds no check row' `
+        ($hdr.Success -and $rowsMatchHeader -and $iRoster -gt 0 -and $iResult -gt 0 -and
+         $iRoster -gt $iResult -and $counts -and $gateBlock -and $modTable) `
+        ("header said $(if ($hdr.Success) { $hdr.Groups[1].Value } else { '<no header>' }) check(s) and " +
+         "$($rowLines.Count) row-shaped line(s) were printed; roster at index $iRoster, RESULT: at index $iResult; " +
+         "SHIPPED/LIVE counts $(if ($counts) { 'present' } else { 'MISSING' }); " +
+         "gate paragraph $(if ($gateBlock) { 'present' } else { 'MISSING' }); " +
+         "module table $(if ($modTable) { 'present' } else { 'MISSING' }). Full output:`n$($rr.out)")
+
+    # -------------------------------------------------------------------
+    # 17. THE EXIT CODE IS THE ONE THE TALLY IMPLIES, WITH THE ROSTER PRINTED.
+    #
+    #     3 beats 1 beats 2 beats 0 is the doctor's own contract; the roster is
+    #     not in it. This reads the RESULT: line the doctor printed, derives the
+    #     code that line demands, and requires the process to have exited on it
+    #     while the roster was on screen. It asserts NOTHING about which code
+    #     that is, so it survives the commands check going red on a tree whose
+    #     docs are mid-reconciliation.
+    #
+    #     RED PROOF, AND IT IS A MUTATION RATHER THAN A COMMIT. Both mutations
+    #     below were applied to bin\lwg-doctor.ps1, run, and reverted against a
+    #     checksum before this file was kept. What each reported is quoted,
+    #     because "it would go red" is a prediction and this repository has
+    #     already been bitten by one written as a fact.
+    #
+    #       exit 2 as the last statement inside the roster's try
+    #           this case went RED: "the doctor printed 'RESULT: 8 passed,
+    #           0 warning(s), 1 failure(s)', which demands exit 1, and the
+    #           process exited 2 with the roster printed". Case 3 caught it too,
+    #           which is worth knowing rather than hiding - it is not the only
+    #           net under an exit-code change. CASE 18 STAYED GREEN, correctly:
+    #           both its runs exited 2, so a code moved identically in both is
+    #           invisible to a case that compares them.
+    #       a Write-Output '  [WARN] roster  leaked' inside the roster
+    #           CASE 16 went red, this one did not: "header said 9 check(s) and
+    #           10 row-shaped line(s) were printed". A line that only LOOKS like
+    #           a row cannot move an exit code, and case 16 is the one that sees
+    #           it - which is why the pair is kept rather than either alone.
+    #
+    #     WHAT NEITHER MUTATION REACHES, said plainly: an `Add-Row` inside the
+    #     roster is INERT and would leave every case here green. $fails, $warns
+    #     and $pass are snapshotted, the rows printed, and the verdict decided
+    #     ABOVE the roster, so a row appended below changes nothing observable.
+    #     That is a property of the ordering rather than of these cases, and if
+    #     the roster is ever moved above the report it stops holding.
+    # -------------------------------------------------------------------
+    $tally = [regex]::Match($rr.out, '(?m)^RESULT: (\d+) passed, (\d+) warning\(s\), (\d+) failure\(s\)')
+    $want  = -1
+    if ($tally.Success) {
+        $want = if ([int]$tally.Groups[3].Value -gt 0) { 1 }
+                elseif ([int]$tally.Groups[2].Value -gt 0) { 2 }
+                else { 0 }
+    }
+    Add-Result 'the roster does not move the exit code: it is still the one the tally implies' `
+        ($tally.Success -and $iRoster -gt 0 -and $rr.code -eq $want) `
+        ("the doctor printed '$(if ($tally.Success) { $tally.Value } else { '<no RESULT: line>' })', which demands " +
+         "exit $want, and the process exited $($rr.code) with the roster $(if ($iRoster -gt 0) { 'printed' } else { 'ABSENT - so nothing about it was established' }). " +
+         "Full output:`n$($rr.out)")
+
+    # -------------------------------------------------------------------
+    # 18. -Quiet DROPS THE MODULE TABLE AND KEEPS THE GATES.
+    #
+    #     The PR template runs the doctor with -Quiet, so the quiet path is the
+    #     one a reviewer actually sees. A gate that can refuse a tool call is
+    #     not noise at any verbosity and must survive; a thirteen-row inventory
+    #     of observers is, and must not. The exit code is asserted identical to
+    #     the loud run over the SAME sandbox, which is the -Quiet contract the
+    #     script's own param block states: quiet changes what is shown, never
+    #     what is judged.
+    # -------------------------------------------------------------------
+    $rq = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -QuietRun
+    $qGates = ($rq.out -match '(?m)^\s+GATES\s*$' -and $rq.out -match '(?m)^\s+delegate_gate\s+(LIVE|OFF)')
+    $qTable = ($rq.out -match '(?m)^\s+MODULE\s+KIND\s+BUILT\s+ENABLED\s+STATE')
+    Add-Result '-Quiet keeps the gate paragraphs, drops the module table, and changes no code' `
+        ($qGates -and -not $qTable -and $rq.code -eq $rr.code) `
+        ("with -Quiet the gate paragraphs were $(if ($qGates) { 'kept' } else { 'DROPPED - a live gate can now go unreported at the verbosity the PR template uses' }) " +
+         "and the module table was $(if ($qTable) { 'STILL PRINTED' } else { 'dropped' }); " +
+         "exit was $($rq.code) against $($rr.code) for the same sandbox without -Quiet. Full output:`n$($rq.out)")
+
+    # -------------------------------------------------------------------
+    # 19-21. #42. THE READ WINDOW IS A BOUND ON THE READ, NOT EVIDENCE OF
+    #        ABSENCE.
+    #
+    #        Check 6 read at most the last 256 KB of the event log and, finding
+    #        no SessionStart in it, reported "the hook is not firing" and failed
+    #        the run. "I could not look far enough back" and "the hook is not
+    #        firing" are different statements, and bin\lwg-doctor.ps1's own
+    #        header argues that distinction for the exit codes - "'I found a
+    #        fault' and 'I could not look' are different statements, and
+    #        collapsing them would let a crashed doctor be read as a diagnosis".
+    #        The three cases below are the three answers that distinction
+    #        requires, and only the middle one is a fault.
+    #
+    #        THE OTHER SHAPE IN THE ISSUE IS NOT COVERED AND CANNOT OCCUR.
+    #        #42 also describes a SessionStart inside the window that is not the
+    #        newest on disk. Everything inside a tail window is newer than
+    #        everything outside it, so the record the loop keeps is always the
+    #        last one in the file - there is no case to write.
+    # -------------------------------------------------------------------
+
+    # -------------------------------------------------------------------
+    # 19. A SessionStart PUSHED OUT OF THE 256 KB TAIL IS STILL THERE.
+    #
+    #     The sandbox is a HEALTHY one - the hook fired, the self-check ran and
+    #     passed, the record is minutes old - and then 300 KB of ordinary
+    #     records are appended after it, which is one long session or one
+    #     regression run. Nothing about the install changed.
+    #
+    #     BASELINE fd8d023 (and every commit up to this one):
+    #       [FAIL] sessionstart  event log exists but holds no SessionStart
+    #                            record - the hook is not firing
+    #     and VERDICT: NOT healthy, exit 1, on a machine where the hook is
+    #     firing correctly. That is the defect.
+    # -------------------------------------------------------------------
+    $t = New-HealthyCase -Tag 'ss-past-window' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $ssLog = Join-Path $t.state $LogLeaf
+    $ssLen = Add-LogFiller -Path $ssLog -MinBytes 300000
+    $ss    = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $row   = Get-DoctorRow -Text $ss.out -Id 'sessionstart'
+    Add-Result 'a SessionStart older than the 256 KB tail is not reported as a hook that is not firing' `
+        ($row.found -and $row.status -eq 'PASS' -and $ss.code -eq 0) `
+        ("the log is $ssLen bytes and its ONE SessionStart record is the first line, so it sits outside a 256 KB tail; " +
+         "expected [PASS] and exit 0, got [$($row.status)] $($row.detail) at exit $($ss.code). Full output:`n$($ss.out)")
+
+    # -------------------------------------------------------------------
+    # 20. CONTROL, and it passes at fd8d023 too. A LOG THIS CHECK READ IN FULL
+    #     AND FOUND NOTHING IN IS STILL A FAULT.
+    #
+    #     The cheapest way to pass case 19 is to stop failing, and this is what
+    #     stops that: a log SHORTER than the window, read end to end, holding no
+    #     SessionStart. Absence was established here, so the fault claim is
+    #     earned and the wording an operator acts on must survive.
+    # -------------------------------------------------------------------
+    $t = New-HealthyCase -Tag 'ss-whole-file-miss' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $ssLog = Join-Path $t.state $LogLeaf
+    [IO.File]::WriteAllText($ssLog, '', (New-Object Text.UTF8Encoding($false)))
+    $ssLen = Add-LogFiller -Path $ssLog -MinBytes 40000
+    $ss    = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $row   = Get-DoctorRow -Text $ss.out -Id 'sessionstart'
+    Add-Result 'CONTROL sessionstart: a log read in full with no SessionStart in it is still a FAIL' `
+        ($row.found -and $row.status -eq 'FAIL' -and $row.detail -match 'not firing' -and $ss.code -eq 1) `
+        ("the log is $ssLen bytes, well inside the window, so the whole file was read and the absence IS established; " +
+         "expected a [FAIL] naming the hook and exit 1, got [$($row.status)] $($row.detail) at exit $($ss.code). Full output:`n$($ss.out)")
+
+    # -------------------------------------------------------------------
+    # 21. A LOG TOO LARGE TO READ IN FULL, WITH NO SessionStart FOUND, IS "I
+    #     COULD NOT LOOK" AND NOT "IT IS NOT FIRING".
+    #
+    #     9 MB is past the widest read check 6 will make, so the check reaches
+    #     the end of what it is willing to read without an answer. That is the
+    #     third state, and the row has to say which of the two it is: WARN, with
+    #     a detail that says the check could not look far enough back, and NOT a
+    #     FAIL that sends an operator to reinstall a working plugin.
+    #
+    #     THE SIZE IS DELIBERATELY ABOVE THE ROTATION THRESHOLD. Invoke-LwgLogRotate
+    #     caps the live log at 5 MB, so a file this big means rotation is not
+    #     running either - which is a real thing to find out, and still not a
+    #     statement about the SessionStart hook.
+    #
+    #     BASELINE fd8d023: [FAIL] ... the hook is not firing, exit 1.
+    # -------------------------------------------------------------------
+    $t = New-HealthyCase -Tag 'ss-past-widest' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $ssLog = Join-Path $t.state $LogLeaf
+    [IO.File]::WriteAllText($ssLog, '', (New-Object Text.UTF8Encoding($false)))
+    $ssLen = Add-LogFiller -Path $ssLog -MinBytes 9437184
+    $ss    = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $row   = Get-DoctorRow -Text $ss.out -Id 'sessionstart'
+    Add-Result 'a log too large to read in full is reported as unread, not as a hook that is not firing' `
+        ($row.found -and $row.status -eq 'WARN' -and $row.detail -match 'far enough back' -and $row.detail -notmatch 'the hook is not firing') `
+        ("the log is $ssLen bytes with no SessionStart anywhere in it, which is past what this check reads, so nothing here established absence; " +
+         "expected a [WARN] saying it could not look far enough back, got [$($row.status)] $($row.detail) at exit $($ss.code). Full output:`n$($ss.out)")
+
+    # -------------------------------------------------------------------
+    # 22-24. #204. THE commands CHECK ENUMERATES THE TRACKED TREE, AND SAYS SO.
+    #
+    #        The check walked the filesystem under the plugin root with two name
+    #        filters and scanned everything else, tracked or not. So its verdict
+    #        moved with whatever happened to be lying in the checkout: an
+    #        untracked directory of generated output carrying references to six
+    #        commands deleted on 2 September 2026 produced
+    #
+    #          [FAIL] commands  <plugin>:status is referenced in
+    #                           scratch-out\notes.md but commands\status.md does
+    #                           not exist; <plugin>:tripped is referenced
+    #                           in scratch-out\notes.md but commands\tripped.md
+    #                           does not exist
+    #
+    #        THE TWO NAMES ARE WRITTEN WITHOUT THEIR LEADING SLASH ABOVE AND
+    #        EVERYWHERE ELSE IN THIS FILE. The check under test scans .ps1 files
+    #        and this is one of them, so a live-looking reference in a comment
+    #        fails the check on its own explanation - which is exactly what
+    #        happened on the first run of these cases, and the doctor's own
+    #        comment on this check warns about it for the same reason. The
+    #        fixture builds its references at run time from the manifest's
+    #        plugin id instead.
+    #
+    #        from a checkout whose `git status --short` listed nothing but that
+    #        untracked directory. That is a false FAIL over a directory that is
+    #        no part of the plugin, and a false FAIL is the expensive direction:
+    #        it teaches an operator to ignore the doctor.
+    #
+    #        THE THREE CASES ARE THE THREE STATES, and the third is the one that
+    #        stops the fix being worse than the defect. A marketplace install has
+    #        no .git, `git ls-files` exits 128 there and enumerates nothing, and
+    #        "scanned 0 files" must never become a silent pass - so the fallback
+    #        has to be real, and a tracked tree with nothing in it has to keep
+    #        failing.
+    #
+    #        EACH CASE BUILDS ITS OWN COPY OF THE PLUGIN TREE. The shared copy
+    #        every other case drives is made by Copy-PluginTree, which drops
+    #        .git, so it is the no-git shape by construction and a plant left in
+    #        it would follow every later case.
+    # -------------------------------------------------------------------
+
+    # -------------------------------------------------------------------
+    # 22. AN UNTRACKED OFFENDER IN A TRACKED TREE IS NOT THE PLUGIN'S PROBLEM.
+    #
+    #     The copy is git init'd and everything in it added, THEN the offender
+    #     is planted - so the tracked tree is clean and the working directory is
+    #     not, which is the exact state that reproduced this. The row must PASS
+    #     and must name the enumeration it used, because a reader who cannot
+    #     tell which tree was measured cannot tell a real clean sweep from a
+    #     scan that quietly read nothing.
+    #
+    #     BASELINE: the tree this landed on. Run against it, this case reports
+    #     '[FAIL] <plugin>:status is referenced in generated-output\notes.md
+    #     but commands\status.md does not exist; ...' - the defect, reproduced
+    #     inside the suite.
+    # -------------------------------------------------------------------
+    Set-CaseConfig -Mutate $null
+    $c204   = New-PluginCopy -Tag 'cmd-tracked' -From $Root
+    $nTrack = Initialize-TrackedCopy -Root $c204.root
+    $plant  = Add-UntrackedOffender -Root $c204.root -PluginName $PluginName
+    $t      = New-HealthyCase -Tag 'cmd-tracked-case' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $cr     = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -DoctorPath $c204.doctor
+    $row    = Get-DoctorRow -Text $cr.out -Id 'commands'
+    Add-Result 'commands: an untracked file referencing commands that do not exist does not fail a clean tracked tree' `
+        ($nTrack -gt 0 -and $row.found -and $row.status -eq 'PASS' -and $row.detail -match 'tracked tree') `
+        ("git listed $nTrack tracked file(s) in the copy and $plant was planted untracked afterwards; " +
+         "expected a [PASS] whose detail names the tracked tree, got [$($row.status)] $($row.detail). " +
+         $(if ($nTrack -le 0) { 'THE FIXTURE WAS NOT BUILT - git could not init or add, so this case established nothing. ' } else { '' }) +
+         "Full output:`n$($cr.out)")
+
+    # -------------------------------------------------------------------
+    # 23. CONTROL. THE SAME OFFENDER, IN A TREE WITH NO .git, STILL FAILS.
+    #
+    #     The cheapest way to pass case 22 is to stop reading the offending file
+    #     at all, and this is what stops that. A marketplace install has no
+    #     index; the walk is then the only enumeration there is, and it must
+    #     still find a signpost to a command that does not exist. The detail has
+    #     to say it was the filesystem, so the operator reading a FAIL knows
+    #     that an untracked file could be the cause of it.
+    #
+    #     BASELINE: passes on the tree this landed on too, apart from the
+    #     enumeration phrase - the walk is what that tree always did.
+    # -------------------------------------------------------------------
+    $c204b = New-PluginCopy -Tag 'cmd-nogit' -From $Root
+    $plant = Add-UntrackedOffender -Root $c204b.root -PluginName $PluginName
+    $t     = New-HealthyCase -Tag 'cmd-nogit-case' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $cr    = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -DoctorPath $c204b.doctor
+    $row   = Get-DoctorRow -Text $cr.out -Id 'commands'
+    $hasGit = [IO.Directory]::Exists((Join-Path $c204b.root '.git'))
+    Add-Result 'CONTROL commands: with no tracked tree to read, the filesystem walk still finds the bad reference' `
+        (-not $hasGit -and $row.found -and $row.status -eq 'FAIL' -and
+         $row.detail -match 'tripped' -and $row.detail -match 'filesystem') `
+        ("the copy has no .git ($(if ($hasGit) { 'IT DOES - the fixture is wrong' } else { 'confirmed' })) and $plant references two commands that do not exist; " +
+         "expected a [FAIL] naming them and saying it enumerated the filesystem, got [$($row.status)] $($row.detail). Full output:`n$($cr.out)")
+
+    # -------------------------------------------------------------------
+    # 24. CONTROL. A TRACKED TREE THAT MENTIONS NO COMMAND AT ALL IS A BROKEN
+    #     SCAN, NOT A CLEAN ONE.
+    #
+    #     git answers, exit 0, and lists ONE file that carries no /<plugin>:*
+    #     reference - which is also the shape of a plugin unpacked inside some
+    #     other repository, where every one of its files is untracked. Zero
+    #     references means the scan proved nothing, and the row has to say that
+    #     rather than report a clean command surface. Without this case the fix
+    #     for #204 could pass every tree by finding nothing in it.
+    #
+    #     BASELINE: no fd8d023 baseline - the tracked path did not exist there.
+    #     Its red is the mutation of deleting the $refs.Count guard, which is
+    #     the guard this case exists to hold.
+    # -------------------------------------------------------------------
+    $c204c = New-PluginCopy -Tag 'cmd-empty' -From $Root
+    [IO.File]::WriteAllText((Join-Path $c204c.root 'nothing-to-see.md'),
+        "a tracked file that mentions no command`r`n", (New-Object Text.UTF8Encoding($false)))
+    $nOnly = Initialize-TrackedCopy -Root $c204c.root -Only @('nothing-to-see.md')
+    $t     = New-HealthyCase -Tag 'cmd-empty-case' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $cr    = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -DoctorPath $c204c.doctor
+    $row   = Get-DoctorRow -Text $cr.out -Id 'commands'
+    Add-Result 'CONTROL commands: a tracked tree holding no command reference at all FAILS as a broken scan' `
+        ($nOnly -eq 1 -and $row.found -and $row.status -eq 'FAIL' -and
+         $row.detail -match 'proved nothing' -and $row.detail -match 'tracked tree') `
+        ("git listed $nOnly tracked file(s), none of which names a command; " +
+         "expected a [FAIL] saying the scan proved nothing and naming the tracked tree, got [$($row.status)] $($row.detail). " +
+         $(if ($nOnly -ne 1) { 'THE FIXTURE WAS NOT BUILT as one tracked file, so this case established nothing. ' } else { '' }) +
+         "Full output:`n$($cr.out)")
+
+    # -------------------------------------------------------------------
+    # 25. #205. THE DOCTOR RUNS EXACTLY THESE CHECKS, BY NAME.
+    #
+    #     The one case above that reads the header compares it against the rows
+    #     the same run printed, and both come from $script:Rows - so they agree
+    #     at any count, and a check deleted by an edit, a bad merge or a
+    #     refactor left every suite in this repository green. That was proved by
+    #     mutation, not argued: a doctor with a whole Invoke-Check block removed
+    #     reported 19 of 19, exit 0.
+    #
+    #     This is the other end. $script:ExpectedCheckIds is a literal list, and
+    #     the reasoning for a SET rather than a count is written above it.
+    #
+    #     THE ABORT PATH IS ASSERTED, NOT ASSUMED. On exit 3 the doctor prints a
+    #     FRAGMENT of a checkup, and a fragment is missing ids for a reason that
+    #     is not a deleted check. A case that compared the sets anyway would go
+    #     red with the wrong message, so the abort is read first and named.
+    #
+    #     IT DOES NOT LOOK AT STATUS. Two of the eight FAIL on any machine where
+    #     the plugin is not installed under ~\.claude\plugins\data, which is a
+    #     property of the machine and not a defect; the sandbox here seeds both
+    #     of them green anyway. What is pinned is which checks RAN, and that is
+    #     true at PASS, WARN and FAIL alike.
+    #
+    #     RED PROOF, A MUTATION, RUN WHOLE AND QUOTED RATHER THAN PREDICTED.
+    #     Both were applied to a scratch copy of the tree, run with -Root at it,
+    #     and the copy thrown away.
+    #
+    #       the marketplace Invoke-Check block deleted
+    #           BEFORE this case existed: 25 of 25, exit 0, over a doctor with
+    #           seven checks - the hole, reproduced.
+    #           AFTER: this case RED - "missing: marketplace; unexpected: none;
+    #           the doctor printed 7 distinct row id(s)". No other case moved.
+    #       Add-Row -Id 'phantom' -Status 'PASS' appended to that block
+    #           AFTER: this case RED - "missing: none; unexpected: phantom; the
+    #           doctor printed 9 distinct row id(s)". Case 16 stayed GREEN: the
+    #           row is real, so the header counts it and the two still agree.
+    #           That is the pair - 16 sees a line that only LOOKS like a row,
+    #           this one sees a row that should not be there.
+    # -------------------------------------------------------------------
+    Set-CaseConfig -Mutate $null
+    $t  = New-HealthyCase -Tag 'check-surface' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $cs = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $ids        = @((Get-RowMap -Text $cs.out).Keys)
+    $aborted    = ($cs.code -eq 3 -or $cs.out -match '(?m)^ABORTED:')
+    $missing    = @($script:ExpectedCheckIds | Where-Object { $ids -notcontains $_ })
+    $unexpected = @($ids | Where-Object { $script:ExpectedCheckIds -notcontains $_ })
+    Add-Result 'the doctor runs exactly the check ids this suite names - none missing, none unexpected' `
+        (-not $aborted -and $missing.Count -eq 0 -and $unexpected.Count -eq 0) `
+        ("missing: $(if ($missing.Count) { $missing -join ', ' } else { 'none' }); " +
+         "unexpected: $(if ($unexpected.Count) { $unexpected -join ', ' } else { 'none' }); " +
+         "the doctor printed $($ids.Count) distinct row id(s): $($ids -join ', ')" +
+         $(if ($aborted) { '. THE DOCTOR ABORTED - the report is a fragment of a checkup, so the missing ids above are not evidence that any check was deleted' } else { '' }) +
+         ". Full output:`n$($cs.out)")
+
+    # -------------------------------------------------------------------
+    # 25b. #118. NO marketplace.json BESIDE THE PLUGIN ROOT IS THE CORRECT
+    #      STATE, AND IT MUST NOT COST THE OPERATOR AN EXIT CODE.
+    #
+    #      Before the payload restructure `"source": "./"` shipped the whole
+    #      repository, so .claude-plugin\marketplace.json sat beside the plugin
+    #      root on every route and this row was PASS everywhere. The payload is
+    #      now lw-watchtower/ and marketplace.json stays at the MARKETPLACE root
+    #      - one directory above the plugin on the dev route, and not copied at
+    #      all on the cache route. Its absence is therefore the designed
+    #      arrangement on every healthy install that exists.
+    #
+    #      WHAT THIS CASE IS ACTUALLY PROTECTING. The row used to fire WARN, and
+    #      a WARN is counted into the caveat tally, which is `VERDICT: working,
+    #      with N caveat(s)` and EXIT 2. Left alone, the restructure would have
+    #      turned /lw-watchtower:doctor from exit 0 to exit 2 on every machine,
+    #      permanently, for a fault no install has - the "reports a fault it
+    #      does not have" failure, which is the same defect as reporting health
+    #      it cannot see and is the one this command is named for.
+    #
+    #      SO THE ASSERTION IS THREE-PART and each part fails differently:
+    #      the row is INFO (not WARN, not FAIL, not a silent PASS over a file
+    #      that is not there); its detail says WHY the absence is correct, so an
+    #      operator reading the report is not left to guess; and INFO moves
+    #      NEITHER the pass tally nor the warning tally, which is what keeps the
+    #      verdict arithmetic honest.
+    #
+    #      THE SANDBOX IS THE PROOF, not a contrivance. Copy-PluginTree copies
+    #      $Root, and $Root is the payload root, so the plugin copy this case
+    #      drives has exactly the shape a consumer's cache copy has: no
+    #      .claude-plugin\marketplace.json anywhere beneath it. Before the
+    #      restructure the same copy carried one and this row read PASS.
+    #
+    #      RED AT a42b169, with only this file's change applied: the sandbox
+    #      still held marketplace.json, the row read [PASS], and this case
+    #      failed on the status. It is red for the right reason either way -
+    #      PASS before the move, WARN if the status is reverted after it.
+    # -------------------------------------------------------------------
+    $mkRow   = Get-DoctorRow -Text $cs.out -Id 'marketplace'
+    $mkTally = [regex]::Match($cs.out, '(?m)^RESULT: (\d+) passed, (\d+) warning\(s\), (\d+) failure\(s\), (\d+) informational')
+    $mkOk    = ($mkRow.found -and $mkRow.status -eq 'INFO' -and
+                $mkRow.detail -match '(?i)marketplace\.json' -and
+                $mkRow.detail -match '(?i)restructure' -and
+                $mkTally.Success -and [int]$mkTally.Groups[4].Value -ge 1)
+    Add-Result 'no marketplace.json beside the plugin root is INFO, is explained, and is counted as neither a pass nor a caveat' `
+        $mkOk `
+        ("expected [INFO] on the marketplace row with a detail naming marketplace.json and the restructure, and a RESULT: line whose informational count is at least 1; " +
+         "got [$(if ($mkRow.found) { $mkRow.status } else { '<no marketplace row>' })] $(if ($mkRow.found) { $mkRow.detail } else { '' }) " +
+         "and RESULT line '$(if ($mkTally.Success) { $mkTally.Value } else { '<no four-term RESULT: line>' })'. " +
+         "Full output:`n$($cs.out)")
+
+    # -------------------------------------------------------------------
+    # 26-29. #132. THE MACHINE AND THE BUILD.
+    #
+    #        Nothing in this plugin checked the operating system or the Claude
+    #        Code build. Three of the events hooks\hooks.json registers on were
+    #        read out of one specific binary; on a build that does not carry
+    #        them those registrations are inert, and the failure mode of an
+    #        inert hook is SILENCE - indistinguishable from a session in which
+    #        nothing went wrong - while the banner goes on counting the modules
+    #        that depend on them as active.
+    #
+    #        WHAT THESE CASES DO NOT REACH, said plainly rather than left to be
+    #        discovered: the platform FAIL. It needs a non-Windows machine, and
+    #        Get-LwgPlatformInfo reads [Environment]::OSVersion.Platform - which
+    #        no environment variable overrides and which lib\common.ps1 is not
+    #        this file's to seam. Case 26 drives the only branch reachable here
+    #        and says so; the FAIL branch is asserted by nothing, anywhere.
+    #
+    #        THE BUILD CASES DRIVE ALL THREE OF ITS STATES, because the middle
+    #        one is the whole point: an unread build must not render as a build
+    #        that was read and matched.
+    #
+    #        BASELINE: neither check existed before this commit, so there is no
+    #        fd8d023 baseline and no earlier tree to run them against. Their red
+    #        is the absence of the row - Get-DoctorRow returns found = $false,
+    #        which no case here treats as a pass.
+    # -------------------------------------------------------------------
+
+    # -------------------------------------------------------------------
+    # 26. THE PLATFORM ROW EXISTS, PASSES ON WINDOWS, AND NAMES THE MACHINE.
+    #
+    #     A weak case, deliberately labelled as one: it drives the branch that a
+    #     Windows runner can reach and asserts the row is present, is a PASS,
+    #     and reports the os and the interpreter rather than a bare word. The
+    #     FAIL branch - the silent non-install this row exists to name - is not
+    #     reachable from here and nothing below pretends it is.
+    # -------------------------------------------------------------------
+    Set-CaseConfig -Mutate $null
+    $t  = New-HealthyCase -Tag 'platform-row' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $pf = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $row = Get-DoctorRow -Text $pf.out -Id 'platform'
+    Add-Result 'the platform row runs, passes on Windows, and names the os and the interpreter' `
+        ($row.found -and $row.status -eq 'PASS' -and $row.detail -match "os 'windows'" -and $row.detail -match 'PowerShell \d') `
+        ("expected a [PASS] naming the os and the PowerShell it ran under; got [$($row.status)] $($row.detail). " +
+         "This case cannot reach the FAIL branch - that needs a machine this suite is not running on. Full output:`n$($pf.out)")
+
+    # -------------------------------------------------------------------
+    # 27. AN UNREAD BUILD IS "I DID NOT LOOK", IT SAYS SO IN WORDS, AND IT DOES
+    #     NOT COST THE RUN ITS EXIT CODE (#218).
+    #
+    #     CLAUDE_CODE_VERSION cleared outright - which is what EVERY real run
+    #     looks like, because the CLI never exports that variable. The row must
+    #     be present, must say the build was NOT read, must NOT claim the events
+    #     are present, and the run must still exit 0.
+    #
+    #     THE EXIT CODE IS THE POINT OF THIS CASE and it is asserted rather than
+    #     inferred. The row first shipped as a WARN, on the correct principle
+    #     that an unread version must not render as "read, and it matched" - but
+    #     since the variable is never set, that WARN fired on every machine on
+    #     every run and /doctor could not return 0 on a healthy install, which
+    #     is the regression #218 records. The principle is kept in the DETAIL:
+    #     the negatives below are what stops the fix from being "call it a PASS
+    #     and stop mentioning it".
+    #
+    #     Case 28 is the CONTROL: a version that IS readable and disagrees still
+    #     WARNs and still exits 2, so this case cannot be satisfied by making
+    #     the check unable to warn at all.
+    #
+    #     BASELINE 4342980: RED. The row is a [WARN] there and the run exits 2.
+    # -------------------------------------------------------------------
+    $t  = New-HealthyCase -Tag 'build-unread' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $bv = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -Build ''
+    $row = Get-DoctorRow -Text $bv.out -Id 'claude-version'
+    Add-Result 'a build that was never read is reported as unread, in words, and does not cost the run its exit 0' `
+        ($row.found -and $row.status -eq 'PASS' -and $row.detail -match 'was NOT read' -and
+         $row.detail -match 'SubagentStart' -and $row.detail -notmatch 'at or above' -and
+         $bv.code -eq 0) `
+        ("CLAUDE_CODE_VERSION was cleared for this child, which is what every real run looks like; expected a [PASS] " +
+         "saying the build was NOT read, naming the events at risk, and exit 0 - got [$($row.status)] $($row.detail) " +
+         "at exit $($bv.code). Full output:`n$($bv.out)")
+
+    # -------------------------------------------------------------------
+    # 28. CONTROL FOR 27. A BUILD BELOW THE VERIFIED ONE IS A WARN THAT NAMES
+    #     THE THREE EVENTS, AND IT STILL EXITS 2.
+    #
+    #     WARN and not FAIL: an older Claude Code is a real finding about the
+    #     machine, not a broken install, and the exit ladder already separates
+    #     the two. The seeded version is DERIVED from the verified build rather
+    #     than written here, so it stays below it when that number moves.
+    #
+    #     THE EXIT CODE IS ASSERTED HERE FOR THE SAME REASON IT IS ASSERTED IN
+    #     27 (#218). The cheapest way to make 27 pass is to stop this row ever
+    #     warning; this case is what that would cost. A version that WAS read
+    #     and disagrees is a fact about the machine, and it must still reach the
+    #     caller as exit 2 - bin\lwg-setup.ps1 and bin\lwg-update.ps1 both read
+    #     that code as "pass with caveats" and print the row.
+    # -------------------------------------------------------------------
+    $vb  = [version]$script:VerifiedBuild
+    $old = if ($vb.Major -ge 1) { "$($vb.Major - 1).0.0" } else { '0.0.1' }
+    $t   = New-HealthyCase -Tag 'build-old' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $bv  = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -Build $old
+    $row = Get-DoctorRow -Text $bv.out -Id 'claude-version'
+    Add-Result 'CONTROL claude-version: a Claude Code below the verified build WARNs, names the three events at risk, and still exits 2' `
+        ($row.found -and $row.status -eq 'WARN' -and $row.detail -match [regex]::Escape($old) -and
+         $row.detail -match 'BELOW' -and $row.detail -match 'SubagentStart' -and
+         $row.detail -match 'PostToolUseFailure' -and $row.detail -match 'StopFailure' -and
+         $bv.code -eq 2) `
+        ("the child was told it was Claude Code $old against a verified build of $($script:VerifiedBuild); " +
+         "expected a [WARN] saying BELOW, naming all three events, and exit 2 - got [$($row.status)] $($row.detail) " +
+         "at exit $($bv.code). Full output:`n$($bv.out)")
+
+    # -------------------------------------------------------------------
+    # 29. CONTROL. THE VERIFIED BUILD ITSELF PASSES, AND THE ROW STAYS HONEST
+    #     ABOUT WHAT IT PROVED.
+    #
+    #     The cheapest way to pass 27 and 28 is to WARN at every build, and this
+    #     is what stops that. It also pins the boundary case - equal to the
+    #     verified build is at or above it, not below it - and requires the PASS
+    #     to keep saying that a matching build is not evidence any event fired.
+    # -------------------------------------------------------------------
+    $t   = New-HealthyCase -Tag 'build-verified' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $bv  = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $row = Get-DoctorRow -Text $bv.out -Id 'claude-version'
+    Add-Result 'CONTROL claude-version: the verified build PASSES, and the row still says it proved no event fired' `
+        ($row.found -and $row.status -eq 'PASS' -and $row.detail -match [regex]::Escape($script:VerifiedBuild) -and
+         $row.detail -match 'BUILD ONLY' -and $bv.code -eq 0) `
+        ("the child was told it was Claude Code $($script:VerifiedBuild), which is the verified build itself; " +
+         "expected a [PASS] that still disclaims observed firing, and exit 0; got [$($row.status)] $($row.detail) at exit $($bv.code). Full output:`n$($bv.out)")
+
+    # -------------------------------------------------------------------
+    # 30. THE STATUSLINE CHECK READS THE CONFIGURATION DIRECTORY THE CLI
+    #     ACTUALLY USES, NOT $env:USERPROFILE + '.claude' (#146).
+    #
+    #     The setup is the whole case. TWO profiles: the healthy one, which has
+    #     the wired settings.json and a byte copy of the repo status line, and a
+    #     SECOND, EMPTY one. The child is then run with CLAUDE_CONFIG_DIR
+    #     pointing at the healthy profile's .claude and USERPROFILE pointing at
+    #     the empty one - which is the shape of every machine that relocates its
+    #     configuration directory, and which makes the two answers point at
+    #     different trees rather than at the same one by accident.
+    #
+    #     A check that composes the path from USERPROFILE finds nothing there
+    #     and FAILs. A check that resolves it through Get-LwgClaudeHomeInfo finds
+    #     the wired settings.json and PASSes. There is no reading of this case
+    #     that both answers satisfy, which is what the two profiles are for: a
+    #     single-profile version would pass on the composition and on the
+    #     resolution alike and would establish nothing.
+    #
+    #     THE DETAIL IS ASSERTED TOO, and not only the status. The row is
+    #     required to name which root answered, because the failure this case
+    #     exists to stop is not "the doctor errored" - it is the doctor
+    #     attesting a green status line against a settings.json the CLI never
+    #     loads, and a green row that does not say which file it read is exactly
+    #     as unreadable after the fix as before it.
+    #
+    #     THE CONTROL FOR THE OTHER BRANCH IS ALREADY HERE. Every statusline
+    #     case above runs with CLAUDE_CONFIG_DIR CLEARED - Invoke-Doctor clears
+    #     it for exactly this reason - and between them they drive this row
+    #     through PASS, WARN and FAIL off USERPROFILE alone. So a check that
+    #     satisfied this case by reading CLAUDE_CONFIG_DIR and nothing else
+    #     would take every one of them down with it, and the precedence is
+    #     pinned from both sides rather than from the side that changed. How
+    #     many of them there are is deliberately not written here - it is a
+    #     count, and "every one" is the claim that stays true when one is added.
+    #
+    #     BASELINE 4342980: RED. bin\lwg-doctor.ps1:507 reads
+    #     `Join-Path $env:USERPROFILE '.claude\settings.json'` there - the last
+    #     live composition of that shape in the tree - so the row FAILs with
+    #     "no settings file at <the empty profile>".
+    # -------------------------------------------------------------------
+    $t     = New-HealthyCase -Tag 'cfgdir-relocated' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $empty = Join-Path $t.dir 'empty-profile'
+    [void][IO.Directory]::CreateDirectory((Join-Path $empty '.claude'))
+    $relocated = Join-Path $t.profile '.claude'
+    $r   = Invoke-Doctor -ProfileDir $empty -StateDir $t.state -ConfigDir $relocated
+    $row = Get-DoctorRow -Text $r.out -Id 'statusline'
+    Add-Result 'the statusline check reads CLAUDE_CONFIG_DIR''s settings.json, not one composed from USERPROFILE' `
+        ($row.found -and $row.status -eq 'PASS' -and $row.detail -match 'statusline\.ps1' -and
+         $row.detail -notmatch 'no settings file at') `
+        ("CLAUDE_CONFIG_DIR named $relocated, which holds the wired settings.json, while USERPROFILE named " +
+         "$empty, which holds nothing. Expected a [PASS] naming the wired status line; got [$($row.status)] " +
+         "$($row.detail). A [FAIL] saying 'no settings file at' means the check composed the path from " +
+         "USERPROFILE and health-checked a file the CLI does not read. Full output:`n$($r.out)")
+
+    # -------------------------------------------------------------------
+    # 31. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
     #     pointed into the scratch tree; this asserts what that was supposed to
     #     buy rather than assuming it. Nothing under the operator's own
     #     ~\.claude\plugins\data\<plugin>* may have grown a byte or gained a
@@ -938,10 +2074,12 @@ if ($fail.Count -gt 0) {
 
 Write-Output ''
 Write-Output 'Every case above passed. Read that as "config-registry now asks the same'
-Write-Output 'question of a value that Test-LwgFlag and Test-LwgModule ask, and the'
+Write-Output 'question of a value that Test-LwgFlag and Test-LwgModule ask, the'
 Write-Output 'statusline check establishes whose file it is looking at before it diagnoses'
-Write-Output 'drift" - not as "the doctor is correct". Seven of its nine checks are driven'
-Write-Output 'by nothing here, no case executes the status line, and a file byte-identical'
+Write-Output 'drift, sessionstart tells a log it could not read to the end from a hook'
+Write-Output 'that is not firing, and commands measures the tracked tree and says so" - not as'
+Write-Output '"the doctor is correct". Four of its ten checks are driven by nothing here'
+Write-Output 'beyond the one case that establishes they RAN, no case executes the status line, and a file byte-identical'
 Write-Output 'to the repo copy is indistinguishable from an install by any content marker'
 Write-Output 'and is named in the header as not covered.'
 Write-Output 'EXIT: 0'

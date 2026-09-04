@@ -6,29 +6,34 @@
 | [FAQ](faq.md) | The questions a new user and a returning owner actually have, answered from the tree |
 | [Install](install.md) | Requirements, marketplace and junction installs, the separate status-line install |
 | [Configuration](configuration.md) | `config.json` in full — the switchboard, per-repo overrides, thresholds, per-module tuning |
-| [Modules](modules.md) | All ten: what each does, its blind spots, **`delegate_gate` — the one gate, and it ships off**, the two placeholders removed because they cannot be built, and the removal of the other two gates |
+| [Modules](modules.md) | Every declared module: what each does, its blind spots, **the three gates, all of which ship off**, the two placeholders removed because they cannot be built, and the removal of the two original gates |
 | [Gates were removed deliberately](gates-removed.md) | The rules a gate has to follow here, **what the trip ledger's removal means a new gate must rebuild**, what the four failed fix attempts taught, and what a future attempt must do differently |
-| [Commands](commands.md) | All twelve slash commands, their exit codes, and which of the three preference commands is enforced |
+| [Commands](commands.md) | All six slash commands, their exit codes, and what each one writes |
 | [Roles](roles.md) | The six agent roles the plugin ships, and when each is dispatched |
 | [Architecture](architecture.md) | File layout, hook registrations, measured costs, state directory, status line, failure policy |
-| [Testing and CI](testing.md) | **Thirteen files in `tests/`, ten of which test behaviour** — what each one establishes, the exit-code contract they share, the fourteen CI check steps, and what is therefore uncovered |
-| [UAT report (v0.3.0)](uat-report.md) | All twelve commands and the adversarial cases, run from a throwaway profile — per-item verdicts, the two installer defects it found, and **what a green UAT still does not establish** |
+| [Testing and CI](testing.md) | **Fourteen files in `tests/`, eleven of which test behaviour** — what each one establishes, the exit-code contract they share, the twenty CI check steps, and what is therefore uncovered |
 | [Portability](portability.md) | The no-local-environment-dependencies mandate, the scan that enforces it, and the allowlist rules |
-| [Output styles](output-styles.md) | The three verbosity levels and `plain` — and the four things they cannot do |
+| [Output styles](output-styles.md) | **Removed.** A tombstone for the deleted feature, kept because pages still link to it |
 | [Troubleshooting](troubleshooting.md) | Symptom-first index |
-| [Style compliance check](style-compliance-check.md) | Design note for an **unbuilt** check: what it could and could not measure |
-| [Monitors feasibility spike](monitors-spike.md) | Can any hook receive rate-limit or cost data? Method, evidence and **verdict: negative** — re-confirms and refines the [Modules](modules.md#attempted-and-blocked-ratelimit_escalation-and-cost_tracking) record on the same CLI build |
-| [Session transition and the effort daemon](session-transition-spec.md) | Four components, written around the negative verdict above: the status line is the only process that receives rate-limit data. **Component A, the signal bridge, is BUILT** — it no longer discards that data; see [the signal bridge](architecture.md#the-signal-bridge). The effort ledger, the out-of-process daemon and the transition skill are **still specification only** — with the trigger keyed to budget **times exposure** rather than budget alone |
 
 Project-level files live at the repo root: [README](../README.md),
 [CONTRIBUTING](../CONTRIBUTING.md), [SECURITY](../SECURITY.md),
 [CODE_OF_CONDUCT](../CODE_OF_CONDUCT.md), [CHANGELOG](../CHANGELOG.md).
 
+**What is not here.** Five pages left this directory. Four of them were moved rather than deleted:
+the v0.3.0 UAT record, the monitors feasibility spike, the style-compliance design note and the
+harness hosting plan are now maintainer notes under `.github/notes/`. The fifth, the
+session-transition specification, was deleted outright and lives on issue #168. GitHub Pages publishes `docs/` whole and has no exclusion
+mechanism, so a page in here is a page published to the open web — which is what those five were,
+without anyone having decided it. `tests/doc_claims.ps1` now holds this index to that: every page
+present under `docs/` must have a row above, because a page nobody indexed is a page nobody chose
+to publish.
+
 ## If you read only one thing
 
 **[Limitations](limitations.md).** It is the consolidated list of what this plugin does not do,
 cannot do, and does not check — including the largest single fact about it: both of the old gates
-went on 30 July 2026 by explicit owner decision, and the one gate built to replace them ships
+went on 30 July 2026 by explicit owner decision, and the three gates built since all ship
 switched off, so **as shipped nothing here can block, deny or delay a tool call.** Everything this
 project claims rests on being accurate about what it does not do.
 

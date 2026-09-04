@@ -29,7 +29,8 @@
   them to be wrong, and it would go green the day somebody updated it instead
   of the tree. So every expected value below is DERIVED at run time:
 
-    tests/ file count      git ls-files -- tests/*.ps1
+    tests/ file count      git ls-files -- tests/*.ps1, minus any the index
+                           still lists that the working tree has deleted
     behavioural suites     every tests/*.ps1 except this one is RUN; the ones
                            that report an "N of M case(s)" tally are the
                            behavioural suites, the ones that report violations
@@ -40,7 +41,7 @@
                            (`- name: Check out` uses an action and checks
                            nothing, so it is not one)
     doctor checks          bin\lwg-doctor.ps1 is run and its header parsed
-    command count          git ls-files -- commands/*.md
+    command count          git ls-files -- commands/*.md, same disk filter
     suite output contract  the RESULT: and EXIT: lines each sibling suite
                            prints are read off the run above, not asserted
                            from a list of which suites are supposed to have
@@ -147,6 +148,50 @@
   THAT sentence, not that its shape is right in general, and it says nothing
   about the phrasings nobody has written a pattern for - the four named holes
   above are all still open. A live pattern set is a floor, not a ceiling.
+
+  THE SAME RULE FIRED AGAIN WHEN checklist.json WAS DELETED, and this is the
+  record of what went with it. The manifest and the NINE rules derived from it
+  are gone; so is one pattern of a SURVIVING rule, which is the interesting
+  half - the rule lives on and only its checklist-fed phrasing died.
+
+  NINE, not four, and the difference is the point of that block's design: the
+  per-kind rule was GENERATED, one Test-Claim per distinct evidence.kind in the
+  manifest, so the number of rules was itself derived. The deleted file held 40
+  items over six kinds - ci 1, command 6, commit 2, file 22, hook 1, manual 8 -
+  which is 1 + 6 + 1 + 1 = 9 rules of one pattern each:
+
+    DELETED WHOLE, because the file they derived from no longer exists. Each
+    aborted this suite at `missing ...\checklist.json` before any claim was
+    read, so the tree got no verdict at all until they went:
+
+      checklist-item-total       `checklist.json` carries (N) items
+      checklist-kind:<kind>      SIX of these, one per evidence.kind above,
+                                 each reading its row of the histogram table in
+                                 docs/limitations.md
+      checklist-existence-only   (N) test nothing but existence
+      checklist-file-rules       of the (N) `file` rules
+
+    DELETED FROM A SURVIVING RULE, having gone dead by the liveness rule above:
+
+      command-count #4           surface is (N) commands
+                                 Its ONLY reader anywhere in the tree was
+                                 checklist.json's own P4-commands caveat -
+                                 "THE SURFACE IS TWELVE COMMANDS, down from
+                                 fourteen". CHANGELOG.md phrases it as "the
+                                 command surface is **twelve**," with no
+                                 `commands` after the number, and is exempt
+                                 whole in any case. The other three
+                                 command-count patterns still read live claims,
+                                 so the RULE is not blind - only this shape is
+                                 gone.
+
+  WHAT THAT COSTS, and it is not nothing: docs/limitations.md's evidence
+  histogram is now held to the tree by NOTHING. It was the page written to be
+  taken at face value about how little a green checklist established, its
+  figures were stale-by-one in both directions once already, and the rules that
+  caught that are the nine deleted above. The page describes a manifest that no
+  longer ships, so the honest repair is to delete the section rather than to
+  re-derive it, and that is a documentation pass and not this file's to make.
 
   THE DEAD-PATTERN CHECK RUNS BEFORE THE FAILURE REPORT, which is a choice and
   not an accident. On a tree that has BOTH a dead pattern and a stale number,
@@ -299,6 +344,15 @@
   Hole 1 stays open, named, and unfixed rather than closed by something that
   lies.
 
+  D CANNOT BE REPRODUCED AS WRITTEN ANY MORE, and the record is kept rather
+  than corrected because the CONCLUSION still stands. tests/evidence_states.ps1
+  has since been deleted, so the specific false accusation D produced no longer
+  has a suite to be made against. The argument does not depend on that one
+  sentence - it is that a window terminated only by the next SUITE name will
+  reach across an unrelated code block - so D is still refused. Anyone
+  re-running these rows will get different counts from a different tree; the
+  numbers above belong to 2 August 2026 and are not a prediction about today.
+
   On the version specifically, two limits are worth stating because a green run
   looks like more than it is. It reads DECLARATIONS, not prose - a page saying
   "the manifests declare 0.3.0" is invisible to it, on purpose, because the
@@ -333,6 +387,11 @@
                                  timeout, so its exit-2 abort can actually fire
     doctor-is-run-by-ci          no tracked page says the doctor is outside CI,
                                  because this file runs it on every push
+    docs-index-is-complete       every page under docs/ is linked from
+                                 docs/README.md, because GitHub Pages publishes
+                                 that whole directory to the open web and a page
+                                 nobody indexed is a page nobody decided to
+                                 publish. ONE DIRECTION ONLY - see the rule
 
   EXIT CODES - the same contract as this repo's other suites, and 2 is not a
   pass:
@@ -366,6 +425,22 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $script:RepoRoot = Split-Path -Parent $PSScriptRoot
+
+# THE PAYLOAD IS A SUBDIRECTORY NOW, AND THIS FILE NEEDS BOTH ROOTS. tests/,
+# docs/, .github/ and the root community-health files stayed where they were;
+# the shipped plugin moved under lw-watchtower/. Every $rel this file gets from
+# `git ls-files` is repo-relative and keeps resolving off $script:RepoRoot
+# unchanged - it is the HARDCODED payload paths, and the regexes that filter the
+# tracked list, that had to move.
+#
+# THE HARDCODE IS A CHECKED CLAIM, NOT A CONSTANT. Immediately after the
+# marketplace entry is resolved below, the declared `source` is compared against
+# $script:PayloadRel and the run ABORTS if they disagree - because a guard that
+# derived `command-count = 0` from a path that no longer exists would report
+# every "six commands" sentence in the tree as wrong, which is a worse failure
+# than not running at all.
+$script:PayloadRel  = 'lw-watchtower'
+$script:PayloadRoot = Join-Path $script:RepoRoot $script:PayloadRel
 $script:SelfPath = $MyInvocation.MyCommand.Path
 $script:Failures = @()
 $script:Passes   = 0
@@ -447,16 +522,37 @@ Say 'Deriving the truth from the tree.'
 Say ''
 
 # --- tracked files ---------------------------------------------------------
+# TRACKED **AND STILL ON DISK**, and the second half is not belt-and-braces.
+# `git ls-files` reads the INDEX, so a file deleted in the working tree and not
+# yet staged is still listed. A wave of deletions is exactly that state for as
+# long as it takes to stage them, and during it this file derived twelve slash
+# commands against six that ship and thirteen files in tests/ against twelve -
+# so `command-count` and `tests-file-count` would have failed every correct
+# sentence in the tree and passed the stale ones. Worse, the parallel sibling
+# runner below calls `Resolve-Path -LiteralPath` on every entry under
+# $ErrorActionPreference = 'Stop', so one deleted suite ended the whole run in
+# an unhandled exception - not even the exit-2 ABORT this file promises.
+#
+# THE PROSE LOOP FURTHER DOWN HAS ALWAYS DONE THIS (`if (-not (Test-Path ...))
+# { continue }`), so this is that convention extended to the two enumerations
+# that had been left out of it, not a new rule. Once the deletions are staged
+# the index and the disk agree and this filter is a no-op; it costs nothing and
+# it is what stops the guard reporting on files that are gone.
+function Test-StillOnDisk {
+    param([string]$Rel)
+    return (Test-Path -LiteralPath (Join-Path $script:RepoRoot ($Rel -replace '/', '\')) -PathType Leaf)
+}
+
 $tracked = Invoke-Git @('ls-files')
 if (-not $tracked -or $tracked.Count -eq 0) {
     Abort 'git ls-files returned nothing - the enumeration is broken, not the repo.'
 }
 
-$testFiles = @($tracked | Where-Object { $_ -match '^tests/.+\.ps1$' })
-if ($testFiles.Count -eq 0) { Abort 'no tracked files under tests/ - the enumeration is broken.' }
+$testFiles = @($tracked | Where-Object { $_ -match '^tests/.+\.ps1$' -and (Test-StillOnDisk $_) })
+if ($testFiles.Count -eq 0) { Abort 'no tracked files under tests/ are present on disk - the enumeration is broken.' }
 
-$commandFiles = @($tracked | Where-Object { $_ -match '^commands/.+\.md$' })
-if ($commandFiles.Count -eq 0) { Abort 'no tracked files under commands/ - the enumeration is broken.' }
+$commandFiles = @($tracked | Where-Object { $_ -match ('^' + [regex]::Escape($script:PayloadRel) + '/commands/.+\.md$') -and (Test-StillOnDisk $_) })
+if ($commandFiles.Count -eq 0) { Abort 'no tracked files under commands/ are present on disk - the enumeration is broken.' }
 
 # --- CI check steps --------------------------------------------------------
 # A CHECK STEP is a step that RUNS something. `- name: Check out` uses an
@@ -482,7 +578,7 @@ if ($ciSteps -eq 0) { Abort 'no named step in ci.yml carries a run: block - the 
 # --- module registry -------------------------------------------------------
 # Parsed out of lib/common.ps1 rather than dot-sourced: dot-sourcing a hook
 # library to count a hashtable runs its whole prologue for one number.
-$commonPath = Join-Path $script:RepoRoot 'lib\common.ps1'
+$commonPath = Join-Path $script:PayloadRoot 'lib\common.ps1'
 if (-not (Test-Path -LiteralPath $commonPath -PathType Leaf)) { Abort "missing $commonPath" }
 $commonText = Get-Content -Raw -LiteralPath $commonPath
 $regMatch = [regex]::Match($commonText,
@@ -549,8 +645,8 @@ $versionSites = @()
 # still-escaped bytes and turned every spelling it was too strict to see into a
 # silent pass. A guard is the last place that failure belongs, so the VALUE
 # comes from a real parse and the regex is used only to point at a line.
-$pluginRel   = '.claude-plugin/plugin.json'
-$pluginPath  = Join-Path $script:RepoRoot '.claude-plugin\plugin.json'
+$pluginRel   = "$($script:PayloadRel)/.claude-plugin/plugin.json"
+$pluginPath  = Join-Path $script:PayloadRoot '.claude-plugin\plugin.json'
 if (-not (Test-Path -LiteralPath $pluginPath -PathType Leaf)) { Abort "missing $pluginPath" }
 $pluginLines = @(Get-Content -LiteralPath $pluginPath)
 try { $pluginJson = ($pluginLines -join "`n") | ConvertFrom-Json }
@@ -578,8 +674,22 @@ $versionSites += [pscustomobject]@{
     Rel = $mktRel; Line = (Get-LineOf $mktLines '"version"\s*:'); Value = [string]$mktEntry[0].version
 }
 
-$cfgRel   = 'config.json'
-$cfgPath  = Join-Path $script:RepoRoot 'config.json'
+# THE PAYLOAD PATH THIS FILE HARDCODES, CHECKED AGAINST THE FILE THE CLI READS.
+# $script:PayloadRel appears in eight places above and below - the command
+# filter, the module registry, three version sites, the status line, hooks.json
+# and the plugin description. Every one of them would go quietly wrong together
+# if the subtree were renamed in marketplace.json and not here, and the failure
+# would not look like a broken guard: `command-count` would derive ZERO and this
+# suite would then report every "six commands" sentence in the tree as a stale
+# claim. That is a guard confidently reporting the opposite of the truth, which
+# is worse than one that does not run. So it aborts instead.
+$declaredSource = [string]$mktEntry[0].source
+if ($declaredSource -ne ('./' + $script:PayloadRel)) {
+    Abort ("$mktRel declares source '$declaredSource' but this guard resolved the payload at './$($script:PayloadRel)'. One of them is wrong and nothing below was checked.")
+}
+
+$cfgRel   = "$($script:PayloadRel)/config.json"
+$cfgPath  = Join-Path $script:PayloadRoot 'config.json'
 if (-not (Test-Path -LiteralPath $cfgPath -PathType Leaf)) { Abort "missing $cfgPath" }
 $cfgLines = @(Get-Content -LiteralPath $cfgPath)
 try { $cfgJson = ($cfgLines -join "`n") | ConvertFrom-Json }
@@ -594,11 +704,11 @@ $versionSites += [pscustomobject]@{
 # string would run a hook prologue, which is the same reason the module
 # registry above is parsed rather than loaded.
 $verLiterals = @(
-    @{ Rel = 'lib/common.ps1';        Path = 'lib\common.ps1';        Pattern = "\`$script:LwgVersion\s*=\s*'([^']+)'" }
-    @{ Rel = 'lib/session_start.ps1'; Path = 'lib\session_start.ps1'; Pattern = "(?m)^\s*\`$version\s*=\s*'([^']+)'" }
+    @{ Rel = "$($script:PayloadRel)/lib/common.ps1";        Path = 'lib\common.ps1';        Pattern = "\`$script:LwgVersion\s*=\s*'([^']+)'" }
+    @{ Rel = "$($script:PayloadRel)/lib/session_start.ps1"; Path = 'lib\session_start.ps1'; Pattern = "(?m)^\s*\`$version\s*=\s*'([^']+)'" }
 )
 foreach ($lit in $verLiterals) {
-    $litPath = Join-Path $script:RepoRoot $lit.Path
+    $litPath = Join-Path $script:PayloadRoot $lit.Path
     if (-not (Test-Path -LiteralPath $litPath -PathType Leaf)) { Abort "missing $litPath" }
     $litLines = @(Get-Content -LiteralPath $litPath)
     $litMatch = [regex]::Match(($litLines -join "`n"), $lit.Pattern)
@@ -634,7 +744,7 @@ if ($tagExit -eq 0 -and $publishedTags.Count -gt 0) { $tagsKnown = $true }
 # The doctor is RUN. Its exit code is deliberately ignored: it exits non-zero
 # on a real finding about the machine this happens to run on, and how many
 # checks it performs is a different question from whether they passed.
-$doctorPath = Join-Path $script:RepoRoot 'bin\lwg-doctor.ps1'
+$doctorPath = Join-Path $script:PayloadRoot 'bin\lwg-doctor.ps1'
 if (-not (Test-Path -LiteralPath $doctorPath -PathType Leaf)) { Abort "missing $doctorPath" }
 $doctorOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $doctorPath
 $doctorText = ($doctorOut -join "`n")
@@ -862,7 +972,7 @@ Say ''
 
 # --- how many files are in tests/ -----------------------------------------
 Test-Claim -Rule 'tests-file-count' -Expected $testFiles.Count `
-    -Source 'git ls-files -- tests/*.ps1' -Patterns @(
+    -Source 'git ls-files -- tests/*.ps1, present on disk' -Patterns @(
     '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+(?:test\s+)?files?\s+in\s+`tests/`',
     '(?i)`tests/`\s+holds\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+files?',
     '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+test\s+files?\s+remain',
@@ -1041,13 +1151,14 @@ Test-Claim -Rule 'ci-check-steps' -Expected $ciSteps `
 # THREE SHAPES ADDED ON 3 AUGUST 2026, AND WHAT THEY WERE MISSING.
 # docs/commands.md - the reference the doctor's own slash command points the
 # model at for what a row means - said "Eight" in three places and enumerated
-# eight names while bin\lwg-doctor.ps1 ran nine. The check it omitted,
-# `agent-roles`, is on by default and its FAIL is reachable - docs/uat-report.md
-# records it being deliberately provoked - so the reference was missing a row a
-# stranger could be shown.
-# It is NOT claimed here to be the likeliest failure: a fresh-install run
-# measured on 3 August produced [FAIL] state-dir and [FAIL] sessionstart with
-# agent-roles PASSING, so that ordering has not been established. None of the three sentences was read
+# eight names while bin\lwg-doctor.ps1 ran nine. The check it omitted was
+# `agent-roles`, which was on by default and whose FAIL was reachable -
+# docs/uat-report.md records it being deliberately provoked - so the reference
+# was missing a row a stranger could be shown. THAT CHECK HAS SINCE BEEN
+# DELETED along with the verification_gate module it served, which is why the
+# doctor derives EIGHT today; the shapes below are kept because they read live
+# sentences about whatever the count now is, not because agent-roles still
+# exists. None of the three sentences was read
 # here: each states the count as a bare noun phrase rather than after "runs" or
 # after the script's file name, which are the only two shapes this rule had.
 #
@@ -1074,90 +1185,12 @@ Test-Claim -Rule 'doctor-check-count' -Expected $doctorChecks `
     ('(?i)\bof\s+the\s+(?:\*\*)?(' + $script:NumWordPat + ')(?:\*\*)?\s+checks\b')
 )
 
-# --- what checklist.json's evidence rules are made of ----------------------
-# WHY A MANIFEST HISTOGRAM BELONGS IN A GUARD ABOUT PROSE.
-# docs/limitations.md's "Most checklist ticks rest on a file existing" is the
-# section that tells a reader how little a green checklist establishes, and it
-# is the page written to be taken at face value. On 3 August 2026 every figure
-# in it was stale by one, in the same direction: the table said `file` 21 and
-# `commit` 4 against a manifest holding 22 and 3. The two errors CANCELLED, so
-# the stated total of 40 was right while the composition was not - which is
-# exactly why nothing noticed, including this guard, which derived its counts
-# from test files, CI steps, doctor checks, commands and modules and derived
-# NOTHING from checklist.json. It printed a green run over that page twice.
-#
-# checklist.json is the tracked file whose composition changes most often - four
-# of its rules were reworked on 31 July, three more on 3 August - so this
-# section goes stale faster than any other number in the tree, and it is the one
-# that was not derived. It is now.
-#
-# DERIVED PER KIND rather than as one total, deliberately. A total that is right
-# while the composition is wrong is the precise state this section was in, and
-# a rule checking only the total would have called it clean. A kind present in
-# the manifest with no row in the table makes its pattern check zero claims,
-# which the dead-pattern rule at the foot of this file turns into an abort -
-# correct, because a table missing a kind is a table that understates.
-#
-# WHAT IT DOES NOT DERIVE, and why: the DONE-by-kind breakdown two paragraphs
-# further down that page. Those counts depend on which rows PASS, so deriving
-# them means resolving all forty rules - shelling out to git and gh, over the
-# network, from a documentation guard. That paragraph is dated in the prose and
-# says which run it came from; nothing here holds it to the tree.
-$clPath = Join-Path $script:RepoRoot 'checklist.json'
-if (-not (Test-Path -LiteralPath $clPath -PathType Leaf)) { Abort "missing $clPath" }
-try { $clJson = (Get-Content -Raw -LiteralPath $clPath) | ConvertFrom-Json }
-catch { Abort "checklist.json did not parse, so its evidence composition was never counted: $($_.Exception.Message)" }
-$clItems = @($clJson.items)
-if ($clItems.Count -eq 0) { Abort 'checklist.json parsed but declares no items - the count is broken, not the docs.' }
-
-$clKinds = @{}
-foreach ($it in $clItems) {
-    $k = [string]$it.evidence.kind
-    if ([string]::IsNullOrWhiteSpace($k)) { $k = '(none)' }
-    if (-not $clKinds.ContainsKey($k)) { $clKinds[$k] = 0 }
-    $clKinds[$k]++
-}
-$clFile    = @($clItems | Where-Object { [string]$_.evidence.kind -eq 'file' })
-$clExists  = @($clFile  | Where-Object { -not $_.evidence.contains -and -not $_.evidence.not_contains })
-
-Say ("    checklist.json items             {0} ({1})" -f $clItems.Count,
-    (($clKinds.Keys | Sort-Object | ForEach-Object { "$_ x$($clKinds[$_])" }) -join ', '))
-Say ("    of the file rules                {0} existence-only, {1} with a content match" -f `
-    $clExists.Count, ($clFile.Count - $clExists.Count))
-Say ''
-
-Test-Claim -Rule 'checklist-item-total' -Expected $clItems.Count `
-    -Source 'items[] in checklist.json' -Patterns @(
-    '(?i)`checklist\.json`\s+carries\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+items'
-)
-
-foreach ($k in ($clKinds.Keys | Sort-Object)) {
-    # The table row is `| \`file\` - a path exists ... | 22 |`. Anchored on the
-    # backticked kind name at the start of a cell so it cannot read a count out
-    # of running prose that happens to mention the word.
-    Test-Claim -Rule "checklist-kind:$k" -Expected $clKinds[$k] `
-        -Source "evidence.kind '$k' in checklist.json" -Patterns @(
-        ('(?m)^\|\s*`' + [regex]::Escape($k) + '`\s*[^|]*\|\s*(\d+)\s*\|')
-    )
-}
-
-Test-Claim -Rule 'checklist-existence-only' -Expected $clExists.Count `
-    -Source "file rules in checklist.json with neither contains nor not_contains" -Patterns @(
-    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+test\s+nothing\s+but\s+existence'
-)
-
-Test-Claim -Rule 'checklist-file-rules' -Expected $clFile.Count `
-    -Source "evidence.kind 'file' in checklist.json" -Patterns @(
-    '(?i)of\s+the\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+`file`\s+rules'
-)
-
 # --- how many slash commands ship -----------------------------------------
 Test-Claim -Rule 'command-count' -Expected $commandFiles.Count `
-    -Source 'git ls-files -- commands/*.md' -Patterns @(
+    -Source 'git ls-files -- commands/*.md, present on disk' -Patterns @(
     '(?i)all\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+(?:slash\s+)?commands\b',
     '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+slash\s+commands\b',
-    '(?i)\*\*([a-z]+|\d+)\s+commands:',
-    '(?i)surface\s+is\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+commands\b'
+    '(?i)\*\*([a-z]+|\d+)\s+commands:'
 )
 
 # --- how many modules there are, and how many only observe ----------------
@@ -1246,7 +1279,18 @@ Test-Claim -Rule 'observing-module-count' -Expected $moduleObserving `
 
 Test-Claim -Rule 'gate-module-count' -Expected $moduleGates `
     -Source '$LwgModuleRegistry entries of kind gate' -Patterns @(
-    '(?i)exactly\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules?\s+in\s+the\s*\n?\s*registry\s+is\s+`?kind',
+    # `is|are`, AND THE ALTERNATION IS THE WHOLE POINT OF THIS EDIT. This branch
+    # required the literal `is`, and its only site in the tree was the pull
+    # request template's "Exactly three modules in the registry IS `kind`" - so
+    # correcting that verb to the grammatical `are` made the branch match
+    # nothing anywhere and ABORTED the whole guard, which lane D3 measured on
+    # 3 September 2026 by making exactly that edit and reverting it. The page
+    # was then carrying an ungrammatical sentence to keep a guard alive, with an
+    # HTML comment explaining why - a document shaped by a regex rather than the
+    # other way round. Accepting both verbs costs nothing (the second branch
+    # keys on `of kind \`gate\`` and does not reach this sentence, so there is
+    # still exactly one hit) and lets the sentence read as English.
+    '(?i)exactly\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules?\s+in\s+the\s*\n?\s*registry\s+(?:is|are)\s+`?kind',
     '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules?\s+(?:is|are)\s+of\s+kind\s+`gate`'
 )
 
@@ -1402,10 +1446,13 @@ if ($suitesRan) {
 # this is the half that holds the doc to it.
 #
 # WHAT IT DOES NOT COVER, and it is the bigger half: nothing here can see the
-# LIVE branch-protection setting. checklist.json's P6-branch-protection probe
-# cannot either - it asks whether a protection object exists, not which
-# contexts it names - so a correctly quoted page and a correctly configured
-# repository remain two separate claims, and only the first is checked.
+# LIVE branch-protection setting, and NOTHING IN THIS REPOSITORY DOES ANY MORE.
+# checklist.json carried a P6-branch-protection probe that could not see it
+# either - it asked whether a protection object exists, not which contexts it
+# names - and that manifest has since been deleted, so the second half is not
+# merely unchecked here, it is unchecked anywhere. A correctly quoted page and
+# a correctly configured repository remain two separate claims and only the
+# first is checked.
 # EXACTLY ONE MATCH IS REQUIRED, and taking [0] would have been the near-fit.
 # This workflow declares one job today. The day it declares two, a rule that
 # silently reads the first would hold the page to one of two contexts and call
@@ -1638,7 +1685,7 @@ function Test-ForbiddenPhrasing {
 # rule must stop firing on its own rather than have to be remembered, so the
 # renderer is read for a GmSeg-shaped function AND for an assembly line that
 # emits one. Either is enough to stand the rule down.
-$slRel  = 'statusline/statusline.ps1'
+$slRel  = "$($script:PayloadRel)/statusline/statusline.ps1"
 $slFull = Join-Path $script:RepoRoot ($slRel -replace '/', '\')
 if (-not (Test-Path -LiteralPath $slFull -PathType Leaf)) {
     Abort "$slRel is missing, so whether the GM segment still exists could not be derived and no surface was held to its absence."
@@ -2034,7 +2081,7 @@ if ($ciText -match 'DELIBERATELY UNCHANGED') {
 #
 # THE PRECONDITION IS DERIVED: if the registrations ever stop naming
 # powershell, the platform claim stops being owed and this rule stands down.
-$hooksRel  = 'hooks/hooks.json'
+$hooksRel  = "$($script:PayloadRel)/hooks/hooks.json"
 $hooksFull = Join-Path $script:RepoRoot ($hooksRel -replace '/', '\')
 if (-not (Test-Path -LiteralPath $hooksFull -PathType Leaf)) {
     Abort "$hooksRel is missing, so the platform requirement could not be derived."
@@ -2050,8 +2097,13 @@ if ($cmdPs.Count -ne $cmdAll.Count) {
         -Said ("{0} of {1} registrations name powershell, so no manifest is held to a Windows-only claim" -f $cmdPs.Count, $cmdAll.Count)
 } else {
     foreach ($pair in @(
-        @{ Rel = '.claude-plugin/plugin.json';      Pat = '"description"\s*:\s*"([^"]+)"' },
-        @{ Rel = '.claude-plugin/marketplace.json'; Pat = '"name"\s*:\s*"lw-[^"]+"\s*,\s*\r?\n?\s*"description"\s*:\s*"([^"]+)"' }
+        # THE FIRST MOVED AND THE SECOND DID NOT, and both Rels are looked up in
+        # $wide, which is built from `git ls-files` - so each must be spelled
+        # exactly as git prints it. Prefixing marketplace.json here would make
+        # Get-WideDoc return $null and Abort this suite on a green tree; leaving
+        # plugin.json unprefixed does the same in the other direction.
+        @{ Rel = "$($script:PayloadRel)/.claude-plugin/plugin.json"; Pat = '"description"\s*:\s*"([^"]+)"' },
+        @{ Rel = '.claude-plugin/marketplace.json';                 Pat = '"name"\s*:\s*"lw-[^"]+"\s*,\s*\r?\n?\s*"description"\s*:\s*"([^"]+)"' }
     )) {
         $mDoc = Get-WideDoc $pair.Rel
         if ($null -eq $mDoc) { Abort ("{0} is not in the wide set, so its description was never read." -f $pair.Rel) }
@@ -2086,7 +2138,7 @@ if ($cmdPs.Count -ne $cmdAll.Count) {
 # not mean the platform requirement is stated well. It means no page makes the
 # specific overstatement that was made.
 $reqMax = 0
-foreach ($rel in @($tracked | Where-Object { $_ -match '^(bin|lib|statusline)/.+\.ps1$' })) {
+foreach ($rel in @($tracked | Where-Object { $_ -match ('^' + [regex]::Escape($script:PayloadRel) + '/(bin|lib|statusline)/.+\.ps1$') })) {
     $full = Join-Path $script:RepoRoot ($rel -replace '/', '\')
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
     foreach ($rm in [regex]::Matches(((Get-Content -LiteralPath $full -TotalCount 5) -join "`n"), '(?im)^#requires\s+-version\s+(\d+(?:\.\d+)?)')) {
@@ -2250,6 +2302,80 @@ if ($testFiles.Count -gt 0) {
     if ($script:ForbiddenHits -eq 0) {
         Add-LongPass -Rule 'no-page-denies-the-suite' -File '.github/ISSUE_TEMPLATE/config.yml' -Line 0 `
             -Said 'no tracked page denies that a test suite exists'
+    }
+}
+
+# --- rule: every page the website publishes is indexed by docs/README.md ----
+# #183. GITHUB PAGES SERVES EVERY FILE UNDER docs/ TO THE OPEN WEB, from `main`
+# at path `/docs`, and a classic branch source has no exclusion mechanism - the
+# only choices are `/` and `/docs`. So "what is published" is exactly "what is
+# in that directory", and five internal pages were live on the public web
+# because nothing connected the two facts: a feasibility spike with a negative
+# verdict, a page whose second line read "Status: not built.", a v0.3.0
+# acceptance record, an unimplemented hosting plan, and a design specification
+# carrying an operational account of a session incident.
+#
+# WHAT THIS RULE REFUSES TO BE, and the refusal is the design. #183's fourth
+# done-condition asks for "something that checks whatever the site publishes
+# stays consumer-facing". The only mechanically checkable form of THAT is a
+# hardcoded list of the pages judged internal - which is the exact defect
+# tests\payload_guard.ps1 exists to prevent, and which goes green the day
+# somebody adds a sixth. Whether a page is consumer-facing is a judgement, and
+# no rule here can make it.
+#
+# WHAT IT IS INSTEAD. docs/README.md is the index the site's front door renders.
+# A page nobody chose to index is a page nobody decided to publish, and that is
+# checkable: "is it indexed?" stands in for "was publishing it a decision?".
+# Every one of the five was unindexed or was indexed only after the fact; the
+# fifth, harness-hosting-plan.md, was linked from nothing at all, which is how
+# it went unnoticed by an issue that enumerated four.
+#
+# ONE DIRECTION ONLY, AND THE OTHER HALF IS NAMED RATHER THAN LEFT OUT. This
+# checks that every page present is indexed. It does NOT check the converse -
+# that the index links nothing absent - because the index carries rows for the
+# pages that just left docs/, and correcting those rows is a document edit this
+# pass is not permitted to make. Those four dangling rows are #195's, they are
+# recorded on that issue verbatim, and until they are removed a reader of the
+# index is offered four links that 404. That is a real gap and it is stated
+# here rather than implied by a green line.
+#
+# MATCHED ON THE LINK TARGET, not on the file name appearing anywhere. A page
+# mentioned in a sentence is not indexed; a page reachable from the front door
+# is. The pattern accepts the bare name and a ./ prefix, which are the two
+# forms a same-directory link takes.
+$idxRel  = 'docs/README.md'
+$idxDoc  = Get-WideDoc $idxRel
+if ($null -eq $idxDoc) {
+    Abort "$idxRel is not in the wide set, so no published page was checked for being indexed."
+}
+$idxPages = @($tracked | Where-Object { $_ -match '^docs/.+\.md$' -and $_ -ne $idxRel -and (Test-StillOnDisk $_) })
+if ($idxPages.Count -eq 0) {
+    Abort 'no tracked page under docs/ was found, so the index rule established nothing about what the website publishes.'
+}
+$idxMissing = @()
+foreach ($rel in $idxPages) {
+    $leaf = $rel.Substring('docs/'.Length)
+    if ($idxDoc.Text -notmatch ('\]\(\s*(?:\./)?' + [regex]::Escape($leaf) + '\s*(?:#[^)]*)?\)')) {
+        $idxMissing += $leaf
+    }
+}
+# ONE CHECK PER PAGE, not one for the rule. The first draft incremented
+# $script:Checked once and then emitted a failure per unindexed page, so three
+# internal notes landing at once would have read as one checked claim and three
+# disagreements - a denominator that does not match its own numerator, in the
+# file whose subject is exactly that.
+$script:Checked += $idxPages.Count
+if ($idxMissing.Count -eq 0) {
+    $script:Passes += $idxPages.Count
+    if ($ShowPasses) { Say ("  [ok]   {0,-26} {1}  all {2} published page(s) indexed" -f 'docs-index-is-complete', $idxRel, $idxPages.Count) }
+} else {
+    $script:Passes += ($idxPages.Count - $idxMissing.Count)
+    foreach ($leaf in $idxMissing) {
+        Add-LongFailure -Rule 'docs-index-is-complete' -File $idxRel -Line 0 `
+            -Said "does not link docs/$leaf" `
+            -Expected 'a row for it, or the page moved out of docs/ - GitHub Pages publishes this directory whole and an unindexed page is one nobody decided to publish' `
+            -Source ("git ls-files -- docs/*.md found {0} page(s) beside this index" -f $idxPages.Count) `
+            -Excerpt "https://leapware-software.github.io/LEAPWare-Watchtower/$($leaf -replace '\.md$', '.html') is live to the open web and is reachable from no index. Internal notes go to .github/notes/, which neither the payload nor Pages reads."
     }
 }
 

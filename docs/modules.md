@@ -1,8 +1,8 @@
 # Modules
 
-Ten module names exist. **All ten are built.** There is no name here with no code behind it.
-**Nine ship enabled; one — `delegate_gate` — ships switched off**, and off is where it is meant to
-be.
+Eleven module names exist. **All eleven are built.** There is no name here with no code behind it.
+**Seven ship enabled; four — `send_liveness_gate`, `completion_audit`, `orphan_watch` and
+`delegate_gate` — ship switched off**, and off is where each of them is meant to be.
 
 There were thirteen until 30 July 2026, and that day four went and one arrived, each by an explicit
 owner decision. **Both of the old gates were removed** — `destructive_gate` first, `secret_scan`
@@ -12,12 +12,20 @@ second — leaving no gate and no `PreToolUse` hook of any kind; see
 **Then the two unbuildable placeholders were removed** — `ratelimit_escalation` and `cost_tracking`
 — and the reasoning kept, at
 [Attempted and blocked](#attempted-and-blocked-ratelimit_escalation-and-cost_tracking). The same day
-the owner switched `mission_drift` **on**, and **`delegate_gate` was built** as the one gate on this
-project's plan that could be built completely rather than partially — see
-[`delegate_gate`](#delegate_gate).
+the owner switched `mission_drift` **on**, and **`delegate_gate` was built** as the first gate on
+this project's plan that could be built completely rather than partially — see
+[`delegate_gate`](#delegate_gate). Two more gates followed on 1 August 2026,
+`send_liveness_gate` and `completion_audit`, built from a measured failure rather than from a plan.
 
-The authoritative split lives in `$LwgModuleRegistry` in [`lib/common.ps1`](../lib/common.ps1),
-which is what the session banner counts. **The flags in [`config.json`](../config.json) are never
+**`verification_gate` and `mission_drift` were removed on 2 September 2026**, along with the
+`lw-class` role classifier that was `verification_gate`'s only reader. Neither name is in
+`$LwgModuleRegistry` any more, neither has a flag in `config.json`, and the sections that described
+them were deleted from this page rather than rewritten — a module that does not ship has no
+behaviour to document. The narrative of what they were is in the git history and in
+[CHANGELOG.md](../CHANGELOG.md).
+
+The authoritative split lives in `$LwgModuleRegistry` in [`lib/common.ps1`](../lw-watchtower/lib/common.ps1),
+which is what the session banner counts. **The flags in [`config.json`](../lw-watchtower/config.json) are never
 counted as coverage** — a `true` flag is a forward-declaration, not evidence that code exists.
 
 | Module | Kind | Status | What it is for |
@@ -26,60 +34,61 @@ counted as coverage** — a `true` flag is a forward-declaration, not evidence t
 | `self_health` | observe | **implemented** | Prove the governance layer itself can still fire. |
 | `log_rotation` | observe | **implemented** | Cap `health.jsonl` and `lw-watchtower.jsonl`. It does **not** bound the state dir: `advisory-<sessionkey>.json` and `edits-<sessionkey>.txt` are one file per session each and nothing sweeps them. |
 | `context_pressure` | observe | **implemented** | Warn before the context window forces a lossy compaction. |
-| `verification_gate` | observe | **implemented** | Warn when work was done and nothing independently checked it. |
 | `docs_coupling` | observe | **implemented** | Flag source changes shipped without documentation. |
 | `git_hygiene` | observe | **implemented** | Branch, commit and push discipline at turn end. |
-| `mission_drift` | observe | **implemented** | Notice when a session has wandered off the task it was given. Shipped `false` until 30 July 2026 and now ships `true` — see [below](#mission_drift) for what that accepts. |
 | `context_injection` | observe | **implemented** | Hand every subagent facts that are current at *dispatch* time, because `CLAUDE.md` is snapshotted at session start. |
-| `delegate_gate` | **gate** | **implemented** | Refuse `Edit`/`Write`/`NotebookEdit`/`Bash`/`PowerShell` for calls that did not come from a subagent, so the chat session is reserved for talking to the operator. **The only module that can block anything, and it ships OFF** — see [below](#delegate_gate). |
+| `orphan_watch` | observe | **implemented** | Reconcile this session's subagent transcripts against its `SubagentStop` records and alert on one that was killed mid-flight, which otherwise produces no record anywhere. **Ships switched off**; its switch is `supervision.orphan_watch`, not a `modules` flag, and it is inert while `failure_capture` is off because those records are what `failure_capture` writes. |
+| `send_liveness_gate` | **gate** | **implemented** | Refuse a `SendMessage` whose recipient it can *prove* is dead mid-flight. `PreToolUse` on `SendMessage`. **Ships switched off**; its switch is `supervision.send_liveness`. It denies on positive evidence of death and abstains — allows, logged — wherever the evidence cannot support a verdict. |
+| `completion_audit` | **gate** | **implemented** | Refuse a turn end whose final assistant text claims completed work when the turn's **last** tool action was a `SendMessage`: queued for delivery is not delivery. Registered on `Stop` and `SubagentStop`. **Ships switched off**; its switch is `supervision.completion_audit`. |
+| `delegate_gate` | **gate** | **implemented** | Refuse `Edit`/`Write`/`NotebookEdit`/`Bash`/`PowerShell` for calls that did not come from a subagent, so the chat session is reserved for talking to the operator. **Ships OFF** — see [below](#delegate_gate). |
 
-## Caveats on the ten that only observe
+## Caveats on the eight that only observe
 
-Read these before treating any module as coverage. Every one of the nine below **observes**; not one
-of them can stop anything. `delegate_gate` is the tenth and is the exception, with
-[its own section](#delegate_gate).
+Read these before treating any module as coverage. Every module named below **observes**; not one of
+them can stop anything. The three gates are the exception — [`delegate_gate`](#delegate_gate),
+[`send_liveness_gate`](#send_liveness_gate) and [`completion_audit`](#completion_audit), each with
+its own section below. All three ship switched off.
 
 - `self_health` (the `SessionStart` self-check) honours its flag. With it **off** no probe runs at
   all, and the session reports mode `unverified` rather than any word that would imply it was
   validated. See [`self_health`](#self_health).
 - `log_rotation` runs on **its own flag alone**. The rotation call sits above the
-  `failure_capture` flag check in [`lib/supervisor.ps1`](../lib/supervisor.ps1), so switching failure
+  `failure_capture` flag check in [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1), so switching failure
   capture off stops the writes to `health.jsonl` but never the cap on its size.
 - `context_pressure` does not read a context percentage — no hook is given one. It recomputes
   occupancy from the transcript, and the window *size* is inferred. See
   [`context_pressure`](#context_pressure).
-- `verification_gate` sees **subagents only**. Work the main thread did itself is invisible to it.
 - `docs_coupling` sees **`Write`/`Edit`/`NotebookEdit` only**. A file rewritten by a shell command
   is invisible to it.
 - `git_hygiene` is the **only module that spawns a subprocess**, and it does so on `Stop` only.
   Nothing outside a repo, nothing with the flag off. See [Turn-end cost](architecture.md#turn-end-cost).
-- `mission_drift` is **on by default since 30 July 2026**, sees `Write`/`Edit`/`NotebookEdit` edits
-  only, and by design detects only work that landed outside the workspace root. It is the one module
-  here whose trigger was **never validated against real sessions** before being switched on for
-  everyone, and that is still true — what changed on 31 July 2026 is that
-  [`tests/stop_behaviour.ps1`](../tests/stop_behaviour.ps1) exercises the module end to end, so the
-  code is now known to do what it is documented to do. See [`mission_drift`](#mission_drift).
 - `context_injection` runs once **per subagent dispatch** and is the only module on that event.
   It injects, it never blocks — `SubagentStart` has no blocking channel at all.
+- `orphan_watch` **ships switched off**, and its switch is `supervision.orphan_watch` rather than a
+  `modules` flag. It runs inside [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1) *below*
+  the `failure_capture` flag check, so `failure_capture` off means `orphan_watch` inert whatever its
+  own switch says. See [`orphan_watch`](#orphan_watch).
 
 ## Gates, and what counts as one
 
-**Gates** are the modules that can block an action rather than merely report one. **One ships, and
-it ships switched off** — so there are two numbers here and collapsing them is the mistake this
-section exists to prevent:
+**Gates** are the modules that can block an action rather than merely report one. **Three ship, and
+every one of them ships switched off** — so there are two numbers here and collapsing them is the
+mistake this section exists to prevent:
 
 | Number | Value as shipped | What it means |
 | --- | --- | --- |
-| gates **shipped** | **1** | `delegate_gate` is in `$LwgModuleRegistry` with `kind = 'gate'` and its hook is registered. The capability exists and you own it. |
-| gates **live** | **0** | `Get-LwgActiveGates` counts only gates that are *switched on*. `interaction.delegate` is `false`, so nothing is blocking, `config.json` records `gates_live: 0`, and a healthy session reads `observe-only`. |
+| gates **shipped** | **3** | `delegate_gate`, `send_liveness_gate` and `completion_audit` are in `$LwgModuleRegistry` with `kind = 'gate'` and their hooks are registered. The capability exists and you own it. |
+| gates **live** | **0** | `Get-LwgActiveGates` counts only gates that are *switched on*. `interaction.delegate` is `false` and both `supervision` gate switches are `false`, so nothing is blocking and a healthy session reads `observe-only`. No number in `config.json` asserts this; it is computed. |
 
 Reporting only the first would claim protection that is switched off. Reporting only the second would
 hide a capability the operator has and was never told about, and nobody turns on a thing they do not
-know they have. `/lw-watchtower:status` prints both, plus a `GATES` block naming each gate's switch.
+know they have. `/lw-watchtower:doctor` prints both, plus a `GATES` block naming each gate's switch.
 
-`observe-only` therefore holds as shipped, and `enforcing` and `partial` are **reachable** by running
-`/lw-watchtower:delegate on` — nothing else has to change. The ladder in `Get-LwgSessionMode`
-([`lib/common.ps1`](../lib/common.ps1)) returns `observe-only` on a **live** gate count of zero
+`observe-only` therefore holds as shipped, and `partial` is **reachable** by running
+`/lw-watchtower:delegate on` — nothing else has to change. `enforcing` is not reachable that way, and
+what it additionally requires is worked through under [Session modes](#session-modes). The ladder in
+`Get-LwgSessionMode`
+([`lib/common.ps1`](../lw-watchtower/lib/common.ps1)) returns `observe-only` on a **live** gate count of zero
 *before* it ever tests whether a module is switched off. That ordering is deliberate: "some module is
 off" is a smaller fact than "nothing can be blocked", and the smaller fact must not be the one a
 reader sees.
@@ -87,12 +96,6 @@ reader sees.
 A session banner from before 30 July 2026 reads `2 gates`, and one from the middle of that day reads
 `1 gate` or `0 gates`. Each is a record of what was true then, not a target to get back to by
 recounting.
-
-`verification_gate` **keeps the word "gate" in its name and is not one.** It always was kind
-`observe`: it warns on `Stop` and never blocks, and it is not counted in the gate total. The name is
-a leftover from its original specification and is kept only so that logs and configs written against
-it keep working. Calling an advisory a gate would be the same class of overstatement as counting an
-unbuilt module as coverage.
 
 ## Both gates were removed
 
@@ -121,23 +124,31 @@ What that leaves, stated plainly rather than left to be discovered:
 
 | Was covered | By what | Today |
 | --- | --- | --- |
-| a destructive shell command | `destructive_gate` hook + 133 deny rules | **nothing.** No hook is registered on `Bash` or `PowerShell`; the installer writes no rule |
+| a destructive shell command | `destructive_gate` hook + 133 deny rules | **nothing.** `delegate_gate`'s matcher does name `Bash` and `PowerShell`, but it decides on the caller and never on the command, so an armed gate refuses a `rm -rf` from the main thread and a subagent's identically; the installer writes no rule |
 | a write inside `.git/` | the write gate's path rule + the `git-internals` group | **nothing.** `[core] sshCommand` in `.git/config` is arbitrary code execution on the next git command, and no layer here refuses it |
 | a write to a credential file | `secret_scan` path half + `secret-paths` | **nothing** |
 | a write whose content is a credential | `secret_scan` content half | **nothing** |
 | a credential read through a shell command | `secret-reads` | **nothing** |
 
-- **`hooks/hooks.json`'s one `PreToolUse` registration is `delegate_gate`, and it reads none of the
-  things this table is about.** The plugin registers on `SessionStart`, `PreToolUse`,
-  `PostToolUse`, `PostToolUseFailure`, `SubagentStart`, `SubagentStop`, `Stop` and `StopFailure`.
-  Exactly one registration has a blocking channel and it arrived later the same day — see
-  [`delegate_gate`](#delegate_gate) — but it decides on the *caller*, never on the command, the
-  path or the content, so every **nothing** in the rows above stands with it registered and armed.
-- **The installer's deny table is empty.** `Get-DenyGroups` in
-  [`bin/lwg-setup.ps1`](../bin/lwg-setup.ps1) returns an empty table, so `/lw-watchtower:setup` writes
-  **zero** `permissions.deny` rules. `-SecretGate` and `-DestructiveGate` are still accepted and
-  select nothing at either layer; setup says so where it asks. See
-  [Install](install.md#the-installer-writes-no-permissionsdeny-rules).
+- **No registration in `hooks/hooks.json` reads any of the things this table is about.** The plugin
+  registers on `SessionStart`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `SubagentStart`,
+  `SubagentStop`, `Stop` and `StopFailure`. `delegate_gate` arrived later the same day and two more
+  gates followed on 1 August 2026 — see [`delegate_gate`](#delegate_gate) — but `delegate_gate`
+  decides on the *caller*, `send_liveness_gate` on whether a message's recipient is provably dead,
+  and `completion_audit` on what the final assistant text of a turn claimed. None of the three reads
+  a command, a path or the bytes of a write, so every **nothing** in the rows above stands with all
+  three registered and armed.
+- **The installer has no deny table left to be empty.** `/lw-watchtower:setup` writes **zero**
+  `permissions.deny` rules, and since 2 September 2026 it has no code that could write one:
+  `Get-DenyGroups` was deleted from [`bin/lwg-setup.ps1`](../lw-watchtower/bin/lwg-setup.ps1), and
+  so were `-SecretGate` and `-DestructiveGate`. This page went on saying for a day afterwards that
+  the function returned an empty table and the two parameters were *"still accepted and
+  select nothing"* — both
+  halves are now wrong, and the second is the one that matters: the parameters are not accepted, so
+  passing either is a PowerShell binding error before any script code runs rather than a question
+  whose answer selects nothing. Setup no longer asks. The only mentions of the three names left in
+  the payload are comments in `bin/lwg-setup.ps1` and `bin/lwg-uninstall.ps1` recording that they
+  went. See [Install](install.md#the-installer-writes-no-permissionsdeny-rules).
 - **A machine set up before 30 July 2026 still carries the old rules** in its own `settings.json`,
   and the CLI still evaluates them. Nothing here renews them, and setup never removes a rule already
   in your file. `bin/lwg-uninstall.ps1` keeps the full description of all 181 families, because it
@@ -148,7 +159,7 @@ record:
 
 | Kept | What it does now |
 | --- | --- |
-| `lw-watchtower.jsonl` | the append-only event log. It still holds every historical `GateDeny`, and `/lw-watchtower:sitrep` counts them under `GOVERNANCE` as history. It is an audit trail, **not** a ledger — nothing can clear an entry in it |
+| `lw-watchtower.jsonl` | the append-only event log. It still holds every historical `GateDeny`. The `sitrep` command counted them under `GOVERNANCE` as history and went on 2 September 2026, so nothing counts them now. It is an audit trail, **not** a ledger — nothing can clear an entry in it |
 | the secret regex patterns in `lib/common.ps1` | **log redaction only** (`Get-LwgRedacted`). Nothing scans a write with them |
 
 **The trip ledger did not survive the day.** It was kept for a few hours as a historical reader and
@@ -169,17 +180,19 @@ ledger and the status line still did not follow, and `delegate_gate` did not reb
 denial is written to `lw-watchtower.jsonl` as a `GateDeny` event, nothing tracks it as an open item, and
 the status line has no governance segment. Anything that wants a durable, clearable record of a
 refusal still has to rebuild the ledger format, its writer, the acknowledge path, the turn-end sweep
-and the indicator, in that order. What that costs, and what the four failed fix attempts on the last
-gate actually taught, is written up in
-[Gates were removed deliberately](gates-removed.md). Read it before writing a second `PreToolUse`
+and the indicator, in that order. Two more gates have been written since — `send_liveness_gate` and
+`completion_audit`, on 1 August 2026 — and **neither rebuilt the ledger either**. What that costs,
+and what the four failed fix attempts on the last removed gate actually taught, is written up in
+[Gates were removed deliberately](gates-removed.md). Read it before writing another `PreToolUse`
 hook.
 
 ## `delegate_gate`
 
-**The only gate this plugin ships. Off by default.**
-[`lib/gate_delegate.ps1`](../lib/gate_delegate.ps1), registered as a `PreToolUse` hook with matcher
+**The first gate this plugin shipped after the removals. Off by default**, as are the two that
+followed it.
+[`lib/gate_delegate.ps1`](../lw-watchtower/lib/gate_delegate.ps1), registered as a `PreToolUse` hook with matcher
 `Edit|Write|NotebookEdit|Bash|PowerShell`. Built on 30 July 2026, hours after the other two gates were removed,
-because it is the one gate on this project's plan that can be built **completely** rather than
+because it is the one gate on this project's plan that could be built **completely** rather than
 partially — there is no half of it that a hook cannot reach.
 
 One rule, no exceptions:
@@ -214,7 +227,7 @@ circumstances and emitting both can never turn a deny into an allow. A `PreToolU
 
 **It makes no safety determination of any kind.** No allowlist, no exemption, no path or command
 inspection, and **nothing it decides consults `tool_name`**. The matcher in
-[`hooks/hooks.json`](../hooks/hooks.json) is the single place the gated tool list lives, because a
+[`hooks/hooks.json`](../lw-watchtower/hooks/hooks.json) is the single place the gated tool list lives, because a
 second copy here would be a second thing to keep correct, and because widening the matcher then
 refuses *more*, which is the safe direction, while a stale list inside the script would refuse
 *less*, silently.
@@ -231,7 +244,7 @@ must be selected, `Agent` and `Read` must not.
 
 **`PowerShell` was missing from that enumeration until 1 August 2026**, on a plugin that supports
 Windows and nothing else, where the CLI offers both shell tools. An armed gate could be walked round
-by asking for the other shell while `/lw-watchtower:status` reported it live. What an enumeration still
+by asking for the other shell while `/lw-watchtower:doctor` reported it live. What an enumeration still
 cannot cover — `mcp__*` tools whose names are not knowable from this repository, and any tool the CLI
 adds later — is in [Limitations](limitations.md#the-three-gates-block-little-and-all-ship-off) rather
 than papered over here.
@@ -253,7 +266,19 @@ text falling back to *"this tool"*.
 **The over-blocking it accepts, stated rather than left to be discovered.** With the gate on,
 `/lw-watchtower:delegate off` **does not work from the main thread** — that command runs through `Bash`.
 There is deliberately no exemption for it. Have a subagent run it, or set `interaction.delegate` to
-`false` in `config.json` by hand. The deny text says both.
+`false` by hand in `config.override.json` under the state directory — `$CLAUDE_PLUGIN_DATA`, or
+`~/.claude/plugins/data/lw-watchtower*/`. **Not in `config.json`**: that file is the shipped
+defaults, and an edit there changes nothing while the override still says `true`. If no override
+file exists, the gate is off already and there is nothing to turn off. The deny text says both.
+
+**And read-only calls are refused too, which is the part that costs.** The matcher selects `Bash`
+and `PowerShell` as tool names; the script never looks at what the command was going to do. So with
+the switch armed, `git status`, `git diff`, `grep` and a test run are refused from the main thread
+exactly as `rm -rf` is. **Verifying anything therefore costs a dispatch**: the main thread cannot
+read the tree it is talking about, and every check has to be handed to a subagent and reported back.
+That is the intended shape — the session is reserved for talking to the operator — and it is stated
+here because an operator who arms the gate expecting mutations to be gated meets it on the first
+`git status` (#159).
 
 **What it is not.** It is not a security control: a subagent can do everything it refuses, by
 design, so a way past it is not a vulnerability. It never checks that a dispatch was any *good*.
@@ -297,7 +322,7 @@ the fast path runs, fails to prove the switch off, and the slow path then does e
 did, so an armed gate pays the fast path's ~90–125 ms on top. That is the right way round: the cost
 falls on the operator who turned the gate on, on a call that is being blocked anyway, and it buys the
 default case a saving four times its size. If even the remaining cost is too much for you, the module
-is a hook registration in [`hooks/hooks.json`](../hooks/hooks.json) and removing that entry removes
+is a hook registration in [`hooks/hooks.json`](../lw-watchtower/hooks/hooks.json) and removing that entry removes
 it entirely, along with the ability to ever turn the gate on.
 
 **How the saving was made.** The slow path still uses the shared readers — `common.ps1`,
@@ -313,7 +338,7 @@ specific reasons written up in the file: `config.json`'s comments contain the li
 `\"delegate\": true`, and a decoy `interaction` block one level down would otherwise read as the
 setting.
 
-**Tested.** [`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) — 93 cases through a real pipe
+**Tested.** [`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) — 99 cases through a real pipe
 into a real child process, run by CI on every push and PR. Read the header before treating a green
 run as assurance: the last gate's suite was 67/67 green while five bypasses were open, and the
 seven fast-path cases in section I carry a limit of their own that the header spells out. It was 62
@@ -324,15 +349,187 @@ was 71 until 1 August 2026, when the eight cases of section K were added: they p
 command that reports it in front of the same config and require the same answer, after a
 boolean-only rule reached the gate's reader and not the command's.
 
+## `send_liveness_gate`
+
+**Refuses a `SendMessage` whose recipient it can *prove* is dead. Off by default.**
+[`lib/gate_send.ps1`](../lw-watchtower/lib/gate_send.ps1), registered as a `PreToolUse` hook with
+matcher `SendMessage`. Built on 1 August 2026 from a measured failure rather than from a plan.
+
+**The failure it exists for.** An orchestrator issued `SendMessage` to a subagent, received
+*"Message queued for delivery"*, and 3.46 seconds later told the operator the work was done. The
+recipient had been dead for **28 minutes 45 seconds**: its transcript existed, its last write was
+half an hour old, and `health.jsonl` held no `SubagentStop` record for it, because a subagent killed
+mid-flight produces no record anywhere. The message could never have been delivered, the file was
+never touched, and nothing refused or even flagged the send.
+
+**Switch.** `supervision.send_liveness`, declared on the registry entry's own `switch` field rather
+than as a `modules` flag — the same reasoning as [`delegate_gate`](#delegate_gate): `Get-LwgConfig`
+fails **open**, and a corrupt config must not arm a blocking gate.
+
+**The rule, and it is built only on what is observable.** A `SendMessage` payload carries
+`tool_input.to` and the session's `transcript_path`; on disk each spawned agent leaves
+`agent-<id>.jsonl` and `agent-<id>.meta.json` under this session's `subagents` directory; and
+`health.jsonl` records every agent that stopped **normally**. Three states follow:
+
+| What the evidence says | Verdict |
+| --- | --- |
+| a `SubagentStop` record exists | completed normally; a send **resumes** it — **allow** |
+| no record, transcript written recently | presumed running — **allow** |
+| no record, transcript silent past `stale_minutes` | **dead mid-flight** — **deny** |
+
+`module_config.send_liveness_gate.stale_minutes` defaults to **15**, deliberately above the
+ten-minute `Bash` tool ceiling: an agent inside one long tool call writes nothing for the length of
+that call, and a threshold under the ceiling would deny sends to agents that are merely busy.
+
+**A verdict needs the recorder to have been in the room.** *"No `SubagentStop` record"* means
+nothing if nothing was writing them, so a deny additionally requires that `health.jsonl` holds at
+least one record **of any kind** for this session. A session `failure_capture` never saw gets an
+**abstain** — allowed, and logged as `SendGateAbstain`. A gate must not convict on the silence of a
+witness that was never present.
+
+**Resolving the recipient**, and the two refusals that are not liveness verdicts:
+
+- **`main`** — the session itself; always allowed.
+- **an address containing `@`** — an agent-team address. Team layouts are not observable from a
+  hook, so this **abstains** and logs.
+- **a name** — matched case-insensitively against the `name` field of every `agent-*.meta.json` in
+  this session's subagents directory. Several matches and the newest wins, which is the platform's
+  own *latest wins* rule for a reused name.
+- **a raw agent id** — tried *after* the name lookup, so a name that happens to look like an id
+  still resolves as a name.
+- **anything that resolves to nothing** — no meta carries the name, no transcript carries the id, or
+  the session has no subagents directory at all — is **denied**. No such agent exists in this
+  session, so no such agent is live.
+
+**How it blocks** is `delegate_gate`'s two channels for the same reasons: the reason on stderr with
+**exit 2**, which is the only code that stops a `PreToolUse` call, plus the
+`permissionDecision: "deny"` envelope on stdout, redundant on this build and emitted because the two
+channels fail open in different circumstances.
+
+**Failing safe, per path.** Stdin that is empty, truncated, not JSON, or carries no `to` is a
+**deny** while the switch is on — the gate's one job is to establish the recipient before the send,
+and input it could not read is not evidence of a live recipient. A config it cannot read, or any
+throw, is an **allow**: a gate that cannot read its own switch must not act on a guess, and the
+switch defaults off.
+
+**The over-blocking it accepts, stated rather than left to be discovered:**
+
+- An agent that is alive but silent past `stale_minutes` — back-to-back long tool calls — is denied.
+  The deny text names exactly what was measured and names the knob.
+- A completed agent whose `SubagentStop` record has scrolled out of the health-log tail this gate
+  reads is denied as if dead. That takes over a thousand later records in one session, and the deny
+  text names the record it looked for.
+- **An operator running agent teams should not arm this gate.** A `name@team` recipient abstains, and
+  an unresolvable bare name is denied.
+
+**And the bypasses**, per [Gates were removed deliberately](gates-removed.md) Lesson 3, so nobody
+reads a green suite as soundness: a recipient that died **less** than `stale_minutes` ago passes as
+presumed running — the gate narrows the window, it does not close it; a dead agent whose name a later
+live agent took over resolves to the live one, exactly as the platform itself would route it; and
+**nothing here establishes delivery or completion** — an allowed send can still sit queued forever if
+the recipient dies afterwards. That half belongs to [`completion_audit`](#completion_audit).
+
+**No fast path**, deliberately, unlike `delegate_gate`. That gate sits on every `Edit`, `Write` and
+`Bash` call a session makes; this one fires only on `SendMessage`, which happens at orchestration
+frequency, so the interpreter floor is the cost and a raw-text scanner would buy back milliseconds
+nobody is paying.
+
+---
+
+## `completion_audit`
+
+**Refuses a turn end that claims completed work on the strength of a queued message. Off by
+default.** [`lib/gate_stop.ps1`](../lw-watchtower/lib/gate_stop.ps1), registered **twice** — once on
+`Stop` and once on `SubagentStop` — and on both **without `asyncRewake`**, which is what makes its
+exit 2 *block the turn end* and feed stderr back to the model rather than raise an alert. That is the
+exact opposite of the supervisor's registrations on the same events.
+
+It is a separate script rather than a sixth module inside
+[`lib/stop_advisories.ps1`](../lw-watchtower/lib/stop_advisories.ps1) because that file's header
+promises *"these are advisories, they must never block"* and exits 0 on every path; a blocking module
+inside it would falsify its own header. `Stop` hooks run concurrently, so the extra process costs
+roughly nothing at turn end.
+
+**Switch.** `supervision.completion_audit`, on the registry entry's `switch` field, for the same
+fail-open reason as the other two gates.
+
+**The failure it exists for** is the prose half of `send_liveness_gate`'s. The orchestrator issued
+`SendMessage` at 13:20:12.391Z and told the operator *"Added to the handoff."* at 13:20:15.851Z —
+**3.46 seconds later, with no tool call in between**. The assertion rested on a *"Message queued for
+delivery"* acknowledgement and on nothing else.
+
+**The rule, exactly.** Reading the current turn — every record after the last typed user prompt — the
+turn end is refused when **all four** hold:
+
+1. the turn contains at least one `tool_use`, and the **last** one in it is `SendMessage`, so nothing
+   after the send could have established anything;
+2. assistant text **follows** that `SendMessage`;
+3. the final assistant text matches the completion-claim vocabulary — past-tense completion verbs,
+   *added*, *updated*, *fixed*, *done*, *committed*;
+4. and it does **not** match the hedging vocabulary — *will*, *once*, *queued*, *dispatched*,
+   *asked*, *awaiting*, *in progress*. A reply that says the work was **handed off** is the honest
+   sentence this gate exists to demand, and must never be refused.
+
+The refusal text names the evidence that would make the same claim honest: read the artifact the
+claim is about, or wait for the recipient's completion notification, then assert.
+
+**It fires at most once per turn end.** On the continuation the payload carries `stop_hook_active`
+and this script stands down, as every `Stop` hook here does, or a model that repeated the claim would
+loop forever. Stated plainly: **this gate can force one round of verification; it cannot force
+honesty.** A model that re-asserts the same claim without verifying ends the turn.
+
+**Why it is registered twice, and why registering the same file twice would have been worse than the
+gap.** Subagents and teammates emit `SubagentStop` and never `Stop`, so under `Stop` alone this gate
+fired for no worker at all. Two measured facts make the two registrations non-interchangeable:
+
+- **On `SubagentStop`, `transcript_path` is the *parent's* transcript**; the subagent's own is
+  `agent_transcript_path`. A gate reading the former there would audit the **orchestrator's** turn
+  whenever any subagent stopped — and in a delegate pattern a parent whose last tool was
+  `SendMessage` beside a completion claim is the common case, so it would have blocked a worker for
+  what the parent said.
+- **Every record in a real subagent transcript is `isSidechain: true`.** The sidechain skip is
+  unconditional in `Stop` mode, so pointed at the subagent's transcript with that skip left in place
+  the gate would have been a **silent no-op** — armed, auditing nothing.
+
+So subagent mode changes three things and nothing else: which transcript is read (an absent
+`agent_transcript_path` degrades to a silent no-op rather than falling back to the parent's), the
+sidechain skip is lifted, and the turn boundary uses a local reader instead of the shared
+`Get-LwgPromptText`. Mode is taken from **either** the `-HookEvent` argument or the payload's
+`hook_event_name`, and that asymmetry is deliberate: subagent mode during a `Stop` reads an absent
+path and exits 0, while `Stop` mode during a `SubagentStop` audits the parent and **falsely blocks**.
+
+**What this is and is not — the honest half.** Detecting *"asserted completion"* in prose is a
+**regex over language**, and that is the weakest kind of rule this plugin ships. It is shipped anyway
+because the alternative is what allowed the measured failure, and because the trigger is guarded by
+three **structural** conditions that are not prose: a tool call happened, it was `SendMessage`, and
+it was last. Enumerated rather than glossed:
+
+| It will stay silent when it should not | It can refuse an honest sentence |
+| --- | --- |
+| a claim phrased outside the verb list (*"the handoff now reflects it"*) | completion verbs describing **old**, already-verified work in a turn that happens to end with a `SendMessage` |
+| a claim in a turn whose last tool call is anything but `SendMessage` — including a cosmetic `Read` after the send | quoted text: the model quoting a file that contains *"added"* |
+| a hedge word anywhere in a message that also asserts completion — *"dispatched the fix and updated the doc"* is suppressed by *dispatched* | |
+| the continuation after a block, by design | |
+| a claim made in an earlier turn and merely not repeated | |
+
+A refusal costs one continuation in which the model states its evidence or rephrases honestly, and
+the block text says exactly that. An error **allows** — exit 0, logged `GateError` — because a broken
+audit must never pin a session shut.
+
+**Pinned to a CLI build.** `agent_transcript_path`, the blocking behaviour of exit 2 on
+`SubagentStop`, and `stop_hook_active` on that payload are all observed facts about Claude Code
+2.1.227, not documented contracts. **Re-check them after a CLI upgrade.**
+
 ## Session modes
 
-The banner reports active (implemented **and** enabled), whatever is not active, and the mode:
+The banner reports how many modules are **enabled** (implemented **and** switched on), whatever is
+not, and the mode:
 
 | Mode | Meaning |
 | --- | --- |
-| `enforcing` | Every implemented module on, at least one live gate, self-check passed. **Reachable**: turn `delegate_gate` on and, with everything else enabled, this is what a healthy session reads. |
-| `partial` | Self-check passed, at least one live gate, but some implemented module is switched off. **Reachable** the same way, with anything else switched off as well. |
-| `observe-only` | No live gate — nothing can be blocked. **This is the shipped steady state**, because `delegate_gate` ships off, and it holds until someone runs `/lw-watchtower:delegate on`. |
+| `enforcing` | Every implemented module on, at least one live gate, self-check passed. **Reachable, but not by one command**: four modules ship off, so `enforcing` needs `interaction.delegate` *and* the three `supervision` switches turned on together. |
+| `partial` | Self-check passed, at least one live gate, but some implemented module is switched off. **This is what `/lw-watchtower:delegate on` alone gives**, because the other three stay off. |
+| `observe-only` | No live gate — nothing can be blocked. **This is the shipped steady state**, because all three gates ship off, and it holds until someone arms one. |
 | `inert` | No implemented module is enabled. Nothing at all is running. |
 | `degraded` | The self-check **ran and failed**. Governance may not fire; do not rely on it. |
 | `unverified` | The self-check **did not run**, because `self_health` is off. Nothing failed and nothing was checked. |
@@ -351,34 +548,41 @@ opposite overstatement: it says a probe failed, and none did.
 The banner as shipped, verified by running the hook rather than transcribed from intent:
 
 ```
-LW-WATCHTOWER v0.4.0 · 9/10 modules active (1 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.4.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
 ```
 
-Nine of ten, and **the one that is off is `delegate_gate`**. The parenthetical is the remainder being
-accounted for rather than a warning: everything not active is named, so the total always adds up.
-Setting `mission_drift: false` as well gives:
+Seven of eleven, and **the four that are off are `send_liveness_gate`, `completion_audit`,
+`orphan_watch` and `delegate_gate`** — all four built, all four shipped switched off. The
+parenthetical is the remainder being accounted for rather than a warning: everything not counted is
+named, so the total always adds up. Setting `self_health: false` as well gives:
 
 ```
-LW-WATCHTOWER v0.4.0 · 8/10 modules active (2 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.4.0 · 6/11 modules enabled (5 off) · 0 gates · unverified (self_health off - nothing was checked)
 ```
 
-**The mode word does not change** in either case, and that is the point of these examples. How many
-observing modules are on has never bought `enforcing`: that word is about a **live gate**, and with
-`delegate_gate` off there is none. Run `/lw-watchtower:delegate on` and the same shipped config gives:
+Run `/lw-watchtower:delegate on` and the same shipped config gives:
 
 ```
-LW-WATCHTOWER v0.4.0 · 10/10 modules active · 1 gate · enforcing
+LW-WATCHTOWER v0.4.0 · 8/11 modules enabled (3 off) · 1 gate · partial
 ```
 
-Setting `self_health: false` gives, honestly:
+**`partial`, not `enforcing`, and that is the point of this example.** A live gate is what lifts the
+session out of `observe-only`; `enforcing` additionally requires every implemented module to be on,
+and three are not — `send_liveness_gate`, `completion_audit` and `orphan_watch` each need its own
+switch in the `supervision` block. Turning all three on as well gives the only configuration in
+which `enforcing` is honest, and it is also the only one with no remainder to account for:
 
 ```
-LW-WATCHTOWER v0.4.0 · 8/10 modules active (2 off) · 0 gates · unverified (self_health off - nothing was checked)
+LW-WATCHTOWER v0.4.0 · 11/11 modules enabled · 3 gates · enforcing
 ```
 
-Whatever is not active is named in the model-visible context too — unbuilt, unbuildable, or
-built-but-off — and the context says **"no gate is live"** rather than "no gate exists", because one
-does. A coverage report with an unexplained gap in it fails as quietly as one that overstates
+The count is **enabled**, not observed: it is the modules that are switched on in `config.json`
+**and** backed by code. Nothing in this plugin records whether a registered hook ever fired, so no
+line here can claim one did — see #132 and #166.
+
+Whatever is not enabled is named in the model-visible context too — unbuilt, unbuildable, or
+built-but-off — and the context says **"no gate is live"** rather than "no gate exists", because
+three do. A coverage report with an unexplained gap in it fails as quietly as one that overstates
 itself, and so does one that tells the model a capability it can be refused by is not there.
 
 ---
@@ -408,8 +612,9 @@ hook.**
 
 **Re-confirmed 31 July 2026** by an independent spike — same build, same conclusion, plus a
 schema-level check (all 31 hook events, not just the ones exercised live) and two refinements
-to the table below. See [Monitors feasibility spike](monitors-spike.md) for the method and the
-full finding; that record also needs repeating after a CLI upgrade, same as this one.
+to the table below. The method and the full finding are in the maintainer note
+`.github/notes/monitors-spike.md`, which is not published with these pages; that record also needs
+repeating after a CLI upgrade, same as this one.
 
 **The evidence.** In claude-code 2.1.220 the base hook input is:
 
@@ -438,14 +643,20 @@ object and adds them. **No hook event carries any of them.**
 *is* reachable from a hook, unlike the status-line-only fields above it. It does not make
 `cost_tracking` buildable: it is scoped to one subagent invocation at a time, to the `Agent` tool
 only (no other tool's `PostToolUse` carries it), and it is dollar-free — line and token counts,
-never `total_cost_usd` or a rate-limit figure. See
-[Monitors feasibility spike](monitors-spike.md#two-refinements-to-the-existing-record) for the
-full finding.
+never `total_cost_usd` or a rate-limit figure. The full finding is under *Two refinements to the
+existing record* in `.github/notes/monitors-spike.md`, which is not published with these pages.
 
 The only process on the machine that receives rate-limit and cost data is the status line
-([`statusline/statusline.ps1`](../statusline/statusline.ps1)), and it already colours both and
-prints a `land all work` advisory at `thresholds.ratelimit.land_all_pct`. That is where the
-escalation lives, because that is where the data is. There is no on-disk cache to read instead:
+([`statusline/statusline.ps1`](../lw-watchtower/statusline/statusline.ps1)) — and **it reads the
+rate limits and drops the cost on the floor**. `$d.cost` is never read: the payload carries it on
+every render and this file has never touched it, which its own header says at the `NOT WRITTEN:
+cost` note. What it does with the rate limits it does read is print the `5h` and `7d` figures and,
+on the **advisory row only**, an `approaching limit` / `land all work` line at
+`thresholds.ratelimit.warn_pct` / `land_all_pct`. The *colour* of the figures comes from `Heat`,
+whose three band edges are fixed at 50/75/90 and read no configuration at all — so lowering either
+threshold changes the advisory and never the colour. This page said until 3 September 2026 that the
+status line *"colours both"*; it was the last file in the tree still saying it (#78). That is where
+any escalation would live, because that is where the data is. There is no on-disk cache to read instead:
 the CLI holds rate limits in process memory, `~/.claude.json` has no rate-limit or cost keys, and
 the transcript records token counts but no dollars and no line counts.
 
@@ -456,7 +667,7 @@ amount of work inside this repository is that thing.
 **If you are re-attempting one**, the order is: verify against the *current* CLI build that a hook
 event now carries the field — the evidence above is pinned to 2.1.220 and is a claim about that
 build, not a law — then add the module to `$LwgModuleRegistry` in
-[`lib/common.ps1`](../lib/common.ps1) and to `config.json`'s `modules` block, keeping the two lists
+[`lib/common.ps1`](../lw-watchtower/lib/common.ps1) and to `config.json`'s `modules` block, keeping the two lists
 identical. Do not add the flag first: a flag with no reachable data behind it is the founding defect
 this plugin exists to catch, and it has now been shipped here twice.
 
@@ -464,10 +675,13 @@ this plugin exists to catch, and it has now been shipped here twice.
 
 ## Advisories
 
-Five modules warn without ever blocking. They run in **one** process on `Stop`
-([`lib/stop_advisories.ps1`](../lib/stop_advisories.ps1)), because each registered hook is a
-separate PowerShell startup and `Stop` fires at every turn end — five hooks would have cost well
-over a second more per turn for nothing.
+Three modules warn without ever blocking — `context_pressure`, `docs_coupling` and `git_hygiene`.
+They run in **one** process on `Stop`
+([`lib/stop_advisories.ps1`](../lw-watchtower/lib/stop_advisories.ps1)), because each registered hook is a
+separate PowerShell startup and `Stop` fires at every turn end — one hook per advisory would have
+cost well over a second more per turn for nothing. It was five modules in one process until
+2 September 2026; `verification_gate` and `mission_drift` were removed and the arrangement is the
+same for the three that are left.
 
 **They cannot block, by construction.** A `Stop` hook blocks the turn by exiting 2 without
 `asyncRewake`, or by printing `{"decision":"block"}`. The advisory handler exits 0 on every path
@@ -527,71 +741,10 @@ something in it — an explicit entry wins outright and suppresses the three rul
 right for an operator stating a fact about their own account and wrong for a value shipped to
 everyone. See [Configuration](configuration.md#context_pressure).
 
-### `verification_gate`
-
-Advisory, not a gate. On `Stop` it reads `health.jsonl` — written by `failure_capture`'s
-`SubagentStop` handler, which records `agent_type` — and warns when the newest **work** agent
-record for this session is newer than the newest **verify** agent record.
-
-It is gated on evidence that work happened, not on the turn merely ending, which is what keeps a
-session that only answered a question from being nagged.
-
-Its blind spots are real and worth knowing:
-
-- **False negatives** — work done by the main thread with no subagent is invisible; a
-  `SubagentStop` whose `agent_type` is empty or absent is invisible, and deliberately so, because
-  such a record is *no information* rather than *not a verifier* and must neither arm the gate nor
-  disarm it; an agent on neither list is invisible.
-- **False positives** — an implementer dispatched only to read or investigate; verification done
-  by you, or by an orchestrator reading the diff itself, which leaves no record; a verifier run in
-  a different session for the same work.
-
-#### How a role is classified
-
-**From the role's own `lw-class` frontmatter key — `work`, `verify` or `neutral`.** The observed
-`agent_type` is resolved back to the `.md` file it names, the key is read out of that file, and the
-value decides whether the record arms the gate, disarms it, or does neither. `neutral` is a real
-answer and does neither: an explorer that read files and found nothing wrong has not verified
-anything. See [Agent roles](roles.md#lw-class).
-
-The name arrays in `config.json` are kept as a **fallback and only as one**. `lw-class` wins wherever
-it is present; the arrays are consulted only for a role that declares no class — a role file written
-before the key existed and never given one, or a generic name like `implementer` or `code-review`
-that has no file at all and so can never declare it. See
-[Configuration](configuration.md#verification_gate).
-
-Name resolution walks the same precedence as the loader — project `.claude/agents/`, then
-`~/.claude/agents/`, then this plugin's `agents/` — and a `<plugin>:` prefix puts the plugin scope
-first, because a namespaced `agent_type` is evidence that a plugin's own copy is the one that ran.
-Both spellings keep working: a plugin-shipped role arrives as `lw-watchtower:lw-explorer`, while the same
-role copied into `~/.claude/agents/` arrives bare.
-
-**When the name cannot be resolved, the answer is *no information* — never *not a verifier*.** Three
-things produce that: a role belonging to some other plugin (no other plugin's install path is
-derivable from a hook, so its roles are unreachable by construction), a file that was deleted,
-renamed or never existed, and a file that resolves but declares no class and is in neither array.
-All three fall through exactly the way an empty `agent_type` does — they neither arm the gate nor
-disarm it. Degrading to *not a verifier* would let a missing file silence the one warning that
-exists to notice unverified work.
-
-**Cost on the Stop path**: about **67 ms** at the median, whole-hook, against the name-array version
-it replaced — 25 interleaved runs each over a 400-record `health.jsonl` with five distinct agent
-types, medians 1000 ms → 1067 ms. Isolated, the resolution itself measured 85 ms median over 21
-fresh processes for five distinct names, of which almost all is one-time .NET and PowerShell
-first-use rather than file I/O: the file lookup is memoised per name, and the loop caches one
-verdict per distinct `agent_type` rather than calling the classifier per record. Read those as **one
-machine's medians**, taken while other work was running on it, not as a property of the module. What
-is invariant is the shape: the work is per *distinct role name* seen in a session — a handful — not
-per record.
-
-An earlier draft of the same code cost 119 ms because it used `-split`, `-match`, `Join-Path` and
-`New-Object`; in a fresh PowerShell 5.1 process the first use of the regex engine costs ~20 ms and
-the first `New-Object` ~75 ms. Replacing those four with `[IO.Path]::Combine`, `[IO.File]::ReadAllText`
-and plain string indexing is where most of the difference went.
 
 ### `docs_coupling`
 
-[`lib/post_edit.ps1`](../lib/post_edit.ps1) records each edited path on `PostToolUse`
+[`lib/post_edit.ps1`](../lw-watchtower/lib/post_edit.ps1) records each edited path on `PostToolUse`
 (`Write|Edit|NotebookEdit`); the `Stop` half warns when source files changed this session and no
 documentation did.
 
@@ -605,9 +758,10 @@ code extension under `docs/` is documentation. Directories match on a whole path
 It only sees edits made **through the tools**. A file rewritten by a shell command never reaches a
 `PostToolUse` hook and is invisible to it.
 
-**The shared edit list, and the two bounds on it.** Both this module and `mission_drift` read one
-per-session file, `edits-<sessionkey>.txt` in the state directory, written by the same hook. Two
-bounds apply to it and both cost something:
+**The edit list, and the two bounds on it.** This module reads one per-session file,
+`edits-<sessionkey>.txt` in the state directory, written by the `PostToolUse` hook. It was shared
+with `mission_drift` until that module was removed on 2 September 2026, and the bounds below were
+written when both read it. Two bounds apply and both cost something:
 
 - **The list is capped at 256 KB and rolls.** Past that size the oldest entries are moved to
   `edits-<sessionkey>.txt.1` and the live file carries the most recent 2 000 forward, so a file
@@ -682,12 +836,13 @@ and it stops the moment the query starts answering.
   (unpushed work, non-default branch, not detached), at most **once per branch head per session**,
   and its answer is cached rather than merely the fact that it was asked. Set `use_gh: false` to
   remove it entirely.
-- Every child gets a hard timeout (`timeout_ms`, `gh_timeout_ms`) and **the child** is killed on
-  expiry — **a helper it spawned is not**. Windows PowerShell 5.1 runs on .NET Framework 4.x, which
-  has no kill-the-process-tree overload (that arrived in .NET Core 3.0), so a `git` or `gh` that had
-  invoked a credential helper leaves that helper running. Turn end is still never blocked: the hook
-  returns immediately after the kill. This page said plainly *"killed"* until 3 August 2026;
-  `docs/architecture.md` and `config.json` still do.
+- Every child gets a hard timeout (`timeout_ms`, `gh_timeout_ms`) and **the child and the helpers it
+  spawned** are killed on expiry, via `taskkill /T /F`. Turn end is still never blocked: the hook
+  returns immediately after the kill. The residual window is a pid reissued in the microseconds
+  after the `HasExited` check, which the old `Kill()` fallback always carried too. Between 3 August
+  and 3 September 2026 only the child itself was killed — Windows PowerShell 5.1 runs on
+  .NET Framework 4.x, which has no kill-the-process-tree overload — so a `git` or `gh` that had
+  invoked a credential helper left that helper running.
   Output is drained asynchronously, so a child that fills a pipe buffer cannot deadlock the hook,
   and stdin is closed so a credential helper that decides to prompt gets EOF instead of stalling
   turn end.
@@ -698,192 +853,11 @@ cleared, so the same condition warns again if it comes back. **`query-failed` an
 are exempt** and repeat at every turn end while they hold — they describe the observation, not the
 tree, and an observation that did not happen is worth saying every time it does not happen.
 
-### `mission_drift`
-
-**On by default since 30 July 2026, by explicit owner decision.** It ships `true` in
-[`config.json`](../config.json); there is nothing to install, because the mission is read out of the
-transcript rather than captured by a hook of its own. Set `modules.mission_drift` to `false` to turn
-it off again, and nothing else changes — the cost goes back to zero on the same flag.
-
-**The tradeoff that decision accepts, stated plainly rather than left in the commit message.** This
-module shipped `false` for a reason that has not been retired by turning it on:
-
-- **Its trigger was never validated against real sessions.** That was the whole reason for the
-  default, and no validation has happened since. A drift warning that fires on a legitimate change
-  of direction gets switched off within a day and then protects nothing — the difference now is that
-  it is switched off *after* an operator has been warned wrongly, rather than before.
-- **Its behaviour was untested for its whole life**, and stopped being so on 31 July 2026:
-  [`tests/stop_behaviour.ps1`](../tests/stop_behaviour.ps1) runs this module in a real child process
-  across several turns, including the pivot path below. That closes the gap between what this page
-  claims and what the code does. It does **not** close the one above it — a test says the trigger
-  behaves as written, never that being warned by it is right. See [Testing](testing.md).
-- **It costs about 137 ms at every turn end** where it previously cost nothing — one development
-  machine's median, 122 ms fastest and 169 ms slowest, scaling with transcript growth and disk
-  speed. See [Architecture](architecture.md#mission_drift-which-is-switched-on-by-default).
-- **One false-positive class survives** and is now live for every install; it is described under
-  *False positives it can still produce* below.
-
-What is on the other side of the trade: the module is silent unless four conditions hold at once,
-and it warns **at most once per session** — against a class of failure (a session quietly working on
-something nobody asked for) that nothing else here can see at all. **If it warns wrongly, turn it
-off** and say so, rather than learning to skip it.
-
-That bound was wrong until 3 August 2026 and is worth stating precisely, because it is the number
-this decision rests on. The page used to say *"once per distinct set of unaccounted files … so the
-realistic worst case is one wrong warning per session"*. The first half described the code exactly;
-the second did not follow from it. The signature was the **list** of unaccounted files, and that
-list grows with the work, so every turn that touched one more unrelated file produced a new distinct
-set and a new warning — four warnings in five turns on the ordinary shape of a session editing more
-than three files outside the workspace root. The signature is now the **verdict** — *none of this
-session's edits is accounted for* — which does not change when a fourth file joins it. The bound
-holds for a fixed configuration and workspace root: editing `require_outside_root` mid-session, or a
-`cwd` that moves the git root, are outside it and are not claimed.
-
-It asks one question at turn end: *is the work still serving anything that was actually asked
-for?*
-
-**Where the mission comes from.** Every hook receives `transcript_path`, and the operator's typed
-prompts are records in it. Each turn this reads only the bytes the transcript has grown by since
-the last turn — so the cost is one turn's growth, not the size of the session — and folds any new
-prompt into a set of **anchors** carried in the session's state file.
-
-**Every prompt is redacted before it is tokenised, and the limit of that is stated here.** This is
-the only module that reads what the operator typed, so it is the only one that can copy a secret out
-of a prompt — and it keeps two copies of what it derives: the anchors in
-`advisory-<sessionkey>.json` under the state directory, and up to four of them quoted back in the
-turn-end advisory. Tokenising is **not** redaction: the tokeniser splits on whitespace and
-punctuation, and *some* credential shapes contain neither, so a key pasted into a prompt used to
-survive the split intact — as an ordinary word, or, if it was pasted inside a path, as one of that
-path's segments, which is the kind the advisory quotes. Each prompt now goes through the same
-`Get-LwgRedacted` every other module's log text does, on the whole sentence and before the split,
-because that function reads context (`api_key = ` in front of a value, the case of the characters in
-it) that a lowercased token no longer has.
-
-**What is left, on both destinations.** This page said until 3 August 2026 that the result was
-"exactly as good as the pattern list in `lib/common.ps1` and no better", and that whatever got
-through was "still written to the state file". Both halves were wrong. An **enumerated** shape got
-through: the `private_key` rule matched a pasted PEM and replaced its `BEGIN` line only, and the
-base64 body that survived contains `/`, which the tokeniser reads as a **path separator** — so the
-body was promoted to the anchor kind the advisory *quotes*. Measured end to end against the pre-fix
-tree, **three of the four** quoted slots were key material and `parser.ps1` — the file the operator
-had actually named — was pushed out of the list to make room. And the state file is only one of the
-**two** destinations named in the sentence above it.
-The `BEGIN`-line-only gap is closed as of the same date and pinned by `B19` in
-`tests/stop_behaviour.ps1`, on both destinations.
-
-What genuinely remains: a high-entropy string in a shape nobody enumerated — a 32-character hex key,
-a passphrase typed as a word — still becomes an anchor, is still written to
-`advisory-<sessionkey>.json`, **and can still be quoted back in the `systemMessage`**; anchors are
-sorted, so such a value can sort first and *lead* the quoted list rather than merely appear in it.
-The opposite failure is real too and is the acceptable direction: over-redaction can cost this module
-its standing, because the word `token:` in front of a path makes the **path** the value. Measured:
-`Rework the token: C:/work/ws/module/parser.ps1 handling please.` yields **zero** path anchors, where
-the same sentence without that one word yields **four**. Zero path anchors means the module has no
-standing and says nothing. Silence is this module's documented failure direction; a leak is not.
-A session that was already running
-when this landed re-reads its transcript **once**, from the start, and rebuilds its anchors through
-the redaction — the pre-redaction anchors are discarded rather than cleaned, because a token with
-its sentence gone can no longer be recognised as a credential by anything.
-
-There is deliberately **no `UserPromptSubmit` hook**, which is the obvious way to capture a
-mission. A hook registration cannot be made conditional, so that hook's process would be spawned
-on every prompt whether the module was on or off — a measured **285 ms per prompt**, which was
-charged for a feature that then shipped disabled and would now be charged twice per turn on top of
-the `Stop` work. Reading the transcript costs ~137 ms inside a process that already exists, and
-costs exactly nothing when the flag is off. Both numbers are one development machine's
-measurements rather than constants — the 285 ms is PowerShell 5.1 interpreter startup, which a
-slower machine pays more of, not less — and the distribution behind the 137 ms is in
-[Architecture](architecture.md#mission_drift-which-is-switched-on-by-default).
-
-**The trigger.** It warns only when *all* of these hold:
-
-1. the operator has named at least one concrete path or filename in some prompt this session —
-   with nothing named there is no basis to judge anything, and it stays silent;
-2. at least `min_files` (default 3) source or documentation files were edited;
-3. **every** one of them is outside the workspace root (git root, else `cwd`);
-4. and **none** of them shares a directory segment, a filename stem or an ordinary word with
-   anything named in **any** prompt this session — not just the first.
-
-**A pivot cannot trip it.** Anchors accumulate across the whole session and are never reset. The
-moment the operator redirects the work, that prompt's own nouns and paths become anchors, and the
-work that follows matches them. Drift is work matching *nothing that was ever asked for*; a pivot
-is by construction something that *was* asked for. This is the case the module was built around,
-and since 31 July 2026 it is **run rather than read**: case B2 of
-[`tests/stop_behaviour.ps1`](../tests/stop_behaviour.ps1) drives three turns — a prompt naming a file
-in the workspace, a redirection naming a sibling tree with the work landing there, and a third turn
-whose prompt names only the *original* file while another unrelated file is edited. The third turn is
-the one that bites: nothing in its own slice of the transcript excuses the work, so only an anchor
-carried over from an earlier turn can, and the case goes red the moment anchors stop accumulating.
-
-**And it holds only while the anchor set is below `max_anchors`.** The accumulator stops adding at
-the cap rather than making room, and the total it tests is carried in the state file and only ever
-grows — so the first turn that reaches 400 anchors is the last turn that learns anything. A prompt
-typed after that contributes nothing, and a pivot announced in it would be invisible. As of 3 August
-2026 the module **latches silent** when the set saturates, exactly as it does for the two bounds
-below, and writes one `MissionAnchorsCapped` record to `lw-watchtower.jsonl` naming the cap and the total.
-Before that date it went on judging the session against a mission that had stopped being updated,
-and warned that the operator had never asked for work they asked for one turn ago. The latch is a
-guarantee that it will not say that; it is **not** a repair of the pivot property, which is gone for
-the rest of the session once the cap is reached. Repairing it means evicting old word anchors to
-make room, in `Add-LwgMissionAnchors`, and that is not done.
-
-**False positives it can still produce** — one class, and it is real: a redirection phrased with
-no concrete noun at all (*"now go fix the other repo"*) followed by edits in a tree nobody named.
-The anchor matching is deliberately generous — one shared directory segment anywhere in the path
-is enough to excuse a file — so this needs the new work to share nothing at all with anything said
-so far.
-
-**False negatives, which are many and deliberate:**
-
-- any drift that stayed **inside** the workspace root — the default rule cannot see it;
-- any drift in a session that also touched something that *was* asked for — one accounted file
-  silences the whole assessment;
-- anything changed by a shell command rather than `Write`/`Edit`/`NotebookEdit`;
-- anything edited before the shared edit list rolled at 256 KB, and any path longer than 1 024
-  characters — both bounds are described under [`docs_coupling`](#docs_coupling), which reads the
-  same file;
-- any session where a single turn appended more than `max_scan_bytes` (2 MB) of transcript. That
-  region is **skipped**, and the module then stays silent for the rest of the session rather than
-  judging on a partial record — silence on incomplete evidence, never a guess.
-- any session where one slice held more than **400 records** the parse had to read. That is a second
-  bound, on what is parsed rather than on what is read, and it now latches the same silence for the
-  same reason. It is only reachable where a slice is a whole session rather than one turn's growth —
-  the first turn of a resumed session, and the one-turn rebuild described above — and until 3 August
-  2026 it broke out of the parse **without** setting that latch, leaving the module to judge a
-  session on an anchor set it did not know was short.
-- any session whose accumulated anchor set reaches `max_anchors` (400). From that turn on nothing
-  further is learned, so the module latches the same silence — see *A pivot cannot trip it* above for
-  what that costs. Reachable in ordinary use: words and paths share one budget, every token of four
-  or more letters that is not a stop word is a word anchor, and each surviving path segment is
-  another, so a handful of substantial prompts — a pasted stack trace, a directory listing, a
-  specification — get there without difficulty. Note the latch can fire one turn early, on a set that
-  landed exactly on the cap with nothing further to add.
-
-Segments that distinguish nothing are dropped before matching: the universal ones (`users`,
-`appdata`, `tmp`…), drive letters, and **every segment at or above the workspace's parent**.
-Without that last rule one pasted absolute path would share the drive letter, the account name and
-the enclosing folders with every file on the disk, and nothing could ever look unrelated.
-
-| Knob (`module_config.mission_drift`) | Default | Effect |
-| --- | --- | --- |
-| `min_files` | 3 | how much unrelated work is needed before it will speak |
-| `require_outside_root` | `true` | `false` also flags unrelated work **inside** the workspace — considerably more useful and considerably noisier, because a task routinely reaches past the one file that was named |
-| `max_scan_bytes` | 2 097 152 | one turn's transcript growth beyond which the region is skipped and the module goes silent |
-| `max_parse_records` | 400 | how many records of one slice the parse will read. Reaching it **latches the same silence** `max_scan_bytes` does. Reachable only where a slice is a whole session rather than one turn's growth — a resumed session, or the one-turn anchor rebuild. Note the budget is spent on records that pass a loose pre-filter, not on prompts, so it is reached sooner than the number suggests |
-| `max_anchors` | 400 | cap on the accumulated anchor set. **Reaching it silences the module for the rest of the session** — accumulation stops rather than making room, so nothing said afterwards can be learned, and the module latches rather than judge on a set it can no longer add to |
-
-It warns **at most once per session**: the dedupe signature is the verdict *none of this session's
-edits is accounted for*, not the list of files behind it, so a standing condition does not repeat at
-every turn end and does not repeat when the list grows either. `git_hygiene` has the same property,
-built the same way, from condition ids with counts excluded. `docs_coupling` does **not** — it
-re-warns each time the source-file count exceeds the count it last warned at — so read that one as
-once per additional source file, not once per condition.
-
 ---
 
 ## `self_health`
 
-The `SessionStart` self-check ([`lib/session_start.ps1`](../lib/session_start.ps1)). Five probes,
+The `SessionStart` self-check ([`lib/session_start.ps1`](../lw-watchtower/lib/session_start.ps1)). Five probes,
 each asserting that a real value comes back rather than that a file exists: `config.json` was
 genuinely parsed and not silently replaced by the built-in fallbacks; every declared module
 resolves to a real boolean; both threshold groups yield numbers; the payload carried a
@@ -915,8 +889,8 @@ classifier here refused a legitimate edit because its snapshot of `CLAUDE.md` pr
 instruction that authorised it.
 
 **The fix.** `SubagentStart` fires once per dispatch, so anything it emits is current by
-construction. [`lib/subagent_start.ps1`](../lib/subagent_start.ps1) reads
-[`context/worker_facts.md`](../context/worker_facts.md) — live, every single time — and hands it to
+construction. [`lib/subagent_start.ps1`](../lw-watchtower/lib/subagent_start.ps1) reads
+[`context/worker_facts.md`](../lw-watchtower/context/worker_facts.md) — live, every single time — and hands it to
 the worker:
 
 ```json
@@ -966,6 +940,77 @@ never parsed. Errors are logged on the error path only — logging every dispatc
 `ConvertTo-Json` warm-up and a file append per worker, which is most of the budget.
 
 Measured cost is in [Architecture § context_injection cost](architecture.md#context_injection-cost).
+
+---
+
+## `orphan_watch`
+
+**Reconciles this session's subagent transcripts against its `SubagentStop` records and alerts on an
+agent that died mid-flight. Off by default.** It runs inside
+[`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1) on `Stop` and on `SubagentStop`, and it
+**observes** — it raises the supervisor's exit-2 `asyncRewake` alert, which reaches the orchestrator
+mid-turn, and blocks nothing.
+
+**Switch.** `supervision.orphan_watch`, on the registry entry's own `switch` field rather than as a
+`modules` flag.
+
+**The gap it closes.** `failure_capture`'s failed-task count reads
+`$payload.background_tasks` and counts only entries the harness marked `failed` or `killed` — and
+**a subagent killed mid-flight appears in that list not at all**. Measured on 1 August 2026: a
+cross-check of 70 subagent transcripts against the health log found **four** transcripts with no
+`SubagentStop` record — four agents that died while `failed_tasks` read `0` — in a log holding
+**zero** `PostToolUseFailure` records across 1,175 entries. *Green* there has only ever meant *no
+`Agent` tool call returned an error*.
+
+**The rule.** An agent that was **spawned** — its transcript exists in this session's subagents
+directory — that never **stopped** — no `SubagentStop` record for its id in `health.jsonl` — and has
+gone **silent** — its transcript unwritten for `stale_minutes`, default 15, above the ten-minute
+`Bash` ceiling so one long tool call is not silence — is an **orphan**.
+
+**One death signal is stated rather than inferred, and it is believed with no threshold at all.**
+The harness writes a task-notification into the parent transcript naming the agent and saying
+`<status>failed</status>`, in milliseconds, for every death. Measured across all four deaths in one
+session on 10 August 2026 — and two of them went unreported for **ninety minutes** because nothing
+read that notification. An id found there is reported immediately; no silence rule applies to it,
+because a status of `failed` is a terminal statement about a specific agent rather than an inference
+that could be premature.
+
+**There is deliberately no second, shorter threshold, and the reason is measured.** A five-minute
+fast path keyed on an `isApiErrorMessage` transcript tail *was* shipped here, on the reasoning that
+such a record states a cause rather than inferring one. An adversarial re-derivation over 1,050
+transcripts falsified it: four gaps of 25.4 s, 93.8 s, 3,824 s and 4,011 s, **all four of which
+recovered and carried on**. The longest carried no `529` and no *"Overloaded"*, so it fell straight
+through the class exclusion onto the five-minute path — a live agent reported dead after five
+minutes, which then worked for another sixty-two. A false-positive rate of **one in four**, on the
+exact control that exists to stop an operator being told something is dead when it is not. Nor can
+the threshold be raised out of the problem: the longest live recovery observed is **66.85 minutes**,
+longer than the fifteen-minute silence rule it was meant to beat. **Do not reintroduce a threshold
+keyed on transcript prose.**
+
+**Where its verdict stops, in three places, and each of them is an abstain rather than a guess:**
+
+- **It sits below the `failure_capture` flag check**, and that coupling is correct rather than
+  convenient: `SubagentStop` records are what `failure_capture` writes, and reconciling transcripts
+  against records nothing was writing would call every finished agent an orphan. **`failure_capture`
+  off means `orphan_watch` inert**, whatever its own switch says, and the doctor's module roster
+  counts it from the registry either way.
+- **A session with no health records at all yields no orphans**, for the same reason: the recorder's
+  silence proves nothing.
+- **The evidence horizon.** The health-log reader takes a bounded tail, and rotation keeps only the
+  last 500 lines, so a `SubagentStop` record can leave the window while the agent's transcript sits
+  on disk forever. The verdict is *"no stop record exists"*, so a lost record does not weaken the
+  conclusion — it **inverts** it, and a cleanly stopped agent becomes a permanent orphan. The module
+  therefore judges only as far back as it can prove it looked: the session's `SessionStart` record is
+  written once, before any agent can be dispatched, so its presence in the window proves the window
+  reaches past every `SubagentStop` this session could have written. Without it, the earliest record
+  visible is the furthest back the module may judge.
+
+**Deduped, and the dedupe is what keeps the indicator honest.** An orphan is *standing*: the dead
+transcript stays on disk for the rest of the session, so every later turn end re-detects it.
+`alerted.json` holds the ids already alerted on, so the operator is told once; and the health record
+carries the **standing** count as an evidence trail beside a separate count of what is **new**,
+because the status line takes a peak of the recorded counts over the log tail it reads and a standing
+orphan re-reported as new would push that indicator up forever with no way to bring it down.
 
 ---
 

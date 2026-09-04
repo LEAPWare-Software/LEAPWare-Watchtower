@@ -1,43 +1,51 @@
 #requires -version 5
 <#
-  LW-WATCHTOWER Stop-hook behaviour suite - mission_drift and failure_capture.
+  LW-WATCHTOWER Stop-hook behaviour suite - the Stop advisory hook and
+  failure_capture.
 
       powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1
       powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1 -Verbose
 
-  WHAT THIS EXISTS FOR. Until this file landed, mission_drift ran at every turn
-  end on every install with NO TEST OF ANY KIND, and lib\supervisor.ps1 carried
-  two comments describing bugs that had already shipped - a dedupe that stopped
-  deduping when alerted.json came back from ConvertFrom-Json nested or bare, and
-  a one-element failed-task list whose .Count is $null, which logged
-  "failed_tasks":null and left the status line green through a real failure -
-  with no case pinning either fix. Both are now regression cases here (C1, C2),
-  and each was confirmed to go RED with the guard removed before it was kept.
+  WHAT THIS EXISTS FOR. lib\supervisor.ps1 carried two comments describing bugs
+  that had already shipped - a dedupe that stopped deduping when alerted.json
+  came back from ConvertFrom-Json nested or bare, and a one-element failed-task
+  list whose .Count is $null, which logged "failed_tasks":null and left the
+  status line green through a real failure - with no case pinning either fix.
+  Both are regression cases here (C1, C2), and each was confirmed to go RED with
+  the guard removed before it was kept.
+
+  IT WAS BUILT AROUND mission_drift, WHICH IS GONE. That module ran at every
+  turn end on every install with no test of any kind, and section B was written
+  to end that. The module was removed and its cases went with it; what section B
+  holds now is the four cases that were always about something else, driven
+  through the same plumbing. Read the section as "the Stop advisory hook, end to
+  end" - which is what it was already called by the one case that never belonged
+  to mission_drift.
 
   ---------------------------------------------------------------------------
   FIVE SECTIONS, AND THEY ANSWER DIFFERENT KINDS OF QUESTION
   ---------------------------------------------------------------------------
-  A. PURE HELPERS, in process. lib\common.ps1 is dot-sourced and the mission
-     anchor helpers, the incremental transcript reader, the agent-class reader,
-     the `modules` flag resolver and the redaction helper are called directly.
-     These have no I/O contract worth a child process, and a unit call names the
-     failure precisely - "a version number was read as a filename" rather than
-     "the advisory did not fire".
+  A. PURE HELPERS, in process. lib\common.ps1 is dot-sourced and the prompt
+     reader, the path-containment test, the agent frontmatter reader, the two
+     flag resolvers and the redaction helper are called directly. These have no
+     I/O contract worth a child process, and a unit call names the failure
+     precisely - "a typo'd class was coerced to a real one" rather than "the
+     advisory did not fire".
 
-     THE LAST TWO ARE NOT STOP-HOOK CODE and are here because this is where the
-     helpers in lib\common.ps1 are exercised, not because they belong to
-     mission_drift. Test-LwgModule decides whether every module in sections B
-     and C runs at all, and Get-LwgRedacted is what those modules put their
-     error text through on the way to the log - it is this plugin's ONLY
-     redaction control and it had no test of any kind until these cases.
+     NOT ALL OF THIS IS STOP-HOOK CODE, and it is here because this is where the
+     helpers in lib\common.ps1 are exercised. Test-LwgModule decides whether
+     every module in sections B and C runs at all; Get-LwgRedacted is what those
+     modules put their error text through on the way to the log - it is this
+     plugin's ONLY redaction control and it had no test of any kind until these
+     cases; Get-LwgPromptText is lib\gate_stop.ps1's turn-boundary reader; and
+     Test-LwgPathUnder decides what bin\lwg-uninstall.ps1 is allowed to delete.
      Splitting them into a fourth suite would have bought a third CI step and a
      third copy of this plumbing.
 
-  B. mission_drift, END TO END, in a child process. lib\stop_advisories.ps1 is
-     run for real with a payload on stdin, because that is how Claude Code
-     invokes it and because the module's whole behaviour is carried in state
-     files between turns. A turn is one child run; a multi-turn case is several,
-     with the transcript grown and the edit list extended in between.
+  B. THE STOP ADVISORY HOOK, END TO END, in a child process.
+     lib\stop_advisories.ps1 is run for real with a payload on stdin, because
+     that is how Claude Code invokes it and because what these cases assert
+     lives in state files carried between turns. A turn is one child run.
 
   C. failure_capture, END TO END, in a child process, the same way -
      lib\supervisor.ps1 -HookEvent <Event>.
@@ -113,13 +121,11 @@
   dropping back to the operator's environment between cases.
 
   THE CONFIGS HERE ARE HAND-BUILT FIXTURES, and that is a deliberate difference
-  from the gate suite, which byte-copies the shipped config.json. These cases
-  need one module on and the other four off, and several need a knob at a value
-  nothing ships (max_scan_bytes 512, so a transcript can be made to overflow it
-  in a few hundred bytes rather than two megabytes). A fixture states exactly
-  what each case assumes; the shipped file would leave four other modules
-  running, spawning git and writing advisories that have nothing to do with the
-  question being asked.
+  from the gate suite, which byte-copies the shipped config.json. Each case needs
+  ONE module on and every other one off. A fixture states exactly what a case
+  assumes; the shipped file would leave the rest of the registry running,
+  spawning git and writing advisories that have nothing to do with the question
+  being asked.
 
   EVERY PATH AND EVERY COMMAND NAMED IN A FIXTURE IS INVENTED. No case
   constructs a destructive command, even as a string it never runs, and every
@@ -131,11 +137,10 @@
   ---------------------------------------------------------------------------
   docs\gates-removed.md, Lesson 3: the last gate's suite was 67/67 green while
   five bypasses were open. A green run here says the cases below still behave.
-  It does NOT say mission_drift's trigger is right - the false-positive class in
-  docs\modules.md is still live, and no case here can tell a warning that is
-  correct from one an operator would call noise, because that judgement is not
-  in the code. What the cases do establish is the pivot property (B2), which was
-  the module's central design claim and had been read rather than run.
+  It does NOT say any of these modules warns about the right things - no case
+  here can tell a warning that is correct from one an operator would call noise,
+  because that judgement is not in the code. What the cases establish is that
+  the code does what its own comments say it does.
 
   ---------------------------------------------------------------------------
   EXIT CODES - a CI job reads these and nothing else
@@ -151,14 +156,26 @@
 #>
 [CmdletBinding()]
 param(
-    # Repo root. Defaults to this file's parent, correct for a run from
+    # The PLUGIN PAYLOAD root - lw-watchtower\ under this file's parent, not the
+    # repository root, which is what this parameter meant before the restructure, correct for a run from
     # anywhere as long as this file stays in tests\.
     [string]$Root
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Split-Path -Parent $PSScriptRoot }
+# THE PAYLOAD ROOT, WHICH IS NO LONGER THE REPOSITORY ROOT. `Split-Path -Parent
+# $PSScriptRoot` is the parent of tests\, and tests\ stayed at the repository
+# root while the shipped plugin moved under lw-watchtower/. Everything this
+# suite composes off $Root - bin\, lib\, config.json, statusline\ - is payload,
+# so $Root is the payload root and the default says so in one place rather than
+# in every Join-Path below it.
+#
+# WHY THE DEFAULT AND NOT A -Root FROM CI. Neither .github\workflows\ci.yml nor
+# tests\doc_claims.ps1's sibling runner passes -Root at any invocation, so a
+# suite's default is the only value it ever gets on either route. Putting the
+# knowledge here is the only place it can be put.
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Join-Path (Split-Path -Parent $PSScriptRoot) 'lw-watchtower' }
 
 $AdvisoryPath   = Join-Path $Root 'lib\stop_advisories.ps1'
 $PostEditPath   = Join-Path $Root 'lib\post_edit.ps1'
@@ -256,18 +273,22 @@ function Invoke-LwgHook {
 
 function Write-LwgFixtureConfig {
     <#
-      A config.json fixture: the five Stop modules, failure_capture and
-      log_rotation, plus an optional module_config block. Written through
-      ConvertTo-Json so a fixture cannot be malformed by a quoting mistake here
-      and then read as "config unreadable", which Get-LwgConfig FAILS OPEN on -
-      turning every module back on and quietly making the case test the opposite
-      of what it says.
+      A config.json fixture: every key of the shipped `modules` block, each one
+      OFF unless the case asked for it. Written through ConvertTo-Json so a
+      fixture cannot be malformed by a quoting mistake here and then read as
+      "config unreadable", which Get-LwgConfig FAILS OPEN on - turning every
+      module back on and quietly making the case test the opposite of what it
+      says.
+
+      THE NAME LIST IS THE SHIPPED ONE and has to stay that way. A key that
+      exists in config.json and not here is a module left to its default, which
+      is ON, so a case would silently be running a module it never named.
     #>
-    param([string]$Dir, [hashtable]$Modules, [hashtable]$MissionKnobs)
+    param([string]$Dir, [hashtable]$Modules)
 
     $mods = [ordered]@{}
-    foreach ($k in @('failure_capture', 'context_pressure', 'verification_gate', 'self_health',
-                     'log_rotation', 'docs_coupling', 'git_hygiene', 'mission_drift', 'context_injection')) {
+    foreach ($k in @('failure_capture', 'context_pressure', 'self_health',
+                     'log_rotation', 'docs_coupling', 'git_hygiene', 'context_injection')) {
         $mods[$k] = $(if ($null -ne $Modules -and $Modules.ContainsKey($k)) { [bool]$Modules[$k] } else { $false })
     }
 
@@ -276,13 +297,6 @@ function Write-LwgFixtureConfig {
         modules     = [pscustomobject]$mods
         repos       = [pscustomobject]@{}
         interaction = [pscustomobject]@{ delegate = $false }
-    }
-    if ($null -ne $MissionKnobs) {
-        $md = [ordered]@{}
-        foreach ($k in @('min_files', 'require_outside_root', 'max_scan_bytes', 'max_anchors')) {
-            if ($MissionKnobs.ContainsKey($k)) { $md[$k] = $MissionKnobs[$k] }
-        }
-        $cfg['module_config'] = [pscustomobject]@{ mission_drift = [pscustomobject]$md }
     }
 
     [IO.File]::WriteAllText((Join-Path $Dir 'config.json'),
@@ -439,186 +453,6 @@ try {
         ($null -eq (Get-LwgPromptText -Record $r)) `
         'only type user can be a typed prompt'
 
-    # --- Add-LwgMissionAnchors -------------------------------------------
-    # $aScope's root is invented and never created on disk: Get-LwgMissionScope
-    # is pure string work, and what it needs is a path whose PARENT segments are
-    # the ones to stop-list.
-    $aScope = Get-LwgMissionScope -Root 'C:/lwg-fixture-hq/workspace'
-
-    $an = New-LwgMissionAnchors
-    $added = Add-LwgMissionAnchors -Text 'please rework module/crimson_parser.ps1 before the release' -Anchors $an -Scope $aScope
-    Add-Result 'anchors: a path token contributes its segments AND the leaf stem' `
-        ($added -gt 0 -and $an.paths.Contains('module') -and
-         $an.paths.Contains('crimson_parser.ps1') -and $an.paths.Contains('crimson_parser')) `
-        ("a named path must anchor on every segment and on the stem of its leaf, or a later edit to the same file under a different spelling looks unrelated. got: " + (@($an.paths) -join ', '))
-
-    # A system-reminder is injected text, not the user speaking - and in this
-    # plugin's case one of the things injected is its OWN advisory. If that
-    # anchored, the module would silence itself by warning.
-    $an2 = New-LwgMissionAnchors
-    $added2 = Add-LwgMissionAnchors -Text "<system-reminder>edit outside/crimson_one.ps1 and outside/crimson_two.ps1</system-reminder>" -Anchors $an2 -Scope $aScope
-    Add-Result 'anchors: system-reminder content contributes nothing' `
-        ($added2 -eq 0 -and $an2.paths.Count -eq 0 -and $an2.words.Count -eq 0) `
-        ("injected wrapper text is not the operator naming a file. got paths: " + (@($an2.paths) -join ', ') + ' / words: ' + (@($an2.words) -join ', '))
-
-    $an3 = New-LwgMissionAnchors
-    [void](Add-LwgMissionAnchors -Text 'bump the version to 0.2.0 and pin the schema at v1.4' -Anchors $an3 -Scope $aScope)
-    Add-Result 'anchors: version numbers are not filenames' `
-        ($an3.paths.Count -eq 0) `
-        ("0.2.0 and v1.4 have a dot and are not files. Anchoring on them would put '2' and '4' in the path set and excuse almost anything. got: " + (@($an3.paths) -join ', '))
-
-    $an4 = New-LwgMissionAnchors
-    [void](Add-LwgMissionAnchors -Text 'the crimson telemetry needs rework' -Anchors $an4 -Scope $aScope)
-    Add-Result 'anchors: four-letter-plus words land in the word set' `
-        ($an4.words.Contains('crimson') -and $an4.words.Contains('telemetry') -and $an4.paths.Count -eq 0) `
-        ("ordinary words can only EXCUSE a file, never accuse one, so they belong in words and never in paths. got words: " + (@($an4.words) -join ', '))
-
-    # The cap is checked at the TOP of each token, so a set that has reached it
-    # stops growing. Asserted exactly rather than as "roughly bounded": a cap
-    # that is off by a token is a cap, and one that is ignored is not.
-    $an5 = New-LwgMissionAnchors
-    [void](Add-LwgMissionAnchors -Text 'crimson telemetry zebra kestrel juniper' -Anchors $an5 -Scope $aScope -MaxAnchors 2)
-    Add-Result 'anchors: MaxAnchors caps the set' `
-        ($an5.total -eq 2 -and ($an5.paths.Count + $an5.words.Count) -eq 2) `
-        "five distinct words with MaxAnchors 2 must leave a set of exactly 2; got total $($an5.total)"
-
-    # --- the tokeniser's own shape filter (issue #5, recommendation 2) -----
-    # REDACTION AT THE PROMPT IS NOT THE WHOLE DEFENCE, and these cases exist
-    # because the half that was landed reads as though it were. Get-LwgRedacted
-    # runs on the whole prompt before it reaches this function
-    # (lib\stop_advisories.ps1), and it works from an ENUMERATED pattern list
-    # plus a keyword list - so a credential in a shape nobody enumerated, with
-    # no keyword in front of it, arrives here intact.
-    #
-    # TOKENISING IS NOT REDACTION. What arrives intact does not merely survive:
-    # a token containing '/' is read as a PATH, and path anchors are the kind
-    # the advisory QUOTES BACK in its systemMessage. So the tokeniser can
-    # PROMOTE key material into the one anchor set that is printed to the
-    # operator, displacing the file they actually named.
-    #
-    # These cases drive Add-LwgMissionAnchors DIRECTLY rather than through the
-    # hook, deliberately: the property under test belongs to the tokeniser, and
-    # a case routed through the entry redaction would pass for a reason that has
-    # nothing to do with the filter it is meant to pin.
-    #
-    # A specimen is never a literal in a tracked file - see the note above
-    # $script:LwgSecretPatterns. All three below are assembled at runtime.
-
-    # An AWS secret access key: 40 characters of base64, and '/' is in the
-    # base64 alphabet. MEASURED against the tokeniser as it stood at 19bb85d
-    # (byte-identical to fd8d023), this ONE value contributed THREE path anchors
-    # - wjalrxutnfemi | k7mdeng | bpxrficyexamplekey - and took two of the four
-    # slots in the advisory's "you named:" list.
-    $anS1 = New-LwgMissionAnchors
-    $sAws = 'wJalrXUtnFEMI' + '/' + 'K7MDENG' + '/' + 'bPxRfiCYEXAMPLEKEY'
-    [void](Add-LwgMissionAnchors -Text ('rotate the secret ' + $sAws + ' today') -Anchors $anS1 -Scope $aScope)
-    $sAwsLower = $sAws.ToLowerInvariant()
-    $s1Leak = @(@(@($anS1.paths) + @($anS1.words)) | Where-Object { $sAwsLower.Contains($_) })
-    Add-Result 'anchors: an AWS secret access key contributes no anchor, whole or in pieces' `
-        ($s1Leak.Count -eq 0) `
-        ("no anchor may be any part of a credential. Splitting on '/' is not redaction - it turns 40 characters of key material into PATH anchors, which are persisted to advisory-<sessionkey>.json AND quoted back in the systemMessage. leaked: " + ($s1Leak -join ', ') + " | all paths: " + (@($anS1.paths) -join ', ') + " | all words: " + (@($anS1.words) -join ', '))
-
-    # A JWT header segment: one unbroken alphanumeric run, so it passes the
-    # separator split whole and matches the ordinary-word pattern. Word anchors
-    # reach the state file only, not the systemMessage - which is why this one
-    # is asserted against the word set as well as the path set rather than
-    # instead of it.
-    $anS2 = New-LwgMissionAnchors
-    $sJwt = 'eyJhbGciOiJIUzI1NiIs' + 'InR5cCI6IkpXVCJ9'
-    [void](Add-LwgMissionAnchors -Text ('the jwt ' + $sJwt + ' keeps failing') -Anchors $anS2 -Scope $aScope)
-    $sJwtLower = $sJwt.ToLowerInvariant()
-    $s2Leak = @(@(@($anS2.paths) + @($anS2.words)) | Where-Object { $sJwtLower.Contains($_) })
-    Add-Result 'anchors: a JWT segment contributes no anchor, whole or in pieces' `
-        ($s2Leak.Count -eq 0) `
-        ("a JWT survives the separator split as ONE token and matches the word pattern, so it is stored - lowercased and complete - in advisory-<sessionkey>.json for the life of the session. leaked: " + ($s2Leak -join ', ') + " | all words: " + (@($anS2.words) -join ', '))
-
-    # THE REDACTOR'S OWN MARKER MUST NOT BECOME AN ANCHOR. '[' and ']' are
-    # separators here, so a value the entry redaction masked arrives as the bare
-    # token REDACTED - which matches the ordinary-word pattern and is in no stop
-    # list. MEASURED at 19bb85d: the word set came back containing 'redacted'.
-    # That is the redaction leaving a fingerprint of itself in the state file and
-    # standing ready to EXCUSE any file whose stem is 'redacted'.
-    $anS3 = New-LwgMissionAnchors
-    [void](Add-LwgMissionAnchors -Text ('the key is [' + 'REDACTED' + '] now') -Anchors $anS3 -Scope $aScope)
-    Add-Result 'anchors: the redaction marker itself is not an anchor' `
-        (-not $anS3.words.Contains('redacted') -and -not $anS3.paths.Contains('redacted')) `
-        ("the marker is this plugin's own output, not something the operator named. Anchoring on it writes a word to the state file that no prompt contained. got words: " + (@($anS3.words) -join ', '))
-
-    # THE COST BOUND, and it is the half a shape filter gets wrong. A filter
-    # that drops credentials by dropping everything long and mixed-case takes
-    # ordinary paths with it, and mission_drift with no path anchor has no
-    # standing to speak at all - the module goes permanently silent, which is a
-    # failure that looks exactly like success.
-    #
-    # ACRONYM-HEAVY PATHS ARE THE BOUNDARY, chosen on purpose: they are long,
-    # genuinely mixed-case, and carry no long lowercase word run, so they sit
-    # closest to the credential side of any entropy test. THIS CASE DOES NOT GO
-    # RED AT fd8d023 - the unfiltered tokeniser passes everything, so it cannot.
-    # It goes red the moment a filter is too broad, which is the failure the two
-    # cases above cannot see.
-    $anS4 = New-LwgMissionAnchors
-    $addedS4 = Add-LwgMissionAnchors -Text 'update C:/lwg-fixture-hq/workspace/docs/API/v2/README.md and src/UI/API/DTO/Xyz.cs' -Anchors $anS4 -Scope $aScope
-    $s4Want = @('workspace', 'docs', 'api', 'readme.md', 'readme', 'src', 'dto', 'xyz.cs')
-    $s4Miss = @($s4Want | Where-Object { -not $anS4.paths.Contains($_) })
-    Add-Result 'anchors: acronym-heavy real paths still anchor on every segment' `
-        ($addedS4 -gt 0 -and $s4Miss.Count -eq 0) `
-        ("a shape filter that cannot tell docs/API/v2/README.md from key material costs this module its standing: with zero path anchors mission_drift never speaks again. missing: " + ($s4Miss -join ', ') + " | got: " + (@($anS4.paths) -join ', '))
-
-    # THE SAME KEY INSIDE A URL, which is where a presigned link puts it and
-    # which the first version of this filter waved straight through: it exempted
-    # any token containing ':' or '@' from the shape test entirely, so ONE
-    # character of scheme carried the whole key past. Measured against that
-    # version, the advisory rendered "you named: bpxrficyexamplekey, https:,
-    # k7mdeng, s3.example" - issue #5's own specimen in issue #5's own second
-    # destination. The scheme and the host must SURVIVE, or the fix has just
-    # traded a leak for the module's standing, so both halves are asserted here.
-    $anS5 = New-LwgMissionAnchors
-    $sUrl = 'https://s3.example.com/' + $sAws
-    [void](Add-LwgMissionAnchors -Text ('this presigned url 403s: ' + $sUrl + ' - why?') -Anchors $anS5 -Scope $aScope)
-    $s5Leak = @(@(@($anS5.paths) + @($anS5.words)) | Where-Object { $sAwsLower.Contains($_) })
-    Add-Result 'anchors: a credential inside a URL is dropped while the scheme and host survive' `
-        ($s5Leak.Count -eq 0 -and $anS5.paths.Contains('s3.example.com')) `
-        ("a token must be DECOMPOSED and its segments filtered one at a time. Judged whole, 'https' and 'example' read as words and the key rides along on their word-likeness. leaked: " + ($s5Leak -join ', ') + " | got: " + (@($anS5.paths) -join ', '))
-
-    # THE FLOOR IS A REAL DECISION AND HAS TO BE PINNED FROM BOTH SIDES. The
-    # cases above only pin that something long enough is dropped; nothing in
-    # them fails if the threshold slides down onto ordinary identifiers. These
-    # two are 15 and 18 characters, are mixed case, and carry no five-letter
-    # lowercase run - so they sit on the credential side of every test here
-    # EXCEPT the length floor, and they are what that floor is buying.
-    $anS6 = New-LwgMissionAnchors
-    [void](Add-LwgMissionAnchors -Text 'please fix XmlRpcApiDtoMap and getXmlRpcApiDtoUrl today' -Anchors $anS6 -Scope $aScope)
-    Add-Result 'anchors: short mixed-case identifiers are below the shape floor and still anchor' `
-        ($anS6.words.Contains('xmlrpcapidtomap') -and $anS6.words.Contains('getxmlrpcapidtourl')) `
-        ("15 and 18 characters. Lower the floor and these go, along with every other acronym-run symbol name a prompt mentions. got words: " + (@($anS6.words) -join ', '))
-
-    # SCREAMING_CASE DIRECTORIES ARE REAL and they are the reason the run test
-    # demands BOTH cases. CONFIGURATION and DEPLOYMENT are each too long to be
-    # read as an acronym and carry no lowercase at all, so they concatenate to 23
-    # characters that fail every other clause; only the two-lowercase
-    # requirement keeps them.
-    $anS7 = New-LwgMissionAnchors
-    [void](Add-LwgMissionAnchors -Text 'see docs/CONFIGURATION/DEPLOYMENT/README.md for the steps' -Anchors $anS7 -Scope $aScope)
-    $s7Miss = @(@('docs', 'configuration', 'deployment', 'readme.md') | Where-Object { -not $anS7.paths.Contains($_) })
-    Add-Result 'anchors: an ALL-CAPS directory run is a name, not key material' `
-        ($s7Miss.Count -eq 0) `
-        ("a run of capitals is how projects spell doc directories; dropping it costs real path anchors and buys nothing, because a credential is mixed case. missing: " + ($s7Miss -join ', ') + " | got: " + (@($anS7.paths) -join ', '))
-
-    # ONE PATH, TWO SPELLINGS, ONE ANSWER. This is a Windows-only plugin and a
-    # prompt pastes both separators freely. The first version of this filter
-    # split on neither - it tested the raw token against an alphabet that
-    # contained '/' but not '\' - so src/UI/API/DTO/Enums yielded nothing and
-    # src\UI\API\DTO\Enums yielded four anchors. Same path, opposite verdict.
-    $anS8a = New-LwgMissionAnchors
-    $anS8b = New-LwgMissionAnchors
-    [void](Add-LwgMissionAnchors -Text 'look at src/UI/API/DTO/Enums' -Anchors $anS8a -Scope $aScope)
-    [void](Add-LwgMissionAnchors -Text 'look at src\UI\API\DTO\Enums' -Anchors $anS8b -Scope $aScope)
-    $s8a = @(@($anS8a.paths) | Sort-Object) -join ','
-    $s8b = @(@($anS8b.paths) | Sort-Object) -join ','
-    Add-Result 'anchors: the two separator spellings of one path give the same anchors' `
-        ($s8a -eq $s8b -and $anS8a.paths.Contains('enums')) `
-        ("a filter that reads only one separator gives a Windows path a different verdict depending on which key the operator typed. forward: [$s8a] back: [$s8b]")
-
     # --- Test-LwgPathUnder ------------------------------------------------
     Add-Result 'pathUnder: a sibling sharing a prefix is NOT under' `
         (-not (Test-LwgPathUnder -Path 'C:/lwg-fixture/repo-two/file.ps1' -Root 'C:/lwg-fixture/repo')) `
@@ -632,162 +466,6 @@ try {
     Add-Result 'pathUnder: an empty root is never a match' `
         (-not (Test-LwgPathUnder -Path 'C:/lwg-fixture/repo/x.ps1' -Root '')) `
         'an unresolved workspace root must not make every path look inside it'
-
-    # --- Test-LwgMissionAccounted ----------------------------------------
-    # Deliberately generous: every near-miss resolves towards "accounted", which
-    # costs recall and protects credibility. Each of the three routes is pinned
-    # separately so a change that drops one is named rather than merely counted.
-    $an6 = New-LwgMissionAnchors
-    [void](Add-LwgMissionAnchors -Text 'work in module/crimson_parser.ps1 and mind the telemetry' -Anchors $an6 -Scope $aScope)
-
-    Add-Result 'accounted: a shared directory segment excuses a file' `
-        (Test-LwgMissionAccounted -Path 'D:/elsewhere/module/other.ps1' -Anchors $an6 -Scope $aScope) `
-        'the prompt named a path with segment "module"; a file under module/ shares it and must be excused'
-    Add-Result 'accounted: a shared filename stem excuses a file' `
-        (Test-LwgMissionAccounted -Path 'D:/elsewhere/deep/crimson_parser.psm1' -Anchors $an6 -Scope $aScope) `
-        'the stem crimson_parser was anchored from the named file and must excuse the same stem elsewhere'
-    Add-Result 'accounted: an ordinary word from a prompt excuses a file' `
-        (Test-LwgMissionAccounted -Path 'D:/elsewhere/deep/telemetry.ps1' -Anchors $an6 -Scope $aScope) `
-        'a word anchor can only excuse, never accuse - a file whose stem is a word the operator used is accounted for'
-    Add-Result 'accounted: sharing nothing is NOT accounted' `
-        (-not (Test-LwgMissionAccounted -Path 'D:/elsewhere/kestrel/juniper.ps1' -Anchors $an6 -Scope $aScope)) `
-        'a path sharing no segment, stem or word with anything named must come back unaccounted, or the module can never fire at all'
-
-    # --- Read-LwgAppendedLines -------------------------------------------
-    # The reader that makes a per-turn transcript scan affordable. Its contract
-    # is the offset: always just past the last newline CONSUMED, never mid-record.
-    $tf = Join-Path $aDir 'append.txt'
-    [IO.File]::WriteAllText($tf, "alpha`nbravo`n", [Text.UTF8Encoding]::new($false))
-    $s1 = Read-LwgAppendedLines -Path $tf -Offset 0
-    Add-Result 'appended: a first read takes the whole file' `
-        (@($s1.lines).Count -eq 2 -and $s1.offset -eq 12 -and -not $s1.truncated -and -not $s1.reset) `
-        "expected 2 lines and offset 12; got $(@($s1.lines).Count) line(s), offset $($s1.offset)"
-
-    [IO.File]::AppendAllText($tf, "charlie`n", [Text.UTF8Encoding]::new($false))
-    $s2 = Read-LwgAppendedLines -Path $tf -Offset $s1.offset
-    Add-Result 'appended: a resumed read takes only the growth' `
-        (@($s2.lines).Count -eq 1 -and @($s2.lines)[0] -eq 'charlie' -and $s2.offset -eq 20) `
-        "resuming from $($s1.offset) must yield only the new line; got $(@($s2.lines) -join ',') at offset $($s2.offset)"
-
-    # A half-written record is left alone rather than parsed and discarded: the
-    # transcript is appended to by another process while this runs.
-    [IO.File]::AppendAllText($tf, 'delt', [Text.UTF8Encoding]::new($false))
-    $s3 = Read-LwgAppendedLines -Path $tf -Offset $s2.offset
-    Add-Result 'appended: a partial last line is left unconsumed' `
-        (@($s3.lines).Count -eq 0 -and $s3.offset -eq $s2.offset) `
-        "a record with no terminating newline must not be consumed; got $(@($s3.lines).Count) line(s) at offset $($s3.offset)"
-
-    [IO.File]::AppendAllText($tf, "a`n", [Text.UTF8Encoding]::new($false))
-    $s4 = Read-LwgAppendedLines -Path $tf -Offset $s3.offset
-    Add-Result 'appended: the completed record is picked up whole on the next read' `
-        (@($s4.lines).Count -eq 1 -and @($s4.lines)[0] -eq 'delta') `
-        "the previously partial record must arrive complete; got $(@($s4.lines) -join ',')"
-
-    [IO.File]::WriteAllText($tf, "zulu`n", [Text.UTF8Encoding]::new($false))
-    $s5 = Read-LwgAppendedLines -Path $tf -Offset $s4.offset
-    Add-Result 'appended: a file shorter than the offset resets to 0' `
-        ($s5.reset -and @($s5.lines).Count -eq 1 -and @($s5.lines)[0] -eq 'zulu') `
-        'a file shorter than where we left off is a different file - a new session or a rotated log - and must be re-read from the start rather than seeked past the end'
-
-    $big = Join-Path $aDir 'big.txt'
-    [IO.File]::WriteAllText($big, (('x' * 200) + "`n" + ('y' * 200) + "`n"), [Text.UTF8Encoding]::new($false))
-    $s6 = Read-LwgAppendedLines -Path $big -Offset 0 -MaxBytes 64
-    Add-Result 'appended: growth beyond MaxBytes is SKIPPED and reported' `
-        ($s6.truncated -and @($s6.lines).Count -eq 0 -and $s6.offset -eq (Get-Item $big).Length) `
-        'past the cap the region must be skipped, the offset moved to EOF and the caller TOLD - silently reading a prefix would leave the caller believing it had seen everything'
-
-    # --- the agent classifier, PINNED ------------------------------------
-    # This is a rename guard as much as a behaviour test. `lw-class` was
-    # declared by six shipped roles and read by nothing for its whole life; the
-    # value that matters most is the one that looks like nothing - '' is NO
-    # INFORMATION and must never be read as "not a verifier", because that would
-    # silence verification_gate on the strength of an absence.
-    $agDir = Join-Path $aDir 'agents'
-    [void][IO.Directory]::CreateDirectory($agDir)
-    function New-LwgRoleFixture {
-        param([string]$Name, [string]$Body, [switch]$Bom)
-        $p = Join-Path $agDir $Name
-        [IO.File]::WriteAllText($p, $Body, [Text.UTF8Encoding]::new([bool]$Bom))
-        return $p
-    }
-
-    $fNone   = New-LwgRoleFixture -Name 'f_none.md'   -Body "---`nname: fixture-none`ndescription: no class declared`n---`nbody`n"
-    $fVerify = New-LwgRoleFixture -Name 'f_verify.md' -Body "---`nname: fixture-verify`nlw-class: verify`n---`nbody`n"
-    $fCase   = New-LwgRoleFixture -Name 'f_case.md'   -Body "---`nname: fixture-case`nlw-class: Work`n---`nbody`n"
-    $fTypo   = New-LwgRoleFixture -Name 'f_typo.md'   -Body "---`nname: fixture-typo`nlw-class: verifier`n---`nbody`n"
-    $fPlain  = New-LwgRoleFixture -Name 'f_plain.md'  -Body "no frontmatter at all`nlw-class: verify`n"
-    $fBom    = New-LwgRoleFixture -Name 'f_bom.md'    -Body "---`nname: fixture-bom`nlw-class: neutral`n---`nbody`n" -Bom
-
-    Add-Result "class: a file with no lw-class key reads '' (NO INFORMATION)" `
-        ((Get-LwgFrontmatterClass -Path $fNone) -eq '') `
-        "'' means the file said nothing about its class. It must NOT be read as 'not a verifier' - that would let an absence disarm verification_gate"
-    Add-Result 'class: lw-class: verify reads verify' `
-        ((Get-LwgFrontmatterClass -Path $fVerify) -eq 'verify') `
-        'the declared value is the answer, and it is the whole reason the key exists'
-    Add-Result 'class: the value is case-insensitive' `
-        ((Get-LwgFrontmatterClass -Path $fCase) -eq 'work') `
-        "lw-class: Work must resolve to 'work'; a case-sensitive read would silently unclassify a role that declared itself correctly"
-    Add-Result "class: a typo'd value reads '' rather than being coerced" `
-        ((Get-LwgFrontmatterClass -Path $fTypo) -eq '') `
-        "'verifier' is not one of work/verify/neutral. Guessing at it would classify a role from a value nobody checked"
-    Add-Result "class: a file with no frontmatter reads ''" `
-        ((Get-LwgFrontmatterClass -Path $fPlain) -eq '') `
-        'a lw-class written in the prose is not metadata and the loader would not honour it either'
-    Add-Result 'class: a BOM does not hide the frontmatter' `
-        ((Get-LwgFrontmatterClass -Path $fBom) -eq 'neutral') `
-        'PowerShell 5.1 writes a BOM by default, so a role file authored on this platform routinely has one; a BOM left on the opening fence would unclassify it'
-    Add-Result "class: a missing file reads ''" `
-        ((Get-LwgFrontmatterClass -Path (Join-Path $agDir 'f_absent.md')) -eq '') `
-        'unreadable is no information, never a class'
-
-    # THE RESOLVER'S POSITIVE ARM, WHICH DID NOT EXIST. Every case above calls
-    # Get-LwgFrontmatterClass directly and bypasses the resolver; the two below
-    # were the only calls to Get-LwgAgentClassInfo in tests\, and both were
-    # negative. So the one path from "a role name" to "the class
-    # verification_gate reads" had no case that could tell a working resolver
-    # from one returning nothing - which is one-directional coverage on the
-    # function that decides whether the module can classify anything at all.
-    # The fixture goes under .claude\agents, which is what Get-LwgAgentRoots
-    # calls PROJECT scope. $agDir above is <root>\agents, the PLUGIN scope of a
-    # different plugin root, and nothing resolves through it - which is exactly
-    # why the two cases below could only ever be negative ones.
-    $agProj = Join-Path $aDir '.claude\agents'
-    [void][IO.Directory]::CreateDirectory($agProj)
-    $fResolve = Join-Path $agProj 'lwg-fixture-resolver.md'
-    [IO.File]::WriteAllText($fResolve,
-        "---`nname: lwg-fixture-resolver`nlw-class: verify`n---`nbody`n", [Text.UTF8Encoding]::new($false))
-
-    $aiHit = Get-LwgAgentClassInfo -Name 'lwg-fixture-resolver' -ProjectRoot $aDir
-    Add-Result 'class: a name that DOES resolve reads its class, its file and its scope' `
-        ($null -ne $aiHit -and [string]$aiHit.class -eq 'verify' -and
-         [string]$aiHit.file -eq $fResolve -and [string]$aiHit.scope -eq 'project') `
-        ("the resolver is the only path from a role name to a class, and until this row its only cases were negative ones satisfied by it returning nothing. got: " +
-         $(if ($null -eq $aiHit) { '<null>' } else { ($aiHit | ConvertTo-Json -Compress -Depth 4) }))
-
-    # `[string]$x.member -eq ''` IS AN "IT RETURNED NOTHING" TEST TOO. [string]$null
-    # is '', so all three conjuncts below were satisfied by Get-LwgAgentClassInfo
-    # returning $null or an empty hashtable - and this is the only case in the
-    # repository that exercises the resolver's miss path. The container is
-    # asserted first, then its members, so an empty answer and no answer stop
-    # being the same result.
-    # The container test is `-is [hashtable]` plus ContainsKey, not
-    # PSObject.Properties: this function returns a HASHTABLE on purpose - its
-    # docstring says so, because a hashtable is not enumerated on return - and a
-    # hashtable's PSObject.Properties are Keys, Values and Count, never the
-    # entries. Getting that wrong makes the guard itself always false, which is
-    # the mirror image of the defect being fixed.
-    $ai = Get-LwgAgentClassInfo -Name 'lwg-fixture-role-that-does-not-exist' -ProjectRoot $aDir
-    $aiKeys = ($ai -is [hashtable])
-    Add-Result "class: a name resolving to no file reads '' with no file and no scope" `
-        ($null -ne $ai -and $aiKeys -and $ai.ContainsKey('class') -and $ai.ContainsKey('file') -and $ai.ContainsKey('scope') -and
-         [string]$ai.class -eq '' -and [string]$ai.file -eq '' -and [string]$ai.scope -eq '') `
-        ("a name with no role file behind it is NO INFORMATION: it neither arms nor disarms verification_gate. got: " +
-         $(if ($null -eq $ai) { '<null>' } else { ($ai | ConvertTo-Json -Compress -Depth 4) }))
-
-    $ai2 = Get-LwgAgentClassInfo -Name 'lw-watchtower:lwg-fixture-role-that-does-not-exist' -ProjectRoot $aDir
-    Add-Result 'class: a namespaced name is split on the FIRST colon' `
-        ([string]$ai2.namespace -eq 'lw-watchtower' -and [string]$ai2.bare -eq 'lwg-fixture-role-that-does-not-exist') `
-        "a plugin-shipped role arrives namespaced and the bare stem is what names the file. got namespace '$($ai2.namespace)', bare '$($ai2.bare)'"
 
     # --- Test-LwgModule, the `modules` block ------------------------------
     # ONLY A REAL BOOLEAN IS A SETTING, and this block is where that rule
@@ -894,52 +572,56 @@ try {
     # boolean options were still read with a bare [bool] after the block above
     # was fixed. lib\stop_advisories.ps1 did
     #
-    #     [bool](Get-LwgModuleOption ... -Key 'require_outside_root' -Default $true)
+    #     [bool](Get-LwgModuleOption ... -Default $true)
     #
-    # so an empty string or a 0 switched mission_drift's largest suppressor OFF
-    # and the module warned about work it exists to excuse.
+    # so an empty string or a 0 silently switched a suppressor OFF and the module
+    # went on to warn about work it exists to excuse.
+    #
+    # THE FIXTURE NAMES git_hygiene/use_gh, WHICH IS THE LIVE PAIR. The defect
+    # was found on mission_drift's require_outside_root and the two cases that
+    # drove the real hook with it lived in section B; that module was removed
+    # and both went with it. These cases are about the FUNCTION, so they were
+    # re-pointed at a caller that still exists rather than deleted with it.
     #
     # WHAT THESE CASES CAN AND CANNOT ESTABLISH, said plainly because the honest
-    # red set is small. Against the pre-fix tree these unit cases fail because
-    # the FUNCTION DOES NOT EXIST, which is a weaker red than a wrong answer -
-    # they pin the rule, they do not prove the defect. B10 and B11 in section B
-    # are the ones that go red against pre-fix code that runs: they drive the
-    # real hook and catch it warning where it must be silent.
+    # red set is small. Against the pre-fix tree they fail because the FUNCTION
+    # DOES NOT EXIST, which is a weaker red than a wrong answer - they pin the
+    # rule, they do not prove the defect.
     #
     # THE FLOOR IS THE CALLER'S $Default, not a fixed polarity - a
     # `module_config` key is tuning, not the module's switch - so "ignored"
-    # means "tuned as shipped" and both current callers ship $true.
-    $fTrue  = New-LwgModCfg '{"module_config":{"mission_drift":{"require_outside_root":true}}}'
-    $fFalse = New-LwgModCfg '{"module_config":{"mission_drift":{"require_outside_root":false}}}'
+    # means "tuned as shipped" and the current caller ships $true.
+    $fTrue  = New-LwgModCfg '{"module_config":{"git_hygiene":{"use_gh":true}}}'
+    $fFalse = New-LwgModCfg '{"module_config":{"git_hygiene":{"use_gh":false}}}'
     Add-Result 'modcfg: a real true is honoured' `
-        (Get-LwgModuleFlag -Config $fTrue -Module 'mission_drift' -Key 'require_outside_root' -Default $false) `
+        (Get-LwgModuleFlag -Config $fTrue -Module 'git_hygiene' -Key 'use_gh' -Default $false) `
         'CANNOT GO RED against code that runs. Pinned because refusing the values that were always valid is the regression a boolean-only rule is likeliest to introduce'
     Add-Result 'modcfg: a real false is honoured' `
-        (-not (Get-LwgModuleFlag -Config $fFalse -Module 'mission_drift' -Key 'require_outside_root' -Default $true)) `
+        (-not (Get-LwgModuleFlag -Config $fFalse -Module 'git_hygiene' -Key 'use_gh' -Default $true)) `
         'CANNOT GO RED against code that runs, and it is the one an operator relies on: switching a suppressor off must actually switch it off'
 
-    $fAbsent = New-LwgModCfg '{"module_config":{"mission_drift":{}}}'
+    $fAbsent = New-LwgModCfg '{"module_config":{"git_hygiene":{}}}'
     Add-Result 'modcfg: an absent key falls to the caller default' `
-        (Get-LwgModuleFlag -Config $fAbsent -Module 'mission_drift' -Key 'require_outside_root' -Default $true) `
+        (Get-LwgModuleFlag -Config $fAbsent -Module 'git_hygiene' -Key 'use_gh' -Default $true) `
         'CANNOT GO RED against code that runs. A stripped-down config must yield a working module, not a module tuned by whatever [bool] $null happens to be'
 
-    $fEmpty = New-LwgModCfg '{"module_config":{"mission_drift":{"require_outside_root":""}}}'
+    $fEmpty = New-LwgModCfg '{"module_config":{"git_hygiene":{"use_gh":""}}}'
     Add-Result 'modcfg: the EMPTY STRING is ignored rather than read as off' `
-        (Get-LwgModuleFlag -Config $fEmpty -Module 'mission_drift' -Key 'require_outside_root' -Default $true) `
+        (Get-LwgModuleFlag -Config $fEmpty -Module 'git_hygiene' -Key 'use_gh' -Default $true) `
         '[bool]"" is $false, so an empty string silently disarmed the suppressor. An empty string is not false, it is not a value at all'
 
-    $fZero = New-LwgModCfg '{"module_config":{"mission_drift":{"require_outside_root":0}}}'
+    $fZero = New-LwgModCfg '{"module_config":{"git_hygiene":{"use_gh":0}}}'
     Add-Result 'modcfg: the NUMBER 0 is ignored rather than read as off' `
-        (Get-LwgModuleFlag -Config $fZero -Module 'mission_drift' -Key 'require_outside_root' -Default $true) `
+        (Get-LwgModuleFlag -Config $fZero -Module 'git_hygiene' -Key 'use_gh' -Default $true) `
         '[bool]0 is $false. JSON has real booleans, so a 0 here is a mistake, and a mistake must not be read as a decision'
 
-    $fStr = New-LwgModCfg '{"module_config":{"mission_drift":{"require_outside_root":"false"}}}'
+    $fStr = New-LwgModCfg '{"module_config":{"git_hygiene":{"use_gh":"false"}}}'
     Add-Result 'modcfg: the STRING "false" is ignored, so the default stands' `
-        (Get-LwgModuleFlag -Config $fStr -Module 'mission_drift' -Key 'require_outside_root' -Default $true) `
+        (Get-LwgModuleFlag -Config $fStr -Module 'git_hygiene' -Key 'use_gh' -Default $true) `
         'CANNOT GO RED - [bool] on a non-empty string was $true, the same answer by the wrong route. Pinned because the ANSWER is the uncomfortable one: an operator who wrote "false" has a suppressor that is still on, and the rule now says so in the log instead of guessing at the quotes'
 
     # The record, through the SAME helper, naming the module in the block so a
-    # reader can tell module_config.mission_drift from the `modules` entry of
+    # reader can tell module_config.git_hygiene from the `modules` entry of
     # the same name.
     $fLogDir = Join-Path $aDir 'invalidmodcfg'
     [void][IO.Directory]::CreateDirectory($fLogDir)
@@ -948,7 +630,7 @@ try {
     try {
         $env:CLAUDE_PLUGIN_DATA = $fLogDir
         Get-LwgStateDirInfo -Refresh | Out-Null
-        [void](Get-LwgModuleFlag -Config $fZero -Module 'mission_drift' -Key 'require_outside_root' -Default $true)
+        [void](Get-LwgModuleFlag -Config $fZero -Module 'git_hygiene' -Key 'use_gh' -Default $true)
         try { $fEvents = [IO.File]::ReadAllText((Join-Path $fLogDir 'lw-watchtower.jsonl')) } catch { }
     } finally {
         $env:CLAUDE_PLUGIN_DATA = $fPrevData
@@ -957,8 +639,8 @@ try {
 
     Add-Result 'modcfg: an ignored value is written as ConfigInvalidFlag naming module_config and the module' `
         ($fEvents -match '"event":"ConfigInvalidFlag"' -and
-         $fEvents -match '"block":"module_config\.mission_drift"' -and
-         $fEvents -match '"key":"require_outside_root"') `
+         $fEvents -match '"block":"module_config\.git_hygiene"' -and
+         $fEvents -match '"key":"use_gh"') `
         ("a tuning key that does not take effect and says nothing is the same defect as a switch that does not take effect. lw-watchtower.jsonl held:`n$fEvents")
 
     # --- Format-LwgFlagState, the reporting half of the rule ---------------
@@ -990,8 +672,11 @@ try {
     # THE ONLY REDACTION CONTROL THIS PLUGIN HAS, and until these cases it had
     # no test of any kind - docs/limitations.md said so in as many words. It is
     # also load bearing twice over: every module runs it over anything headed
-    # for the log, and bin\lwg-resolve.ps1 PRINTS its output into a
-    # fixed-column console report, a row at a time.
+    # for the log, and the resolver command this repository shipped until
+    # wave 1 PRINTED its output into a fixed-column console report, a row at a
+    # time. That command and its library half were deleted with the clearing
+    # mechanism (#192); the one-line and text-only properties below were
+    # written against it, and they are kept because the LOG has them too.
     #
     # The two properties below the credential masking are the ones that were
     # broken, and both are about what the value IS rather than what it hides:
@@ -1062,7 +747,7 @@ try {
     $rNl = Get-LwgRedacted -Text "first half`nsecond half"
     Add-Result 'redact: a newline cannot end the row' `
         ((Test-LwgIsCleanField $rNl) -and $rNl -eq 'first half\nsecond half') `
-        "bin\lwg-resolve.ps1 prints this value into a fixed-column report one row per fault, and the text inside it is a failed task's stderr. A raw newline splits one record into two ROWS, and the second row is a fault record the operator never had. got: $rNl"
+        "the resolver command deleted in wave 1 (#192) printed this value into a fixed-column report one row per fault, and the text inside it is a failed task's stderr. A raw newline splits one record into two ROWS, and the second row is a fault record the operator never had. The reader that remains is the JSONL log, where the same newline splits one event into two LINES. got: $rNl"
 
     $rCrTab = Get-LwgRedacted -Text "a`r`nb`tc"
     Add-Result 'redact: CR and TAB are escaped too' `
@@ -1173,7 +858,7 @@ try {
     $rBenign = '{"ts":"2026-01-01T00:00:00Z","event":"Stop","session_id":"lwg-1","tool_name":"Bash","cwd":"C:/repo","failed_tasks":1}'
     Add-Result 'redact: an ordinary health record passes through with nothing masked' `
         ((Get-LwgRedacted -Text $rBenign -MaxLength 400) -eq $rBenign) `
-        "CANNOT GO RED AT fd8d023 - nothing was masked there either. It is the BLAST-RADIUS guard on the rules above, and the direction they fail in is over-redaction: the keyword may now be followed by more identifier, so a wider keyword list would start masking session_id, tool_name and failed_tasks - the fields the status line and bin\lwg-resolve.ps1 exist to read. got: $(Get-LwgRedacted -Text $rBenign -MaxLength 400)"
+        "CANNOT GO RED AT fd8d023 - nothing was masked there either. It is the BLAST-RADIUS guard on the rules above, and the direction they fail in is over-redaction: the keyword may now be followed by more identifier, so a wider keyword list would start masking session_id, tool_name and failed_tasks - the fields the status line exists to read, and which the resolver command deleted in wave 1 (#192) read too. got: $(Get-LwgRedacted -Text $rBenign -MaxLength 400)"
 
     # ----------------------------------------------------------------------
     # A10-A13: THE FOUR SHAPES THE 3 AUGUST RULES CLAIMED AND DID NOT HAVE
@@ -1227,7 +912,7 @@ try {
     Add-Result 'redact: a PEM block loses its BODY, not just its BEGIN line' `
         ($rPemOut -eq '[REDACTED:private_key]' -and $rPemOut -notlike '*MIIEow*' -and
          $rPemTrunc -like '[[]REDACTED:private_key[]]*' -and $rPemTrunc -like '*MIIEow*') `
-        "REGRESSION, and it goes red at fd8d023 TOO - this gap predates the 3 August rules and was carried forward by them. The vendor pattern replaced the marker LINE and left every base64 byte standing behind it, which is a redaction that redacts nothing of value. It is worst on the mission_drift path: Add-LwgMissionAnchors reads / as a PATH SEPARATOR, / is in the base64 alphabet, so a surviving body was PROMOTED to the anchor kind the advisory QUOTES BACK. The second half of this assertion is the deliberate boundary: a block with no END line still loses only its BEGIN line, exactly as before, because making the trailing group mandatory would have meant a truncated key matching nothing at all. got: $rPemOut / $rPemTrunc"
+        "REGRESSION, and it goes red at fd8d023 TOO - this gap predates the 3 August rules and was carried forward by them. The vendor pattern replaced the marker LINE and left every base64 byte standing behind it, which is a redaction that redacts nothing of value. The worst reachable destination it had was mission_drift's anchor builder, which read / as a PATH SEPARATOR - / is in the base64 alphabet - so a surviving body was PROMOTED to the anchor kind that advisory QUOTED BACK; that module is gone, and the destinations that remain - the event log and the DocsCoupling sample - make an unredacted key no less of a leak. The second half of this assertion is the deliberate boundary: a block with no END line still loses only its BEGIN line, exactly as before, because making the trailing group mandatory would have meant a truncated key matching nothing at all. got: $rPemOut / $rPemTrunc"
 
     $rArrVal = 'sk-live-' + 'ARR4Yr3d4ct10nG4p'
     $rArrOut = Get-LwgRedacted -Text ('{"api_key":["' + $rArrVal + '"]}')
@@ -1247,35 +932,38 @@ try {
         "REGRESSION, AND IT IS A STEP THIS TREE TOOK BACKWARDS - so unlike its three neighbours this case PASSES at fd8d023, measured, and only goes red against the 3 August rewrite. The rule fd8d023 shipped was \s*[:=]\s*(\S{6,}), which CROSSED a newline; the 3 August separator narrowed that to [ \t]{0,8} to kill a false positive, and eight shapes the old rule masked stopped being masked. This one is REACHABLE - lib\supervisor.ps1 pipes a payload field through ConvertTo-Json, which turns a real newline into backslash-n, so a multi-line error.stderr whose key ends a line arrives here in the escaped spelling. It was published as a pure gain. The last assertion is why BOTH spellings are admitted rather than the escaped one alone: this function escapes control characters AFTER redacting, so with only \\n admitted a raw value passed pass 1 in the clear and was masked on pass 2 - the output moved between passes, which this file pins as a property. got:`n  raw: $rNlRaw`n  esc: $rNlEsc"
 
     # =====================================================================
-    # SECTION B - mission_drift, END TO END
+    # SECTION B - THE STOP ADVISORY HOOK, END TO END
     # =====================================================================
-    Write-Output 'B. mission_drift (child process)'
+    # lib\stop_advisories.ps1 run for real, with a payload on stdin, because that
+    # is how Claude Code invokes it and because what these cases assert lives in
+    # state files carried between turns. A turn is one child run.
+    #
+    # IT USED TO BE mission_drift's SECTION and is now the surviving modules'.
+    # When that module was removed the cases that drove it went with it; what is
+    # left is the plumbing plus the four cases that were always about something
+    # else - the edit-list writer (B22, B23), context_pressure's refusal (B25)
+    # and git_hygiene's UNKNOWN (B24).
+    Write-Output 'B. stop advisories (child process)'
 
     $bDir = Join-Path $work 'b'
     [void][IO.Directory]::CreateDirectory($bDir)
 
-    function New-LwgMissionCase {
+    function New-LwgStopCase {
         <#
           One case's world:
 
             <case>\root\           throwaway plugin root, holding config.json
             <case>\root\data\      throwaway state dir (CLAUDE_PLUGIN_DATA)
             <case>\ws\             the workspace - the payload's cwd
-            <case>\outside\        a SIBLING of ws, where the unaccounted work goes
+            <case>\outside\        a SIBLING of ws, for edits outside the workspace
             <case>\transcript.jsonl
-
-          THE SIBLING PLACEMENT IS LOAD-BEARING. Get-LwgMissionScope stop-lists
-          every path segment at or above the workspace's PARENT, so a tree
-          placed above <case> would share <case>'s own segment with ws and be
-          excused by it - the case would then pass for the wrong reason, or
-          never fire at all. As a sibling, the only segments the outside tree
-          contributes are its own.
 
           ws has no .git, so Get-LwgRepoInfo resolves no root and the workspace
           root falls back to the payload's cwd - the same path either way, but
-          reached by the branch a session outside a repository takes.
+          reached by the branch a session outside a repository takes. B24
+          creates a .git directory inside its own ws to take the other branch.
         #>
-        param([string]$Name, [hashtable]$Knobs, [hashtable]$Modules)
+        param([string]$Name, [hashtable]$Modules)
 
         $dir = Join-Path $bDir $Name
         $c = @{
@@ -1292,39 +980,14 @@ try {
         $c['key']   = Get-LwgSessionKey -SessionId $c.session
         $c['state'] = Join-Path $c.data ("advisory-" + $c.key + '.json')
 
-        # mission_drift alone unless a case asks for more. B23 needs
-        # docs_coupling as well, because the systemMessage it bounds is
-        # docs_coupling's; every other case here would be testing a second
-        # module by accident if that were the default.
-        $mods = $(if ($null -ne $Modules) { $Modules } else { @{ mission_drift = $true } })
-        Write-LwgFixtureConfig -Dir $c.root -Modules $mods -MissionKnobs $Knobs
+        # NOTHING IS ON BY DEFAULT. Every case names the module it is about,
+        # so a case can never be testing a second module by accident - which is
+        # what the old default of `mission_drift = $true` made possible for any
+        # case that forgot to pass -Modules.
+        $mods = $(if ($null -ne $Modules) { $Modules } else { @{} })
+        Write-LwgFixtureConfig -Dir $c.root -Modules $mods
         [IO.File]::WriteAllText($c.tx, '', [Text.UTF8Encoding]::new($false))
         return $c
-    }
-
-    function Add-LwgPrompt {
-        <#
-          Append one typed-prompt record. The shape is the one the module
-          filters for: type user, a string content, no toolUseResult, no
-          isSidechain. Built through ConvertTo-Json so a Windows path in the
-          text is escaped correctly rather than by hand.
-        #>
-        param($Case, [string]$Text)
-        $rec = [ordered]@{ type = 'user'; message = [ordered]@{ content = $Text } }
-        [IO.File]::AppendAllText($Case.tx, (($rec | ConvertTo-Json -Depth 6 -Compress) + "`n"), [Text.UTF8Encoding]::new($false))
-    }
-
-    function Add-LwgNonPrompt {
-        <# Records the prompt filter must reject, plus bulk for the byte cap. #>
-        param($Case, [int]$Count = 1)
-        for ($i = 0; $i -lt $Count; $i++) {
-            $rec = [ordered]@{
-                type    = 'user'
-                toolUseResult = [ordered]@{ stdout = ('filler ' + ('z' * 120)) }
-                message = [ordered]@{ content = 'tool output, not a prompt' }
-            }
-            [IO.File]::AppendAllText($Case.tx, (($rec | ConvertTo-Json -Depth 6 -Compress) + "`n"), [Text.UTF8Encoding]::new($false))
-        }
     }
 
     function Set-LwgEdits {
@@ -1358,10 +1021,10 @@ try {
         <#
           Run lib\post_edit.ps1 once, as the CLI runs it: a PostToolUse payload
           carrying one tool_input.file_path, against the case's throwaway root
-          and state dir. The recording half of docs_coupling and mission_drift
-          was driven by no case in this suite until B22/B23; every earlier case
-          seeds edits-<key>.txt by hand through Set-LwgEdits, which tests the
-          reader and never the writer.
+          and state dir. docs_coupling's recording half was driven by no case in
+          this suite until B22/B23; the Stop-side cases seed edits-<key>.txt by
+          hand through Set-LwgEdits, which tests the reader and never the
+          writer.
 
           The path is embedded through ConvertTo-Json so a Windows path - or a
           200 000-character one - is escaped rather than hand-quoted.
@@ -1385,626 +1048,14 @@ try {
         return @([IO.File]::ReadAllLines($p) | Where-Object { $_.Length -gt 0 })
     }
 
-    function Get-LwgCaseState {
-        param($Case)
-        $h = @{}
-        try {
-            if ([IO.File]::Exists($Case.state)) {
-                $o = [IO.File]::ReadAllText($Case.state) | ConvertFrom-Json
-                foreach ($p in $o.PSObject.Properties) { $h[$p.Name] = $p.Value }
-            }
-        } catch { }
-        return $h
-    }
-
-    function Test-LwgMissionAdvisory {
-        <#
-          Did this run emit the mission advisory? The contract, in full:
-
-            exit 0        ALWAYS. An advisory that exits nonzero on Stop blocks
-                          the turn, and these must never block.
-            stdout        one JSON envelope, {systemMessage, suppressOutput}
-            systemMessage carries "LW-WATCHTOWER mission:"
-            stderr        empty - the advisory channel is stdout
-        #>
-        param($R)
-        if ($R.code -ne 0) { return @{ ok = $false; why = "exited $($R.code); an advisory must exit 0 on every path or it blocks the turn" } }
-        if (-not [string]::IsNullOrWhiteSpace($R.err)) { return @{ ok = $false; why = "wrote to stderr: $($R.err)" } }
-        $env0 = $null
-        try { $env0 = $R.out | ConvertFrom-Json } catch { }
-        if ($null -eq $env0) { return @{ ok = $false; why = "stdout did not parse as JSON: [$($R.out)]" } }
-        if ([string]$env0.systemMessage -notlike '*LW-WATCHTOWER mission:*') {
-            return @{ ok = $false; why = "the envelope carries no mission advisory: $($R.out)" }
-        }
-        if ($env0.suppressOutput -ne $true) { return @{ ok = $false; why = 'suppressOutput is not true, so the raw envelope would be shown to the user' } }
-        return @{ ok = $true; why = ''; env = $env0 }
-    }
-
-    function Test-LwgSilent {
-        <# Did this run stay out of the way? Exit 0 and not one byte emitted. #>
-        param($R)
-        if ($R.code -ne 0) { return @{ ok = $false; why = "exited $($R.code), expected 0" } }
-        if (-not [string]::IsNullOrWhiteSpace($R.out)) { return @{ ok = $false; why = "wrote to stdout when it should have been silent: $($R.out)" } }
-        if (-not [string]::IsNullOrWhiteSpace($R.err)) { return @{ ok = $false; why = "wrote to stderr when it should have been silent: $($R.err)" } }
-        return @{ ok = $true; why = '' }
-    }
-
-    # The three unaccounted files every firing case uses. Invented names that
-    # share no segment, stem or word with any prompt text below - which is the
-    # only reason they are unaccounted, and is checked by B2 turning them
-    # accounted with one prompt.
-    function Get-LwgOutsideEdits {
-        param($Case, [int]$Count = 3)
-        # Five and six exist for B20, which adds one file per turn to show the
-        # dedupe does not re-fire on growth. Appended rather than inserted:
-        # every existing caller asks for 2, 3 or 4 and takes the same first N.
-        $all = @('crimson_one.ps1', 'crimson_two.ps1', 'crimson_three.ps1', 'crimson_four.ps1',
-                 'crimson_five.ps1', 'crimson_six.ps1')
-        return @($all | Select-Object -First $Count | ForEach-Object { Join-Path $Case.outside $_ })
-    }
-
-    # --- B1: it fires ----------------------------------------------------
-    $b1 = New-LwgMissionCase -Name 'b1' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 400 }
-    Add-LwgPrompt -Case $b1 -Text ("Rework the header handling in " + (Join-Path $b1.ws 'module\parser.ps1') + " and keep it readable.")
-    Set-LwgEdits -Case $b1 -Paths (Get-LwgOutsideEdits -Case $b1 -Count 3)
-    $rb1 = Invoke-LwgStop -Case $b1 -Tag 'b1-run1'
-    $vb1 = Test-LwgMissionAdvisory $rb1
-    Add-Result 'B1: three unaccounted edits outside the workspace -> advisory, exit 0' $vb1.ok `
-        ("$($vb1.why)  --  the operator named one file inside the workspace and every edit landed in a sibling tree sharing nothing with it. This is the whole trigger")
-
-    # `@($x).Count -gt 0` IS NOT A PRESENCE TEST IN WINDOWS POWERSHELL, which is
-    # what this assertion used for md_paths. `@($null).Count` is 1, and an
-    # absent hashtable key reads as $null, so `@($sb1['md_paths']).Count -gt 0`
-    # was TRUE on a state file with no md_paths in it at all - the one thing the
-    # case is named for was the one conjunct that could not fail. Measured: with
-    # the persistence write mutated to `$state.Remove('md_paths')` this row and
-    # B2 turn 1 both reported ok, and the break surfaced three turns downstream
-    # in B2 turn 3, whose failure text is about a warning being emitted and
-    # sends a reader to the assessment logic rather than to the state write.
-    #
-    # SO ASSERT THE CONTENTS, not the count. The fixture knows what the anchor
-    # should be: the prompt above names module\parser.ps1, so `parser` and
-    # `module` are the anchors that prompt produces, and a set that holds
-    # neither is not "the anchors" whatever its length. The other two conjuncts
-    # were always sound - [long]$null is 0 and IsNullOrWhiteSpace on an absent
-    # key is true - and are unchanged.
-    $sb1 = Get-LwgCaseState $b1
-    $sb1Paths = @(); if ($null -ne $sb1['md_paths']) { $sb1Paths = @($sb1['md_paths']) }
-    Add-Result 'B1: the state file carries the anchors, the offset and the warned signature' `
-        (($sb1Paths -contains 'parser') -and ($sb1Paths -contains 'module') -and
-         [long]$sb1['md_offset'] -gt 0 -and
-         -not [string]::IsNullOrWhiteSpace([string]$sb1['md_sig'])) `
-        ("without md_paths the next turn re-derives nothing, without md_offset it re-reads the whole transcript, and without md_sig it repeats the same warning at every turn end. got md_paths [" + ($sb1Paths -join ', ') + "]; full state: " + ([IO.File]::ReadAllText($b1.state)))
-
-    # --- B8: it never blocks ---------------------------------------------
-    # Asserted on the envelope B1 actually emitted rather than on a fresh run.
-    # On Stop a hook blocks by exiting 2 or by printing {"decision":"block"};
-    # this envelope must have no decision member at all, and the exit code is
-    # already asserted above.
-    if ($vb1.ok) {
-        $hasDecision = $false
-        try { $hasDecision = ($null -ne ($vb1.env.PSObject.Properties | Where-Object { $_.Name -eq 'decision' })) } catch { }
-        Add-Result 'B8: the advisory envelope carries NO decision member' `
-            ((-not $hasDecision) -and $rb1.out -notlike '*decision*') `
-            "a decision member would make this advisory able to block a turn end, which no module in this plugin may do: $($rb1.out)"
-    }
-
-    # --- B7: warn once ---------------------------------------------------
-    $rb7 = Invoke-LwgStop -Case $b1 -Tag 'b1-run2'
-    $vb7 = Test-LwgSilent $rb7
-    Add-Result 'B7: the same unaccounted set does not warn twice' $vb7.ok `
-        ("$($vb7.why)  --  a standing condition repeated at every turn end trains the reader to ignore the channel")
-
-    # --- B2: a pivot cannot trip it (the module's central claim) ---------
-    # THIS IS THE CASE THE MODULE WAS DESIGNED AROUND and the one that had never
-    # been run. Three turns, and the third is not padding:
-    #
-    #   turn 1  the operator names a file in the workspace. No edits yet.
-    #   turn 2  the operator REDIRECTS to the outside tree by name, and the
-    #           first three edits land there.
-    #   turn 3  the operator says something that names only the ORIGINAL file
-    #           again, and a fourth edit lands in the outside tree.
-    #
-    # Turn 3 is what distinguishes accumulation from per-turn anchors. In turn 2
-    # the redirecting prompt is inside the same slice as the edits, so a module
-    # that reset its anchors every turn would still see it and still stay quiet.
-    # In turn 3 the only thing excusing the outside tree is an anchor from a
-    # PREVIOUS turn - so if md_paths were not rehydrated from the state file,
-    # turn 3 warns. That is the break this case was written against.
-    $b2 = New-LwgMissionCase -Name 'b2' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 400 }
-    Add-LwgPrompt -Case $b2 -Text ("Rework the header handling in " + (Join-Path $b2.ws 'module\parser.ps1') + " and keep it readable.")
-    $rb2a = Invoke-LwgStop -Case $b2 -Tag 'b2-run1'
-    $vb2a = Test-LwgSilent $rb2a
-    Add-Result 'B2 turn 1: a prompt with no edits behind it says nothing' $vb2a.ok $vb2a.why
-
-    # Same coercion, same repair as B1 above, and it matters more here: this is
-    # the half of the B2 sequence that claims to read the state file, and the
-    # block comment above says anchor persistence is what the whole sequence
-    # exists to establish. Two conjuncts, one of which could not fail, means
-    # half of this case was certifying nothing.
-    $sb2a = Get-LwgCaseState $b2
-    $sb2aPaths = @(); if ($null -ne $sb2a['md_paths']) { $sb2aPaths = @($sb2a['md_paths']) }
-    Add-Result 'B2 turn 1: the anchors and the read offset are persisted' `
-        (($sb2aPaths -contains 'parser') -and ($sb2aPaths -contains 'module') -and
-         [long]$sb2a['md_offset'] -gt 0) `
-        ('anchors that do not survive the turn cannot excuse work done in a later one, which is the entire pivot property. got md_paths [' + ($sb2aPaths -join ', ') + ']')
-
-    Add-LwgPrompt -Case $b2 -Text ("Change of plan - move to " + (Join-Path $b2.outside 'crimson_one.ps1') + " and its siblings instead.")
-    Set-LwgEdits -Case $b2 -Paths (Get-LwgOutsideEdits -Case $b2 -Count 3)
-    $rb2b = Invoke-LwgStop -Case $b2 -Tag 'b2-run2'
-    $vb2b = Test-LwgSilent $rb2b
-    Add-Result 'B2 turn 2: work following an explicit redirection is not drift' $vb2b.ok `
-        ("$($vb2b.why)  --  the redirecting prompt named the tree, so its nouns are anchors and the work matches them")
-
-    $sb2b = Get-LwgCaseState $b2
-    Add-Result 'B2 turn 2: the read offset advanced (the transcript is read incrementally)' `
-        ([long]$sb2b['md_offset'] -gt [long]$sb2a['md_offset']) `
-        "offset went $($sb2a['md_offset']) -> $($sb2b['md_offset']); if it does not advance the module re-reads the whole transcript at every turn end, which is the cost this design exists to avoid"
-
-    Add-LwgPrompt -Case $b2 -Text ("Keep the header shape from " + (Join-Path $b2.ws 'module\parser.ps1') + " while you are in there.")
-    Set-LwgEdits -Case $b2 -Paths (Get-LwgOutsideEdits -Case $b2 -Count 4)
-    $rb2c = Invoke-LwgStop -Case $b2 -Tag 'b2-run3'
-    $vb2c = Test-LwgSilent $rb2c
-    Add-Result 'B2 turn 3: an anchor from an EARLIER turn still excuses the work' $vb2c.ok `
-        ("$($vb2c.why)  --  nothing in this turn's slice names the outside tree. Only the anchors carried over from turn 2 can excuse it, so a warning here means anchors are not accumulating and every mid-session pivot would be reported as drift")
-
-    # --- B3: the min_files floor -----------------------------------------
-    $b3 = New-LwgMissionCase -Name 'b3' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 400 }
-    Add-LwgPrompt -Case $b3 -Text ("Rework the header handling in " + (Join-Path $b3.ws 'module\parser.ps1') + ".")
-    Set-LwgEdits -Case $b3 -Paths (Get-LwgOutsideEdits -Case $b3 -Count 2)
-    $vb3 = Test-LwgSilent (Invoke-LwgStop -Case $b3 -Tag 'b3-run1')
-    Add-Result 'B3: fewer than min_files unaccounted edits stays silent' $vb3.ok `
-        ("$($vb3.why)  --  two stray files is a task reaching one directory sideways, which happens constantly and must not warn")
-
-    # --- B4: require_outside_root ----------------------------------------
-    $b4 = New-LwgMissionCase -Name 'b4' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 400 }
-    Add-LwgPrompt -Case $b4 -Text ("Rework the header handling in " + (Join-Path $b4.ws 'module\parser.ps1') + ".")
-    Set-LwgEdits -Case $b4 -Paths @(
-        (Join-Path $b4.ws 'crimson_one.ps1')
-        (Join-Path $b4.ws 'crimson_two.ps1')
-        (Join-Path $b4.ws 'crimson_three.ps1'))
-    $vb4 = Test-LwgSilent (Invoke-LwgStop -Case $b4 -Tag 'b4-run1')
-    Add-Result 'B4: unrelated work INSIDE the workspace stays silent by default' $vb4.ok `
-        ("$($vb4.why)  --  with require_outside_root true, being under the workspace root accounts for a file on its own. This is the module's largest deliberate false negative and it is a default, not an accident")
-
-    # --- B10, B11: a non-boolean require_outside_root cannot disarm it ----
-    # THE END-TO-END HALF OF THE modcfg CASES IN SECTION A, and the pair that
-    # actually goes red against a pre-fix tree that runs rather than against a
-    # missing function.
-    #
-    # Both are B4's world exactly - a prompt naming a file inside the workspace,
-    # three edits inside the workspace whose names share nothing with it - so
-    # with the suppressor ON they are accounted for and the run is silent. The
-    # only thing changed is the SHAPE of require_outside_root's value.
-    #
-    # Pre-fix, the option was read as [bool] of whatever JSON held: [bool]0 and
-    # [bool]'' are both $false, so the suppressor came back OFF, the three inside
-    # edits became unaccounted, min_files was met and the module WARNED. An
-    # operator who fat-fingered a 0 into a tuning key got a false positive from
-    # the one module that is on by default, with nothing telling them the key
-    # was the cause. Post-fix the value is not a boolean, so it is not a setting:
-    # the shipped default $true stands and the run is silent again.
-    $b10 = New-LwgMissionCase -Name 'b10' -Knobs @{ min_files = 3; require_outside_root = 0; max_scan_bytes = 2097152; max_anchors = 400 }
-    Add-LwgPrompt -Case $b10 -Text ("Rework the header handling in " + (Join-Path $b10.ws 'module\parser.ps1') + ".")
-    Set-LwgEdits -Case $b10 -Paths @(
-        (Join-Path $b10.ws 'crimson_one.ps1')
-        (Join-Path $b10.ws 'crimson_two.ps1')
-        (Join-Path $b10.ws 'crimson_three.ps1'))
-    $vb10 = Test-LwgSilent (Invoke-LwgStop -Case $b10 -Tag 'b10-run1')
-    Add-Result 'B10: require_outside_root as the NUMBER 0 is ignored, and the suppressor holds' $vb10.ok `
-        ("$($vb10.why)  --  identical to B4 but for the 0. [bool]0 is `$false, so this warned about three files inside the very workspace the operator named, on the strength of a typo in a tuning key")
-
-    $b11 = New-LwgMissionCase -Name 'b11' -Knobs @{ min_files = 3; require_outside_root = ''; max_scan_bytes = 2097152; max_anchors = 400 }
-    Add-LwgPrompt -Case $b11 -Text ("Rework the header handling in " + (Join-Path $b11.ws 'module\parser.ps1') + ".")
-    Set-LwgEdits -Case $b11 -Paths @(
-        (Join-Path $b11.ws 'crimson_one.ps1')
-        (Join-Path $b11.ws 'crimson_two.ps1')
-        (Join-Path $b11.ws 'crimson_three.ps1'))
-    $vb11 = Test-LwgSilent (Invoke-LwgStop -Case $b11 -Tag 'b11-run1')
-    Add-Result 'B11: require_outside_root as the EMPTY STRING is ignored, and the suppressor holds' $vb11.ok `
-        ("$($vb11.why)  --  the same defect reached by the other coercion that lands on `$false. A key an operator quoted out of habit must not change what the module warns about")
-
-    # --- B5: the truncated latch -----------------------------------------
-    # A turn bigger than max_scan_bytes is SKIPPED, not partially read, and the
-    # module then stays silent for the REST OF THE SESSION. The second run is
-    # the one that matters: it is small enough to read, it carries a prompt that
-    # would give the module standing, and it must still say nothing, because the
-    # skipped region may have held the very prompt that would have excused this
-    # work. Silence on incomplete evidence, never a guess.
-    $b5 = New-LwgMissionCase -Name 'b5' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 512; max_anchors = 400 }
-    Add-LwgPrompt -Case $b5 -Text ("Rework the header handling in " + (Join-Path $b5.ws 'module\parser.ps1') + ".")
-    Add-LwgNonPrompt -Case $b5 -Count 6
-    Set-LwgEdits -Case $b5 -Paths (Get-LwgOutsideEdits -Case $b5 -Count 3)
-    $vb5a = Test-LwgSilent (Invoke-LwgStop -Case $b5 -Tag 'b5-run1')
-    Add-Result 'B5 turn 1: a turn larger than max_scan_bytes is skipped, and it is silent' $vb5a.ok $vb5a.why
-
-    $sb5 = Get-LwgCaseState $b5
-    Add-Result 'B5 turn 1: the incomplete flag is latched into the state file' `
-        ($sb5['md_incomplete'] -eq $true -and [long]$sb5['md_offset'] -eq (Get-Item $b5.tx).Length) `
-        "the skip must be recorded and the offset moved to EOF, or the next turn re-reads the same oversized region forever. got: $([IO.File]::ReadAllText($b5.state))"
-
-    Add-LwgPrompt -Case $b5 -Text ("Carry on with " + (Join-Path $b5.ws 'module\parser.ps1') + ".")
-    $vb5b = Test-LwgSilent (Invoke-LwgStop -Case $b5 -Tag 'b5-run2')
-    Add-Result 'B5 turn 2: the latch holds for the rest of the session' $vb5b.ok `
-        ("$($vb5b.why)  --  this turn is small, readable and carries a prompt with a path in it, so every condition for a warning is met EXCEPT that the module knows its picture of the session has a hole in it. Warning here would be judging on a partial record")
-
-    # --- B6: no anchors, no standing -------------------------------------
-    $b6 = New-LwgMissionCase -Name 'b6' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 400 }
-    Add-LwgNonPrompt -Case $b6 -Count 2
-    Set-LwgEdits -Case $b6 -Paths (Get-LwgOutsideEdits -Case $b6 -Count 3)
-    $vb6 = Test-LwgSilent (Invoke-LwgStop -Case $b6 -Tag 'b6-run1')
-    Add-Result 'B6: with no path named in any prompt it has no basis to judge' $vb6.ok `
-        ("$($vb6.why)  --  a session whose only user records are tool results has named nothing, and a module with no idea what the work was supposed to touch must not guess")
-
-    # --- B9: the loop guard ----------------------------------------------
-    $b9 = New-LwgMissionCase -Name 'b9' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 400 }
-    Add-LwgPrompt -Case $b9 -Text ("Rework the header handling in " + (Join-Path $b9.ws 'module\parser.ps1') + ".")
-    Set-LwgEdits -Case $b9 -Paths (Get-LwgOutsideEdits -Case $b9 -Count 3)
-    $b9Before = @()
-    if ([IO.Directory]::Exists($b9.data)) { $b9Before = @([IO.Directory]::GetFileSystemEntries($b9.data)) }
-    $rb9 = Invoke-LwgStop -Case $b9 -Tag 'b9-run1' -StopHookActive
-    $vb9 = Test-LwgSilent $rb9
-    Add-Result 'B9: stop_hook_active suppresses the whole run' $vb9.ok `
-        ("$($vb9.why)  --  stop_hook_active means some hook already blocked this turn end once; re-running the advisories would repeat every warning for as long as that lasts")
-    # THE WHOLE DIRECTORY, NOT ONE FILE IN IT. This asserted
-    # `-not Exists($b9.state)` - advisory-<key>.json alone - while its own name
-    # quantifies over the state dir. lib\stop_advisories.ps1 calls Write-LwgEvent
-    # on a dozen paths and every one of them lands in lw-watchtower.jsonl in this same
-    # directory, and health.jsonl is a third file. A loop guard that moved below
-    # any of those - or below the module-resolution block, where a config
-    # carrying a non-boolean flag writes a ConfigInvalidFlag record - would leave
-    # those files while leaving advisory-<key>.json absent, and the only case
-    # named for the guard's "before anything touches a file" contract would have
-    # reported ok. Measured: with the guard moved below the module resolution,
-    # the old assertion stayed green and this one goes red naming the file it
-    # found.
-    #
-    # GetFileSystemEntries, NOT A LIST OF KNOWN FILENAMES. A named list is the
-    # same defect one level up - it covers the writers somebody remembered. An
-    # empty directory is the assertion the case name makes.
-    #
-    # WHICH HALF OF "read or written" IS ACTUALLY ASSERTED: the written half. A
-    # filesystem check cannot see that a suppressed run opened
-    # advisory-<key>.json for reading and closed it again. The name is kept
-    # because the contract is about both; the limit is stated here rather than
-    # left to be inferred, per this repository's standing practice.
-    # The comparison is against a SNAPSHOT taken before the run, not against an
-    # empty directory: Set-LwgEdits above seeds edits-<key>.txt into this same
-    # directory, so "empty" would be wrong for a reason that has nothing to do
-    # with the guard.
-    $b9After = @()
-    if ([IO.Directory]::Exists($b9.data)) { $b9After = @([IO.Directory]::GetFileSystemEntries($b9.data)) }
-    $b9New = @($b9After | Where-Object { $b9Before -notcontains $_ })
-    Add-Result 'B9: nothing was read or written under the state dir' `
-        ($b9New.Count -eq 0) `
-        ("the loop guard is checked before anything touches a file, so a suppressed run must leave no state behind. Only the WRITTEN half is asserted - a filesystem check cannot see a read. New entries after the run: " + ($b9New -join ', '))
-
-    # --- B12-B15: a credential in a prompt reaches neither disk nor message
-    # THIS MODULE IS THE ONLY ONE IN THE PLUGIN THAT READS WHAT THE OPERATOR
-    # TYPED, and until the redaction at its ingest point landed it kept what it
-    # read. The anchors it derives from a prompt are written verbatim, lowercased,
-    # into advisory-<sessionkey>.json, and up to four of them are quoted back in
-    # the systemMessage the hook prints at turn end. Neither copy went through
-    # Get-LwgRedacted, and mission_drift is ON BY DEFAULT, so every install was
-    # affected.
-    #
-    # TOKENISING IS NOT REDACTION, which is the assumption the defect rested on.
-    # The tokeniser splits on whitespace and punctuation, and a credential
-    # contains neither: the AWS-shaped specimen below is one unbroken
-    # alphanumeric run pasted inside a path, so it survived the split as a PATH
-    # SEGMENT - and a path anchor is the kind the advisory quotes. The assignment
-    # specimen survived the same split as an ordinary word.
-    #
-    # ONE PROMPT, FOUR CASES, and two of them can go red. B13 and B14 are the
-    # regression proper, one per destination. B12 and B15 are the guards that
-    # stop the other two passing for the wrong reason: a "fix" that dropped the
-    # prompt entirely - returning an empty string, or truncating at the default
-    # 200 characters - would take the module's standing to speak with it, the
-    # advisory would never fire, and a search of an empty message would find no
-    # credential and report success. B12 pins that the advisory still fires and
-    # B15 that the ordinary anchors in the SAME sentence are still there.
-    #
-    # THE SPECIMENS ARE ASSEMBLED AT RUNTIME and never written as literals, by
-    # the rule stated above $script:LwgSecretPatterns in lib\common.ps1 and
-    # already followed by the redaction cases in section A: a credential-shaped
-    # string in a tracked file is a liability whether or not anything scans it.
-    $b12 = New-LwgMissionCase -Name 'b12' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 400 }
-    $b12Key  = 'AKIA' + ('Z' * 8) + ('7' * 8)   # a key id, pasted inside a path
-    $b12Pass = 'zebra' + 'kestrel99'            # the value of an assignment
-    Add-LwgPrompt -Case $b12 -Text (
-        'Rework the header handling in ' + (Join-Path $b12.ws 'module\parser.ps1') +
-        ', the deploy key lives under C:\keys\' + $b12Key + '\config.json, and api_key = ' +
-        $b12Pass + ' for the run.')
-    Set-LwgEdits -Case $b12 -Paths (Get-LwgOutsideEdits -Case $b12 -Count 3)
-    $rb12 = Invoke-LwgStop -Case $b12 -Tag 'b12-run1'
-    $vb12 = Test-LwgMissionAdvisory $rb12
-
-    Add-Result 'B12: the prompt still gives the module standing, and it warns' $vb12.ok `
-        ("$($vb12.why)  --  CANNOT GO RED against the pre-fix tree; it is the anti-vacuity guard for B13 and B14. This prompt names a file inside the workspace exactly as B1's does, so the run must warn about the three outside edits. If it does not, the redaction has eaten the prompt rather than the credential in it, and the two searches below would then be searching an advisory that was never emitted")
-
-    $b12Raw = ''
-    try { if ([IO.File]::Exists($b12.state)) { $b12Raw = [IO.File]::ReadAllText($b12.state) } } catch { }
-    $b12Msg = ''
-    if ($vb12.ok) { $b12Msg = [string]$vb12.env.systemMessage }
-
-    # -match, so the comparison is CASE-INSENSITIVE, and that is the whole point
-    # rather than laziness: an anchor is stored lowercased, so a case-sensitive
-    # search for the specimen as it was typed would walk straight past the copy
-    # the module actually made. [regex]::Escape because a specimen is data here.
-    $b12InState = @(@($b12Key, $b12Pass) | Where-Object { $b12Raw -match [regex]::Escape($_) })
-    $b12InMsg   = @(@($b12Key, $b12Pass) | Where-Object { $b12Msg -match [regex]::Escape($_) })
-
-    Add-Result 'B13: no credential from the prompt reaches advisory-<sessionkey>.json' `
-        ($b12Raw.Length -gt 0 -and $b12InState.Count -eq 0) `
-        ("REGRESSION: the operator's typed prompt was written to the state directory unredacted. leaked: [$($b12InState -join ', ')]. A state file that holds nothing at all fails this too - the module has to have run and persisted its anchors for the absence to mean anything. got: [$b12Raw]")
-
-    Add-Result 'B14: no credential from the prompt reaches the emitted systemMessage' `
-        ($vb12.ok -and $b12InMsg.Count -eq 0) `
-        ("REGRESSION: the advisory quoted the operator's credential back into the session. The `"you named:`" list is the four path anchors sorted, and a key pasted inside a path becomes one of those segments - it sorts early and lands in the first four. leaked: [$($b12InMsg -join ', ')]. got: [$b12Msg]")
-
-    $sb12 = Get-LwgCaseState $b12
-    Add-Result 'B15: the ordinary anchors in the same sentence survive the redaction' `
-        ((@($sb12['md_paths']) -contains 'parser') -and (@($sb12['md_paths']) -contains 'module') -and
-         (@($sb12['md_paths']) -contains 'config')) `
-        ("CANNOT GO RED against the pre-fix tree - it pins that the fix is SURGICAL, which is the half a leak test cannot see. 'module' and 'parser' come from the path the operator named, 'config' from the tail of the path the key was pasted into: the redaction has to remove the segment that is a credential and leave the segments either side of it. got md_paths: [" + (@($sb12['md_paths']) -join ', ') + ']')
-
-    # --- B16, B17: a state file written BEFORE the redaction landed -------
-    # THE OTHER HALF OF THE SAME DEFECT, AND THE HALF B12-B15 CANNOT SEE.
-    # Redacting prompts on the way in fixes every session that starts after the
-    # update and none of the ones already running: those have an
-    # advisory-<sessionkey>.json on disk whose anchors ARE the raw prompt text,
-    # and rehydrating one carries the credential straight back into the set this
-    # turn persists and quotes. A fix that closed the new sessions and left the
-    # old ones leaking would be the kind of half-fix this repository keeps a rule
-    # about.
-    #
-    # THE ANCHORS CANNOT BE CLEANED, ONLY DISCARDED, which is what makes this
-    # testable as a distinct behaviour rather than as more redaction. An anchor
-    # is one lowercased token with its sentence gone, and Get-LwgRedacted decides
-    # from the sentence: the specimen below no longer matches its own pattern
-    # once it is lowercased, and would sail through a second pass untouched. So
-    # the set is thrown away, the read offset goes back to zero, and the anchors
-    # are rebuilt from the transcript through the redaction.
-    #
-    # THE CREDENTIAL IS SEEDED ONLY INTO THE STATE FILE and deliberately does NOT
-    # appear in this case's transcript. If it were in both, a green result would
-    # not say which mechanism produced it - the rebuild discarding it, or the
-    # redaction catching it on the way back in. Here the transcript is clean, so
-    # the only way the specimen can leave the state file is by being discarded,
-    # and the only way 'parser' can be in it afterwards is by the transcript
-    # having been re-read.
-    #
-    # THE SEEDED OFFSET IS EOF, which is the other thing this pins. Nothing else
-    # about this turn is new - no unread bytes, no new prompt, no change to the
-    # incomplete latch - so on the pre-fix tree the module has nothing to write
-    # and does not write, and the old anchors simply stay on disk. The rebuild
-    # therefore has to force the write itself rather than relying on some other
-    # change to trigger one.
-    $b16 = New-LwgMissionCase -Name 'b16' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 400 }
-    $b16Key = 'AKIA' + ('Y' * 8) + ('3' * 8)
-    Add-LwgPrompt -Case $b16 -Text ('Rework the header handling in ' + (Join-Path $b16.ws 'module\parser.ps1') + '.')
-    # Hand-built, byte for byte, because the point is what this code does with a
-    # file a PREVIOUS VERSION of it wrote - and that version cannot be run from
-    # here. The shape is the one the pre-redaction writer produced: anchors, an
-    # offset at end of file, the latch, and NO md_redact key.
-    [IO.File]::WriteAllText($b16.state,
-        ('{"md_paths":["module","parser.ps1","parser","' + $b16Key.ToLowerInvariant() +
-         '"],"md_words":["rework","header"],"md_offset":' + ([IO.FileInfo]::new($b16.tx)).Length +
-         ',"md_incomplete":false}'),
-        [Text.UTF8Encoding]::new($false))
-    [void](Invoke-LwgStop -Case $b16 -Tag 'b16-run1')
-
-    $s16raw = ''
-    try { $s16raw = [IO.File]::ReadAllText($b16.state) } catch { }
-    $s16 = Get-LwgCaseState $b16
-    Add-Result 'B16: anchors written before the redaction are discarded and rebuilt, and the credential in them goes' `
-        ($s16raw.Length -gt 0 -and $s16raw -notmatch [regex]::Escape($b16Key) -and
-         (@($s16['md_paths']) -contains 'parser')) `
-        ("REGRESSION: a session already running when the plugin was updated keeps re-persisting and re-quoting the credential its pre-redaction anchors hold. 'parser' has to be back in the set as well, or this passes for a rebuild that simply deleted everything and left the module with no standing to speak. got: [$s16raw]")
-
-    Add-Result 'B17: the rebuilt state records that its anchors are redacted' `
-        ([int]$s16['md_redact'] -eq 1) `
-        ("REGRESSION: without the marker there is nothing on disk that distinguishes a rebuilt file from a pre-redaction one, so the transcript is re-read from byte zero at EVERY turn end for the rest of the session - the whole cost the incremental read exists to avoid. It is written where the anchors are written and never on its own. got: [$s16raw]")
-
-    # --- B18: the RECORD bound is a hole in the picture, and it says so ---
-    # THERE ARE TWO BOUNDS ON WHAT ONE TURN TAKES IN AND ONLY ONE OF THEM USED
-    # TO ADMIT IT. B5 covers `max_scan_bytes`, which bounds the BYTES READ and
-    # latches `md_incomplete`. The other bound is on the loop that PARSES what
-    # was read - it stops at 400 records - and it used to break out silently:
-    # anchors from the first 400 records, the offset written at end of file, and
-    # `md_incomplete` still false. The module then judged the session believing
-    # it had seen all of it, which is precisely what B5 exists to forbid,
-    # reached by the other door.
-    #
-    # THE BOUND IS PER SLICE, so this needs a slice holding the whole session.
-    # Two paths hand it one: the first turn of a session whose transcript
-    # already exists, which is what this case builds, and the one-turn rebuild
-    # B16 covers. A turn that GREW by 400 typed prompts is not a real session,
-    # which is why the bound could sit there unnoticed.
-    #
-    # THE ANCHOR-BEARING PROMPT IS LAST, AND THAT IS THE WHOLE CONSTRUCTION.
-    # The 400 fillers name nothing, so they contribute word anchors and no path
-    # anchor; the 401st names a file and would give the module standing to speak.
-    # It is never parsed. So the run is SILENT either way - before the fix for
-    # want of standing, after it because the latch is set - and silence is
-    # therefore not the discriminator. `md_incomplete` is: it is false on the
-    # pre-fix tree and true here, and it is the difference between a module that
-    # knows its picture is short and one that does not.
-    $b18 = New-LwgMissionCase -Name 'b18' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 400 }
-    # Built as Add-LwgPrompt builds it and appended ONCE rather than 400 times:
-    # the record shape is the thing that matters and 400 opens of the same file
-    # would be the slowest case in this suite by a wide margin.
-    $b18Rec = (([ordered]@{ type = 'user'; message = [ordered]@{ content = 'carry on' } } |
-                ConvertTo-Json -Depth 6 -Compress) + "`n")
-    [IO.File]::AppendAllText($b18.tx, ($b18Rec * 400), [Text.UTF8Encoding]::new($false))
-    Add-LwgPrompt -Case $b18 -Text ('Rework the header handling in ' + (Join-Path $b18.ws 'module\parser.ps1') + '.')
-    Set-LwgEdits -Case $b18 -Paths (Get-LwgOutsideEdits -Case $b18 -Count 3)
-    $vb18 = Test-LwgSilent (Invoke-LwgStop -Case $b18 -Tag 'b18-run1')
-    $s18  = Get-LwgCaseState $b18
-    Add-Result 'B18: a slice that hits the RECORD bound latches incomplete, as an oversized one does' `
-        ($vb18.ok -and $s18['md_incomplete'] -eq $true) `
-        ("REGRESSION: the parse stopped at 400 records and said nothing, so the anchor set is missing everything named after the 400th and the module does not know it. The next turn that meets the fire condition warns on a set it believes is complete - a false positive on the one module that is on by default. The run must also stay silent: $($vb18.why). got: " + ([IO.File]::ReadAllText($b18.state)))
-
-    # --- B19: a PASTED PEM KEY, on both destinations ----------------------
-    # THE SHAPE THAT WAS ENUMERATED AND STILL WENT THROUGH, which is why it gets
-    # its own case rather than being folded into B13/B14. Those two paste an
-    # AWS-shaped key id; this pastes a PEM block, and the difference is not
-    # cosmetic. The vendor rule MATCHED a PEM - private_key is one of the five -
-    # and replaced the BEGIN LINE ONLY, so the base64 body survived intact.
-    # base64 contains '/', Add-LwgMissionAnchors reads '/' as a PATH SEPARATOR,
-    # and a path anchor is the kind the advisory QUOTES. So the body was not
-    # merely stored, it was PROMOTED into the four-item "you named:" list and
-    # pushed the file the operator actually named out of the message.
-    #
-    # BASELINE: red against the working tree before this fix AND at fd8d023 -
-    # the BEGIN-line-only pattern is the same in both, so this is one of the two
-    # cases here that is a genuine fd8d023 regression rather than a repair of
-    # something a parallel fix introduced.
-    #
-    # The third assertion is the anti-vacuity guard, in the same role B15 plays:
-    # a "fix" that dropped the whole prompt would pass the two leak searches by
-    # emitting nothing worth searching.
-    $b19 = New-LwgMissionCase -Name 'b19' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 400 }
-    # Assembled at runtime, never a literal - the same rule section A follows.
-    # The '/' characters are what make this reach the QUOTED list rather than
-    # just the state file, so they are deliberate and not incidental padding.
-    $b19Body = 'MIIEowIBAAKCAQEA' + '0aqrstuvwxyz/3dfghjklzxcv' + 'bnmqwertyuio+mnbvcxzlkjhg' + '/abcdefghijklmnop'
-    $b19Pem  = '-----BEGIN RSA PRIVATE KEY-----' + "`n" + $b19Body + "`n" + '-----END RSA PRIVATE KEY-----'
-    Add-LwgPrompt -Case $b19 -Text (
-        'Rework the header handling in ' + (Join-Path $b19.ws 'module\parser.ps1') +
-        ' using this deploy key: ' + $b19Pem)
-    Set-LwgEdits -Case $b19 -Paths (Get-LwgOutsideEdits -Case $b19 -Count 3)
-    $rb19 = Invoke-LwgStop -Case $b19 -Tag 'b19-run1'
-    $vb19 = Test-LwgMissionAdvisory $rb19
-
-    $b19Raw = ''
-    try { if ([IO.File]::Exists($b19.state)) { $b19Raw = [IO.File]::ReadAllText($b19.state) } } catch { }
-    $b19Msg = if ($vb19.ok) { [string]$vb19.env.systemMessage } else { '' }
-    # The body is searched in FRAGMENTS, because the tokeniser is what splits it:
-    # a search for the whole base64 run would pass while every piece of it stood
-    # in the message. These are the segments '/' produces.
-    $b19Frags = @('0aqrstuvwxyz', '3dfghjklzxcv', 'bnmqwertyuio', 'abcdefghijklmnop')
-    $b19InState = @($b19Frags | Where-Object { $b19Raw -match [regex]::Escape($_) })
-    $b19InMsg   = @($b19Frags | Where-Object { $b19Msg -match [regex]::Escape($_) })
-
-    Add-Result 'B19: no fragment of a pasted PEM body reaches advisory-<sessionkey>.json' `
-        ($b19Raw.Length -gt 0 -and $b19InState.Count -eq 0) `
-        ("REGRESSION, red at fd8d023 as well: the vendor rule replaced the BEGIN line and left the body, and the body tokenised into anchors that were persisted. leaked: [$($b19InState -join ', ')]. got: [$b19Raw]")
-
-    Add-Result 'B19: no fragment of a pasted PEM body reaches the emitted systemMessage' `
-        ($vb19.ok -and $b19InMsg.Count -eq 0) `
-        ("REGRESSION, and this is the destination the module's own comment used to omit: base64 contains '/', which the tokeniser reads as a path separator, so the body was promoted to the anchor kind the advisory QUOTES and took the slots the operator's own file should have had. leaked: [$($b19InMsg -join ', ')]. got: [$b19Msg]")
-
-    $sb19 = Get-LwgCaseState $b19
-    Add-Result 'B19: the file the operator actually named still survives the redaction' `
-        ((@($sb19['md_paths']) -contains 'parser') -and (@($sb19['md_paths']) -contains 'module')) `
-        ("CANNOT GO RED against the pre-fix tree - it is the anti-vacuity guard for the two searches above, in the same role B15 plays for B13 and B14. Removing a PEM must not remove the workspace path in the same sentence, or the module loses the standing that makes it speak at all. got md_paths: [" + (@($sb19['md_paths']) -join ', ') + ']')
-
-    # --- B20: ONE WARNING PER SESSION, not one per file that joins the set ---
-    # THE NUMBER THE ON-BY-DEFAULT DECISION RESTS ON. docs/modules.md offers
-    # "the realistic worst case is one wrong warning per session" as the other
-    # side of shipping this module on. That was drawn from "it warns once per
-    # distinct set of unaccounted files", which the code did exactly - and the
-    # conclusion did not follow, because the set GROWS. The edit list is a
-    # deduped union of the whole session, so a fourth unrelated file produced a
-    # different signature and re-fired the same warning with a longer list.
-    #
-    # B7 above cannot see this. It re-runs the SAME edit set, which is the case
-    # the old signature handled correctly. This one adds one file per turn,
-    # which is the ordinary shape of a session working outside the workspace,
-    # and it is the shape that produced four warnings in five turns.
-    #
-    # THE DISCRIMINATOR IS A COUNT, so the assertion is on how many of the three
-    # turns emitted an advisory rather than on any one of them. Turn 1 must
-    # warn - a case that only asserted silence would be satisfied by a module
-    # that had stopped speaking entirely, which is the failure this suite's own
-    # editorial rule bans.
-    #
-    # BASELINE: red against the working tree before this fix, and against
-    # fd8d023 and cc44c99, where `$sig = ($leaves -join '|')` is identical.
-    # Pre-fix it emits three advisories; the assertion wants one.
-    $b20 = New-LwgMissionCase -Name 'b20' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 400 }
-    Add-LwgPrompt -Case $b20 -Text ('Rework the header handling in ' + (Join-Path $b20.ws 'module\parser.ps1') + '.')
-    $b20Fired = @()
-    $b20Msgs  = @()
-    foreach ($n in @(3, 4, 5)) {
-        Set-LwgEdits -Case $b20 -Paths (Get-LwgOutsideEdits -Case $b20 -Count $n)
-        $r = Invoke-LwgStop -Case $b20 -Tag ("b20-run$n")
-        $v = Test-LwgMissionAdvisory $r
-        if ($v.ok) { $b20Fired += $n; $b20Msgs += [string]$v.env.systemMessage }
-        elseif ($r.code -ne 0 -or -not [string]::IsNullOrWhiteSpace($r.err)) {
-            $b20Fired += "$n(broken: $($v.why))"
-        }
-    }
-    Add-Result 'B20: a standing drift warns ONCE, not again each time the set grows' `
-        (@($b20Fired).Count -eq 1 -and $b20Fired[0] -eq 3) `
-        ("REGRESSION: the dedupe signature was the LIST of unaccounted files, so every turn that added one produced a new distinct set and re-fired. Turns that emitted an advisory: [" + ($b20Fired -join ', ') + "] of [3, 4, 5] - expected [3] only. Messages: " + ($b20Msgs -join ' || '))
-
-    # --- B21: a SATURATED anchor set latches, it does not judge on ----------
-    # THE PIVOT GUARANTEE HAS AN EXPIRY AND THIS IS IT. Add-LwgMissionAnchors
-    # stops at max_anchors with a `break`, and the total it tests is rehydrated
-    # from the state file every turn and only ever grows - so the first turn to
-    # reach the cap is the last turn that learns anything. Every prompt after it
-    # contributes nothing, which is precisely the redirection the "a pivot
-    # cannot trip it" argument depends on.
-    #
-    # WHAT THE PRE-FIX TREE DOES HERE, and it is the worst shape this module
-    # has: turn 1 saturates the set on a workspace file, turn 2 redirects to the
-    # outside tree BY NAME and the work lands there, and the module warns that
-    # all three files "match nothing named in any prompt this session" while
-    # quoting anchors from before the pivot as "you named:". The operator is
-    # told, with specifics, that they never asked for work they asked for one
-    # turn ago.
-    #
-    # THE CAP IS SET LOW RATHER THAN AT 400, deliberately. It is a documented
-    # knob and the code path is the same at any value; reaching 400 for real
-    # would need a prompt long enough to dominate this suite's runtime, and the
-    # thing under test is what happens AT the cap, not what the cap is. The
-    # filler tail is what saturates it, and the path is named FIRST so the path
-    # anchors are in the set before the words exhaust the budget - without that
-    # the module would have no standing on the pre-fix tree, would stay silent
-    # for the wrong reason, and the case would pass without discriminating.
-    #
-    # TWO ASSERTIONS, because silence alone is satisfied by a module that has
-    # stopped working. md_incomplete is the other half: it is the record that
-    # the module knows its picture is short, and it is false on the pre-fix
-    # tree.
-    #
-    # BASELINE: red against the working tree before this fix, and against
-    # fd8d023 and cc44c99 - `if ($Anchors.total -ge $MaxAnchors) { break }` in
-    # Add-LwgMissionAnchors is byte-identical at all three, and no caller
-    # anywhere tests the total afterwards.
-    $b21 = New-LwgMissionCase -Name 'b21' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 12 }
-    Add-LwgPrompt -Case $b21 -Text ((Join-Path $b21.ws 'module\parser.ps1') +
-        ' - rework the header handling there, keeping every existing behaviour intact,' +
-        ' preserving whatever indentation surrounds those declarations, without altering' +
-        ' unrelated helpers, comments, spacing, ordering, naming, formatting, structure.')
-    $vb21a = Test-LwgSilent (Invoke-LwgStop -Case $b21 -Tag 'b21-run1')
-    $s21a  = Get-LwgCaseState $b21
-
-    Add-LwgPrompt -Case $b21 -Text ('Change of plan - move to ' + (Join-Path $b21.outside 'crimson_one.ps1') + ' and its siblings instead.')
-    Set-LwgEdits -Case $b21 -Paths (Get-LwgOutsideEdits -Case $b21 -Count 3)
-    $rb21b = Invoke-LwgStop -Case $b21 -Tag 'b21-run2'
-    $vb21b = Test-LwgSilent $rb21b
-    $s21b  = Get-LwgCaseState $b21
-
-    Add-Result 'B21: an anchor set at max_anchors latches incomplete rather than going deaf in silence' `
-        ($vb21a.ok -and $s21a['md_incomplete'] -eq $true) `
-        ("REGRESSION: reaching the cap stopped accumulation and set nothing - no flag, no event, nothing in the state file distinguished '400 anchors and still learning' from '400 anchors and deaf since turn 5'. Turn 1 must also stay silent (it has no edits behind it): $($vb21a.why). got: " + ([IO.File]::ReadAllText($b21.state)))
-
-    Add-Result 'B21: a pivot after the cap is not reported as drift' `
-        ($vb21b.ok -and $s21b['md_incomplete'] -eq $true) `
-        ("REGRESSION: the redirecting prompt contributed no anchors because the set was saturated, so the work that followed matched nothing and the module warned that the operator never asked for what they asked for one turn ago - quoting pre-pivot anchors as 'you named:'. This is the case docs/modules.md calls the one the module was built around. $($vb21b.why). got: " + ([IO.File]::ReadAllText($b21.state)))
-
     # --- B22: the edit list ROLLS past its cap, it does not stop recording --
     # THE WRITER'S CAP WAS A HARD STOP. `if (size -gt 262144) { exit 0 }` runs
     # before the append, so past the cap no further edit in that session was
-    # ever recorded - and both reading modules carried on reporting active.
+    # ever recorded - and the reading module carried on reporting active.
     # docs_coupling went on warning "and no documentation did" about a session
     # that had spent an hour editing documentation, because no doc path could be
-    # recorded any more; mission_drift's edit set froze, so its skip guard
-    # stopped it assessing at all. Two modules that look enabled and observe
-    # nothing, which is what this plugin exists to catch.
+    # recorded any more. A module that looks enabled and observes nothing, which
+    # is what this plugin exists to catch.
     #
     # THE FIXTURE IS THE FILE AT THE CAP, which is the whole condition. The
     # filler lines name a tree that shares nothing with anything else here so
@@ -2017,7 +1068,7 @@ try {
     #
     # BASELINE: red against the working tree before this fix, and against
     # fd8d023 and cc44c99, where the size check is the same `exit 0`.
-    $b22 = New-LwgMissionCase -Name 'b22' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 400 }
+    $b22 = New-LwgStopCase -Name 'b22' -Modules @{ docs_coupling = $true }
     $b22Filler = New-Object 'System.Collections.Generic.List[string]'
     for ($i = 0; $i -lt 4200; $i++) {
         [void]$b22Filler.Add((Join-Path $b22.outside ('umberfill_{0:D5}\umberfill_{0:D5}.ps1' -f $i)))
@@ -2032,7 +1083,7 @@ try {
 
     Add-Result 'B22: a file edited AFTER the 256 KB cap is still recorded' `
         ($rb22.code -eq 0 -and ($b22Now -contains $b22New)) `
-        ("REGRESSION: the writer stopped recording at the cap instead of rolling, so docs_coupling and mission_drift both went on reporting active while observing nothing further. Seeded $($b22Filler.Count) lines ($b22Was bytes); the hook exited $($rb22.code) and the list now holds $($b22Now.Count) line(s), last: [" + $(if ($b22Now.Count) { $b22Now[-1] } else { '<none>' }) + "]. stderr: [$($rb22.err)]")
+        ("REGRESSION: the writer stopped recording at the cap instead of rolling, so docs_coupling went on reporting active while observing nothing further. Seeded $($b22Filler.Count) lines ($b22Was bytes); the hook exited $($rb22.code) and the list now holds $($b22Now.Count) line(s), last: [" + $(if ($b22Now.Count) { $b22Now[-1] } else { '<none>' }) + "]. stderr: [$($rb22.err)]")
 
     Add-Result 'B22: the rolled-off entries are archived, not discarded' `
         ([IO.File]::Exists($b22File + '.1') -and (Get-Item -LiteralPath $b22File).Length -lt $b22Was) `
@@ -2052,15 +1103,13 @@ try {
     # reader must not depend on the writer having been fixed, and asserting only
     # the end result would leave that untested.
     #
-    # docs_coupling is switched ON for this case and mission_drift left on with
-    # no prompt naming anything, so mission_drift has no standing and the only
-    # advisory in the envelope is the one under test.
+    # docs_coupling is the only module switched on for this case, so the only
+    # advisory the envelope can carry is the one under test.
     #
     # BASELINE: red against the working tree before this fix, and against
     # fd8d023 and cc44c99 - `Add-LwgLine ... -Line ($path.Replace(...))` with no
     # cap, and a bare `Split-Path $_ -Leaf` into the message, at all three.
-    $b23 = New-LwgMissionCase -Name 'b23' -Knobs @{ min_files = 3; require_outside_root = $true; max_scan_bytes = 2097152; max_anchors = 400 } `
-                              -Modules @{ mission_drift = $true; docs_coupling = $true }
+    $b23 = New-LwgStopCase -Name 'b23' -Modules @{ docs_coupling = $true }
     # Assembled at runtime and separator-free, which is what makes Split-Path
     # -Leaf hand it back whole. `.ps1` is what makes it classify as source.
     $b23Path = ('x' * 200000) + '.ps1'
@@ -2071,7 +1120,7 @@ try {
 
     Add-Result 'B23: an oversized file_path is bounded at the WRITE, and still recorded' `
         ($rb23.code -eq 0 -and $b23Line.Count -eq 1 -and $b23Max -le 1100) `
-        ("REGRESSION: the 200 000-character value landed whole in edits-<key>.txt, taking ~76% of the 256 KB window the Stop half reads and displacing the session's real edit history from BOTH modules - while leaving the file under the writer's cap, so recording continued and the picture stayed wrong rather than obviously broken. A bound that dropped the record instead would fail this row too: it wants one line, bounded. got $($b23Line.Count) line(s), longest $b23Max chars. stderr: [$($rb23.err)]")
+        ("REGRESSION: the 200 000-character value landed whole in edits-<key>.txt, taking ~76% of the 256 KB window the Stop half reads and displacing the session's real edit history from docs_coupling - while leaving the file under the writer's cap, so recording continued and the picture stayed wrong rather than obviously broken. A bound that dropped the record instead would fail this row too: it wants one line, bounded. got $($b23Line.Count) line(s), longest $b23Max chars. stderr: [$($rb23.err)]")
 
     # THE READER IS DRIVEN INDEPENDENTLY OF THE WRITER, by seeding the edit list
     # by hand, and that separation is the point of the second row rather than an
@@ -2091,6 +1140,97 @@ try {
     Add-Result 'B23: and the advisory the operator reads is bounded too' `
         ($rb23s.code -eq 0 -and $b23Msg -like '*LW-WATCHTOWER docs:*' -and $b23Msg.Length -le 2000) `
         ("REGRESSION, and this is the SECOND destination: Split-Path -Leaf returns the whole string for a separator-free value, so the sample went unbounded into the DocsCoupling record and into the systemMessage. The advisory must still FIRE - a reader that dropped the file rather than bounding it would pass a length check and say nothing. exit $($rb23s.code), message length $($b23Msg.Length): [" + $(if ($b23Msg.Length -gt 300) { $b23Msg.Substring(0, 300) + '...' } else { $b23Msg }) + "]")
+
+    # --- B8: it never blocks ----------------------------------------------
+    # Asserted on the envelope B23 actually emitted rather than on a fresh run.
+    # On Stop a hook blocks by exiting 2 or by printing {"decision":"block"};
+    # this envelope must have no decision member at all, and the exit code is
+    # already asserted above.
+    #
+    # IT USED TO HANG OFF B1, mission_drift's firing case, which was the first
+    # advisory this section produced. That module is gone, so the assertion
+    # moved to the first advisory that is still produced here rather than being
+    # dropped with it - what it pins is a property of the SCRIPT, not of any one
+    # module.
+    #
+    # suppressOutput IS ASSERTED HERE TOO. It was pinned by
+    # Test-LwgMissionAdvisory, the envelope checker every mission case ran
+    # through, and that helper went with those cases - so without this conjunct
+    # nothing in the suite would notice the raw JSON envelope being shown to the
+    # operator instead of the message inside it.
+    # IT IS NOT NESTED ON THE ENVELOPE PARSE ANY MORE, and the old form was
+    # `if ($null -ne $b23Env) { ... }`. $b23Env is what B23 above establishes,
+    # so that condition was another case's assertion wearing a different hat: an
+    # advisory that stopped emitting failed B23 and DELETED B8 - the only check
+    # in this file that no module may block a turn end, which is the plugin's
+    # central constraint.
+    #
+    # MEASURED ON THIS TREE, 3 September 2026. With docs_coupling's emit
+    # disabled in lib\stop_advisories.ps1 (`if ($onDocs)` forced false) so the
+    # module is still loaded, still reads the edit list and simply never
+    # produces an advisory, this suite printed
+    #
+    #   RESULT: 115 of 116 case(s) passed in 37169 ms
+    #
+    # against a file that holds 117 cases. One case was not skipped-with-a-note,
+    # it was NOT RUN, and no line in the output said so. This file declares no
+    # $script:ExpectedCases the way tests\gate_delegate.ps1 does, so nothing
+    # else caught the smaller denominator either.
+    #
+    # WITH THE GUARD GONE THE ROW FAILS INSTEAD. $hasDecision already defaults
+    # $false and $b23Suppress does too, both filled inside a try, so a $null
+    # envelope makes the assertion false rather than making the case vanish -
+    # and the detail says "there was no envelope to inspect", which is a
+    # different statement from "the envelope carried a decision member" and must
+    # not be confused with it. Same shape as $aUnresolved in
+    # tests\gate_delegate.ps1 section A.
+    $hasDecision  = $false
+    $b23Suppress  = $false
+    try { $hasDecision = ($null -ne ($b23Env.PSObject.Properties | Where-Object { $_.Name -eq 'decision' })) } catch { }
+    try { $b23Suppress = ($b23Env.suppressOutput -eq $true) } catch { }
+    Add-Result 'B8: the advisory envelope carries NO decision member, and suppresses its own output' `
+        ((-not $hasDecision) -and $rb23s.out -notlike '*decision*' -and $b23Suppress) `
+        $(if ($null -eq $b23Env) {
+            'there was no envelope on stdout to inspect, so this case did NOT pass and it did NOT establish anything about whether a module can block a turn end. Fix B23 above it first. stdout: [' + $rb23s.out + ']'
+          } else {
+            "a decision member would make this advisory able to block a turn end, which no module in this plugin may do; suppressOutput false shows the operator the raw envelope instead of the message: $($rb23s.out)"
+          })
+
+    # --- B9: the loop guard suppresses the whole run ------------------------
+    # EVERY Stop hook here honours the same contract: when the payload carries
+    # stop_hook_active the turn end is a CONTINUATION of one this script has
+    # already spoken on, and it must stand down rather than say the same thing
+    # again. The guard is the first statement in the try - `if
+    # ($payload.stop_hook_active) { exit 0 }` - and it is a property of the
+    # SCRIPT, not of any one module, which is why the fixture below arms
+    # docs_coupling and then proves the guard beat it.
+    #
+    # THE SECOND ROW IS WHAT MAKES THE FIRST WORTH ANYTHING. Silence alone would
+    # also be produced by a run that read the edit list, resolved the state file
+    # and wrote both, and then merely declined to print - which is a turn end
+    # that still costs everything the guard exists to save. The state directory
+    # is seeded with the edit list ONLY, so anything else appearing in it is
+    # work this run did.
+    #
+    # IT USED TO RUN AGAINST mission_drift, as the old B9, and went with that
+    # module's cases; it is restored here against a module that still exists,
+    # because the guard it pins did not go anywhere.
+    $b9 = New-LwgStopCase -Name 'b9' -Modules @{ docs_coupling = $true }
+    Set-LwgEdits -Case $b9 -Paths @(
+        (Join-Path $b9.ws 'module\umbergate_one.ps1'),
+        (Join-Path $b9.ws 'module\umbergate_two.ps1'),
+        (Join-Path $b9.ws 'module\umbergate_three.ps1'))
+    $b9Before = @(Get-ChildItem -LiteralPath $b9.data -Force | ForEach-Object { $_.Name })
+    $rb9 = Invoke-LwgStop -Case $b9 -Tag 'b9-continuation' -StopHookActive
+    $b9After = @(Get-ChildItem -LiteralPath $b9.data -Force | ForEach-Object { $_.Name })
+
+    Add-Result 'B9: stop_hook_active suppresses the whole run' `
+        ($rb9.code -eq 0 -and [string]::IsNullOrWhiteSpace($rb9.out) -and [string]::IsNullOrWhiteSpace($rb9.err)) `
+        ("the same source-files-and-no-docs condition WOULD have warned without the guard - B23 fires on it - so a continuation that speaks repeats a warning the operator has already read. exit $($rb9.code), stdout [$($rb9.out)], stderr [$($rb9.err)]")
+
+    Add-Result 'B9: nothing was read or written under the state dir' `
+        (($b9After.Count -eq $b9Before.Count) -and $b9Before.Count -eq 1) `
+        ("the guard is the FIRST statement in the try, so a continuation must cost nothing at all - not a state file, not an advisory record, not a context-window observation. Before: [" + ($b9Before -join ', ') + "] After: [" + ($b9After -join ', ') + "]")
 
     # --- B25: an impossible occupancy is REFUSED, not absorbed --------------
     # context_pressure carries an explicit refusal: an occupancy above the
@@ -2116,7 +1256,7 @@ try {
     #
     # BASELINE: red against the working tree before this fix, and against
     # fd8d023 and cc44c99, where the observation write precedes the resolve.
-    $b25 = New-LwgMissionCase -Name 'b25' -Knobs $null -Modules @{ context_pressure = $true }
+    $b25 = New-LwgStopCase -Name 'b25' -Modules @{ context_pressure = $true }
     $b25model = 'lwg-fixture-model-200k'
     $b25rec = ([ordered]@{
         type    = 'assistant'
@@ -2146,11 +1286,6 @@ try {
         ("CANNOT GO RED against the pre-fix tree - it is the anti-vacuity guard for the row above. A 'fix' that simply never recorded an observation would satisfy that row and leave a genuine 1M session reporting UNKNOWN for ever, which is the opposite failure. exit $($rb25b.code), context_windows.json [$b25obs2]")
 
     # --- B24: git_hygiene's UNKNOWN is not deduped into silence -------------
-    # THE ONLY CASE IN THIS SUITE THAT IS NOT ABOUT mission_drift, and it is here
-    # because it drives the same hook through the same plumbing; a section of its
-    # own would buy nothing but a heading. Read section B as "the Stop advisory
-    # hook, end to end", of which mission_drift is all but this case.
-    #
     # WHAT IT PINS. git_hygiene's documented contract is that silence means "git
     # said there is nothing wrong" and NEVER "git was not asked". The advisory
     # carrying the UNKNOWN state was deduped on the set of condition ids, and
@@ -2169,7 +1304,7 @@ try {
     # THE ASSERTION IS A COUNT OVER THREE TURNS, because one turn cannot tell the
     # two behaviours apart: both emit on turn 1. Three advisories is the fix; one
     # is the defect.
-    $b24 = New-LwgMissionCase -Name 'b24' -Knobs $null -Modules @{ git_hygiene = $true }
+    $b24 = New-LwgStopCase -Name 'b24' -Modules @{ git_hygiene = $true }
     $b24git = Join-Path $b24.ws '.git'
     [void][IO.Directory]::CreateDirectory($b24git)
     [IO.File]::WriteAllText((Join-Path $b24git 'config'),
@@ -2196,6 +1331,148 @@ try {
     Add-Result 'B24: an UNKNOWN tree state is reported at EVERY turn end, not once' `
         ($b24said -eq 3 -and $b24bad.Count -eq 0) `
         ("REGRESSION: query-failed went into the same dedupe signature as the tree conditions, so a git that never answers was announced on turn 1 and never again - and this module's own documentation says its silence means git said nothing was wrong. Turns that reported UNKNOWN: $b24said of 3. Problems: [" + ($b24bad -join '; ') + "]. Messages: " + ($b24msgs -join ' || '))
+
+    # --- the timeout path, against a real process table ------------------
+    # B26 IS THE OBSERVATION #98 SAID DID NOT EXIST. That issue argued from what
+    # git and gh are known to spawn that Process.Kill() on the timeout path
+    # leaves a helper running, and the counter-argument recorded on it - that no
+    # orphan had ever been observed from this plugin, so paying for a tree kill
+    # was the wrong trade - was true when it was written. This case plants a real
+    # grandchild under a real child, drives the REAL timeout branch, and then
+    # reads the process table. Against the pre-fix file it reports the grandchild
+    # ALIVE. So the decision is reopened by a measurement rather than by an
+    # argument, and lib\stop_advisories.ps1 now tree-kills.
+    #
+    # THE HELPERS ARE EXTRACTED BY AST rather than dot-sourced. Dot-sourcing
+    # lib\stop_advisories.ps1 would run the whole Stop hook and exit 0 out of
+    # this suite, so the three functions are lifted from the SHIPPED FILE'S OWN
+    # TEXT by [Language.Parser]::ParseFile - the same reader .github\workflows
+    # already uses on this tree. Nothing is retyped here, so this cannot pass
+    # against a copy that has drifted from the file it is testing.
+    #
+    # WHY -TimeoutMs 1 IS NOT A ONE-MILLISECOND RACE. The handle carries its own
+    # stopwatch, started at launch, and the remaining budget is TimeoutMs MINUS
+    # that. The marker poll above has already burned far more than 1 ms, so the
+    # budget is 0 and the timeout branch is entered deterministically.
+    $b26 = @{ ok = $false; detail = ''; gcPid = -1; chPid = -1; state = ''; kill = ''; alive = $true }
+    $b26h = $null
+    $b26dir = Join-Path $work 'b26'
+    [void][IO.Directory]::CreateDirectory($b26dir)
+    try {
+        $b26tok = $null; $b26perr = $null
+        $b26ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            $AdvisoryPath, [ref]$b26tok, [ref]$b26perr)
+        # Two are REQUIRED and the tree killer is OPTIONAL, deliberately. Making
+        # Stop-LwgProcessTree mandatory would turn this case against the pre-fix
+        # file into "the fixture could not be built", which is an abort and not
+        # a red - and a regression case that cannot FAIL for the reason it names
+        # proves nothing. Lifted this way it drives the real timeout branch of
+        # whichever version it is pointed at, and reports the grandchild alive
+        # when that version leaves it alive.
+        $b26need = @('Start-LwgProcess', 'Complete-LwgProcess')
+        $b26want = $b26need + @('Stop-LwgProcessTree')
+        $b26defs = @($b26ast.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $b26want -contains $n.Name
+        }.GetNewClosure(), $true))
+        $b26got = @($b26defs | ForEach-Object { $_.Name })
+        foreach ($n in $b26need) {
+            if ($b26got -notcontains $n) {
+                throw ("lib\stop_advisories.ps1 no longer defines $n, so this case could not be built at all")
+            }
+        }
+        foreach ($d in $b26defs) { . ([scriptblock]::Create($d.Extent.Text)) }
+
+        # The grandchild announces its own pid and then outlives everything it
+        # is allowed to. The child spawns it and sleeps, so the child is the one
+        # that hits the timeout and the grandchild is the thing Kill() misses.
+        $b26marker = Join-Path $b26dir 'grandchild.pid'
+        $b26gc     = Join-Path $b26dir 'grandchild.ps1'
+        $b26ch     = Join-Path $b26dir 'child.ps1'
+        [IO.File]::WriteAllText($b26gc, (
+            '[IO.File]::WriteAllText(' + "'" + $b26marker + "'" + ', [string]$PID)' + "`r`n" +
+            'Start-Sleep -Seconds 60' + "`r`n"), [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText($b26ch, (
+            "Start-Process -FilePath 'powershell' -WindowStyle Hidden -ArgumentList " +
+            "@('-NoProfile','-ExecutionPolicy','Bypass','-File','" + $b26gc + "')" + "`r`n" +
+            'Start-Sleep -Seconds 60' + "`r`n"), [Text.UTF8Encoding]::new($false))
+
+        $b26h = Start-LwgProcess -File 'powershell' `
+            -ProcArgs @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $b26ch) -WorkDir $b26dir
+        # Read BEFORE anything that can throw. Every abort below this line -
+        # the marker never appearing, most of all - leaves two 60-second
+        # sleepers behind unless the cleanup knows their pids.
+        try { $b26.chPid = [int]$b26h.p.Id } catch { $b26.chPid = -1 }
+        if ($b26h.state -ne 'running') { throw "the child did not start: state=$($b26h.state) err=$($b26h.err)" }
+
+        $b26sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($b26sw.Elapsed.TotalSeconds -lt 20 -and -not [IO.File]::Exists($b26marker)) {
+            Start-Sleep -Milliseconds 100
+        }
+        if (-not [IO.File]::Exists($b26marker)) {
+            throw 'the grandchild never wrote its marker, so the fixture never armed and this case established nothing'
+        }
+        $b26.gcPid = [int]([IO.File]::ReadAllText($b26marker).Trim())
+
+        $b26r      = Complete-LwgProcess -Handle $b26h -TimeoutMs 1
+        $b26.state = [string]$b26r.state
+        $b26.kill  = [string]$b26r.kill
+
+        # The OS reaps asynchronously. Poll rather than assert immediately, so a
+        # slow machine reports a real result instead of a timing artefact.
+        $b26sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($b26sw.Elapsed.TotalSeconds -lt 10) {
+            $b26.alive = $false
+            try { $null = Get-Process -Id $b26.gcPid -ErrorAction Stop; $b26.alive = $true } catch { }
+            if (-not $b26.alive) { break }
+            Start-Sleep -Milliseconds 200
+        }
+
+        $b26.ok = ($b26.state -eq 'timeout' -and -not $b26.alive)
+        $b26.detail = ("state=$($b26.state) kill=$($b26.kill) grandchild pid $($b26.gcPid) alive=$($b26.alive)")
+    } catch {
+        $b26.ok = $false
+        $b26.detail = 'the fixture did not run: ' + $_.Exception.Message
+    } finally {
+        # A red run, AND EVERY ABORT PATH ABOVE, must leave nothing sleeping on
+        # the machine. The child tree goes first, by the same mechanism the fix
+        # uses, because on the paths that threw before the timeout ran the child
+        # is still alive and is the grandchild's parent; then the grandchild by
+        # pid, because on the paths where the tree kill was the thing under test
+        # it may be all that is left.
+        #
+        # BOTH ARE GUARDED ON NOT-KNOWN-DEAD, and that is not tidiness. A pid
+        # whose process has exited can be reissued by Windows, so cleaning up a
+        # pid this case has already watched die is a way of killing somebody
+        # else's process. state is set only when Complete-LwgProcess returned -
+        # which is the path on which the child is already dead - and alive is
+        # left $true until the poll above actually observes the grandchild gone.
+        if ($b26.chPid -gt 0 -and [string]::IsNullOrEmpty($b26.state)) {
+            try {
+                $b26tk = New-Object System.Diagnostics.ProcessStartInfo
+                $b26tk.FileName               = 'taskkill'
+                $b26tk.Arguments              = ('/PID {0} /T /F' -f $b26.chPid)
+                $b26tk.UseShellExecute        = $false
+                $b26tk.CreateNoWindow         = $true
+                $b26tk.RedirectStandardOutput = $true
+                $b26tk.RedirectStandardError  = $true
+                $b26k = [System.Diagnostics.Process]::Start($b26tk)
+                if ($null -ne $b26k) {
+                    try { $b26k.StandardOutput.ReadToEndAsync() | Out-Null } catch { }
+                    try { $b26k.StandardError.ReadToEndAsync()  | Out-Null } catch { }
+                    try { if (-not $b26k.WaitForExit(2000)) { $b26k.Kill() } } catch { }
+                    try { $b26k.Dispose() } catch { }
+                }
+            } catch { }
+        }
+        if ($b26.gcPid -gt 0 -and $b26.alive) {
+            try { Stop-Process -Id $b26.gcPid -Force -ErrorAction SilentlyContinue } catch { }
+        }
+    }
+    Add-Result 'B26: on timeout the child AND the helper it spawned are killed' `
+        $b26.ok `
+        ("REGRESSION for #98, and it was RED before the fix: Process.Kill() on .NET Framework 4.x terminates the direct child only - there is no Kill(bool entireProcessTree) before .NET Core 3.0 - so a git or gh that had spawned a credential helper left it running with the inherited write ends of the redirected pipes. Expected state=timeout and the grandchild gone; got " + $b26.detail + ". Any kill= other than plain 'taskkill' - 'taskkill-failed' (not startable), 'taskkill-exit-<n>' (started and refused), 'taskkill-timeout' - means the tree kill did not do its job, which leaves the OLD behaviour and is a real failure of the fix rather than of the fixture. An empty kill= is the pre-fix file, which had no tree kill at all.")
 
     # =====================================================================
     # SECTION C - failure_capture and log_rotation, END TO END
@@ -2263,7 +1540,7 @@ try {
         foreach ($d in @($c.dir, $c.root, $c.data, $c.ws)) { [void][IO.Directory]::CreateDirectory($d) }
         $c['health']  = Join-Path $c.data 'health.jsonl'
         $c['alerted'] = Join-Path $c.data 'alerted.json'
-        Write-LwgFixtureConfig -Dir $c.root -Modules $Modules -MissionKnobs $null
+        Write-LwgFixtureConfig -Dir $c.root -Modules $Modules
         return $c
     }
 
@@ -3010,7 +2287,7 @@ if ($fail.Count -gt 0) {
 
 Write-Output ''
 Write-Output 'Every case above passed. Read that as "these cases still behave", not as'
-Write-Output '"mission_drift warns about the right things" - see the header, and'
+Write-Output '"these modules warn about the right things" - see the header, and'
 Write-Output 'docs\gates-removed.md Lesson 3.'
 Write-Output 'EXIT: 0'
 exit 0
