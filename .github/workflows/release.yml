@@ -19,6 +19,16 @@ name: Release
 # stays a tag. That is deliberately the cheap failure - a tag can be deleted and
 # re-pushed, a published Release is a thing strangers have already fetched.
 #
+# AND IT ASKS WHETHER THE TAGGED TREE EVER PASSED, which for a while it did not.
+# `ci.yml` does not run on a tag push, so this file used to run ALONE on the one
+# day it matters: it held five files to each other and to the tag name, and
+# nothing in that path asked whether the commit being published had ever been
+# parsed. The first block of the publish step queries the tagged commit's check
+# runs and refuses unless the required check concluded `success` on that exact
+# SHA. See #211. `ci.yml`'s triggers are deliberately NOT widened for this - the
+# reasons are written beside them - so the question is asked here, of the commit,
+# rather than by adding a second workflow run to every tag.
+#
 # IT DOES NOT TAG ANYTHING. A tag is a person's decision, taken on the exact
 # commit a final acceptance pass cleared, and nothing here creates one, moves
 # one or deletes one. This workflow only ever reacts to a tag that already
@@ -69,6 +79,12 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      # READ-ONLY, AND IT IS WHAT THE REQUIRED-CHECK GATE IN THE PUBLISH STEP
+      # ASKS THE API FOR. A job-level `permissions:` block sets every scope it
+      # does not name to `none`, so without this line the check-runs query gets
+      # a 403 and the gate refuses to publish on every tag - which fails safe,
+      # and would also have been an unreadable way to find this out.
+      checks: read
     steps:
       # The digest pin and `persist-credentials: false` are copied verbatim from
       # `ci.yml`, including the trailing tag comment Dependabot keys on. The
@@ -184,6 +200,86 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $tag   = $env:LWG_REF_NAME
           $notes = 'release-notes\body.md'
+
+          # =================================================================
+          # THE REQUIRED CHECK HAS TO HAVE PASSED ON THIS EXACT COMMIT - #211
+          # =================================================================
+          # Until this block existed, a tag push ran this file ALONE. `ci.yml`
+          # does not trigger on a tag - its `on:` is push to main, pull_request,
+          # and workflow_dispatch, and widening it is refused there for reasons
+          # written beside it - so on the day a tag is pushed the only thing
+          # asked about the tagged tree was that five files agree with each
+          # other and with the tag name. Whether anything ever PARSED that tree
+          # was asked by nothing. In practice the commit usually has a green run
+          # from its earlier push to main, and `usually` is the word this
+          # repository exists to refuse: a tag can be pushed onto any commit,
+          # including one that never reached main.
+          #
+          # WHY IT LIVES INSIDE THE PUBLISH STEP RATHER THAN ABOVE IT. It needs a
+          # token, and `tests\workflow_guard.ps1`'s allowlist excuses exactly one
+          # `${{ secrets.GITHUB_TOKEN }}` expression, in one step, with a reason
+          # written against that step. A second step reading the token would be a
+          # second expression and a second allowlist entry - a wider credential
+          # surface bought to move ten lines up a file. This runs before anything
+          # is written, which is the property that matters; `gh release create`
+          # is forty lines below and unreachable from here except by falling
+          # through every refusal in between.
+          #
+          # THE CHECK NAME IS DERIVED FROM ci.yml, NOT TYPED. A required status
+          # check is matched by the check RUN's name, which is the job's `name:`
+          # key and not its YAML id - the distinction three pages in this
+          # repository got wrong. tests\doc_claims.ps1 holds docs\testing.md to
+          # the same derivation. Exactly one job, or this refuses: two jobs mean
+          # two requirable names and a decision nobody has taken.
+          $ciPath = '.github\workflows\ci.yml'
+          if (-not (Test-Path -LiteralPath $ciPath -PathType Leaf)) {
+            Write-Host "::error title=Required check::$ciPath is missing, so the required check-run name could not be derived. Nothing published."
+            exit 1
+          }
+          $ciText = Get-Content -Raw -LiteralPath $ciPath
+          $jobs   = @([regex]::Matches($ciText, '(?m)^  (?<id>[A-Za-z0-9_-]+):[ \t]*\r?\n[ \t]+name:[ \t]*(?<name>\S.*?)[ \t]*$'))
+          if ($jobs.Count -ne 1) {
+            Write-Host "::error title=Required check::expected exactly one job carrying a name: key in $ciPath, found $($jobs.Count). Two jobs mean two requirable contexts and this gate does not know which to demand. Nothing published."
+            exit 1
+          }
+          $required = $jobs[0].Groups['name'].Value
+
+          # HEAD, not an environment variable. The checkout above is at the tag,
+          # so HEAD IS the tree about to be released - asking git rather than
+          # trusting GITHUB_SHA's semantics for an annotated tag keeps the SHA
+          # this gate checks and the SHA this job publishes the same object by
+          # construction.
+          $sha = (& git rev-parse HEAD 2>$null | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $sha -notmatch '^[0-9a-f]{40}$') {
+            Write-Host "::error title=Required check::could not resolve HEAD to a commit, so no check run was looked up. Nothing published."
+            exit 1
+          }
+
+          $raw = & gh api "repos/$env:GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100" 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error title=Required check::the check-runs API could not be read for $sha - $raw"
+            Write-Host "::error title=Required check::a query that could not run is not a check that passed. Nothing published."
+            exit 1
+          }
+          try { $parsed = ($raw | Out-String) | ConvertFrom-Json } catch { $parsed = $null }
+          if ($null -eq $parsed -or $null -eq $parsed.check_runs) {
+            Write-Host "::error title=Required check::the check-runs response for $sha did not parse, so nothing was established about it. Nothing published."
+            exit 1
+          }
+
+          $named = @($parsed.check_runs | Where-Object { $_.name -eq $required })
+          $good  = @($named | Where-Object { $_.status -eq 'completed' -and $_.conclusion -eq 'success' })
+          if ($good.Count -eq 0) {
+            $saw = if ($named.Count -eq 0) {
+              'no check run of that name exists on this commit at all - it was never run here'
+            } else {
+              'it is ' + (($named | ForEach-Object { "$($_.status)/$($_.conclusion)" }) -join ', ')
+            }
+            Write-Host "::error title=Required check::'$required' did not conclude success on $sha - $saw."
+            Write-Host "::error title=Required check::a tag can be pushed onto any commit, so this asks about THIS tree rather than about the branch it may have come from. Nothing published."
+            exit 1
+          }
+          Write-Host "required check '$required' concluded success on $sha ($($good.Count) run(s)) - proceeding"
 
           if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) {
             Write-Host "::error title=Publish the GitHub Release::$notes was never written, so the notes would have come from nowhere. Nothing published."
