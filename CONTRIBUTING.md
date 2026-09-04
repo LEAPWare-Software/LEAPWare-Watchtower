@@ -366,6 +366,68 @@ through the `cmd /c` recipe above, run against the parent commit and against you
 outputs pasted. There is no `-Simulate` switch left anywhere to lean on: the one that existed was
 `tests/deny_parity.ps1 -Simulate drop-rule`, and it went with the file.
 
+### A worked example, for the case with no harness
+
+This is the artefact `-Simulate` used to be. It is printed here rather than committed as a file, and
+**that is the decision rather than an oversight**: a template under `tests\` is matched by the guard's
+own `^tests/.+\.ps1$` derivation whatever directory you nest it in, so committing one would move the
+file count in every page that states it, and the parallel runner would *execute* it — which for a
+template that is meant to go red means the documentation-claim step goes red with it. A fenced block
+creates no tracked file, so it does neither. Copy it to a throwaway name at the repository root, run
+it, delete it; nothing is meant to survive the pull request except the two outputs you paste.
+
+The subject below is `lw-watchtower/lib/post_edit.ps1`, chosen because it is one of the surfaces no
+suite reaches — which is the case this section exists for. Substitute your own hook, your own payload
+and your own assertion; the shape is what is being shown.
+
+```powershell
+# redfirst-postedit.ps1 - a standalone red-first case. NOT tracked, NOT under tests\.
+#   Against the parent commit it must FAIL. Against your fix it must PASS.
+#   Paste BOTH runs into the pull request. One run proves nothing.
+$ErrorActionPreference = 'Stop'
+$hook    = 'lw-watchtower\lib\post_edit.ps1'
+$payload = Join-Path ([IO.Path]::GetTempPath()) ("redfirst-" + [guid]::NewGuid() + ".json")
+
+# The payload the CLI would hand the hook. Keep it minimal: a case that needs
+# six keys is a case about the fixture rather than about the behaviour.
+@{
+    hook_event_name = 'PostToolUse'
+    tool_name       = 'Edit'
+    tool_input      = @{ file_path = 'C:\some\repo\lw-watchtower\lib\common.ps1' }
+} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $payload -Encoding UTF8
+
+# cmd builds the pipe, because a PowerShell pipe never reaches [Console]::In.
+$out  = cmd /c "type `"$payload`" | powershell -NoProfile -ExecutionPolicy Bypass -File $hook 2>&1"
+$code = $LASTEXITCODE
+Remove-Item -LiteralPath $payload -Force -ErrorAction SilentlyContinue
+$out = ($out | Out-String)
+
+# ONE assertion, stated as the property rather than as the string. The detail
+# line has to be enough to diagnose the failure without re-running anything,
+# which means it carries what was actually seen and not just "expected true".
+$ok = ($code -eq 0) -and ($out -match 'coupled')
+Write-Output ("[{0}] the hook names the coupling it found, and exits 0 doing it" -f $(if ($ok) { 'PASS' } else { 'FAIL' }))
+if (-not $ok) { Write-Output ("      exit was {0}; stdout was: {1}" -f $code, $out.Trim()) }
+
+# The same two lines every suite here prints, because the checklist asks you to
+# paste them and a case nobody can read the verdict of is not a case.
+Write-Output ("RESULT: {0} of 1 case(s) passed" -f $(if ($ok) { 1 } else { 0 }))
+Write-Output ("EXIT: {0}" -f $(if ($ok) { 0 } else { 1 }))
+exit $(if ($ok) { 0 } else { 1 })
+```
+
+Run it against the parent commit first — `git stash`, or a second clone at `HEAD~1` — and only then
+against your change:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File redfirst-postedit.ps1
+```
+
+**A case that passes on both trees is not a red-first case**, and neither is one you wrote after
+watching the fix work. If it will not go red against the parent, say so in the pull request and say
+why: "this could not be made to fail first, and here is what I did instead" is an answer this project
+accepts. A green run presented as a red-first proof is not.
+
 ### Why this is written down
 
 This project's allow/deny matrix was **67/67 green while five gate bypasses were open**. Every rule
