@@ -1456,8 +1456,9 @@ try {
     #         that is not there fails, and so does one that quietly drops
     #         self_health from the paragraph to get past (1).
     #
-    #      RED AT c253404 on both halves: the clause is present, and the
-    #      paragraph names no suite for self_health at all.
+    #      RED AT 09b20be on both halves: the clause is present, and the
+    #      paragraph names no suite for self_health at all. 37 of 38, this case
+    #      the only failure.
     # -------------------------------------------------------------------
     $covFalse   = ($rr.out -match 'exercised by nothing')
     $covSuite   = [regex]::Match($rr.out, 'self_health\s*\(\s*(tests\\[A-Za-z0-9_.-]+\.ps1)')

@@ -1168,8 +1168,8 @@ try {
     # THIS CASE IS THE MIRROR OF THE ONE IT REPLACES, and deliberately asserts
     # the WRITE rather than merely the absence of the refusal: `-not refused` is
     # satisfied by a command that has stopped doing anything at all. It goes RED
-    # at c253404, where the block is still in bin/lwg-config.ps1 and the command
-    # exits 1 having written nothing.
+    # at 09b20be, where the block is still in bin/lwg-config.ps1 and the command
+    # exits 1 having written nothing: 48 of 49, this case the only failure.
     Write-ConfigFile -Path $sand.cfg -Text $good
     Write-ConfigFile -Path $sand.ov  -Text $goodOv
     $g1 = Invoke-Config -Sand $sand -ScriptArgs '-Module context_injection -Off -Apply' -Tag 'g1'
