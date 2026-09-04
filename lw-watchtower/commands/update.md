@@ -49,6 +49,19 @@ Rules for reporting it:
   not assert either reading. Arriving *through* the junction is now `[OK]` and is the normal route.
 - **A fetch that could not run is UNKNOWN, never up to date.** No network, no git, or a timeout
   all report as warnings; "0 commits behind" from a stale fetch is not evidence of anything.
+- **Report the exit code, and use its own word for it.** The script's five codes, from its header:
+
+  | Exit | What it means |
+  | --- | --- |
+  | `0` | up to date, or updated cleanly, with nothing needing attention |
+  | `1` | REFUSED — dirty tree, detached HEAD, no upstream, or `-Offline` with `-Apply`. **Nothing was changed** |
+  | `2` | finished, with caveats — something needs re-approval, a check could not be made, the doctor FAILED on a tree this run did not change, or a pull was killed and the tree state is UNKNOWN |
+  | `3` | the script could not complete. The report is a fragment; do not read it as a description of the tree |
+  | `4` | the doctor FAILED after a pull **this run actually made** |
+
+  `1` and `3` are different statements and must not be collapsed: `1` is "I refused, and the tree is
+  as you left it"; `3` is "I stopped somewhere and cannot tell you where". Never report either as an
+  update that happened.
 - **The doctor's exit code is its verdict, not yours.** Exit `4` from this command means the
   doctor FAILED after a pull **this run actually made** — report the `[FAIL]` rows it printed and
   do not describe the update as successful. A doctor failure on a run that merged nothing is

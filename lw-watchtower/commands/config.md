@@ -31,6 +31,9 @@ Rules for reporting it:
   current value, the value after, the file that carries the behaviour, and what stops or starts
   happening. That block is the point of the command; summarising it to "turning off X" throws
   away the part the user needs to decide.
+- **Exit `0` is the only code that means the run did what was asked** - a listing, a preview, or a
+  completed write that the read-back then confirmed. Say which of the three it was; "it worked" over
+  a preview is how an operator comes to believe a change was made.
 - **Do not paraphrase a refusal into a limitation of yours.** Exit `1` means the script declined
   and printed why, and nothing was written. What it actually refuses: a name that is not in the
   registry (it offers the near-miss when the name is only miscased); a module whose flag lives
