@@ -881,6 +881,43 @@ try {
         ("$($script:PayloadRel)/.claude-plugin/plugin.json is $(if ($plugInPayload) { 'tracked' } else { 'NOT TRACKED - the declared source names a subtree with no plugin manifest in it, so the CLI has nothing to load' })" +
          "; .claude-plugin/plugin.json at the repository root is $(if ($plugAtRoot) { 'ALSO TRACKED - two manifests define one plugin and only one of them ships' } else { 'absent, which is correct' })")
 
+    # S11. #118. THE LICENCE TRAVELS WITH THE DISTRIBUTION, AND CANNOT DRIFT.
+    #
+    #     Drawing the payload boundary took LICENSE out of what a consumer
+    #     receives: it is at the repository root, and only lw-watchtower/ is
+    #     copied. plugin.json declares `"license": "Apache-2.0"`, and Apache-2.0
+    #     section 4(a) requires a copy of the License to be given to recipients
+    #     of the work. So there are two copies now, and two copies of anything
+    #     is a drift problem the moment one is edited.
+    #
+    #     BYTES, NOT LENGTH, NOT A HASH OF THE FIRST LINE. The failure this
+    #     guards against is somebody amending one copy - a year in a copyright
+    #     line, a re-wrap - and a comparison that could pass on two different
+    #     licences would be worse than no comparison, because the report would
+    #     say they agree.
+    #
+    #     A MISSING FILE IS A FAILURE, NOT A SKIP. If either copy is absent the
+    #     case has established nothing and must say so: the whole point is that
+    #     the payload carries one.
+    $licRepo    = Join-Path $script:RepoRoot 'LICENSE'
+    $licPayload = Join-Path $script:RepoRoot ($script:PayloadRel + '\LICENSE')
+    $licRepoOk    = [IO.File]::Exists($licRepo)
+    $licPayloadOk = [IO.File]::Exists($licPayload)
+    $licSame = $false
+    if ($licRepoOk -and $licPayloadOk) {
+        $a = [IO.File]::ReadAllBytes($licRepo)
+        $b = [IO.File]::ReadAllBytes($licPayload)
+        $licSame = ($a.Length -eq $b.Length)
+        if ($licSame) {
+            for ($i = 0; $i -lt $a.Length; $i++) { if ($a[$i] -ne $b[$i]) { $licSame = $false; break } }
+        }
+    }
+    Add-Result 'S11 the payload carries a byte-identical copy of the repository LICENSE' `
+        ($licRepoOk -and $licPayloadOk -and $licSame) `
+        ("LICENSE at the repository root is $(if ($licRepoOk) { 'present' } else { 'MISSING' }); " +
+         "$($script:PayloadRel)/LICENSE is $(if ($licPayloadOk) { 'present' } else { 'MISSING - a consumer receives no licence at all, and plugin.json declares Apache-2.0, whose section 4(a) requires one to travel with the distribution' }); " +
+         "the two are $(if ($licSame) { 'identical' } else { 'NOT byte-identical - one of them has been edited and the two copies now say different things about the same distribution' }).")
+
     Add-Result 'S9  no out-of-payload record names a file that is now inside the payload' `
         ($recordInPayload.Count -eq 0) `
         ("$($recordInPayload.Count) path(s) recorded above as out of the payload are now tracked under $($script:PayloadRel)/, so they ARE shipped again and the rules that used to excuse them no longer exist: " + ($recordInPayload -join ', ') + ". Fix the file or move it back out - do not edit the record.")
