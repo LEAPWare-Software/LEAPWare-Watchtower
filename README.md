@@ -336,7 +336,7 @@ prefix **cannot be suppressed**, so they are `/lw-watchtower:…` and nothing sh
 | --- | --- |
 | `/lw-watchtower:setup` | Guided installer. Detects what is already there, asks in plain language, then writes `statusLine`, hooks and agent roles one section at a time — each behind its own diff and its own yes. Its `permissions.deny` section now writes **nothing**: the rule table is empty. |
 | `/lw-watchtower:config` | Module switchboard: turn a governance module on or off, globally or for one repo, after being told exactly what the change does. Needs `-Apply` to write. |
-| `/lw-watchtower:update` | Fetches and reports what is new and what would need re-approval. Fast-forward only; merges nothing without `-Apply`. |
+| `/lw-watchtower:update` | Fetches and reports what is new and what would need re-approval. Fast-forward only; merges nothing without `-Apply`. On a **marketplace** install there is nothing to fetch — it says so, names `claude plugin update lw-watchtower@<marketplace>` and exits 2, because it did not look and must not be read as saying the install is current. |
 | `/lw-watchtower:uninstall` | Reports this plugin's whole footprint and what removing it would take, and names everything it **cannot** remove. Dry run by default. |
 
 **Preferences** — one command, and it is the only one that arms anything. Read

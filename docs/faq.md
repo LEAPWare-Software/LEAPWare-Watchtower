@@ -236,6 +236,12 @@ Get-FileHash "$env:USERPROFILE\.claude\statusline.ps1", ".\lw-watchtower\statusl
     Select-Object Hash, Path
 ```
 
+If that line answers *"The term 'Get-FileHash' is not recognized"*, your terminal is PowerShell 7 and
+the Windows PowerShell 5.1 it started has inherited PowerShell 7's `PSModulePath`, which hides the
+cmdlet. Nothing is wrong with the install. Run the same line from Git Bash or from a Windows
+PowerShell 5.1 console, or compare the two files with `fc /b` instead. `/lw-watchtower:doctor`
+compares them for you and does not use the cmdlet.
+
 The other `statusline` outcomes mean different things, and the split matters because **the row a
 fresh install gets is a FAIL, not this warning**. It **FAILS** in four cases: no Claude Code
 configuration directory resolves at all, there is no `settings.json`, `settings.json` has no

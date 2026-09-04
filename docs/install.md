@@ -460,6 +460,12 @@ Get-FileHash "$env:USERPROFILE\.claude\statusline.ps1",
              ".\lw-watchtower\statusline\statusline.ps1" | Select-Object Hash, Path
 ```
 
+If that line answers *"The term 'Get-FileHash' is not recognized"*, your terminal is PowerShell 7 and
+the Windows PowerShell 5.1 it started has inherited PowerShell 7's `PSModulePath`, which hides the
+cmdlet. Nothing is wrong with the install. Run the same line from Git Bash or from a Windows
+PowerShell 5.1 console, or compare the two files with `fc /b` instead. `/lw-watchtower:doctor`
+compares them for you and does not use the cmdlet.
+
 That second path is relative to the **clone root**, which is the Option B case. On a marketplace
 install compare against the copy in the plugin cache instead — the doctor's `statusline` row does
 this for you on either route and names the file it compared.

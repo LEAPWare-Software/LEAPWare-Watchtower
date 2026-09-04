@@ -654,10 +654,18 @@ pre-fix commit. `USERPROFILE` and `CLAUDE_PLUGIN_DATA` are redirected and both p
 cleared around every child; without that swap every run would append to the **operator's** event log,
 because several fixtures hold a non-boolean flag on purpose and that reaches `Write-LwgInvalidFlag`.
 
-**One environment trap, recorded because it costs an hour:** if the shell that launches this suite
-carries a PowerShell 7 `PSModulePath`, the Windows PowerShell 5.1 children cannot resolve
-`Get-FileHash` and **every** toggle run exits 3 with *"config.json could not be read"*. Run it from a
-5.1 console. An operator in a real 5.1 console never sees this; a CI job launched from `pwsh` does.
+**One environment trap, recorded because it cost an hour and is now fixed:** if the shell that
+launches this suite carries a PowerShell 7 `PSModulePath`, the Windows PowerShell 5.1 children cannot
+resolve `Get-FileHash` — it is a function exported by `Microsoft.PowerShell.Utility`, not a compiled
+cmdlet, and 5.1 loses it when PowerShell 7's copy of that module shadows its own. **No script in the
+payload uses it any more**, so nothing here breaks either way: `bin/lwg-cmdlib.ps1`, which is where
+the toggle and `/lw-watchtower:config` read and write through, hashes from .NET, and so do the
+doctor, setup, update and uninstall. Until that landed, every toggle run under such a shell exited 3
+with *"config.json could not be read"*, which reads as a broken config file and was nothing of the
+kind. Section H of this suite is the case that pins it, and it plants the failure deliberately rather
+than waiting for a PowerShell 7 host. The only remaining `Get-FileHash` in the tree is the one-liner
+`docs/faq.md` and `docs/install.md` hand an operator to type, and both now say what to do when it
+does not resolve.
 
 **Eight of the cases are labelled `CONTROL`** and pass before the fix as well as after it, on
 purpose — they pin the other direction, so a "fix" that simply refuses everything, or reformats the

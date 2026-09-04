@@ -275,6 +275,19 @@ runs a **heuristic**. Both are advisory; only the first is telling you something
 Blind spots per module, in the modules' own words:
 [the per-module caveats in Modules](modules.md).
 
+### A hook that fires while the CLI is exiting may not be recorded
+
+`StopFailure` is dispatched at the moment a session is failing, and Claude Code does not wait for a
+hook it has logged as complete. Measured on a developer machine: a cold `lib/supervisor.ps1` run
+costs 1.3–1.8 s wall — the Windows PowerShell interpreter plus the `common.ps1` dot-source — while
+one observed `StopFailure` was logged `completed with status 1` **574 ms** after the API error that
+caused it, and no record reached `health.jsonl`. Nothing in `lib/supervisor.ps1` exits 1 on any path,
+so that status is the child being terminated rather than a decision the hook made. Driven by hand the
+same handler exits 0 and writes a record for every payload shape, empty stdin included. So the very
+first failure of a session — the one this module exists to catch — is the one it is least likely to
+survive to record, and **a missing `StopFailure` record is not evidence that no `StopFailure`
+occurred**.
+
 ## The gate costs ~330 ms on every edit and command, on or off
 
 A hook registration cannot be made conditional, so `lib/gate_delegate.ps1` runs before **every**

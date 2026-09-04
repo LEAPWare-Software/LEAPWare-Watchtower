@@ -49,13 +49,20 @@ Rules for reporting it:
   not assert either reading. Arriving *through* the junction is now `[OK]` and is the normal route.
 - **A fetch that could not run is UNKNOWN, never up to date.** No network, no git, or a timeout
   all report as warnings; "0 commits behind" from a stale fetch is not evidence of anything.
+- **On a marketplace install the run ends with an `[INFO] repo` row and exit `2`, and that is not a
+  failure.** The row names `claude plugin update <plugin>@<marketplace>`, which is what updates that
+  route. Nothing is wrong, and nothing was established either - the command did not look for an
+  update, because there is no repository there to look in. Report the row verbatim, say the exit
+  code, and do not add a verdict of your own. It used to be `[FAIL] repo ... there is nothing to
+  pull` with exit `1` on the route the install pages recommend, which taught a reader to distrust
+  this plugin's exit codes.
 - **Report the exit code, and use its own word for it.** The script's five codes, from its header:
 
   | Exit | What it means |
   | --- | --- |
   | `0` | up to date, or updated cleanly, with nothing needing attention |
   | `1` | REFUSED — dirty tree, detached HEAD, no upstream, or `-Offline` with `-Apply`. **Nothing was changed** |
-  | `2` | finished, with caveats — something needs re-approval, a check could not be made, the doctor FAILED on a tree this run did not change, or a pull was killed and the tree state is UNKNOWN |
+  | `2` | finished, with caveats — something needs re-approval, a check could not be made, the doctor FAILED on a tree this run did not change, a pull was killed and the tree state is UNKNOWN, or **this is a marketplace install and no repository was read** |
   | `3` | the script could not complete. The report is a fragment; do not read it as a description of the tree |
   | `4` | the doctor FAILED after a pull **this run actually made** |
 

@@ -86,6 +86,17 @@ as a control.
 | --- | --- | --- | --- |
 | `/lw-watchtower:delegate` | off | `interaction.delegate` | **yes** — arms `delegate_gate`, a real `PreToolUse` block |
 
+**The three `supervision.*` switches have no command.** `send_liveness_gate`, `completion_audit` and
+`orphan_watch` are switched by editing `supervision.send_liveness`, `supervision.completion_audit` or
+`supervision.orphan_watch` in `config.override.json` under the state directory —
+`$CLAUDE_PLUGIN_DATA`, or `~/.claude/plugins/data/lw-watchtower*/`. `/lw-watchtower:config` prints
+that file's full path in its `NOT SWITCHABLE HERE` block, and refuses to write those keys itself
+because it only ever writes `modules.<name>`. Two of the three are gates, so arming one is a decision
+worth making deliberately rather than with a one-word command. Until 4 September 2026 that block sent
+the operator to a slash command named after each key, and no such command exists or has ever
+existed — the text was assembled at run time from the registry, so the doctor's `commands` check,
+which scans files, could not see it.
+
 **The logic is in the scripts, not in the command prose.** A `commands/*.md` file tells the model to
 run one command and report the result honestly; it does not tell it how to assess anything. A health
 check the model performs by following instructions is a health check that reports whatever the model
@@ -218,6 +229,16 @@ changed command is not silently trusted because the old version was.
 so and stops, rather than resolving a conflict on your behalf inside an installed plugin. It re-runs
 the doctor after applying, because an update that leaves the plugin misconfigured is not a completed
 update.
+
+**On a marketplace install there is no repository to pull, and the command says so and exits `2`.**
+Both the `loaded-copy` and the `repo` rows read the route off the
+`plugins\cache\<marketplace>\<plugin>\<version>` shape of the path — the same shape the rest of this
+plugin recognises one by — and name `claude plugin update lw-watchtower@<marketplace>`, which is what
+updates that copy. **`2` here means "no repository was read", not "up to date"**: the command did not
+look, and must not be reported as saying the install is current. `1` remains the refusal for a
+directory that is neither a checkout nor a marketplace install, and that path is unchanged. Until
+this landed the recommended install route produced `[FAIL] repo … there is nothing to pull` and exit
+`1`, which is a wrong answer about a correct install.
 
 ---
 
