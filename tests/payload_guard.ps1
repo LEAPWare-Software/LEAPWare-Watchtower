@@ -360,26 +360,37 @@ $Rules = @(
                   '|(?i)\blib[\\/]resolve\.ps1' +
                   '|(?i)/lw-watchtower' + ':resolve\b' +
                   '|(?i)\bResolved\W{0,3}marker\b'
-        # SCOPED TO THE SHIPPED EXECUTABLE PAYLOAD, MINUS commands/ AND agents/,
-        # AND THE OMISSION IS TEMPORARY AND LOUD. #192's done-condition says
-        # "no SHIPPED file", and the whole root ships - but commands/update.md
-        # still names the deleted library, and a fixer may not edit a document.
-        # That page is wave D's (#195). Including commands/ here would make this
-        # branch's CI permanently red on a file nobody in this wave is allowed
-        # to touch, which is a guard that has to be switched off to be merged,
-        # which is not a guard. RE-ENABLE commands/ AND agents/ THE MOMENT #195
-        # LANDS: they are text a model reads, which is the surface #192 was
-        # filed about in the first place. tests/ is out for a different reason -
-        # it ships under `"source": "./"` like everything else, but its three
-        # remaining sites are assertion prose in a file this pass does not own,
-        # and they are recorded on #192 rather than ledger'd here.
+        # SCOPED TO THE SHIPPED PAYLOAD, AND commands/ AND agents/ ARE IN IT
+        # AGAIN. They were omitted while wave D was in flight, for a reason
+        # written here at the time: #192's done-condition says "no SHIPPED file"
+        # and the whole payload ships, but commands/update.md still named the
+        # deleted library and a fixer may not edit a document. Including the
+        # directory then would have made CI permanently red on a file nobody was
+        # allowed to touch, which is a guard that has to be switched off to be
+        # merged, which is not a guard. The same comment named its own trigger -
+        # re-enable the moment #195 lands - and #195 has landed: the four terms
+        # return no live hit anywhere under commands/ or agents/, checked before
+        # this glob was added rather than after.
+        #
+        # THESE TWO ARE THE SURFACE THE ISSUE WAS FILED ABOUT. It was
+        # agents/lw-healer.md telling a shipped role to run a script that is not
+        # in the payload; a model reads these files and acts on them, which makes
+        # them the higher-risk half of the payload rather than the leftover half.
+        # A guard that watched everything except the thing it was written for is
+        # the shape this repository keeps finding inside itself.
+        #
+        # tests/ stays out, for a different reason: it ships like everything else
+        # under the payload declaration, but its remaining sites are assertion
+        # prose recorded on #192 rather than ledger'd here, and lane C8 retensed
+        # them - so the omission is now a scope decision rather than a debt.
         # Repo-relative, because that is what `git ls-files` prints on both
         # enumerations. The payload prefix is spelled here rather than derived
         # because $script:PayloadRel is checked against the manifest before any
         # of this runs - see S8 - so a wrong name aborts loudly instead of
-        # switching seven globs off in silence.
+        # switching nine globs off in silence.
         scope   = @('lw-watchtower/bin/*', 'lw-watchtower/lib/*', 'lw-watchtower/hooks/*',
                     'lw-watchtower/statusline/*', 'lw-watchtower/context/*',
+                    'lw-watchtower/commands/*', 'lw-watchtower/agents/*',
                     'lw-watchtower/config.json', 'lw-watchtower/.claude-plugin/*')
     }
 )
@@ -1015,7 +1026,7 @@ Write-Output 'Every tracked file was read and no unledger''d disclosure is in th
 Write-Output 'which is the lw-watchtower/ subtree and not the whole repository.'
 Write-Output 'Read that as "these six shapes are absent", not as "the payload is safe to'
 Write-Output 'publish" - this guard knows the disclosures it was told about and no others.'
-Write-Output 'The sixth is scoped: the deleted-script rule is not yet asked of commands/ or'
-Write-Output 'agents/, which is stated at the rule and is re-enabled when #195 lands.'
+Write-Output 'The sixth is scoped to the payload and is now asked of commands/ and agents/ too,'
+Write-Output 'which is the surface it was written for. tests/ stays out, stated at the rule.'
 Write-Output 'EXIT: 0'
 exit 0
