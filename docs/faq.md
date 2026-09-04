@@ -236,10 +236,15 @@ Get-FileHash "$env:USERPROFILE\.claude\statusline.ps1", ".\lw-watchtower\statusl
     Select-Object Hash, Path
 ```
 
-The other `statusline` outcomes mean different things: **FAIL** means there is no `statusLine.command`
-at all, or it points at a file that does not exist — configured and broken, which renders as no
-segments. A **WARN** saying the command names no `.ps1` it could identify means the target was not
-verified, not that it is wrong.
+The other `statusline` outcomes mean different things, and the split matters because **the row a
+fresh install gets is a FAIL, not this warning**. It **FAILS** in four cases: no Claude Code
+configuration directory resolves at all, there is no `settings.json`, `settings.json` has no
+`statusLine.command`, or the command points at a file that does not exist — the last two are
+configured-and-broken and render as no segments. It **WARNS** in three: the command names no `.ps1`
+this check could identify, the target exists but could not be read, or the installed copy differs
+from the tracked one. Only the third of those is the message above. A wired status line that is
+somebody else's, carrying none of this plugin's markers, is a **PASS** — that is a legitimate
+configuration, not a stale copy, and the row says so rather than telling you to overwrite it.
 
 One legitimate cause of a difference: if your copy still renders a `GM` segment, it predates 30 July
 2026. `GM` was removed — see [What is a trip](#what-is-a-trip-and-why-can-i-not-see-any).

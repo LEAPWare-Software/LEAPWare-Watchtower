@@ -202,7 +202,7 @@ Nothing below is optional reading for a new operator, and none of it was linked 
 | Read this | For |
 | --- | --- |
 | [`docs/limitations.md`](docs/limitations.md) | **First.** Everything this plugin does not do, cannot do and does not check, in one place. The blunt version of *What this plugin is now* above. |
-| [`docs/install.md`](docs/install.md) | Both install routes, the missing-directory trap in the junction route, the separate status-line install, and why the doctor exits `2` on a fresh machine |
+| [`docs/install.md`](docs/install.md) | Both install routes, the missing-directory trap in the junction route, the separate status-line install, and why the doctor exits `1` on a fresh machine |
 | [`docs/faq.md`](docs/faq.md) | The questions the limitations page raises, answered from the tree — including how to run all fourteen test files yourself |
 | [`docs/testing.md`](docs/testing.md) | What each of the fourteen files in `tests/` establishes, the shared exit-code contract, the twenty CI check steps, and what is uncovered |
 | [`docs/architecture.md`](docs/architecture.md) | File layout, hook registrations, measured costs, the state directory, the status line |

@@ -192,9 +192,11 @@ the choice is nothing. Four reasons, in the order they matter:
 opaque one:** nothing. It was a contraction of the old product name; the tree never expanded it and
 does not now. Read `lwg` as an arbitrary, stable prefix meaning "belongs to this plugin" — that is
 all it has to mean, and it is what the six `lw-watchtower/agents/lw-*.md` role files mean too. (Five
-of those files still declare an `lw-class` frontmatter key and **it is dead**: the module that read
-it was removed on 2 September 2026 and its reader went with it, so nothing in this release reads a
-role's class. Do not add the key to a new role, and do not write code that reads it.)
+of those files **used to** declare an `lw-class` frontmatter key. The module that read it was removed
+on 2 September 2026, its classifier went with it, and the key was struck from every role file in the
+same wave — `git grep -n lw-class -- 'lw-watchtower/agents/'` returns nothing. Nothing in this
+release reads a role's class; [`docs/roles.md`](docs/roles.md) is the page that owns that fact. Do
+not add the key to a new role, and do not write code that reads it.)
 
 ### Testing a hook by hand
 
@@ -532,7 +534,12 @@ Before you open the PR:
       is not a pass.
 - [ ] For a bug fix, a check that **fails** against the parent commit and passes here, with both
       results stated — including what you had to write to make that demonstrable.
-- [ ] `powershell -File lw-watchtower\bin\lwg-doctor.ps1` exits `0` or `2` with the warnings explained.
+- [ ] `powershell -File lw-watchtower\bin\lwg-doctor.ps1` was run and every non-`PASS` row is
+      explained. **Expect exit `1`, not `0` or `2`**, and do not treat that as a reason not to open
+      the pull request: `statusline` FAILS until you have copied the status line into your profile,
+      and `state-dir` FAILS on a clone that is not junction-installed — both are findings about your
+      machine rather than about your change. Say which rows you got and why each is expected. Exit
+      `2` is warnings only, `3` is "could not complete" and is not a verdict at all.
 - [ ] If this is the first commit on `main` after a tag, the declared version has moved off that tag
       — all five sites — and `CHANGELOG.md` has a section to put your entry in. See
       [Versions and releases](#versions-and-releases). CI checks that the five sites agree with each
@@ -705,10 +712,13 @@ rules:
 
 Two holes, both real, both stated rather than left to be discovered:
 
-- **The tag-shaped half cannot run in CI.** `actions/checkout@v4` checks out at depth 1 with no tag
-  refs, and `git tag -l` printing nothing is not evidence that nothing was tagged — so
-  `version-not-a-published-tag` reports **NOT CHECKED** on every CI run rather than passing it
-  vacuously. The agreement half does run: since 3 September 2026 a `Version declarations` step
+- **The tag-shaped half does not run in CI yet, and the reason is no longer the checkout depth.**
+  Both workflows check out with `fetch-depth: 0`, so tag refs are visible; the pinned action is
+  `actions/checkout` v7.0.1 by digest, not `@v4` at depth 1, and that sentence stood here after both
+  facts had stopped being true. The rule reports **NOT CHECKED** because this repository has
+  published **no tag at all** — `git tag -l` printing nothing is not evidence that nothing was
+  tagged, so it declines rather than passing vacuously. It starts checking on the first tag push,
+  with no change to any file. The agreement half does run: since 3 September 2026 a `Version declarations` step
   invokes `.github/scripts/version_declarations.ps1 -Live` on every push and pull request and fails
   the build when the five sites disagree with each other, and `release.yml` invokes the same guard
   with `-Tag` on a tag, which is the only caller that has one to ask with. Both callers run the
@@ -735,6 +745,10 @@ Two holes, both real, both stated rather than left to be discovered:
    alters how an existing `config.json` is interpreted, it is **BREAKING**, it gets a minor bump at
    minimum pre-1.0, and the entry names the exact config value that changes meaning and what an
    operator should check. A behaviour change on a file the operator already wrote is not a patch.
+   **Date the heading in the same edit** — `## [0.4.0] — unreleased` becomes `## [0.4.0] — <date>`.
+   `release.yml` refuses to publish while it reads `unreleased`, so forgetting this stops the release
+   rather than shipping a wrong one; it is written here so it is done before the tag rather than
+   discovered by a failed workflow after it.
 2. Run `powershell -File tests\doc_claims.ps1` from a clone **with tags**, and confirm the
    `version-not-a-published-tag` line is not `NOT CHECKED`.
 3. Tag, publish, and then **bump the declaration sites again on `main` in the next commit** — because
