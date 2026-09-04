@@ -182,10 +182,11 @@ project exists to refuse.
   on every install with its trigger never validated against a real session — the only module here
   that both fired unasked and rested on a judgement no case could establish. `verification_gate` kept
   "gate" in a name that was never one. Both are gone from `$LwgModuleRegistry` rather than switched
-  off, because a name on the banner that means nothing is the thing this project refuses. The
-  `lw-class` frontmatter key went with the reader: **the five role files that declared one no longer
-  do, and nothing in this release reads a role's class.** A copy of `lw-class: verify` in a role of
-  your own is ignored by the loader and can stay or go.
+  off, because a name on the banner that means nothing is the thing this project refuses.
+  **`lw-class` is now a dead key: its only reader went with `verification_gate`, and nothing in this
+  release reads a role's class.** The five shipped role files still carry the frontmatter line and it
+  does nothing; a copy of `lw-class: verify` in a role of your own is ignored by the loader and can
+  stay or go.
 
   **The registry is now eleven modules — eight observing, three gates** — and the banner reads
   `7/11 modules enabled (4 off)` on a shipped config.

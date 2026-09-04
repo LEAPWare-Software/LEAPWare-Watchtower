@@ -50,7 +50,7 @@ same overstatement in the other direction:
 | Every commit comes from an identity on the allowlist | **[CI]** — `.github/scripts/identity_scan.ps1` |
 | A red-first annotation names a commit and a case that exists | **[CI, partly]** — `.github/scripts/redfirst_annotations.ps1`; the shape only, never the baseline |
 | The five version-declaration sites agree with each other | **[CI]** — `.github/scripts/version_declarations.ps1`; the two tag-shaped rules report NOT CHECKED without a tag |
-| No workflow grants `permissions:` wider than read | **[CI]** — `tests/workflow_guard.ps1`'s tenth rule |
+| No workflow grants `permissions:` wider than read | **[CI]** — `tests/workflow_guard.ps1`'s `permissions-write` rule |
 
 By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
@@ -191,9 +191,10 @@ the choice is nothing. Four reasons, in the order they matter:
 **What it does NOT stand for, stated because a live acronym pointing at a dead name is worse than an
 opaque one:** nothing. It was a contraction of the old product name; the tree never expanded it and
 does not now. Read `lwg` as an arbitrary, stable prefix meaning "belongs to this plugin" — that is
-all it has to mean, and it is what the six `lw-watchtower/agents/lw-*.md` role files mean too. (Those
-files also carried an `lw-class` frontmatter key until 2 September 2026; the module that read it was
-removed, the reader went with it, and nothing in this release reads a role's class.)
+all it has to mean, and it is what the six `lw-watchtower/agents/lw-*.md` role files mean too. (Five
+of those files still declare an `lw-class` frontmatter key and **it is dead**: the module that read
+it was removed on 2 September 2026 and its reader went with it, so nothing in this release reads a
+role's class. Do not add the key to a new role, and do not write code that reads it.)
 
 ### Testing a hook by hand
 
