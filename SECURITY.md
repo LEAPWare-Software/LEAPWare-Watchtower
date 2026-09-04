@@ -57,22 +57,27 @@ We will credit you in the advisory and the [CHANGELOG](CHANGELOG.md) unless you 
 
 ## Supported versions
 
-Pre-1.0, and this repository has no release tag yet. `v0.3.0` was tagged on a predecessor repository
-whose history this one does not carry; it is not served here and is not supported here. The first
-release from this repository is `v0.4.0`, and from the day it is tagged the **`0.4.x` line is the
-only supported line** — that is `main`, which is what the marketplace installs, and every `v0.4.*`
-tag. Fixes land on `main` and ship as the next `0.4.x` tag; there are no backports and no maintained
-release branches, so an older tag is a record of what was released and **not** a line that will
-receive a security fix.
+Pre-1.0. The first release from this repository is `v0.4.0`, tagged at `7952992` on 2026-09-04 and
+published as a
+[GitHub Release](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/releases/tag/v0.4.0). From
+that release the **`0.4.x` line is the only released line that is supported**, and beside it `main`
+is supported as a pre-release tree, because `main` is what the marketplace route installs — it now
+declares `0.5.0`, which no tag carries. `v0.3.0` was tagged on a predecessor repository whose
+history this one does not carry; it is not served here and is not supported here. Fixes land on
+`main` and ship in the next tag cut from it; there are no backports and no maintained release
+branches, so an older tag is a record of what was released and **not** a line that will receive a
+security fix.
 
 | Version | Supported |
 | --- | --- |
-| `0.4.x` — `main` and every `v0.4.*` tag, from the `v0.4.0` release | ✅ |
+| `0.4.x` — every `v0.4.*` tag, from the `v0.4.0` release | ✅ |
+| `main` — the pre-release tree the marketplace installs, declaring `0.5.0` | ✅ |
 | `v0.3.0` (predecessor repository) and any earlier version | ❌ — not served by this repository |
 | anything else | ❌ |
 
-Until `v0.4.0` is tagged nothing is released: `main` is a pre-release tree, and a report against it
-is welcome under the response expectations above.
+`main` is not a release: no tag carries `0.5.0`, and no two installs from it on different days need
+be the same tree. It is still what the plain marketplace route gives a stranger, so a report against
+it is welcome under the response expectations above.
 
 ## Scope
 

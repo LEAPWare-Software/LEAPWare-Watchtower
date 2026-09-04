@@ -105,23 +105,44 @@ developing the plugin — see Option B.
 
 ### Which tree this actually gives you
 
-**The default branch, `main`. Not a tag, and not a pinned commit.** The entry in
+**In its plain form: the default branch, `main`. Not a tag, and not a pinned commit.** The entry in
 [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) is `"source": "./lw-watchtower"`
 with no `ref`, `tag` or `branch` key, so the marketplace resolves the **default branch**. Three
 consequences, stated because none of them is obvious from the two commands above:
 
 - **You get whatever `main` held at the moment you installed.** Two people who run those commands a
   week apart can be running different code with the same version number on the banner.
-- **No route on this page is called tested.** This repository has no release tag yet — `v0.3.0` was
-  tagged on a predecessor repository whose history this one does not carry — so there is no earlier
-  tree to check out. The first tag this repository serves will be `v0.4.0` (see
-  [CHANGELOG.md](../CHANGELOG.md#040--unreleased)).
+- **No route on this page is called tested.** The one tag this repository serves is `v0.4.0`, cut at
+  `7952992` on 2026-09-04 and published as a
+  [GitHub Release](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/releases/tag/v0.4.0)
+  (see [CHANGELOG.md](../CHANGELOG.md#040--2026-09-04)); `v0.3.0` was tagged on a predecessor
+  repository whose history this one does not carry, so there is no earlier tree to check out here.
+  "Tested" still means a person who is not the maintainer installed from the public marketplace and
+  said so, and that has not happened.
 - **The declared version does not identify the tree, and cannot.** It tells you which *release line*
-  you are on. Since 0.4.0 is not yet tagged, a `0.4.0` banner means "some commit on `main`" and
-  nothing narrower.
+  you are on. `main` declares `0.5.0` and no tag carries that number, so a `0.5.0` banner means
+  "some commit on `main`" and nothing narrower; a `0.4.0` banner is either the `v0.4.0` tag or a
+  commit on `main` from before the bump, and only the recorded commit below tells you which.
 
 There is no honest way to pin this route from inside the repository, so **this page does not claim
 one**.
+
+**A reader can still pin it from outside the repository**, because the ref goes in the source string
+you type rather than in a manifest:
+
+```powershell
+claude plugin marketplace add LEAPWare-Software/LEAPWare-Watchtower@v0.4.0
+claude plugin install lw-watchtower@leapware-watchtower
+```
+
+If you have already added this marketplace without a ref, the first command fails: a marketplace
+name binds to one source per profile, and the CLI refuses to re-point an existing name. Run
+`claude plugin marketplace remove leapware-watchtower` first in that case, and only in that case.
+
+Measured on CLI 2.1.260 in a clean profile: the marketplace clone is checked out detached at the
+tag, and `installed_plugins.json` records `gitCommitSha` = `7952992…`, which is the tag's commit.
+That is a property of the CLI and of what you typed, not of anything this repository declares, which
+is why the sentence above still stands. The `/plugin` slash form was not measured with an `@ref`.
 
 **Knowing which commit you got is a different question, and the CLI answers it.** `claude plugin
 install` records the commit it copied, and the marketplace clone it copied from is checked out at
@@ -206,11 +227,11 @@ update mechanism, and a `config.json` change takes effect on the next session wi
 this is the only route where you decide. `git clone` as written above leaves you on the default
 branch, the same tree Option A would have given you.
 
-This repository has no release tag yet — `v0.3.0` was tagged on a predecessor repository whose
-history this one does not carry — so there is no earlier tree to check out. A junction install
-gives you the commit you cloned, which is the one advantage it has over the marketplace route: you
-**choose** the commit and it stays chosen until you move it. Being able to *read* which commit you
-are on is not that advantage — a marketplace install records it too, see
+The one tag this repository serves is `v0.4.0` (`7952992`); `v0.3.0` was tagged on a predecessor
+repository whose history this one does not carry, so there is no earlier tree than that one to check
+out here. A junction install gives you the commit you cloned, which is the one advantage it has over
+the marketplace route: you **choose** the commit and it stays chosen until you move it. Being able
+to *read* which commit you are on is not that advantage — a marketplace install records it too, see
 [Which tree this actually gives you](#which-tree-this-actually-gives-you).
 
 The only answer to "which tree am I running" is the commit:

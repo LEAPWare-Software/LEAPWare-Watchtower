@@ -31,10 +31,11 @@ finding that defect inside itself.
 
 - **Platform:** Windows, Windows PowerShell 5.1. Not portable, and not pretending to be.
 - **Licence:** [Apache-2.0](LICENSE)
-- **Version:** 0.4.0 — pre-1.0, and **not yet tagged**. This repository has no release tag at all:
-  `v0.3.0` was tagged on a predecessor repository whose history this one does not carry, so there is
-  no earlier tree to check out here. See [Install](#60-second-quickstart) for what the one install
-  route actually gives you.
+- **Version:** `main` declares 0.5.0 — pre-1.0. The one release this repository has published is
+  [`v0.4.0`](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/releases/tag/v0.4.0), tagged at
+  `7952992` on 2026-09-04; `v0.3.0` was tagged on a predecessor repository whose history this one
+  does not carry, so there is no earlier tree to check out here. See
+  [Install](#60-second-quickstart) for what each install route actually gives you.
 
 ---
 
@@ -211,9 +212,25 @@ one script and not a guarantee about all of them. The hooks will still invoke `p
 
 **This gives you `main`, not a release.** `.claude-plugin/marketplace.json` sources the plugin from
 the `lw-watchtower/` subdirectory with no `ref`, `tag` or `branch` key, so the marketplace resolves
-the **default branch**, and you get whatever `main` held at the moment you installed. It is not
-pinned and no two installs on different days need be the same tree. That is a property of this
-install route and no version number can fix it, so it is stated here rather than papered over.
+the **default branch**, and you get whatever `main` held at the moment you installed. In this plain
+form it is not pinned, and no two installs on different days need be the same tree. That is a
+property of this form of the route and no version number can fix it, so it is stated here rather
+than papered over.
+
+**To install the released tree instead, add the marketplace with a ref.** The pin lives in the
+source string you type, not in `.claude-plugin/marketplace.json`, so it is not something this
+repository can declare for you:
+
+```powershell
+claude plugin marketplace add LEAPWare-Software/LEAPWare-Watchtower@v0.4.0
+claude plugin install lw-watchtower@leapware-watchtower
+```
+
+Measured on CLI 2.1.260 in a clean profile: the marketplace clone is checked out at the tag and
+`installed_plugins.json` records the tag's commit, `7952992`. A marketplace name binds to one source
+per profile, so run `claude plugin marketplace remove leapware-watchtower` first if you already
+added it without a ref. Only this CLI form was measured; the `/plugin` slash form was not measured
+with an `@ref`.
 
 **You can still read which commit you got.** The banner tells you the declared version and nothing
 more, but the CLI records the commit it copied and the marketplace's own clone is checked out at it,
@@ -226,16 +243,19 @@ git -C "$env:USERPROFILE\.claude\plugins\marketplaces\leapware-watchtower" rev-p
 
 Both printed the same 40-character sha when this was measured, and it was the sha `refs/heads/main`
 pointed at. Substitute `$env:CLAUDE_CONFIG_DIR` for `$env:USERPROFILE\.claude` if you have set one.
-Knowing which commit you are on is not the same as pinning it — nothing in this repository makes the
-marketplace resolve anything but `main` — and *choosing* the commit is still the junction route's
-advantage, not this one's.
+Knowing which commit you are on is not the same as pinning it — nothing this repository declares
+makes the marketplace resolve anything but `main`, and the `@v0.4.0` form above pins the released
+tree rather than a commit of your choosing — so *choosing* an arbitrary commit is still the junction
+route's advantage, not this one's.
 
-**This is the only install route, and no route on this page is called tested.** This repository has
-no release tag yet. `v0.3.0` was tagged on a predecessor repository whose history this one does not
-carry, so there is no earlier tree to check out here and no page tells you to. The first tag this
-repository serves will be `v0.4.0`, cut after the acceptance pass recorded in
-[CHANGELOG.md](CHANGELOG.md#040--unreleased); this section will say "tested" when someone other than
-the maintainer has installed it from the marketplace and reported back, and not before.
+**This is the only install route on this page, and no route on this page is called tested.** The one
+tag this repository serves is `v0.4.0`, cut at `7952992` on 2026-09-04 after the acceptance pass
+recorded in [CHANGELOG.md](CHANGELOG.md#040--2026-09-04) and published as a
+[GitHub Release](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/releases/tag/v0.4.0);
+`main` has declared `0.5.0` since the commit after it. `v0.3.0` was tagged on a predecessor
+repository whose history this one does not carry, so there is no earlier tree to check out here and
+no page tells you to. This section will say "tested" when someone other than the maintainer has
+installed it from the marketplace and reported back, and not before.
 
 Start a new session. You should see:
 
@@ -384,11 +404,14 @@ Exit codes and reporting rules: [Commands](docs/commands.md).
 
 ## Project status
 
-Pre-1.0. The manifests declare `0.4.0`, which **no tag has published yet**. This repository has never
-cut a release: `v0.3.0` was tagged on a predecessor repository whose history this one does not carry,
-and `v0.4.0` will be the first tag served from here. Two changes on this branch alter how an existing
-`config.json` is read, which is why the first number is `0.4.0` and not `0.3.1`. See
-[CHANGELOG.md](CHANGELOG.md#040--unreleased) for what those are and what to check in your own config.
+Pre-1.0. The manifests declare `0.5.0`, which **no tag has published** — that gap is the rule stated
+below, not an oversight. This repository has cut one release: `v0.4.0`, tagged at `7952992` on
+2026-09-04 and published as a
+[GitHub Release](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/releases/tag/v0.4.0).
+`v0.3.0` was tagged on a predecessor repository whose history this one does not carry, so `v0.4.0` is
+the first tag served from here. Two changes in `0.4.0` alter how an existing `config.json` is read,
+which is why that number was `0.4.0` and not `0.3.1`. See
+[CHANGELOG.md](CHANGELOG.md#040--2026-09-04) for what those are and what to check in your own config.
 
 `main` never declares a version a tag already published, and
 [`tests/doc_claims.ps1`](tests/doc_claims.ps1) fails the build if it does — on a clone that has tag
