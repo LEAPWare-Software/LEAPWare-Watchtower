@@ -996,12 +996,28 @@ page can carry every count correctly and still describe a plugin that does not e
 
 ## What is not covered
 
-Everything except the twenty CI check steps named above — which is every module in the plugin bar
-two, since the eleven behavioural suites cover the gate, one section of the installer, the two hooks
-that run at turn end, one command's deletions, the evidence engine the two reporting commands share,
-two of the doctor's ten checks, the toggle's write to `config.json`, the `SubagentStart` fast path,
-and what the shipped payload discloses.
-Stated item by item, because an absence nobody writes down reads as coverage:
+Everything except the twenty CI check steps named above — and what is left out is a set of
+**properties**, not a set of modules. This sentence said *"every module in the plugin bar two"* until
+4 September 2026, which the same page contradicts sixty lines earlier: **every module name is now
+reached by at least one suite**, and that paragraph is explicit that being reached is not being
+tested. Two numbers cannot both be right, and the map is the one derived from the tree.
+
+What the eleven behavioural suites do cover, read off that map rather than restated from memory: the
+delegate gate's refusals and the two supervision gates', the five advisories the turn-end hooks
+raise, `self_health`'s self-check, the `SubagentStart` fast path's answer to the global `modules`
+flag, two sections of the installer's merge, one command's deletions, two of the doctor's ten
+checks, the toggle's write to `config.json`, and what the shipped payload discloses. It named *the
+evidence engine the two reporting commands share* until the same date; `bin/lwg-evidence.ps1` and the
+`checklist` and `sitrep` commands were deleted in wave 1 and that clause described nothing.
+
+**So the honest residue is per property, and the map already names the worst of it**: four of the
+observing ones carry one to three cases apiece on at most two properties (`context_pressure` 2,
+`docs_coupling` 2, `log_rotation` 3, `git_hygiene` 1), and `context_injection` has exactly one
+property run with its `worker_facts.md` handling untested. No count is written for the properties
+that remain, and that is deliberate: it would mean deciding what counts as a property and then
+maintaining a number nothing derives, which is how the figure this sentence replaces came to be
+wrong in the first place. Stated item by item instead, because an absence nobody writes down reads
+as coverage:
 
 1. **The installer's merge is now tested on `statusline` and on `hooks`, and on nothing else.** The
    `permissions.deny` parity test used to cover it end to end and went on 30 July 2026;
