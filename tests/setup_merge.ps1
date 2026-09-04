@@ -741,8 +741,28 @@ function Invoke-Update {
       Run bin\lwg-update.ps1 once, with the profile pointed at a case's scratch
       tree so the junction probe and the status-line comparison cannot see the
       operator's own .claude directory. Same env contract as Invoke-Setup.
+
+      -PluginData SEEDS CLAUDE_PLUGIN_DATA, and it exists because a call site
+      was already passing it - #287. Section 26l wrote
+      `Invoke-Update -ProfileDir ... -PluginData $toggleData -Arguments @(...)`
+      against a parameter block that had no such parameter. Without
+      [CmdletBinding()] PowerShell treats this as a SIMPLE function and drops an
+      unmatched argument into $args with no error at all, so that call ran with
+      CLAUDE_PLUGIN_DATA = '' - the discovery branch - while reading as though it
+      had pointed the child at the scratch directory holding the override the
+      case had just planted. The case passed either way, which is the worst of
+      the three outcomes the issue lists.
+
+      [CmdletBinding()] IS THE HALF THAT STOPS IT HAPPENING AGAIN, and it is
+      why it is on this function and not only the parameter: an advanced function
+      REFUSES an unknown parameter rather than swallowing it, so the next
+      copy-paste of this shape is an error at the call site instead of a silent
+      no-op that a green suite hides. Defaulting to '' keeps every existing call
+      on the discovery path they were written against, which is what Invoke-Setup
+      already does for the same reason.
     #>
-    param([string]$ProfileDir, [string[]]$Arguments, [string]$ConfigDir = '')
+    [CmdletBinding()]
+    param([string]$ProfileDir, [string[]]$Arguments, [string]$ConfigDir = '', [string]$PluginData = '')
 
     $prev  = $env:USERPROFILE
     $prevR = $env:CLAUDE_PLUGIN_ROOT
@@ -756,7 +776,7 @@ function Invoke-Update {
     try {
         $env:USERPROFILE        = $ProfileDir
         $env:CLAUDE_PLUGIN_ROOT = ''
-        $env:CLAUDE_PLUGIN_DATA = ''
+        $env:CLAUDE_PLUGIN_DATA = $PluginData
         $env:CLAUDE_CONFIG_DIR  = $ConfigDir
         $env:APPDATA            = $ad.roaming
         $env:LOCALAPPDATA       = $ad.local
@@ -3370,6 +3390,41 @@ try {
     Add-Result 'update: the config-flags row is computed for a payload config.json, and names the flags that move (#238)' `
         ([bool]($cfRow -and $cfRow -match 'docs_coupling' -and $cfRow -match 'git_hygiene')) `
         ("the row is built by `git show <upstream>:<prefix>config.json`, so without the prefix the branch is never entered and the row is ABSENT - which is a third answer, not a wrong one. Row:`n$cfRow`nOutput:`n$($a.out)")
+
+    # ---------------------------------------------------------------
+    # THE SAME FIXTURE, RUN AGAIN WITH AN OPERATOR OVERRIDE - #287, and
+    # through it #11's "BOTH SIDES CARRY THE OPERATOR'S OVERRIDE".
+    #
+    # Invoke-Update took no -PluginData until this change, and a call above
+    # section 26l was passing one anyway. A simple function drops an unmatched
+    # argument into $args without a word, so the child ran on the DISCOVERY
+    # branch with CLAUDE_PLUGIN_DATA empty while the call site read as though it
+    # had been pointed at a scratch state directory. Nothing went red, because
+    # nothing asked the child which directory it had resolved.
+    #
+    # THIS IS THE CASE THAT ASKS, and it asks behaviourally rather than by
+    # reading the parameter block. bin\lwg-update.ps1 applies the override to
+    # BOTH sides of the config-flags comparison - the deliberate #11 behaviour
+    # commented at its own call site - so an override that pins docs_coupling to
+    # the INCOMING value makes that flag stop being a move, while git_hygiene,
+    # which the override says nothing about, goes on moving. One flag leaves the
+    # row and one stays: an assertion that could not be satisfied by an empty
+    # row, by an absent row, or by the row the run above already produced.
+    #
+    # RED AT 3e36d79 with this hunk alone: the override is written, the argument
+    # is dropped, the child never resolves that directory, and the row still
+    # names docs_coupling. It is also the first coverage the override half of
+    # that comparison has had.
+    $ovDir = Join-Path $t.dir 'plugin-data-287'
+    [void][IO.Directory]::CreateDirectory($ovDir)
+    [IO.File]::WriteAllBytes((Join-Path $ovDir 'config.override.json'),
+                             $Utf8NoBom.GetBytes('{"modules":{"docs_coupling":false}}'))
+    $a287 = Invoke-Update -ProfileDir $t.profile -PluginData $ovDir `
+                          -Arguments @('-Root', $payloadRoot, '-Offline', '-SkipDoctor')
+    $cfRow287 = (@($a287.out -split "`r?`n" | Where-Object { $_ -match '^\s+\[\w+\s*\]\s+config-flags\s' }) -join ' ')
+    Add-Result 'update: -PluginData reaches the child, so the operator override is applied to both sides of config-flags (#287, #11)' `
+        ([bool]($cfRow287 -and $cfRow287 -notmatch 'docs_coupling' -and $cfRow287 -match 'git_hygiene')) `
+        ("with the override read, docs_coupling holds the same value on both sides and must NOT be listed as moving; git_hygiene, which the override does not mention, must still be. If docs_coupling is still named, CLAUDE_PLUGIN_DATA never reached the child and the override was invisible - which is what a silently dropped -PluginData looks like from the outside, and is why [CmdletBinding()] is now on this suite's Invoke-Update. Row with the override:`n$cfRow287`nRow without it, from the run above:`n$cfRow`nOutput:`n$($a287.out)")
 
     # THE LAST OF THE EIGHT is the FAILURE twin of the one above it: the same
     # `git show`, reported when it does not answer. It is only reachable when the ref is not

@@ -228,7 +228,7 @@ the `fast-checks` CI job on every push and every PR:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1       # delegate_gate, 99 cases
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\supervision.ps1         # send_liveness_gate, completion_audit, orphan_watch, 66
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\setup_merge.ps1         # the installer's statusline + hooks merge, 202
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\setup_merge.ps1         # the installer's statusline + hooks merge, 203
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1      # the two turn-end hooks, 120
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\uninstall_footprint.ps1 # the uninstaller's footprint and deletions, 37
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\config_behaviour.ps1    # the config command's write to the override, 56

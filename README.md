@@ -87,7 +87,7 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   totals suggest.** `tests/gate_delegate.ps1` runs 99 cases against `delegate_gate`;
   `tests/supervision.ps1` runs 66 against `send_liveness_gate`, `completion_audit` and
   `orphan_watch`; `tests/stop_behaviour.ps1` runs 120 against the two turn-end hooks and the
-  advisory modules behind them; `tests/setup_merge.ps1` runs 202 against the installer's `statusline`
+  advisory modules behind them; `tests/setup_merge.ps1` runs 203 against the installer's `statusline`
   and `hooks` merge and against the reporting surfaces that have no suite of their own;
   `tests/uninstall_footprint.ps1` runs 37 against the uninstaller's footprint, attribution and
   state-data deletions; `tests/config_behaviour.ps1` runs 56 and `tests/toggle_behaviour.ps1` runs 28

@@ -170,7 +170,7 @@ tests/stop_behaviour.ps1     120 cases against the Stop-hook handlers:
 tests/supervision.ps1        the three supervision modules - send_liveness_gate,
                              completion_audit and orphan_watch - against seeded
                              transcripts and seeded health logs
-tests/setup_merge.ps1        202 cases driving bin/lwg-setup.ps1 against throwaway
+tests/setup_merge.ps1        203 cases driving bin/lwg-setup.ps1 against throwaway
                              settings files. The only suite that tests a WRITE.
                              The writer properties are established on the
                              statusline section and, since section 31, on the
