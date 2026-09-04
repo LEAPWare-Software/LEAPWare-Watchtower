@@ -51,7 +51,18 @@ param([string]$Root)
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Split-Path -Parent $PSScriptRoot }
+# THE PAYLOAD ROOT, WHICH IS NO LONGER THE REPOSITORY ROOT. `Split-Path -Parent
+# $PSScriptRoot` is the parent of tests\, and tests\ stayed at the repository
+# root while the shipped plugin moved under lw-watchtower/. Everything this
+# suite composes off $Root - bin\, lib\, config.json, statusline\ - is payload,
+# so $Root is the payload root and the default says so in one place rather than
+# in every Join-Path below it.
+#
+# WHY THE DEFAULT AND NOT A -Root FROM CI. Neither .github\workflows\ci.yml nor
+# tests\doc_claims.ps1's sibling runner passes -Root at any invocation, so a
+# suite's default is the only value it ever gets on either route. Putting the
+# knowledge here is the only place it can be put.
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Join-Path (Split-Path -Parent $PSScriptRoot) 'lw-watchtower' }
 
 $SendGatePath   = Join-Path $Root 'lib\gate_send.ps1'
 $StopGatePath   = Join-Path $Root 'lib\gate_stop.ps1'

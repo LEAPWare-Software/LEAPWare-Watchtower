@@ -156,14 +156,27 @@
 #>
 [CmdletBinding()]
 param(
-    # Repo root. Defaults to this file's parent, correct for a run from anywhere
+    # The PLUGIN PAYLOAD root - lw-watchtower\ under this file's parent, not the
+    # repository root, which is what this parameter meant before the restructure, correct for a run from anywhere
     # as long as this file stays in tests\.
     [string]$Root
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Split-Path -Parent $PSScriptRoot }
+# THE PAYLOAD ROOT, WHICH IS NO LONGER THE REPOSITORY ROOT. `Split-Path -Parent
+# $PSScriptRoot` is the parent of tests\, and tests\ stayed at the repository
+# root while the shipped plugin moved under lw-watchtower/. Everything this
+# suite composes off $Root - bin\, lib\, config.json, statusline\ - is payload,
+# so $Root is the payload root and the default says so in one place rather than
+# in every Join-Path below it.
+#
+# WHY THE DEFAULT AND NOT A -Root FROM CI. Neither .github\workflows\ci.yml nor
+# tests\doc_claims.ps1's sibling runner passes -Root at any invocation, so a
+# suite's default is the only value it ever gets on either route. Putting the
+# knowledge here is the only place it can be put.
+$script:RepoRoot = Split-Path -Parent $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Join-Path $script:RepoRoot 'lw-watchtower' }
 
 $UninstallPath = Join-Path $Root 'bin\lwg-uninstall.ps1'
 
@@ -973,7 +986,11 @@ function Test-CanonicalDenyRulesAllAttributed {
       footprint reports; the settings.json EDIT is a different subject and is
       still out of scope for this file (see the header).
     #>
-    $fixture = Join-Path $Root 'tests\fixtures\deny_canonical.txt'
+    # $script:RepoRoot, NOT $Root: tests\ did not move with the payload, and the
+    # line below treats this file's absence as an ABORT rather than a skip because
+    # it IS the subject of this case. Composed off the payload root it would be
+    # absent on every run and abort the suite on a healthy tree.
+    $fixture = Join-Path $script:RepoRoot 'tests\fixtures\deny_canonical.txt'
     if (-not [IO.File]::Exists($fixture)) {
         throw "tests\fixtures\deny_canonical.txt is missing at $fixture. It IS the subject of this case, so its absence is an abort, not a skip"
     }

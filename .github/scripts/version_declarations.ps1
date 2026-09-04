@@ -169,8 +169,18 @@ function Get-LwgVersionSites {
 
     $sites = @()
 
-    $plugRel  = '.claude-plugin/plugin.json'
-    $plugPath = Join-Path $TreeRoot '.claude-plugin\plugin.json'
+    # FOUR OF THE FIVE SITES MOVED WITH THE PAYLOAD RESTRUCTURE and one did not.
+    # $TreeRoot is still the REPOSITORY root - correct and unchanged - but the
+    # plugin manifest, config.json and the two PowerShell literals now live under
+    # lw-watchtower/, while marketplace.json stays at the repository root because
+    # that is the file the CLI reads to add the marketplace. A site this file
+    # cannot read is a throw by design, so getting this wrong is a hard release
+    # failure rather than a silent one - which is why the prefix is named once
+    # here and not spelled into four Join-Path calls.
+    $payloadRel = 'lw-watchtower'
+
+    $plugRel  = "$payloadRel/.claude-plugin/plugin.json"
+    $plugPath = Join-Path $TreeRoot "$payloadRel\.claude-plugin\plugin.json"
     if (-not (Test-Path -LiteralPath $plugPath -PathType Leaf)) { throw "missing $plugRel" }
     $plugLines = @(Get-Content -LiteralPath $plugPath)
     try { $plugJson = ($plugLines -join "`n") | ConvertFrom-Json }
@@ -193,8 +203,8 @@ function Get-LwgVersionSites {
     if ([string]::IsNullOrWhiteSpace([string]$mktEntry[0].version)) { throw "$mktRel's '$($plugJson.name)' entry declares no version." }
     $sites += [pscustomobject]@{ Rel = $mktRel; Line = (Get-LwgLineOf $mktLines '"version"\s*:'); Value = [string]$mktEntry[0].version }
 
-    $cfgRel  = 'config.json'
-    $cfgPath = Join-Path $TreeRoot 'config.json'
+    $cfgRel  = "$payloadRel/config.json"
+    $cfgPath = Join-Path $TreeRoot "$payloadRel\config.json"
     if (-not (Test-Path -LiteralPath $cfgPath -PathType Leaf)) { throw "missing $cfgRel" }
     $cfgLines = @(Get-Content -LiteralPath $cfgPath)
     try { $cfgJson = ($cfgLines -join "`n") | ConvertFrom-Json }
@@ -206,8 +216,8 @@ function Get-LwgVersionSites {
     # parse - they are assignments, and dot-sourcing either file to learn one
     # string would run a hook prologue.
     $literals = @(
-        @{ Rel = 'lib/common.ps1';        Path = 'lib\common.ps1';        Pattern = "\`$script:LwgVersion\s*=\s*'([^']+)'" }
-        @{ Rel = 'lib/session_start.ps1'; Path = 'lib\session_start.ps1'; Pattern = "(?m)^\s*\`$version\s*=\s*'([^']+)'" }
+        @{ Rel = "$payloadRel/lib/common.ps1";        Path = "$payloadRel\lib\common.ps1";        Pattern = "\`$script:LwgVersion\s*=\s*'([^']+)'" }
+        @{ Rel = "$payloadRel/lib/session_start.ps1"; Path = "$payloadRel\lib\session_start.ps1"; Pattern = "(?m)^\s*\`$version\s*=\s*'([^']+)'" }
     )
     foreach ($lit in $literals) {
         $litPath = Join-Path $TreeRoot $lit.Path
@@ -381,11 +391,17 @@ function New-LwgFixtureTree {
         [string]$CommonVersion, [string]$SessionVersion,
         [string]$ChangelogHeading, [string]$ChangelogBody
     )
+    # THE FIXTURE TREE IS SHAPED LIKE THE REAL ONE, and that is the whole value
+    # of it: marketplace.json at the fixture ROOT and the other four under
+    # lw-watchtower/, exactly as Get-LwgVersionSites now expects. A fixture that
+    # kept the flat layout would have gone on passing while the live tree threw.
     $t = Join-Path $Root $Name
-    New-Item -ItemType Directory -Path (Join-Path $t '.claude-plugin') -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $t 'lib') -Force | Out-Null
+    $tp = Join-Path $t 'lw-watchtower'
+    New-Item -ItemType Directory -Path (Join-Path $t  '.claude-plugin') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $tp '.claude-plugin') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $tp 'lib') -Force | Out-Null
 
-    Set-Content -LiteralPath (Join-Path $t '.claude-plugin\plugin.json') -Encoding UTF8 -Value @"
+    Set-Content -LiteralPath (Join-Path $tp '.claude-plugin\plugin.json') -Encoding UTF8 -Value @"
 {
   "name": "lw-watchtower",
   "version": "$PluginVersion"
@@ -402,13 +418,13 @@ function New-LwgFixtureTree {
   ]
 }
 "@
-    Set-Content -LiteralPath (Join-Path $t 'config.json') -Encoding UTF8 -Value @"
+    Set-Content -LiteralPath (Join-Path $tp 'config.json') -Encoding UTF8 -Value @"
 {
   "version": "$ConfigVersion"
 }
 "@
-    Set-Content -LiteralPath (Join-Path $t 'lib\common.ps1') -Encoding UTF8 -Value "`$script:LwgVersion = '$CommonVersion'"
-    Set-Content -LiteralPath (Join-Path $t 'lib\session_start.ps1') -Encoding UTF8 -Value "`$version = '$SessionVersion'"
+    Set-Content -LiteralPath (Join-Path $tp 'lib\common.ps1') -Encoding UTF8 -Value "`$script:LwgVersion = '$CommonVersion'"
+    Set-Content -LiteralPath (Join-Path $tp 'lib\session_start.ps1') -Encoding UTF8 -Value "`$version = '$SessionVersion'"
 
     # UTF-8 with NO byte-order mark, because that is what the real CHANGELOG.md
     # is, and a fixture written with a BOM would have let the em-dash case pass
@@ -526,7 +542,7 @@ function Invoke-LwgFixtures {
             -PluginVersion '9.9.9' -MarketplaceVersion '9.9.9' -ConfigVersion '9.9.9' `
             -CommonVersion '9.9.9' -SessionVersion '9.9.9' `
             -ChangelogHeading '## [9.9.9] - 2026-01-01' -ChangelogBody '- an invented entry'
-        Remove-Item -LiteralPath (Join-Path $maimed 'config.json') -Force
+        Remove-Item -LiteralPath (Join-Path $maimed 'lw-watchtower\config.json') -Force
         $threw = $false
         try { Invoke-LwgVersionCheck -TreeRoot $maimed -ReleaseTag 'v9.9.9' | Out-Null }
         catch { $threw = $true }

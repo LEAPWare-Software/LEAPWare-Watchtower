@@ -224,14 +224,27 @@
 #>
 [CmdletBinding()]
 param(
-    # Repo root. Defaults to this file's parent, correct for a run from
+    # The PLUGIN PAYLOAD root - lw-watchtower\ under this file's parent, not the
+    # repository root, which is what this parameter meant before the restructure, correct for a run from
     # anywhere as long as this file stays in tests\.
     [string]$Root
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Split-Path -Parent $PSScriptRoot }
+# THE PAYLOAD ROOT, WHICH IS NO LONGER THE REPOSITORY ROOT. `Split-Path -Parent
+# $PSScriptRoot` is the parent of tests\, and tests\ stayed at the repository
+# root while the shipped plugin moved under lw-watchtower/. Everything this
+# suite composes off $Root - bin\, lib\, config.json, statusline\ - is payload,
+# so $Root is the payload root and the default says so in one place rather than
+# in every Join-Path below it.
+#
+# WHY THE DEFAULT AND NOT A -Root FROM CI. Neither .github\workflows\ci.yml nor
+# tests\doc_claims.ps1's sibling runner passes -Root at any invocation, so a
+# suite's default is the only value it ever gets on either route. Putting the
+# knowledge here is the only place it can be put.
+$script:RepoRoot = Split-Path -Parent $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Join-Path $script:RepoRoot 'lw-watchtower' }
 
 $GatePath   = Join-Path $Root 'lib\gate_delegate.ps1'
 $HooksPath  = Join-Path $Root 'hooks\hooks.json'
@@ -2499,16 +2512,38 @@ try {
     # something that is not in this repository at all. `git ls-files` would be
     # the exact answer and is not used, because it would make the whole suite
     # need git on the machine, which section H goes to some length to avoid.
-    $nDirs   = @('.github', 'agents', 'bin', 'commands', 'context', 'docs', 'hooks',
-                 'lib', 'output-styles', 'statusline', 'tests')
-    $nExempt = @('CHANGELOG.md', 'docs\uat-report.md', 'tests\gate_delegate.ps1')
+    # THE SWEEP SPANS TWO ROOTS SINCE THE PAYLOAD RESTRUCTURE, and it has to be
+    # spelled out rather than inferred. Seven of these directories moved under
+    # lw-watchtower/ and three - .github, docs, tests - stayed at the repository
+    # root. `if (-not [IO.Directory]::Exists($r)) { continue }` below SKIPS A
+    # DIRECTORY THAT IS NOT THERE, so a single-rooted walk after the move would
+    # have gone on passing while quietly reading none of those three: the
+    # empty-set pass, arrived at by a directory rename. `output-styles` was in
+    # this list until the directory was deleted; a dead entry here is the same
+    # silent skip written down on purpose, so it is gone.
+    $nPayloadDirs = @('agents', 'bin', 'commands', 'context', 'hooks', 'lib', 'statusline')
+    $nRepoDirs    = @('.github', 'docs', 'tests')
+    # uat-report.md moved to .github\notes\ under #183 and .github IS still swept,
+    # so the exemption has to follow it or the sweep starts reading a v0.3.0
+    # acceptance record that quotes wrong sentences on purpose.
+    $nExempt = @('CHANGELOG.md', '.github\notes\uat-report.md', 'tests\gate_delegate.ps1')
     $nFiles  = @()
-    $nRoots  = @($Root) + @($nDirs | ForEach-Object { Join-Path $Root $_ })
-    foreach ($r in $nRoots) {
+    # Each root is carried with the base its $rel is computed against, so a file
+    # found under the payload reports lw-watchtower\... and one found under docs\
+    # reports docs\... - which is what $nExempt is matched on and what a failure
+    # message has to name for anyone to find the line.
+    $nRoots  = @(
+        [pscustomobject]@{ Dir = $Root;            Base = $script:RepoRoot; Top = $true }
+        [pscustomobject]@{ Dir = $script:RepoRoot; Base = $script:RepoRoot; Top = $true }
+    )
+    foreach ($d in $nPayloadDirs) { $nRoots += [pscustomobject]@{ Dir = (Join-Path $Root $d);            Base = $script:RepoRoot; Top = $false } }
+    foreach ($d in $nRepoDirs)    { $nRoots += [pscustomobject]@{ Dir = (Join-Path $script:RepoRoot $d); Base = $script:RepoRoot; Top = $false } }
+    foreach ($rr in $nRoots) {
+        $r = $rr.Dir
         if (-not [IO.Directory]::Exists($r)) { continue }
-        $depth = if ($r -eq $Root) { [IO.SearchOption]::TopDirectoryOnly } else { [IO.SearchOption]::AllDirectories }
+        $depth = if ($rr.Top) { [IO.SearchOption]::TopDirectoryOnly } else { [IO.SearchOption]::AllDirectories }
         foreach ($f in [IO.Directory]::EnumerateFiles($r, '*', $depth)) {
-            $rel = $f.Substring($Root.Length).TrimStart('\', '/')
+            $rel = $f.Substring($rr.Base.Length).TrimStart('\', '/')
             if ($f -notmatch '\.(md|ya?ml|json|ps1)$') { continue }
             if ($nExempt -contains $rel) { continue }
             $nFiles += [pscustomobject]@{ Rel = $rel; Lines = @([IO.File]::ReadAllLines($f)) }

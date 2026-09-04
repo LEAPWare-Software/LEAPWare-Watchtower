@@ -30,7 +30,7 @@ logs/
 # lib/subagent_start.ps1 appends it after the invariants when it exists. Named
 # as a full path rather than a *.local.md glob so that a deliberately tracked
 # .local.md elsewhere in the tree is not swallowed by it.
-context/worker_facts.local.md
+lw-watchtower/context/worker_facts.local.md
 
 # credentials. This block is PROPHYLAXIS, NOT REMEDIATION, and it is worth
 # saying which it is. The pre-publication audit reported that it built the full

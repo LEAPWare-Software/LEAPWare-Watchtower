@@ -156,14 +156,26 @@
 #>
 [CmdletBinding()]
 param(
-    # Repo root. Defaults to this file's parent, correct for a run from
+    # The PLUGIN PAYLOAD root - lw-watchtower\ under this file's parent, not the
+    # repository root, which is what this parameter meant before the restructure, correct for a run from
     # anywhere as long as this file stays in tests\.
     [string]$Root
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Split-Path -Parent $PSScriptRoot }
+# THE PAYLOAD ROOT, WHICH IS NO LONGER THE REPOSITORY ROOT. `Split-Path -Parent
+# $PSScriptRoot` is the parent of tests\, and tests\ stayed at the repository
+# root while the shipped plugin moved under lw-watchtower/. Everything this
+# suite composes off $Root - bin\, lib\, config.json, statusline\ - is payload,
+# so $Root is the payload root and the default says so in one place rather than
+# in every Join-Path below it.
+#
+# WHY THE DEFAULT AND NOT A -Root FROM CI. Neither .github\workflows\ci.yml nor
+# tests\doc_claims.ps1's sibling runner passes -Root at any invocation, so a
+# suite's default is the only value it ever gets on either route. Putting the
+# knowledge here is the only place it can be put.
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Join-Path (Split-Path -Parent $PSScriptRoot) 'lw-watchtower' }
 
 $AdvisoryPath   = Join-Path $Root 'lib\stop_advisories.ps1'
 $PostEditPath   = Join-Path $Root 'lib\post_edit.ps1'

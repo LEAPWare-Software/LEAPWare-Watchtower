@@ -293,7 +293,10 @@ $gmDataDirs = @(LwgDataDirs)
 # stands and nothing here disturbs it. No hook reads rate_limits after this
 # change either. What changes is only that the one process which already has the
 # data writes it down, so that something else can read a FILE. The blocked names
-# stay out of the modules block; see docs/session-transition-spec.md section 0.
+# stay out of the modules block; see #168 section 0. (That specification was
+# published under docs/ until the payload restructure; it is attached to #168
+# in full and is no longer a page, so it is cited by issue rather than by a
+# link this file would be the last reader of.)
 #
 # WRITTEN TO EVERY DATA DIR, NOT ONE, and that is a correction to the spec rather
 # than an embellishment of it. section 3.1 names a single path,

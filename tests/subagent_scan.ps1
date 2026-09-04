@@ -138,14 +138,26 @@
 #>
 [CmdletBinding()]
 param(
-    # Repo root. Defaults to this file's parent, correct for a run from anywhere
+    # The PLUGIN PAYLOAD root - lw-watchtower\ under this file's parent, not the
+    # repository root, which is what this parameter meant before the restructure, correct for a run from anywhere
     # as long as this file stays in tests\.
     [string]$Root
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Split-Path -Parent $PSScriptRoot }
+# THE PAYLOAD ROOT, WHICH IS NO LONGER THE REPOSITORY ROOT. `Split-Path -Parent
+# $PSScriptRoot` is the parent of tests\, and tests\ stayed at the repository
+# root while the shipped plugin moved under lw-watchtower/. Everything this
+# suite composes off $Root - bin\, lib\, config.json, statusline\ - is payload,
+# so $Root is the payload root and the default says so in one place rather than
+# in every Join-Path below it.
+#
+# WHY THE DEFAULT AND NOT A -Root FROM CI. Neither .github\workflows\ci.yml nor
+# tests\doc_claims.ps1's sibling runner passes -Root at any invocation, so a
+# suite's default is the only value it ever gets on either route. Putting the
+# knowledge here is the only place it can be put.
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Join-Path (Split-Path -Parent $PSScriptRoot) 'lw-watchtower' }
 
 $HookPath   = Join-Path $Root 'lib\subagent_start.ps1'
 $CommonPath = Join-Path $Root 'lib\common.ps1'
@@ -533,6 +545,61 @@ Write-Output 'LW-WATCHTOWER SubagentStart fast-scan suite'
 Write-Output "  script under test: $HookPath"
 Write-Output ''
 
+function Test-TheLocalFactsFileIsStillIgnored {
+    <#
+      #118. THE .gitignore PIN FOR worker_facts.local.md STILL NAMES IT.
+
+      This hook composes context\worker_facts.local.md off the plugin root and
+      reads it live on every dispatch, so an operator who writes one has it read
+      on every subagent start whether or not git knows about it. The file is
+      UNTRACKED BY DESIGN - it is per-machine, and the entry in .gitignore is
+      what stops it being swept into a commit.
+
+      THAT ENTRY IS A FULL PATH WITH A MID-PATH SLASH, which git anchors to the
+      directory holding the .gitignore - the repository root. The payload
+      restructure moved context/ under lw-watchtower/, and an entry left naming
+      the old path matches NOTHING: the file goes on being created, is no longer
+      ignored, and the next `git add -A` stages one machine's private notes.
+      Nothing goes red; the .gitignore comment above the entry and the
+      neighbouring .claude/worktrees/ block both exist to describe exactly that
+      hazard.
+
+      IT IS ASKED OF GIT, not of the file on disk, and the fixture file is never
+      created: `git check-ignore` answers from the ignore rules alone, so this
+      case establishes the rule without leaving anything behind for the next one
+      to trip over.
+
+      BOTH DIRECTIONS ARE ASSERTED. The new path must be ignored, and the OLD
+      path must not be - an entry left behind at context/worker_facts.local.md
+      would ignore a path that no longer exists while the live one went
+      unignored, which reads as a working pin and is not one.
+
+      RED AT a42b169 with only this hunk applied: the entry named
+      context/worker_facts.local.md, so check-ignore matched the old path and
+      not the new one - the mirror image of what it must now report.
+    #>
+    $repo = Split-Path -Parent $PSScriptRoot
+    $new  = 'lw-watchtower/context/worker_facts.local.md'
+    $old  = 'context/worker_facts.local.md'
+    Push-Location -LiteralPath $repo
+    try {
+        $newOut  = (& git check-ignore -v -- $new 2>&1 | Out-String).Trim()
+        $newCode = $LASTEXITCODE
+        $oldOut  = (& git check-ignore -v -- $old 2>&1 | Out-String).Trim()
+        $oldCode = $LASTEXITCODE
+    } finally { Pop-Location }
+
+    Add-Result -Name 'the .gitignore entry for the per-machine facts file names its tracked-tree path' `
+        -Ok ($newCode -eq 0 -and $newOut -match '\.gitignore:\d+') `
+        -Detail ("git check-ignore -v -- $new exited $newCode and said '$newOut'; expected a match naming a .gitignore line. " +
+                 "Unignored, lib\subagent_start.ps1 goes on creating this file on every dispatch and the next git add -A stages one machine's private notes.")
+
+    Add-Result -Name 'and it does NOT still name the pre-restructure path, which would ignore nothing' `
+        -Ok ($oldCode -eq 1) `
+        -Detail ("git check-ignore -v -- $old exited $oldCode and said '$oldOut'; expected exit 1 (no match). " +
+                 "A rule still anchored at the old path ignores a file that cannot exist while the live one is staged by any -A, which reads as a working pin and is not one.")
+}
+
 try {
     if (-not (Test-Path -LiteralPath $HookPath -PathType Leaf)) {
         $script:Aborted = "lib\subagent_start.ps1 not found at $HookPath"
@@ -546,6 +613,7 @@ try {
     $script:Work = Join-Path ([IO.Path]::GetTempPath()) ("lwg-subagent-test-" + [Guid]::NewGuid().ToString('N').Substring(0, 10))
     [void][IO.Directory]::CreateDirectory($script:Work)
 
+    Test-TheLocalFactsFileIsStillIgnored
     Test-ReposBeforeModulesReadsTheGlobalFlag
     Test-DecoyModulesUnderANonReposKeyIsIgnored
     Test-ShippedOrderReadsTheGlobalFlag

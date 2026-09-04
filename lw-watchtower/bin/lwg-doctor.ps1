@@ -1,4 +1,4 @@
-#requires -version 5
+﻿#requires -version 5
 <#
   LW-WATCHTOWER doctor - what is NOT working.
 
@@ -64,7 +64,7 @@ $script:Slug     = 'lw-watchtower'
 function Add-Row {
     param(
         [Parameter(Mandatory = $true)][string]$Id,
-        [Parameter(Mandatory = $true)][ValidateSet('PASS', 'WARN', 'FAIL')][string]$Status,
+        [Parameter(Mandatory = $true)][ValidateSet('PASS', 'INFO', 'WARN', 'FAIL')][string]$Status,
         [Parameter(Mandatory = $true)][string]$Detail
     )
     [void]$script:Rows.Add([pscustomobject]@{ Id = $Id; Status = $Status; Detail = $Detail })
@@ -135,7 +135,7 @@ try {
     Invoke-Check -Id 'marketplace' -Body {
         $p = Join-Path $pluginRoot '.claude-plugin\marketplace.json'
         if (-not (Test-Path -LiteralPath $p)) {
-            Add-Row -Id 'marketplace' -Status 'WARN' -Detail 'no marketplace.json - the repo cannot be added with /plugin marketplace add'
+            Add-Row -Id 'marketplace' -Status 'INFO' -Detail 'no marketplace.json beside the plugin root, which is CORRECT since the payload restructure: marketplace.json lives at the marketplace repository ROOT and declares "source": "./lw-watchtower", so it is one directory above this plugin root on the dev route and is not copied into the cache at all. Its absence here says nothing about whether the repo can be added with /plugin marketplace add. Do NOT "fix" this by resolving Split-Path -Parent on the plugin root: on the junction route that parent is ~\.claude\skills and on the cache route there is no such parent.'
             return
         }
         $mk = Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
@@ -1036,6 +1036,18 @@ try {
 $fails = @($script:Rows | Where-Object { $_.Status -eq 'FAIL' })
 $warns = @($script:Rows | Where-Object { $_.Status -eq 'WARN' })
 $pass  = @($script:Rows | Where-Object { $_.Status -eq 'PASS' })
+# INFO IS A FOURTH STATUS AND IT IS NOT A DEGRADED PASS. It says a check looked,
+# found a state, and that state is the CORRECT one for this installation shape -
+# so there is nothing to attest and nothing to warn about. It exists because the
+# payload restructure made one such state permanent: marketplace.json now lives
+# at the marketplace repository ROOT and is not copied into the plugin, so its
+# absence beside the plugin root is the designed arrangement rather than a fault.
+# Reporting that as WARN would put `working, with 1 caveat(s)` and exit 2 on
+# every healthy install forever, which is the "reports a fault it does not have"
+# shape this command exists to refuse. INFO is counted into NEITHER the pass
+# tally nor the warning tally: it is printed, named on the RESULT line, and left
+# out of the verdict arithmetic entirely.
+$infos = @($script:Rows | Where-Object { $_.Status -eq 'INFO' })
 
 $w = 3
 foreach ($r in $script:Rows) { if ($r.Id.Length -gt $w) { $w = $r.Id.Length } }
@@ -1054,7 +1066,13 @@ if ($null -ne $script:Aborted) {
     exit 3
 }
 
-Write-Output ("RESULT: {0} passed, {1} warning(s), {2} failure(s)" -f $pass.Count, $warns.Count, $fails.Count)
+# THE THREE EXISTING TERMS KEEP THEIR ORDER AND THEIR WORDING, and the
+# informational count is APPENDED rather than inserted. tests\doctor_behaviour.ps1
+# derives the demanded exit code from this line by capture-group position, and a
+# term inserted between `passed` and `warning(s)` would have made that derivation
+# read the wrong number while still matching - a guard silently checking
+# something else.
+Write-Output ("RESULT: {0} passed, {1} warning(s), {2} failure(s), {3} informational" -f $pass.Count, $warns.Count, $fails.Count, $infos.Count)
 
 # What a green run does not cover. Stated on every run, including the green
 # ones, because a health report that omits its own blind spots is how "all
@@ -1292,5 +1310,12 @@ if ($warns.Count -gt 0) {
     exit 2
 }
 Write-Output ''
-Write-Output 'VERDICT: healthy - every check above passed.'
+if ($infos.Count -gt 0) {
+    # NOT "every check above passed": an INFO row did not pass, it reported a
+    # correct state there was nothing to attest about. Saying "passed" over it
+    # would be the small overstatement this command is named for.
+    Write-Output "VERDICT: healthy - no check failed and none raised a caveat; $($infos.Count) row(s) are informational."
+} else {
+    Write-Output 'VERDICT: healthy - every check above passed.'
+}
 exit 0

@@ -6,13 +6,29 @@
 
   WHY THIS FILE EXISTS
 
-  `.claude-plugin/marketplace.json` declares `"source": "./"`. There is no
-  exclusion mechanism on that form, so EVERY TRACKED FILE IN THIS REPOSITORY IS
-  THE SHIPPED PAYLOAD. A consumer who installs this plugin receives the whole
-  root, and the `checklist` command rendered one of those files on their
-  machine - `commands/checklist.md` instructed the model to print the output
-  verbatim, so whatever the manifest carried reached a stranger's screen. That
-  command went in 0.4.0; the files it rendered still ship, so these rules stay.
+  `.claude-plugin/marketplace.json` declares `"source": "./lw-watchtower"`. That
+  is a BOUNDARY rather than a wildcard: the CLI copies only that subtree into a
+  consumer's plugin cache, so `lw-watchtower/` IS the shipped payload and the
+  rest of this repository - `docs/`, `tests/`, `.github/`, the root
+  community-health files - reaches nobody.
+
+  It was not always so. `"source": "./"` had no exclusion mechanism at all, so
+  every tracked file in the repository was payload, and the `checklist` command
+  rendered one of them on a consumer's machine - `commands/checklist.md`
+  instructed the model to print the output verbatim, so whatever the maintainer's
+  release manifest carried reached a stranger's screen. That command and that
+  manifest were both deleted in 0.4.0 and the payload boundary was drawn in the
+  same release. The rules below stay anyway: they are what would notice any of it
+  coming back, and the disclosures they name are the ones this project has
+  actually made.
+
+  THIS GUARD DOES NOT TAKE THE BOUNDARY ON TRUST. It parses the marketplace
+  manifest on every run and ABORTS when the declared `source` and the subtree it
+  scanned have drifted apart. A guard that scanned the wrong set would report a
+  clean payload it never opened, which is the failure this file is named for.
+  The exemption-marker sweep still covers EVERY tracked file, because the one
+  file permitted to declare an exempt region is this one, and this one is
+  outside the payload.
 
   Four disclosures reached the payload that way and none of them was caught by
   anything, because every guard in tests\ answers a different question:
@@ -23,9 +39,10 @@
     * tests\doc_claims.ps1 derives COUNTED QUANTITIES and holds prose to them.
       A containment claim resting on the repository not being published yet
       carries no number, so it is not a claim that file can read at all.
-    * tests\evidence_states.ps1 asks whether the evidence engine tells a probe
-      that could not run from a probe that found nothing. It reads rules, not
-      prose, and it is indifferent to what a caveat says.
+    * tests\portability_scan.ps1's own scope stops at the payload subtree, so a
+      disclosure written into a page under docs/ is outside every rule it has.
+      (A third suite, tests\evidence_states.ps1, used to be named here. It was
+      deleted with the evidence engine; the sentence is kept only to say so.)
 
   So the disclosures were found by audit. An audit is a person remembering to
   look, and the three that found these had to be told where. This file is the
@@ -91,10 +108,22 @@
 
   HOW IT WORKS
 
-  Every file `git ls-files` reports is read and matched against the DETECTION
-  RULES table. The file list is NEVER hardcoded - a hardcoded list is the defect
-  this guard exists to prevent, and it is exactly how the payload boundary was
-  lost in the first place: `"source": "./"` is a wildcard nobody enumerated.
+  TWO ENUMERATIONS, AND THE SPLIT IS THE WHOLE OF THIS FILE'S CORRECTNESS.
+
+    * The DETECTION RULES run over `git ls-files -- lw-watchtower/`, which is
+      what a consumer receives. Run over the whole tree they would report
+      `THE SHIPPED PAYLOAD DISCLOSES` about a file in docs/ that no consumer
+      ever sees - a false accusation on a guard whose entire worth is that a
+      failure means something.
+    * The REGION-MARKER SWEEP runs over the FULL `git ls-files`, because the one
+      file allowed to declare an exempt region is this one and this one is not
+      in the payload. Narrowed to the payload, both marker cases would evaluate
+      over a set that cannot contain their owner and would pass trivially: the
+      exemption channel, unguarded, reported green.
+
+  Neither list is ever hardcoded - a hardcoded list is the defect this guard
+  exists to prevent, and it is exactly how the payload boundary was lost in the
+  first place: `"source": "./"` was a wildcard nobody enumerated.
 
   A hit is then offered to the BARRED LEDGER. An entry there does not mean the
   site is acceptable; it means the file is outside this pass's ownership and the
@@ -132,7 +161,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-if ([string]::IsNullOrWhiteSpace($Root)) { $Root = Split-Path -Parent $PSScriptRoot }
+# $Root stays the REPOSITORY root: the marker sweep needs the whole tracked tree
+# and this file, its owner, is outside the payload. The payload subtree is named
+# relatively and checked against the manifest before anything is scanned.
+$script:RepoRoot = Split-Path -Parent $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = $script:RepoRoot }
+$script:PayloadRel = 'lw-watchtower'
 
 $script:Pass    = 0
 $script:Results = New-Object System.Collections.ArrayList
@@ -282,7 +316,7 @@ $Rules = @(
     @{
         id      = 'release-plan-heading'
         name    = 'a maintainer release-plan section heading'
-        why     = 'rendered on a consumer machine, a phase of the maintainer''s go-public plan reads as a phase of the consumer''s own work. The `checklist` command that rendered it went in 0.4.0; the file still ships, so the rule stays.'
+        why     = 'rendered on a consumer machine, a phase of the maintainer''s go-public plan reads as a phase of the consumer''s own work. The `checklist` command that rendered it and the manifest it rendered were BOTH deleted in 0.4.0 and neither is in the tracked tree, so this rule has no live target: it is a sentinel against re-introduction, and it is kept for that and said so rather than left reading as a live finding.'
         pattern = '(?i)Phase\s+8\s*[-–]\s*Go\s+public'
     }
     @{
@@ -339,8 +373,14 @@ $Rules = @(
         # it ships under `"source": "./"` like everything else, but its three
         # remaining sites are assertion prose in a file this pass does not own,
         # and they are recorded on #192 rather than ledger'd here.
-        scope   = @('bin/*', 'lib/*', 'hooks/*', 'statusline/*', 'context/*',
-                    'config.json', '.claude-plugin/*')
+        # Repo-relative, because that is what `git ls-files` prints on both
+        # enumerations. The payload prefix is spelled here rather than derived
+        # because $script:PayloadRel is checked against the manifest before any
+        # of this runs - see S8 - so a wrong name aborts loudly instead of
+        # switching seven globs off in silence.
+        scope   = @('lw-watchtower/bin/*', 'lw-watchtower/lib/*', 'lw-watchtower/hooks/*',
+                    'lw-watchtower/statusline/*', 'lw-watchtower/context/*',
+                    'lw-watchtower/config.json', 'lw-watchtower/.claude-plugin/*')
     }
 )
 # LWG-PAYLOAD-REGION: end
@@ -379,34 +419,74 @@ $Rules = @(
 # rotted into decoration is visible rather than assumed.
 # ===========================================================================
 $HistoricalMentions = @(
-    @{ files = 'lib/common.ps1'
+    @{ files = 'lw-watchtower/lib/common.ps1'
        rules = @('deleted-script')
        test  = 'how the healer wrote a'
        why   = 'past tense, recounting the founding defect: a healer wrote a clearing record into the wrong file while the log it was meant to clear stayed empty. The sentence is the reason the surrounding code exists and cannot be told without naming what did it.' }
-    @{ files = 'lib/common.ps1'
+    @{ files = 'lw-watchtower/lib/common.ps1'
        rules = @('deleted-script')
        test  = 'was the third caller when this was written'
        why   = 'THIS ENTRY REPLACED A BARRED-LEDGER ENTRY, and the difference is the whole point of having two tables. The line used to assert the deleted library half as a live third caller in the present tense, with a "verified" that made it read as checked-and-current; it was ledger''d to the lane that owned the file, printed on every run as real and unfixed. That lane rewrote it, and the sentence is now headed HISTORICAL in the source and says outright which wave deleted it and why the evidence still needs the name. A ledger entry would now be printing a false claim about an honest line, so it is gone and this is here instead.' }
-    @{ files = 'lib/common.ps1'
+    @{ files = 'lw-watchtower/lib/common.ps1'
        rules = @('deleted-script')
        test  = '^\s*#\s*was DELETED in wave 1 \(#192\) along with'
        why   = 'the deletion itself, stated in the source. This is the sentence the rule exists to encourage, so it would be perverse for the rule to refuse it.' }
-    @{ files = 'lib/common.ps1'
+    @{ files = 'lw-watchtower/lib/common.ps1'
        rules = @('deleted-script')
        test  = ', which laid out'
        why   = 'the redaction helper''s reason, correctly detached from the reader it was first written against. The line names that reader, says the wave deleted it, and says the reason did not go with it because it was never a property of that one reader - which is the strongest form of this: not just "it is gone" but "and here is why the code stays". Previously ledger''d as live prose asserting a deleted console report as the current justification.' }
-    @{ files = 'statusline/statusline.ps1'
+    @{ files = 'lw-watchtower/statusline/statusline.ps1'
        rules = @('deleted-script')
        test  = '^\s*#\s*writers of that record were'
        why   = 'the tombstone on the arm that used to zero the health counters. It names the two writers AND says both are deleted, in the same sentence, which is the form #198 settled on. Without it the missing arm reads as an oversight rather than as a decision, and the next reader re-adds it.' }
-    @{ files = 'statusline/statusline.ps1'
+    @{ files = 'lw-watchtower/statusline/statusline.ps1'
        rules = @('deleted-script')
        test  = 'to name the tasks\..{0,40}:136 read'
        why   = 'the record of why three readers of one log disagreed about one number. The sentence that follows it states outright that two of the three are deleted and that this file is the last of them, so the mention is dated on the spot rather than left to be checked.' }
 )
 
 # ===========================================================================
-# THE BARRED LEDGER
+# STILL IN THE REPOSITORY, NO LONGER IN THE PAYLOAD
+#
+#   files  repo-relative path, matched exactly
+#   issue  the issue that OWNS the site
+#   why    what is there, and why this pass did not fix it
+#
+# THESE FIVE WERE BARRED-LEDGER ENTRIES UNTIL THE PAYLOAD RESTRUCTURE, and
+# every one of them is now OUTSIDE the scanned subtree. Mechanically the table
+# could be deleted: no hit from any of these files is ever offered to
+# Test-Ledgered again, so nothing here excuses anything any more.
+#
+# DELETING IT WOULD BE THE DISHONEST FIX. The guard's report would improve
+# without a single site being repaired, and the ownership record - #118/#121,
+# and #124 including the .gitignore seventh site that was found by this sweep
+# and by no issue's enumeration - would disappear from the only place a machine
+# was still printing it. The disclosures are still in the tree; they simply no
+# longer reach anybody who installs. So the table is KEPT, printed
+# unconditionally rather than only when it matches, and ASSERTED: S9 fails if a
+# path named here ever comes back inside the payload, which is the one way this
+# record could rot into a lie.
+# ===========================================================================
+$OutOfPayloadRecord = @(
+    @{ files = 'CHANGELOG.md'
+       issue = '#118 / #121'
+       why   = 'the pull-ref narrative, the tip SHA, the commit count and a visibility-conditioned claim. CHANGELOG.md is a historical record and correcting it would falsify it; it is now outside the payload, so it reaches nobody who installs.' }
+    @{ files = 'README.md'
+       issue = '#124'
+       why   = 'the no-CI-badge justification, conditioned on the repository being private. Its verbatim twin is docs/testing.md, and both are now outside the payload.' }
+    @{ files = 'docs/testing.md'
+       issue = '#124'
+       why   = 'verbatim twin of README.md''s badge sentence.' }
+    @{ files = 'docs/limitations.md'
+       issue = '#124'
+       why   = 'the branch-protection 403 the page describes stops being returned at the flip. Phrased without the trigger words on purpose - this table is prose in a tracked file, and quoting the sentence it records would itself be a hit.' }
+    @{ files = '.gitignore'
+       issue = '#124'
+       why   = 'A SEVENTH SITE, NAMED BY NO ISSUE: the comment above the workflow entries says those settings are not even settable before the flip. Found by this sweep rather than by the six-site enumeration #124 was filed with, which is the strongest argument for having a sweep at all. Recorded here so it reaches whoever runs the flip runbook. The wording is paraphrased rather than quoted, for the reason in the docs/limitations.md entry above.' }
+)
+
+# ===========================================================================
+# THE BARRED LEDGER - sites INSIDE the payload that this pass does not own
 #
 #   files  repo-relative path, matched exactly
 #   rules  rule ids this entry excuses in that file, or '*' for all
@@ -421,34 +501,39 @@ $HistoricalMentions = @(
 # WHAT THIS LEDGER DELIBERATELY DOES NOT DO: it does not assert that the sites
 # it names still exist. An entry that went red when somebody FIXED the file it
 # points at would punish the fix and would have to be edited by whoever made
-# it, which is the wrong incentive on the wrong person.
+# it, which is the wrong incentive on the wrong person. The record above is the
+# opposite case and IS asserted, because a path crossing the payload boundary
+# is a fact about the tree rather than about anybody's fix.
 # ===========================================================================
 $BarredLedger = @(
-    @{ files = 'CHANGELOG.md'
-       rules = @('pull-ref', 'pull-ref-tip', 'pre-rewrite-count', 'visibility-conditioned')
-       issue = '#118 / #121'
-       why   = 'CHANGELOG.md is a historical record and is outside this pass''s ownership. It carries the same pull-ref narrative and ships under the same "source": "./" - the payload-boundary decision that covers it is #47''s, taken once when the published tree is built.' }
-    @{ files = 'README.md'
-       rules = @('visibility-conditioned')
-       issue = '#124'
-       why   = 'the no-CI-badge justification. Outside this pass''s ownership, and its verbatim twin in docs/testing.md is too - fixing one half alone would leave two identical sentences disagreeing, which is the drift shape tests/doc_claims.ps1 exists to catch, introduced by hand.' }
-    @{ files = 'docs/testing.md'
-       rules = @('visibility-conditioned')
-       issue = '#124'
-       why   = 'verbatim twin of README.md''s badge sentence. Outside this pass''s ownership.' }
-    @{ files = 'docs/limitations.md'
-       rules = @('visibility-conditioned')
-       issue = '#124'
-       why   = 'the branch-protection 403 the page describes stops being returned at the flip. Outside this pass''s ownership. Phrased without the trigger words on purpose - this table is prose in a tracked file, so a ledger entry quoting the sentence it excuses would itself be a hit.' }
-    @{ files = '.gitignore'
-       rules = @('visibility-conditioned')
-       issue = '#124'
-       why   = 'A SEVENTH SITE, NAMED BY NO ISSUE: the comment above the workflow entries says those settings are not even settable before the flip. Found by this sweep rather than by the six-site enumeration #124 was filed with, which is the strongest argument for having a sweep at all. Outside this pass''s ownership; recorded here so it reaches whoever runs the flip runbook. The wording is paraphrased rather than quoted, for the reason in the docs/limitations.md entry above.' }
+    # EMPTY, AND THAT IS A RESULT RATHER THAN AN OVERSIGHT. Two things
+    # emptied it and neither was a decision to excuse less. The five
+    # root-file entries moved to the record above when the payload became a
+    # subdirectory - they are outside the scanned set now, so they could not
+    # excuse anything even if they stayed. The one payload entry,
+    # lw-watchtower/lib/common.ps1's deleted-script sites, was retired when
+    # #192's lane rewrote those lines into honest tombstones; they are
+    # classified by the HISTORICAL MENTIONS table above, which is a
+    # different statement and the right one.
+    #
+    # So NO SITE INSIDE THE PAYLOAD IS EXCUSED BY ANYTHING, and the
+    # KNOWN, BARRED block below simply does not print. Keep the mechanism:
+    # the next cross-lane disclosure needs somewhere to be recorded that is
+    # not silence, and deleting the table would make the next fixer invent
+    # one under pressure.
 )
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 $missing    = New-Object System.Collections.ArrayList
 $binary     = New-Object System.Collections.ArrayList
+# S2 and S3 are reported PER SET. "not fully scanned" has to keep meaning what
+# it says about the payload specifically: a tracked docs/ page that vanished
+# from disk does not stop the payload from having been read end to end, and
+# collapsing the two would make one of the two statements false whichever way
+# it went.
+$missingPayload = New-Object System.Collections.ArrayList
+$binaryPayload  = New-Object System.Collections.ArrayList
+$payloadRead    = 0
 $openRegion = New-Object System.Collections.ArrayList
 $strayMark  = New-Object System.Collections.ArrayList
 $hits       = New-Object System.Collections.ArrayList
@@ -517,35 +602,99 @@ try {
     try {
         $files = @(& git ls-files | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
         $gitExit = $LASTEXITCODE
+        $payloadList = @(& git ls-files -- ($script:PayloadRel + '/') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        $payloadExit = $LASTEXITCODE
     } finally { Pop-Location }
     if ($gitExit -ne 0) { throw "git ls-files exited $gitExit - the file list could not be enumerated" }
+    if ($payloadExit -ne 0) { throw "git ls-files -- $($script:PayloadRel)/ exited $payloadExit - the payload could not be enumerated" }
     if ($files.Count -eq 0) {
         # Zero files scanned is a broken enumeration, never a clean tree.
         throw 'git ls-files returned no files - the enumeration is broken, so nothing was scanned'
     }
+    if ($payloadList.Count -eq 0) {
+        # Same argument one level down, and it is the one that matters more:
+        # every DETECTION rule runs over this set, so an empty payload list is a
+        # guard reporting a clean payload it never opened.
+        throw "git ls-files -- $($script:PayloadRel)/ returned no files - the payload enumeration is broken, so no detection rule asked anything of anything"
+    }
+
+    # ------------------------------------------------------------------
+    # THE DECLARED SOURCE AND THE SCANNED SUBTREE MUST AGREE, and this is
+    # checked BEFORE a single rule runs. $script:PayloadRel is the only
+    # hardcoded path in this file, and it is acceptable only because it is
+    # verified against the manifest the CLI actually reads. Without this the
+    # subtree could be renamed in marketplace.json and every rule below would
+    # go on scanning a directory nobody ships, reporting green.
+    # ------------------------------------------------------------------
+    $script:SourceAgrees = $false
+    $script:SourceWhy    = ''
+    $mktRel  = '.claude-plugin/marketplace.json'
+    $mktPath = Join-Path $script:RepoRoot ($mktRel -replace '/', '\')
+    $plgPath = Join-Path $script:RepoRoot ($script:PayloadRel + '\.claude-plugin\plugin.json')
+    if (-not (Test-Path -LiteralPath $mktPath -PathType Leaf)) {
+        $script:SourceWhy = "$mktRel is missing, so the payload boundary could not be read at all"
+    } elseif (-not (Test-Path -LiteralPath $plgPath -PathType Leaf)) {
+        $script:SourceWhy = "$($script:PayloadRel)/.claude-plugin/plugin.json is missing, so the entry to match in $mktRel could not be named"
+    } else {
+        $mkt = (Get-Content -LiteralPath $mktPath -Raw) | ConvertFrom-Json
+        $plg = (Get-Content -LiteralPath $plgPath -Raw) | ConvertFrom-Json
+        # BY NAME, NEVER BY INDEX - the same discipline the version guard uses.
+        $ent = @($mkt.plugins | Where-Object { $_.name -eq $plg.name })
+        if ($ent.Count -ne 1) {
+            $script:SourceWhy = ("$mktRel holds {0} entries named '{1}', expected exactly 1, so its source was never read" -f $ent.Count, $plg.name)
+        } else {
+            $declared = [string]$ent[0].source
+            $want     = './' + $script:PayloadRel
+            if ($declared -eq $want) {
+                $script:SourceAgrees = $true
+                $script:SourceWhy    = "declares source '$declared'"
+            } else {
+                $script:SourceWhy = "$mktRel declares source '$declared' but this guard scanned '$($script:PayloadRel)/'. One of them is wrong and NOTHING below was checked against what a consumer receives."
+            }
+        }
+    }
+
+    $payloadSet = New-Object 'System.Collections.Generic.HashSet[string]' ([string[]]$payloadList, [StringComparer]::Ordinal)
     $ownerPaths = @($RegionOwners | ForEach-Object { $_.path })
-    Write-Output "  files   : $($files.Count) tracked"
+    Write-Output "  payload : $($payloadList.Count) tracked under $($script:PayloadRel)/   (the DETECTION RULES run over these)"
+    Write-Output "  tree    : $($files.Count) tracked in the repository   (the REGION-MARKER SWEEP runs over these)"
+    Write-Output "  source  : $($script:SourceWhy)"
     Write-Output ''
 
+    # ONE WALK, TWO QUESTIONS. Every tracked file is opened, because the
+    # region-marker sweep has to see all of them; the DETECTION rules are asked
+    # only of the files inside the payload. Splitting the walk instead would
+    # have meant reading the payload twice and reporting two file counts that
+    # could disagree.
     foreach ($rel in $files) {
+        $inPayload = $payloadSet.Contains($rel)
         $abs = Join-Path $Root ($rel -replace '/', '\')
-        if (-not [IO.File]::Exists($abs)) { [void]$missing.Add($rel); continue }
+        if (-not [IO.File]::Exists($abs)) {
+            [void]$missing.Add($rel)
+            if ($inPayload) { [void]$missingPayload.Add($rel) }
+            continue
+        }
 
         $bytes = [IO.File]::ReadAllBytes($abs)
         $probe = [Math]::Min($bytes.Length, 8192)
         if ($probe -gt 0 -and [Array]::IndexOf($bytes, [byte]0, 0, $probe) -ge 0) {
-            [void]$binary.Add($rel); continue
+            [void]$binary.Add($rel)
+            if ($inPayload) { [void]$binaryPayload.Add($rel) }
+            continue
         }
         $fileCount++
+        if ($inPayload) { $payloadRead++ }
 
         $lines  = [IO.File]::ReadAllText($abs) -split "`r?`n"
         $inRegion = $false
         $isOwner  = $ownerPaths -contains $rel
 
-        foreach ($r in $Rules) {
-            if (-not $r.ContainsKey('scope')) { continue }
-            if (-not $scopedFiles.ContainsKey($r.id)) { $scopedFiles[$r.id] = 0 }
-            if (Test-RuleInScope -Rule $r -Rel $rel) { $scopedFiles[$r.id]++ }
+        if ($inPayload) {
+            foreach ($r in $Rules) {
+                if (-not $r.ContainsKey('scope')) { continue }
+                if (-not $scopedFiles.ContainsKey($r.id)) { $scopedFiles[$r.id] = 0 }
+                if (Test-RuleInScope -Rule $r -Rel $rel) { $scopedFiles[$r.id]++ }
+            }
         }
 
         for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -562,6 +711,12 @@ try {
                 continue
             }
             if ($inRegion) { continue }
+            # OUTSIDE THE PAYLOAD THE MARKER SWEEP IS ALL THAT RUNS. A hit in
+            # docs/ or CHANGELOG.md is not something a consumer receives, and
+            # reporting it under "THE SHIPPED PAYLOAD DISCLOSES" would be a
+            # false accusation on the one guard whose worth is that a failure
+            # means something.
+            if (-not $inPayload) { continue }
 
             foreach ($r in $Rules) {
                 if (-not (Test-RuleInScope -Rule $r -Rel $rel)) { continue }
@@ -615,6 +770,22 @@ try {
     }
 
     # ----------------------------------------------------------------------
+    # THE OUT-OF-PAYLOAD RECORD, PRINTED EVERY RUN - including now that it can
+    # never match. A table that only appears when it fires is a table nobody
+    # reads on the day it stops firing, and "these disclosures are still in the
+    # repository" is exactly the sentence that must not go quiet just because
+    # the boundary moved.
+    # ----------------------------------------------------------------------
+    Write-Output "STILL IN THE REPOSITORY, NO LONGER IN THE PAYLOAD - $($OutOfPayloadRecord.Count) site(s) these rules no longer reach:"
+    foreach ($o in $OutOfPayloadRecord) {
+        Write-Output ("  {0,-22} owned by {1}" -f $o.files, $o.issue)
+        Write-Output ("      {0}" -f $o.why)
+    }
+    Write-Output 'They are REAL and are still tracked. They no longer reach a consumer, which is'
+    Write-Output 'what the payload boundary bought - it is NOT the same as their being fixed.'
+    Write-Output ''
+
+    # ----------------------------------------------------------------------
     # THE LEDGER, PRINTED. Never folded silently into a pass.
     # ----------------------------------------------------------------------
     if ($ledgered.Count -gt 0) {
@@ -634,13 +805,21 @@ try {
         ($files.Count -gt 0) `
         'git ls-files returned nothing; zero files scanned is a broken enumeration and never a clean tree'
 
+    Add-Result 'S1b the payload enumeration is non-empty' `
+        ($payloadList.Count -gt 0) `
+        "git ls-files -- $($script:PayloadRel)/ returned nothing, so every detection rule below ran over an empty set and could not have found anything"
+
     Add-Result 'S2  every tracked path exists on disk and was read' `
         ($missing.Count -eq 0) `
-        ("$($missing.Count) tracked path(s) had nothing to read, so the payload was NOT fully scanned: " + ($missing -join ', '))
+        ("$($missing.Count) tracked path(s) had nothing to read, so the TREE was NOT fully scanned and the marker sweep is incomplete" +
+            $(if ($missingPayload.Count -gt 0) { " - $($missingPayload.Count) of them are inside the payload, so the detection rules are incomplete too" } else { ' (none of them inside the payload)' }) +
+            ': ' + ($missing -join ', '))
 
     Add-Result 'S3  no tracked file was skipped as binary' `
         ($binary.Count -eq 0) `
-        ("$($binary.Count) tracked file(s) hold a NUL byte in the first 8 KB and were not read as text. A UTF-16 page is text in the wrong encoding, not a binary: " + ($binary -join ', '))
+        ("$($binary.Count) tracked file(s) hold a NUL byte in the first 8 KB and were not read as text. A UTF-16 page is text in the wrong encoding, not a binary" +
+            $(if ($binaryPayload.Count -gt 0) { " - $($binaryPayload.Count) of them are inside the payload" } else { ' (none of them inside the payload)' }) +
+            ': ' + ($binary -join ', '))
 
     Add-Result 'S4  only the declared owner carries an exempt region' `
         ($strayMark.Count -eq 0) `
@@ -669,13 +848,113 @@ try {
         ($emptyScope.Count -eq 0) `
         ("$($emptyScope.Count) rule(s) declare a scope that matched no tracked file, so they asked nothing of anything and could not have found anything: " + ($emptyScope -join ', '))
 
+    # THE NUMBER IS PRINTED EVERY RUN, NOT ONLY WHEN IT IS ZERO. S7 above fails
+    # at zero, which catches a scope that was switched off entirely; it says
+    # nothing about a scope that quietly NARROWED - seven globs down to one,
+    # after a directory rename, is a rule still "applied" and barely asking. A
+    # count beside the rule id is the only thing that makes that visible, and
+    # tests\portability_scan.ps1 prints exactly this line for exactly this
+    # reason. A reader comparing two runs sees the corpus shrink; a reader of a
+    # green boolean does not.
+    foreach ($k in ($scopedFiles.Keys | Sort-Object)) {
+        Write-Output ("  rule {0} is SCOPED and was applied to {1} of {2} payload file(s){3}" -f `
+            $k, $scopedFiles[$k], $payloadRead,
+            $(if ($scopedFiles[$k] -eq 0) { ' - ZERO, so it asked nothing of anything and cannot have found anything' } else { '' }))
+    }
+    Write-Output ''
+
+    # S8 IS THE PREMISE, ASSERTED RATHER THAN STATED. Every rule above runs over
+    # a subtree this file NAMES, and the name is only trustworthy because the
+    # manifest the CLI reads is parsed and compared to it on every run. Without
+    # this case, renaming the payload directory in marketplace.json would leave
+    # the guard scanning a directory nobody ships and reporting it clean - the
+    # "reports healthy while doing nothing" shape, aimed at the payload boundary
+    # itself. It is a named case rather than a bare throw so that a green run
+    # says out loud that the premise was checked.
+    Add-Result 'S8  the source marketplace.json declares and the subtree scanned are the same' `
+        $script:SourceAgrees `
+        $script:SourceWhy
+
+    # S9 IS WHAT KEEPS THE RECORD ABOVE HONEST. Those five paths are excluded
+    # from every rule by being outside the payload, not by any decision this
+    # file makes - so if one of them is ever moved INTO lw-watchtower/, it would
+    # silently become an unscanned-by-nobody file that this table still claims
+    # is out of reach. The failure is loud instead.
+    $recordInPayload = @($OutOfPayloadRecord | Where-Object { $payloadSet.Contains($_.files) } | ForEach-Object { $_.files })
+    # S10 IS THE MOVE ITSELF, ASSERTED. S8 reads what marketplace.json DECLARES;
+    # this reads what the tracked tree actually holds. The two are different
+    # questions and both have to be yes: a declared source pointing at a subtree
+    # with no plugin manifest in it is a marketplace entry the CLI cannot load,
+    # and a plugin manifest left behind at the repository root is a second
+    # definition of the same plugin that nothing ships and everything reads
+    # first. Neither shape is visible to any rule above, because both are facts
+    # about WHERE files are rather than about what they say.
+    $plugInPayload = $payloadSet.Contains($script:PayloadRel + '/.claude-plugin/plugin.json')
+    $plugAtRoot    = ($files -contains '.claude-plugin/plugin.json')
+    Add-Result 'S10 the plugin manifest is inside the payload and nowhere else' `
+        ($plugInPayload -and -not $plugAtRoot) `
+        ("$($script:PayloadRel)/.claude-plugin/plugin.json is $(if ($plugInPayload) { 'tracked' } else { 'NOT TRACKED - the declared source names a subtree with no plugin manifest in it, so the CLI has nothing to load' })" +
+         "; .claude-plugin/plugin.json at the repository root is $(if ($plugAtRoot) { 'ALSO TRACKED - two manifests define one plugin and only one of them ships' } else { 'absent, which is correct' })")
+
+    # S11. #118. THE LICENCE TRAVELS WITH THE DISTRIBUTION, AND CANNOT DRIFT.
+    #
+    #     Drawing the payload boundary took LICENSE out of what a consumer
+    #     receives: it is at the repository root, and only lw-watchtower/ is
+    #     copied. plugin.json declares `"license": "Apache-2.0"`, and Apache-2.0
+    #     section 4(a) requires a copy of the License to be given to recipients
+    #     of the work. So there are two copies now, and two copies of anything
+    #     is a drift problem the moment one is edited.
+    #
+    #     BYTES, NOT LENGTH, NOT A HASH OF THE FIRST LINE. The failure this
+    #     guards against is somebody amending one copy - a year in a copyright
+    #     line, a re-wrap - and a comparison that could pass on two different
+    #     licences would be worse than no comparison, because the report would
+    #     say they agree.
+    #
+    #     A MISSING FILE IS A FAILURE, NOT A SKIP. If either copy is absent the
+    #     case has established nothing and must say so: the whole point is that
+    #     the payload carries one.
+    $licRepo    = Join-Path $script:RepoRoot 'LICENSE'
+    $licPayload = Join-Path $script:RepoRoot ($script:PayloadRel + '\LICENSE')
+    $licRepoOk    = [IO.File]::Exists($licRepo)
+    $licPayloadOk = [IO.File]::Exists($licPayload)
+    $licSame = $false
+    if ($licRepoOk -and $licPayloadOk) {
+        $a = [IO.File]::ReadAllBytes($licRepo)
+        $b = [IO.File]::ReadAllBytes($licPayload)
+        $licSame = ($a.Length -eq $b.Length)
+        if ($licSame) {
+            for ($i = 0; $i -lt $a.Length; $i++) { if ($a[$i] -ne $b[$i]) { $licSame = $false; break } }
+        }
+    }
+    Add-Result 'S11 the payload carries a byte-identical copy of the repository LICENSE' `
+        ($licRepoOk -and $licPayloadOk -and $licSame) `
+        ("LICENSE at the repository root is $(if ($licRepoOk) { 'present' } else { 'MISSING' }); " +
+         "$($script:PayloadRel)/LICENSE is $(if ($licPayloadOk) { 'present' } else { 'MISSING - a consumer receives no licence at all, and plugin.json declares Apache-2.0, whose section 4(a) requires one to travel with the distribution' }); " +
+         "the two are $(if ($licSame) { 'identical' } else { 'NOT byte-identical - one of them has been edited and the two copies now say different things about the same distribution' }).")
+
+    Add-Result 'S9  no out-of-payload record names a file that is now inside the payload' `
+        ($recordInPayload.Count -eq 0) `
+        ("$($recordInPayload.Count) path(s) recorded above as out of the payload are now tracked under $($script:PayloadRel)/, so they ARE shipped again and the rules that used to excuse them no longer exist: " + ($recordInPayload -join ', ') + ". Fix the file or move it back out - do not edit the record.")
+
     # ----------------------------------------------------------------------
     # RULE CASES - one per rule, over the payload, minus the ledger
     # ----------------------------------------------------------------------
+    # THE CASE NAME STATES THE SCOPE WHEN THERE IS ONE, and this is not
+    # cosmetic. `deleted-script` is asked of bin/, lib/, hooks/, statusline/,
+    # context/, config.json and .claude-plugin/ - and deliberately NOT of
+    # commands/ or agents/, because a page there still names a deleted library
+    # and a fixer may not edit a document. A green line reading "the payload
+    # carries no shipped file naming a script this branch deleted" is then a
+    # broader claim than the run made: two directories of text a model reads
+    # were never asked. The scope is in the sentence, so the green line is true.
     foreach ($r in $Rules) {
         $rHits = @($hits | Where-Object { $_.rule -eq $r.id })
         $sites = (($rHits | ForEach-Object { "$($_.file):$($_.line)" }) -join ', ')
-        Add-Result ("R   the payload carries no " + $r.name) `
+        $where = if ($r.ContainsKey('scope')) {
+            ' [asked only of ' + (($r.scope | ForEach-Object { $_ -replace ('^' + [regex]::Escape($script:PayloadRel) + '/', '') }) -join ' ') + ']'
+        } else { '' }
+        Add-Result ("R   the payload carries no " + $r.name + $where) `
             ($rHits.Count -eq 0) `
             ("$($rHits.Count) site(s): $sites  --  $($r.why)")
     }
@@ -704,8 +983,8 @@ if ($script:Results.Count -eq 0) {
     exit 2
 }
 
-Write-Output ("RESULT: {0} of {1} case(s) passed in {2} ms   ({3} file(s) read, {4} ledger'd site(s), {5} historical mention(s))" -f `
-    $script:Pass, $script:Results.Count, [int]$sw.Elapsed.TotalMilliseconds, $fileCount, $ledgered.Count, $historical.Count)
+Write-Output ("RESULT: {0} of {1} case(s) passed in {2} ms   ({3} payload file(s) matched against the rules, {4} tracked file(s) read for markers, {5} ledger'd site(s), {6} historical mention(s))" -f `
+    $script:Pass, $script:Results.Count, [int]$sw.Elapsed.TotalMilliseconds, $payloadRead, $fileCount, $ledgered.Count, $historical.Count)
 
 # 2 takes precedence over 1: a run that did not read everything cannot report
 # "checked, and dirty" either. These are the structural cases, by name.
@@ -723,15 +1002,17 @@ if ($fail.Count -gt 0) {
     Write-Output 'THE SHIPPED PAYLOAD DISCLOSES:'
     foreach ($f in $fail) { Write-Output ("  - {0}: {1}" -f $f.name, $f.detail) }
     Write-Output ''
-    Write-Output 'Every tracked file here is shipped: .claude-plugin/marketplace.json declares'
-    Write-Output '"source": "./" and that form has no exclusion. Fix the file, or take the'
-    Write-Output 'payload-boundary decision - do not add a ledger entry to make this green.'
+    Write-Output 'The payload is lw-watchtower/, declared by .claude-plugin/marketplace.json as'
+    Write-Output '"source": "./lw-watchtower". A file named above is copied to every consumer.'
+    Write-Output 'Fix the FILE, or move it out of the payload subtree - do not add a ledger entry'
+    Write-Output 'to make this green.'
     Write-Output 'EXIT: 1'
     exit 1
 }
 
 Write-Output ''
-Write-Output 'Every tracked file was read and no unledger''d disclosure is in the payload.'
+Write-Output 'Every tracked file was read and no unledger''d disclosure is in the payload,'
+Write-Output 'which is the lw-watchtower/ subtree and not the whole repository.'
 Write-Output 'Read that as "these six shapes are absent", not as "the payload is safe to'
 Write-Output 'publish" - this guard knows the disclosures it was told about and no others.'
 Write-Output 'The sixth is scoped: the deleted-script rule is not yet asked of commands/ or'

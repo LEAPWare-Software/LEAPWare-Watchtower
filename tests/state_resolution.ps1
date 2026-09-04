@@ -101,7 +101,13 @@ $script:Pass    = 0
 $script:Aborted = $null
 $script:Work    = $null
 
-$script:RepoRoot = Split-Path -Parent $PSScriptRoot
+# THE NAME IS $PayloadRoot AND NOT $RepoRoot, because every path composed off
+# it below is a PAYLOAD path - lib\, .claude-plugin\, config.json, hooks\hooks.json
+# - and the payload moved under lw-watchtower/ while tests\ stayed at the
+# repository root. A variable called RepoRoot pointing at a subdirectory of the
+# repository is a name that lies to the next reader, and this suite has enough
+# roots in it already.
+$script:PayloadRoot = Join-Path (Split-Path -Parent $PSScriptRoot) 'lw-watchtower'
 
 function Say { param([string]$Text) Write-Output $Text }
 
@@ -193,15 +199,15 @@ function New-PluginTree {
     param([string]$Root, [string]$ConfigJson = '')
 
     New-Dir $Root | Out-Null
-    Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'lib') -Destination (Join-Path $Root 'lib') -Recurse -Force
-    Copy-Item -LiteralPath (Join-Path $script:RepoRoot '.claude-plugin') -Destination (Join-Path $Root '.claude-plugin') -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $script:PayloadRoot 'lib') -Destination (Join-Path $Root 'lib') -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $script:PayloadRoot '.claude-plugin') -Destination (Join-Path $Root '.claude-plugin') -Recurse -Force
     # IsNullOrEmpty and not `$null -eq`: a [string] parameter defaulted to $null
     # binds as '', so the $null test never fires and every case that meant "the
     # SHIPPED config" would silently get an EMPTY one - which Get-LwgConfig
     # correctly reads as unparseable and replaces with the built-in defaults.
     # The control case would then have failed for a reason not in the tree.
     if ([string]::IsNullOrEmpty($ConfigJson)) {
-        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'config.json') -Destination (Join-Path $Root 'config.json') -Force
+        Copy-Item -LiteralPath (Join-Path $script:PayloadRoot 'config.json') -Destination (Join-Path $Root 'config.json') -Force
     } else {
         [IO.File]::WriteAllText((Join-Path $Root 'config.json'), $ConfigJson, [Text.UTF8Encoding]::new($false))
     }
@@ -790,7 +796,7 @@ function Test-E2-TheRegistryDeclaresItsHookEvents {
     if (-not $j.ok) { Add-Case 'E2 every implemented module declares the hook events it depends on, and every one is registered' $false $j.why; return }
     if ($j.obj.error) { Add-Case 'E2 every implemented module declares the hook events it depends on, and every one is registered' $false "REGRESSION (#132): $($j.obj.error)"; return }
 
-    $hooksPath = Join-Path $script:RepoRoot 'hooks\hooks.json'
+    $hooksPath = Join-Path $script:PayloadRoot 'hooks\hooks.json'
     if (-not (Test-Path -LiteralPath $hooksPath)) { Abort-Suite "missing $hooksPath" }
     $registered = @((Get-Content -Raw -LiteralPath $hooksPath | ConvertFrom-Json).hooks.PSObject.Properties.Name)
     if ($registered.Count -eq 0) { Abort-Suite 'hooks/hooks.json registers no events - the parse is broken, not the tree.' }
@@ -1511,8 +1517,8 @@ Say '  G #144 the banner   #177 the additionalContext envelope'
 Say ''
 
 try {
-    if (-not (Test-Path -LiteralPath (Join-Path $script:RepoRoot 'lib\common.ps1'))) {
-        Abort-Suite "this file must sit in tests\ beside the repository it tests; lib\common.ps1 is not under $($script:RepoRoot)"
+    if (-not (Test-Path -LiteralPath (Join-Path $script:PayloadRoot 'lib\common.ps1'))) {
+        Abort-Suite "this file must sit in tests\ beside the repository it tests; lw-watchtower\lib\common.ps1 is not under $($script:PayloadRoot)"
     }
     $script:Work = Join-Path ([IO.Path]::GetTempPath()) ("lwg-state-" + [guid]::NewGuid().ToString('N'))
     New-Dir $script:Work | Out-Null
