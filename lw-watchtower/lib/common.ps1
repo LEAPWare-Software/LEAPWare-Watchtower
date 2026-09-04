@@ -1184,7 +1184,9 @@ function Get-LwgConfig {
       and is reported as DISCARDED by all four surfaces that read these two
       fields (bin\lwg-doctor.ps1's config-registry row and its roster,
       bin\lwg-config.ps1's source line and its write refusal, bin\lwg-toggle.ps1's
-      state block and its write refusal, bin\lwg-setup.ps1's -Doctor block). A
+      state block and its write refusal, bin\lwg-setup.ps1's MODULE SWITCHBOARD
+      block, which -Step detect prints). All four were RUN against a directory
+      at this path, not read; the commit that added this says what each printed. A
       DIRECTORY at the resolved path reached none of them: [IO.File]::Exists is
       $false for a directory, so the whole block was skipped and both fields
       stayed empty - which every one of those surfaces renders as "override:
