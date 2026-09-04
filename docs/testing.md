@@ -646,8 +646,9 @@ written**. The write is fine and the *report* after it throws — with `USERPROF
 activation block builds a settings path out of that variable — and every throw in that file lands in
 one handler that exits 3.
 
-**26 cases**, each in a real child process against a byte copy of `bin/` and `lib/` under a scratch
-plugin root built at runtime from the temp directory, with `config.json` seeded per case. The toggle
+`tests/toggle_behaviour.ps1` runs **32 cases**, each in a real child process against a byte copy of
+`bin/` and `lib/` under a scratch plugin root built at runtime from the temp directory, with
+`config.json` seeded per case. The toggle
 resolves its own config as `(Split-Path -Parent $PSScriptRoot)\config.json`, so a copied tree
 redirects the write **with no seam at all** — which is what lets the cases run unchanged against the
 pre-fix commit. `USERPROFILE` and `CLAUDE_PLUGIN_DATA` are redirected and both plugin-root variables
@@ -669,10 +670,14 @@ does not resolve.
 
 **Eight of the cases are labelled `CONTROL`** and pass before the fix as well as after it, on
 purpose — they pin the other direction, so a "fix" that simply refuses everything, or reformats the
-file, or turns every run into a reported fault, fails them. **Ten of the twenty-six** passed at the
-pre-fix commit, both measured rather than reasoned: those eight controls plus two that are *not*
-controls and pass there for their own reasons. That is stated so a reader counting greens in a red
-run does not read those two as coverage.
+file, or turns every run into a reported fault, fails them. **Ten cases passed at the pre-fix
+commit**, both measured rather than reasoned: those eight controls plus two that are *not* controls
+and pass there for their own reasons. That is stated so a reader counting greens in a red run does
+not read those two as coverage. It is deliberately **not** written as a ratio against the suite's
+total: it stood here as "ten of the twenty-six" while the suite grew past twenty-six and then past
+twenty-eight, spelled as a word and so invisible to the guard whose whole job is stale numbers
+(#296). How many cases passed at that commit does not change when a case is added; a denominator
+does.
 
 Exit codes: `0` every case passed, `1` at least one failed, `2` the suite aborted **or a case could
 not be made conclusive** — and zero cases run is an abort, never a pass.
