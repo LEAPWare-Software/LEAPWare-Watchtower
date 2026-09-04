@@ -944,6 +944,59 @@ try {
          "$($script:PayloadRel)/LICENSE is $(if ($licPayloadOk) { 'present' } else { 'MISSING - a consumer receives no licence at all, and plugin.json declares Apache-2.0, whose section 4(a) requires one to travel with the distribution' }); " +
          "the two are $(if ($licSame) { 'identical' } else { 'NOT byte-identical - one of them has been edited and the two copies now say different things about the same distribution' }).")
 
+    # S12. #277. EVERY COMMAND PAGE TAKES THE PowerShell TOOL OFF THE TABLE.
+    #
+    #     On Windows the CLI offers a `PowerShell` tool beside `Bash`, and in
+    #     five of six measured headless sessions the model reached for it first
+    #     and was refused - five refusals in seven turns on /lw-watchtower:doctor
+    #     alone, for a script that runs in 1.3 s. In the TUI each refusal is a
+    #     permission prompt put to the operator for a tool call the page never
+    #     asked for.
+    #
+    #     WHY THE DENY AND NOT AN ALLOW. Adding `PowerShell(powershell:*)` to
+    #     `allowed-tools` is a no-op and a case asserting it would guard nothing:
+    #     the PowerShell tool's validator bundle runs BEFORE any rule is
+    #     consulted and returns "ask" for any command launching a nested
+    #     powershell, and the decision merge is deny -> ask -> allow, so no allow
+    #     rule is ever reached. The only lever is `disallowed-tools`, which the
+    #     CLI unions into the deny scope for the command's turn and replaces on
+    #     the next input - so it is not a session-wide loss of the tool.
+    #
+    #     BOTH HALVES, because each alone is half the property. The deny is what
+    #     stops the noisy path; the `Bash(powershell:*)` allow is what leaves the
+    #     page a tool it can actually run its one line through. A page carrying
+    #     the deny and no allow would run nothing at all, and would pass a case
+    #     that only looked for the deny.
+    #
+    #     THE POINT OF GUARDING IT AT ALL: the frontmatter landed on all six
+    #     pages with no case (#291), so the deny could come back off one page at
+    #     a time and nothing would notice - which is the class of defect this
+    #     repository exists to catch. Red-first for this case was PLANTED rather
+    #     than historical, and that is stated on the PR: at 1baf6d4 all six pages
+    #     already carry the line.
+    $cmdDir   = Join-Path $script:RepoRoot ($script:PayloadRel + '\commands')
+    $cmdPages = @()
+    if ([IO.Directory]::Exists($cmdDir)) { $cmdPages = @([IO.Directory]::GetFiles($cmdDir, '*.md')) }
+    $noDeny  = @()
+    $noAllow = @()
+    $noFront = @()
+    foreach ($cp in $cmdPages) {
+        $cpText = ''
+        try { $cpText = [IO.File]::ReadAllText($cp) } catch { }
+        $cpFm = if ($cpText -match '(?s)^---\r?\n(.*?)\r?\n---\r?\n') { $Matches[1] } else { '' }
+        $cpName = Split-Path -Leaf $cp
+        if ([string]::IsNullOrWhiteSpace($cpFm)) { $noFront += $cpName; continue }
+        if ($cpFm -notmatch '(?m)^disallowed-tools:\s*"?PowerShell"?\s*$')  { $noDeny  += $cpName }
+        if ($cpFm -notmatch '(?m)^allowed-tools:.*Bash\(powershell:\*\)')   { $noAllow += $cpName }
+    }
+    Add-Result ("S12 every commands/*.md denies the PowerShell tool and pre-approves the Bash shape ($($cmdPages.Count) page(s))") `
+        ($cmdPages.Count -gt 0 -and $noFront.Count -eq 0 -and $noDeny.Count -eq 0 -and $noAllow.Count -eq 0) `
+        ($(if ($cmdPages.Count -eq 0) { "no *.md was found under $cmdDir at all, so this case asked nothing of anything - an empty set is not a pass" } else { '' }) +
+         $(if ($noFront.Count) { "page(s) with no parseable --- frontmatter block, so neither key could be read: $($noFront -join ', '). " } else { '' }) +
+         $(if ($noDeny.Count)  { "page(s) missing disallowed-tools: `"PowerShell`", so the model is free to reach for the PowerShell tool and be refused by its own validator: $($noDeny -join ', '). " } else { '' }) +
+         $(if ($noAllow.Count) { "page(s) whose allowed-tools does not carry Bash(powershell:*), so the one line the page tells the model to run is pre-approved for no tool at all: $($noAllow -join ', '). " } else { '' }) +
+         "checked $($cmdPages.Count) page(s) under $($script:PayloadRel)/commands/")
+
     Add-Result 'S9  no out-of-payload record names a file that is now inside the payload' `
         ($recordInPayload.Count -eq 0) `
         ("$($recordInPayload.Count) path(s) recorded above as out of the payload are now tracked under $($script:PayloadRel)/, so they ARE shipped again and the rules that used to excuse them no longer exist: " + ($recordInPayload -join ', ') + ". Fix the file or move it back out - do not edit the record.")

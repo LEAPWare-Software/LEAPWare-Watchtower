@@ -7,6 +7,8 @@ disallowed-tools: "PowerShell"
 
 Run this command and show the user its output **verbatim**:
 
+Run this through the **Bash** tool. Do not use the PowerShell tool: its validator refuses any command that launches `powershell`, so every attempt costs the operator a permission prompt and then falls back to Bash anyway.
+
 ```
 powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/bin/lwg-toggle.ps1" -Flag delegate
 ```

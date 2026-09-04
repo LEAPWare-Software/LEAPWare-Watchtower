@@ -16,6 +16,9 @@ they finish this unaided.
 
 ### 1. Look first
 
+Run this through the **Bash** tool. Do not use the PowerShell tool: its validator refuses any command that launches `powershell`, so every attempt costs the operator a permission prompt and then falls back to Bash anyway.
+That holds for every `powershell` line on this page, not only this one.
+
 ```
 powershell -NoProfile -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/bin/lwg-setup.ps1" -Step detect
 ```
