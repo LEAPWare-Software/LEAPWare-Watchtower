@@ -326,7 +326,7 @@ What it will not do, by construction — these still govern the sections it does
 
 **All four of those properties are tested again, on the `statusline` section only.**
 `tests/setup_merge.ps1` drives the real script in a real child process against throwaway settings
-files, 198 cases, and CI runs it on every push and every PR. The `permissions.deny` parity test that
+files, 202 cases, and CI runs it on every push and every PR. The `permissions.deny` parity test that
 used to cover the merge end to end was deleted on 30 July 2026 with the deny table it also guarded;
 this suite is the half that was never about deny rules, re-aimed at the sections the installer still
 writes.

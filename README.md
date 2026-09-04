@@ -87,12 +87,12 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   totals suggest.** `tests/gate_delegate.ps1` runs 99 cases against `delegate_gate`;
   `tests/supervision.ps1` runs 64 against `send_liveness_gate`, `completion_audit` and
   `orphan_watch`; `tests/stop_behaviour.ps1` runs 117 against the two turn-end hooks and the
-  advisory modules behind them; `tests/setup_merge.ps1` runs 198 against the installer's `statusline`
+  advisory modules behind them; `tests/setup_merge.ps1` runs 202 against the installer's `statusline`
   and `hooks` merge and against the reporting surfaces that have no suite of their own;
-  `tests/uninstall_footprint.ps1` runs 35 against the uninstaller's footprint, attribution and
+  `tests/uninstall_footprint.ps1` runs 37 against the uninstaller's footprint, attribution and
   state-data deletions; `tests/config_behaviour.ps1` runs 42 and `tests/toggle_behaviour.ps1` runs 28
   against the two commands that write `config.override.json`; `tests/state_resolution.ps1` runs 33
-  against the state-directory resolver; `tests/doctor_behaviour.ps1` runs 38 against the doctor's
+  against the state-directory resolver; `tests/doctor_behaviour.ps1` runs 39 against the doctor's
   driven checks; `tests/subagent_scan.ps1` runs 13 against the `SubagentStart` fast path — the only
   coverage `context_injection` has — and `tests/payload_guard.ps1` runs 22 against what the shipped
   payload discloses. They all go through a real pipe or a real child process. **Per-module coverage

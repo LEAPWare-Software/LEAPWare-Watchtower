@@ -159,7 +159,7 @@ tests/stop_behaviour.ps1     117 cases against the Stop-hook handlers:
 tests/supervision.ps1        the three supervision modules - send_liveness_gate,
                              completion_audit and orphan_watch - against seeded
                              transcripts and seeded health logs
-tests/setup_merge.ps1        198 cases driving bin/lwg-setup.ps1 against throwaway
+tests/setup_merge.ps1        202 cases driving bin/lwg-setup.ps1 against throwaway
                              settings files. The only suite that tests a WRITE.
                              The writer properties are established on the
                              statusline section and, since section 31, on the
@@ -178,7 +178,7 @@ tests/config_behaviour.ps1   bin/lwg-config.ps1's read/validate/write path,
                              invariant that the plugin root's config.json is not
                              moved by a byte
 tests/uninstall_footprint.ps1
-                             35 cases driving bin/lwg-uninstall.ps1 against
+                             37 cases driving bin/lwg-uninstall.ps1 against
                              throwaway data directories and throwaway
                              settings.json files, asserting on the FILESYSTEM as
                              well as on the report: what the footprint says it
@@ -186,7 +186,7 @@ tests/uninstall_footprint.ps1
                              to this plugin really is this plugin's, and what it
                              refuses to touch it names. The only suite that
                              tests a DELETION
-tests/doctor_behaviour.ps1   38 cases driving bin/lwg-doctor.ps1 from a scratch
+tests/doctor_behaviour.ps1   39 cases driving bin/lwg-doctor.ps1 from a scratch
                              copy of the whole plugin tree, against seeded
                              configs and seeded settings.json files. It drives
                              TWO of the doctor's ten checks - config-registry
