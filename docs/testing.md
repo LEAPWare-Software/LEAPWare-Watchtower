@@ -22,7 +22,7 @@ which is the one external binary any suite here depends on besides `powershell` 
 `tests/stop_behaviour.ps1` runs the two hooks that fire at every turn end —
 `lib/stop_advisories.ps1` and `lib/supervisor.ps1` — with 120 cases, and covers more
 **observing** modules than anything else here. `tests/uninstall_footprint.ps1` drives `bin/lwg-uninstall.ps1` against
-throwaway data directories and throwaway `settings.json` files with 38 cases, and is the only one
+throwaway data directories and throwaway `settings.json` files with 40 cases, and is the only one
 that covers a **deletion**.
 `tests/state_resolution.ps1` runs the `SessionStart` hook itself in a real child process: the
 `CLAUDE_CONFIG_DIR` precedence, the five self-check probes, every rung of the mode ladder, the banner
@@ -36,7 +36,7 @@ suites besides the merge suite that cover a **write to a file an operator owns**
 `tests/subagent_scan.ps1` pipes payloads into `lib/subagent_start.ps1` with 14 cases, and is the only
 coverage of any kind that `context_injection` has.
 `tests/payload_guard.ps1` reads every file `git ls-files` reports under `lw-watchtower/` — which is
-the whole shipped payload — with 22 cases, and is the only one that asks what a **stranger
+the whole shipped payload — with 23 cases, and is the only one that asks what a **stranger
 receives**.
 `tests/portability_scan.ps1` scans tracked files for machine-specific strings,
 `tests/workflow_guard.ps1` parses every workflow file and holds it to a set of rules, and
