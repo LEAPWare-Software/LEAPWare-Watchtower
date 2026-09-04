@@ -468,6 +468,22 @@ this for you on either route and names the file it compared.
 [`.gitattributes`](../.gitattributes) — every other `.ps1` here is `eol=crlf` — so a fresh clone
 reproduces the installed file byte for byte and that hash comparison keeps meaning something.
 
+**A `claude plugin update` is the second way this copy goes stale, and it needs no edit from you.**
+An update writes a **new version directory** under
+`~\.claude\plugins\cache\leapware-watchtower\lw-watchtower\`, and the tracked status line the plugin
+now loads is the one in that new directory — while `~\.claude\statusline.ps1`, which is what
+`settings.json` actually runs, is still the copy taken from the previous release. Nothing re-takes it
+and nothing announces it. **Re-run `/lw-watchtower:setup` after every update** and apply the
+`statusline` section: it re-derives the source from wherever the CLI has just put the plugin, so it
+is the one form of this that does not need you to know the version segment. Copying by hand works
+too, from the new version directory.
+
+That drift is a `statusline` **WARNING**, not a failure — `bin/lwg-doctor.ps1` returns `WARN` for the
+*differs* case and `FAIL` only for *absent* — so the verdict is
+`VERDICT: working, with 1 caveat(s) above.` and exit `2`, and a stale copy will sit there rendering
+an old release's segments until somebody reads the row. That is the reason to make the re-run part of updating rather than something to do when the
+status line looks wrong.
+
 See [Status line](architecture.md#status-line) for what the segments mean and why the rate-limit
 escalation lives there.
 
