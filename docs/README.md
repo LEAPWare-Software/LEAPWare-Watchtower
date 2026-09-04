@@ -20,10 +20,10 @@ Project-level files live at the repo root: [README](../README.md),
 [CONTRIBUTING](../CONTRIBUTING.md), [SECURITY](../SECURITY.md),
 [CODE_OF_CONDUCT](../CODE_OF_CONDUCT.md), [CHANGELOG](../CHANGELOG.md).
 
-**What is not here.** Five pages left this directory rather than being deleted: the v0.3.0 UAT
-record, the monitors feasibility spike, the style-compliance design note and the harness hosting
-plan are now maintainer notes under `.github/notes/`, and the session-transition specification was
-deleted and lives on issue #168. GitHub Pages publishes `docs/` whole and has no exclusion
+**What is not here.** Five pages left this directory. Four of them were moved rather than deleted:
+the v0.3.0 UAT record, the monitors feasibility spike, the style-compliance design note and the
+harness hosting plan are now maintainer notes under `.github/notes/`. The fifth, the
+session-transition specification, was deleted outright and lives on issue #168. GitHub Pages publishes `docs/` whole and has no exclusion
 mechanism, so a page in here is a page published to the open web — which is what those five were,
 without anyone having decided it. `tests/doc_claims.ps1` now holds this index to that: every page
 present under `docs/` must have a row above, because a page nobody indexed is a page nobody chose
