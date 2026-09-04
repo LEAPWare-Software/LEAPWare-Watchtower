@@ -50,8 +50,10 @@
        having the exemption widened around it - and widening the region here
        would have hidden the header from every future rule as well as this one.
     2. THE FORMER PERSONAL ADDRESS. Held here rot13-encoded and decoded at match
-       time, the same mechanism `bin\lwg-evidence.ps1` uses and for the same
-       reason: a guard that spells the string it forbids IS the disclosure. See
+       time, for the reason a guard that spells the string it forbids IS the
+       disclosure. The evidence renderer that used the same transformation was
+       deleted with the checklist manifest, so this file is the last place the
+       mechanism lives and it is described here rather than by reference. See
        THE ENCODED NEEDLE below.
     3. THE PLAN PATH. A path into the per-user plans directory that ends in a
        plan file's own NAME points at an untracked personal file on one laptop.
@@ -62,20 +64,6 @@
        release plan, rendered on a consumer's machine by a command that presents
        every row as a finding, reads as a phase of THEIR work rather than of a
        project they have never heard of.
-    6. A DELETED SCRIPT, NAMED AS LIVE BY A SHIPPED FILE. Not a privacy
-       disclosure like the five below it, and it is here rather than in a suite
-       of its own for the reason this file exists at all: it is a property of
-       what a STRANGER RECEIVES, and every other guard in tests\ answers a
-       different question. A consumer's model reads a shipped page or a
-       maintainer reads a shipped comment, follows it to a script that is not
-       in the payload, and the failure is silent in both directions - the
-       invocation fails, or the reader reasons from a mechanism that does not
-       exist. Wave 1 deleted the state resolver, its library half, its command
-       and the marker the clearing mechanism turned on, and eleven tracked
-       sites went on naming them. See DETECTION RULES and, immediately after
-       them, HISTORICAL MENTIONS - naming a deleted thing AND SAYING IT IS
-       DELETED is the opposite of this defect, and the two are told apart one
-       line at a time rather than one file at a time.
     5. VISIBILITY-CONDITIONED CONTAINMENT. A sentence asserting that the exposure
        reaches no further than whoever can already read the repository, resting
        on the repository not yet being published, is true today and becomes a
@@ -86,6 +74,20 @@
        depends on an event nobody will re-read the file after is a claim that
        should not be written down. The rules below carry the literal shapes;
        this paragraph paraphrases them, for the reason given in item 1.
+    6. A DELETED SCRIPT, NAMED AS LIVE BY A SHIPPED FILE. Not a privacy
+       disclosure like the five above, and it is here rather than in a suite of
+       its own for the reason this file exists at all: it is a property of what
+       a STRANGER RECEIVES, and every other guard in tests\ answers a different
+       question. A consumer's model reads a shipped page or a maintainer reads
+       a shipped comment, follows it to a script that is not in the payload,
+       and the failure is silent in both directions - the invocation fails, or
+       the reader reasons from a mechanism that does not exist. Wave 1 deleted
+       the state resolver, its library half, its command and the marker the
+       clearing mechanism turned on, and eleven tracked sites went on naming
+       them. See DETECTION RULES and, immediately after them, HISTORICAL
+       MENTIONS - naming a deleted thing AND SAYING IT IS DELETED is the
+       opposite of this defect, and the two are told apart one line at a time
+       rather than one file at a time.
 
   HOW IT WORKS
 
@@ -152,9 +154,12 @@ function Add-Result {
 # THE ENCODED NEEDLE
 #
 # The owner's former personal address local-part, rot13-encoded, decoded in
-# memory at match time and never written to output. Byte-identical in form to
-# checklist.json's `stdout_not_match`, and decoded by the same transformation
-# bin\lwg-evidence.ps1's Expand-LwgRptLiteral applies.
+# memory at match time and never written to output. The form was borrowed from
+# the checklist manifest's `stdout_not_match`, and the transformation from the
+# evidence renderer's Expand-LwgRptLiteral - BOTH OF WHICH ARE DELETED. Neither
+# is a dependency and neither ever was; the helper below is this file's own, and
+# the borrowing is recorded because a reader who finds the shape familiar should
+# know where it came from rather than go looking for a caller that is not there.
 #
 # WHY A GUARD MAY NOT SPELL ITS OWN TARGET. The requirement this repository
 # holds is that NO TRACKED FILE spells the string in reading order - because a
@@ -378,6 +383,18 @@ $HistoricalMentions = @(
        rules = @('deleted-script')
        test  = 'how the healer wrote a'
        why   = 'past tense, recounting the founding defect: a healer wrote a clearing record into the wrong file while the log it was meant to clear stayed empty. The sentence is the reason the surrounding code exists and cannot be told without naming what did it.' }
+    @{ files = 'lib/common.ps1'
+       rules = @('deleted-script')
+       test  = 'was the third caller when this was written'
+       why   = 'THIS ENTRY REPLACED A BARRED-LEDGER ENTRY, and the difference is the whole point of having two tables. The line used to assert the deleted library half as a live third caller in the present tense, with a "verified" that made it read as checked-and-current; it was ledger''d to the lane that owned the file, printed on every run as real and unfixed. That lane rewrote it, and the sentence is now headed HISTORICAL in the source and says outright which wave deleted it and why the evidence still needs the name. A ledger entry would now be printing a false claim about an honest line, so it is gone and this is here instead.' }
+    @{ files = 'lib/common.ps1'
+       rules = @('deleted-script')
+       test  = '^\s*#\s*was DELETED in wave 1 \(#192\) along with'
+       why   = 'the deletion itself, stated in the source. This is the sentence the rule exists to encourage, so it would be perverse for the rule to refuse it.' }
+    @{ files = 'lib/common.ps1'
+       rules = @('deleted-script')
+       test  = ', which laid out'
+       why   = 'the redaction helper''s reason, correctly detached from the reader it was first written against. The line names that reader, says the wave deleted it, and says the reason did not go with it because it was never a property of that one reader - which is the strongest form of this: not just "it is gone" but "and here is why the code stays". Previously ledger''d as live prose asserting a deleted console report as the current justification.' }
     @{ files = 'statusline/statusline.ps1'
        rules = @('deleted-script')
        test  = '^\s*#\s*writers of that record were'
@@ -423,10 +440,6 @@ $BarredLedger = @(
        rules = @('visibility-conditioned')
        issue = '#124'
        why   = 'the branch-protection 403 the page describes stops being returned at the flip. Outside this pass''s ownership. Phrased without the trigger words on purpose - this table is prose in a tracked file, so a ledger entry quoting the sentence it excuses would itself be a hit.' }
-    @{ files = 'lib/common.ps1'
-       rules = @('deleted-script')
-       issue = '#192 (lane C4)'
-       why   = 'TWO SITES, BOTH LIVE, BOTH IN SHIPPED CODE AND NEITHER HONEST. One says the deleted library is run by an agent, in the present tense and with a "verified" that makes it read as checked-and-current; the other gives the deleted resolver''s console report as the STATED REASON the redaction helper escapes control characters, so live behaviour is justified by a file that is not in the payload. They are real, they are still shipping, and this entry is not an acceptance of them - lib/common.ps1 belongs to another lane in this same wave and its pull request was open when this guard landed. TEMPORARY: DELETE THIS ENTRY when that lane merges, and this rule goes red until the two lines are rewritten. A third site in the same file - the founding-defect sentence - is honestly historical and is covered by the HISTORICAL MENTIONS table above, so removing this entry does not take that one with it.' }
     @{ files = '.gitignore'
        rules = @('visibility-conditioned')
        issue = '#124'

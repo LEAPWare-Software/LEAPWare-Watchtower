@@ -413,14 +413,6 @@ $AllowList = @(
         why   = 'the ONE place each resolver is allowed to compose the historical default, reached only after CLAUDE_CONFIG_DIR has been consulted and found empty. IT EXCUSES NOTHING TODAY AND THE COUNT TO THE LEFT SAYS SO: both resolvers read the variable on one line and Combine on the next, so a line-based rule does not see a composition at all. This entry exists for the reflow that would put them on one line - a resolver reported as the defect it prevents is how a correct fix gets reverted - and it is scoped to those two files and to the two Combine statements rather than to a file or a `*`, so it cannot excuse a second composition added elsewhere in either file.'
     }
     @{
-        id    = 'doctor-settings-path-pending'
-        kind  = 'line-text'
-        rules = @('claude-home-composition')
-        files = @('bin/lwg-doctor.ps1')
-        test  = '^\s*\$sp = Join-Path \$env:USERPROFILE'
-        why   = 'TEMPORARY, AND IT IS EXCUSING A REAL DEFECT RATHER THAN A LEGITIMATE LINE. bin/lwg-doctor.ps1 check 7 composes the settings.json it health-checks from the profile, so on a machine that sets CLAUDE_CONFIG_DIR the doctor attests a file nobody reads - #146''s original consequence surviving in the component whose job is to catch it. It is the last live composition in the tree and it is owned by the bin/lwg-doctor.ps1 lane (PR #224), not by the lane that added this rule; a fixer may not edit a file it does not own, and a rule held back until the last site is fixed is a rule that does not exist. DELETE THIS ENTRY when #224 lands. Until then the count to the left reads 1, which is the disclosure - and when it reads 0 the site is fixed and this entry is dead.'
-    }
-    @{
         id    = 'changelog-removed-literal'
         kind  = 'code-span'
         rules = @('profile-path', 'interpreter-path', 'private-hierarchy', 'plugin-install-path')
