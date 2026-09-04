@@ -245,7 +245,25 @@ Checks on the plugin's wiring, in under a second — it prints how many it ran, 
 transcribed here to go stale. It is built to be able to fail, and a
 non-zero exit is a real finding.
 
-That is the whole install. Configuration is optional and lives in one file,
+**Expect `VERDICT: NOT healthy` and exit `1` here, on the `statusline` row — that is the state a
+first install is genuinely in, not a fault in what you just did.** The status line is a
+`settings.json` key that no plugin manifest can carry, so it is installed by a step of its own, and
+the doctor is not healthy until you have run it. That step is:
+
+```
+/lw-watchtower:setup
+```
+
+It asks its questions one at a time and writes nothing you have not agreed to, each section behind
+its own diff. Apply the `statusline` section, then run `/lw-watchtower:doctor` again. Run the doctor
+*before* starting a session and `state-dir` and `sessionstart` fail beside it; both clear as soon as
+a session has written a record, which is what *"start a new session"* above is for. See
+[Install § installing the status line](docs/install.md#installing-the-status-line-part-of-the-install-and-a-separate-step)
+for what that step writes and how to undo it, and
+[Install § confirming it loaded](docs/install.md#confirming-it-loaded) for what each doctor exit code
+means.
+
+*Now* that is the whole install. Configuration is optional and lives in one file,
 [`lw-watchtower/config.json`](lw-watchtower/config.json).
 
 **Developing on it instead?** Use a directory junction so the clone is live — see
