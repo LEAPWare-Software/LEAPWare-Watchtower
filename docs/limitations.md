@@ -191,6 +191,62 @@ that can refuse a tool call. Its limits:
 
 Full detail: [`delegate_gate`](modules.md#delegate_gate).
 
+`send_liveness_gate` ([`lib/gate_send.ps1`](../lw-watchtower/lib/gate_send.ps1)) refuses a
+`SendMessage` whose recipient it can prove is dead. It ships off (`supervision.send_liveness`). Its
+limits:
+
+- **It narrows a window; it does not close one.** A recipient that died more recently than
+  `stale_minutes` — 15 by default — passes as presumed running. The threshold sits deliberately
+  above the ten-minute `Bash` ceiling, because an agent inside one long tool call writes nothing for
+  the length of that call, so anything lower denies sends to agents that are merely busy. The cost of
+  that choice is a quarter-hour in which a dead recipient is indistinguishable from a working one.
+- **It denies an agent that is alive but silent.** Back-to-back long tool calls look exactly like
+  death to this gate. The deny text names what was measured and names the knob, which is the only
+  mitigation there is.
+- **It denies a completed agent whose stop record has scrolled out of the log tail it reads.** That
+  takes over a thousand later records in one session, and the deny text names the record it looked
+  for — but the verdict is *dead*, not *unknown*.
+- **It is inert without `failure_capture`.** A deny requires that `health.jsonl` hold at least one
+  record of any kind for the session, because *"no stop record"* means nothing if nothing was writing
+  them. A session `failure_capture` never saw **abstains**, allowed and logged. That is the right
+  call and it means arming this gate alone buys nothing.
+- **Do not arm it in an agent-team workflow.** A `name@team` recipient abstains — team layouts are
+  not observable from a hook — and a bare name that resolves to no agent in this session is
+  **denied**. Between them that is most of what a team orchestrator sends.
+- **It establishes nothing about delivery or completion.** An allowed send can still sit queued
+  forever if the recipient dies after it. A dead agent whose name a later live agent took over
+  resolves to the live one, exactly as the platform itself would route it.
+
+`completion_audit` ([`lib/gate_stop.ps1`](../lw-watchtower/lib/gate_stop.ps1)) refuses a turn end that
+claims completed work on the strength of a queued message. It ships off
+(`supervision.completion_audit`). Its limits:
+
+- **Its claim detection is a regex over assistant prose, and that is the weakest rule this plugin
+  ships.** It is stated first here because it is the thing an operator has to accept before arming
+  it. Three structural conditions guard the trigger — a tool call happened, it was `SendMessage`, it
+  was last — but *"did this sentence assert completion"* is a verb list against English.
+- **It will stay silent when it should not.** A claim phrased outside the verb list, a claim in a
+  turn whose last tool call is anything else — a cosmetic `Read` after the send is enough — a claim
+  made in an earlier turn and merely not repeated, or a message that asserts completion and also
+  contains a hedge word: all pass. The table of both directions is on
+  [`completion_audit`](modules.md#completion_audit) and it is a table rather than a caveat because
+  neither direction is rare.
+- **It can refuse an honest sentence.** Completion verbs describing old, already-verified work in a
+  turn that happens to end with a `SendMessage`, or the model quoting a file containing one of those
+  verbs, are refused. The cost is one continuation in which it states its evidence or rephrases, and
+  the block text says so — but it is a refusal of something true.
+- **It can force one round of verification; it cannot force honesty.** A model that restates the
+  claim more carefully passes.
+- **It is pinned to a CLI build, not to a contract.** `agent_transcript_path`, exit 2 blocking on
+  `SubagentStop`, and `stop_hook_active` on that payload are observed facts about Claude Code
+  2.1.227, not documented behaviour. Re-check them after an upgrade; nothing here will notice on its
+  own.
+- **An error allows.** Exit 0, logged `GateError`, because a broken audit must never pin a session
+  shut — so a fault in this gate reads as a clean turn end.
+
+Full detail: [`send_liveness_gate`](modules.md#send_liveness_gate) and
+[`completion_audit`](modules.md#completion_audit).
+
 ## The advisory modules advise; they do not enforce
 
 Eight of the eleven modules are kind `observe`. **Not one of them can stop, delay or alter anything** —
