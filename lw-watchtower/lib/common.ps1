@@ -154,7 +154,7 @@ foreach ($k in $script:LwgModuleRegistry.Keys) {
     if ($script:LwgModuleRegistry[$k].kind -eq 'gate') { $script:LwgGates += $k }
 }
 
-$script:LwgVersion = '0.4.0'
+$script:LwgVersion = '0.5.0'
 
 # The Claude Code build the eight hook events in hooks/hooks.json were read out
 # of. docs/install.md states it in a table cell, in prose, and NOTHING acted on

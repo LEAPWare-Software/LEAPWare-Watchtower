@@ -1,6 +1,6 @@
 {
   "name": "lw-watchtower",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "WINDOWS ONLY. Requires Windows PowerShell 5.1: all thirteen hook registrations invoke a binary literally named powershell, which is not pwsh and does not exist on macOS or Linux. A Claude Code governance layer that refuses to overstate itself. Eleven modules in total: eight modules OBSERVE and block nothing - failure capture and healing, end-of-turn advisories for context pressure, unverified work, docs coupling and git hygiene, self-health, log rotation, a session banner and status line, and per-dispatch context injection for subagents - and THREE are gates that can refuse or hold an action: delegate_gate, a PreToolUse hook that blocks Edit, Write, NotebookEdit, Bash and PowerShell on the main thread so all work goes to subagents; send_liveness_gate, which refuses a message to a subagent it can prove is dead mid-flight; and completion_audit, which refuses to let a turn end that claims completed work whose last action was a queued send. ALL THREE SHIP SWITCHED OFF, and so does orphan_watch, so as installed nothing here blocks, denies or delays a tool call. The destructive-command and secret-scanning gates were removed on 30 July 2026 at the owner's instruction and are not coming back: nothing here inspects a shell command, a path or a credential, and setup installs no permissions.deny rules.",
   "author": {
     "name": "LEAPWare-HQ",

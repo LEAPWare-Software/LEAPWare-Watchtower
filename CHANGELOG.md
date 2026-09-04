@@ -17,6 +17,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > the manifest. **No tag existed before `v0.3.0`** — `0.1.0` and `0.2.0` were declared and worked
 > under, never published, which is why neither carries a link at the foot of this file.
 
+## [0.5.0] — unreleased
+
+**The manifests declare `0.5.0` and no tag carries it.** Opened the moment `v0.4.0` was cut, because
+`main` must never declare a version a tag has already published (the rule `[0.4.0]` added). Entries
+land here as they merge.
+
 ## [0.4.0] — 2026-09-04
 
 **Until the day this tag was cut, the manifests declared `0.4.0` and no tag carried it.** That gap
@@ -2499,6 +2505,7 @@ Loader only. No governance module had behaviour yet.
   the banner and the model-visible context block. Always exits 0.
 - Apache-2.0 `LICENSE`, `.gitignore`.
 
+[0.5.0]: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/tree/main
 [0.4.0]: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/releases/tag/v0.4.0
 
 <!-- The 0.4.0 link points at the release the `v0.4.0` tag published on 4 September 2026, which is

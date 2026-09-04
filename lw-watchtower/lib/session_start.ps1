@@ -18,7 +18,7 @@ $ErrorActionPreference = 'Stop'
 # Banner uses a middot; without this the console encoding can mangle it.
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
 
-$version   = '0.4.0'
+$version   = '0.5.0'
 $banner    = "LW-WATCHTOWER v$version - startup failed, see log"
 $context   = $null
 $payload   = [pscustomobject]@{}
