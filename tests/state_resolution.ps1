@@ -77,8 +77,15 @@
          blank one, or any of the three self-reported failure strings the file
          can emit would have failed no build. Section G, with the envelope.
 
-  AND THE TWO ADDED ON 4 SEPTEMBER 2026, both found by driving the shipped
+  AND THE THREE ADDED ON 4 SEPTEMBER 2026, all found by driving the shipped
   default install rather than by reading it:
+
+    #268 Get-LwgConfig tested `$null -ne $cfg.modules` to decide whether
+         config.json was a config at all, and $false is not $null - so
+         {"modules":false} was accepted as a good one, the operator's override
+         was merged over it and the blocking gate came up ARMED off seventeen
+         bytes. Section I asserts on the banner's gate count, because the
+         consequence that matters is a lockout.
 
     #266 the model-visible context printed its remainder count TWICE - "The
          other 4: 4 (...)" - on the shipped configuration, because the label
@@ -493,12 +500,22 @@ function Invoke-SessionStartCase {
       carrying neither key is a difference in what is being tested, so the case
       passes the object it means.
     #>
-    param([string]$Name, [string]$ConfigJson = '', [string]$PayloadJson = '', [switch]$NoConsoleWindow)
+    param([string]$Name, [string]$ConfigJson = '', [string]$PayloadJson = '', [string]$OverrideJson = '',
+          [switch]$NoConsoleWindow)
 
     $root = New-PluginTree (Join-Path $script:Work $Name) -ConfigJson $ConfigJson
     $prof = New-Dir (Join-Path $script:Work "$Name-profile")
     $data = New-Dir (Join-Path $script:Work "$Name-data")
     $hook = Join-Path $root 'lib\session_start.ps1'
+
+    # -OverrideJson seeds config.override.json in the state directory, which is
+    # where the configuring commands write and what Get-LwgConfig merges over
+    # the shipped defaults. Section I needs it: the question there is whether a
+    # config.json that is not a config can have an OPERATOR OVERRIDE merged onto
+    # it, and that is not askable without one on disk.
+    if (-not [string]::IsNullOrEmpty($OverrideJson)) {
+        [IO.File]::WriteAllText([IO.Path]::Combine($data, 'config.override.json'), $OverrideJson, [Text.UTF8Encoding]::new($false))
+    }
 
     $stdin = $(if ([string]::IsNullOrEmpty($PayloadJson)) { New-Payload $root } else { $PayloadJson })
     $r = Invoke-Child -ScriptPath $hook -Stdin $stdin -WorkDir $root -NoConsoleWindow:$NoConsoleWindow `
@@ -1815,6 +1832,82 @@ function Test-H1-ANonAsciiCwdSurvivesTheHooksStdinByteForByte {
 }
 
 # =========================================================================
+# SECTION I - #268, a config.json that parses and is not a config must not be
+# able to arm a gate through the operator's override
+#
+# Get-LwgConfig decided whether config.json was good enough to merge an override
+# onto with `$null -ne $cfg.modules`, and in PowerShell $false, 0, '', @() and
+# 'yes' are every one of them non-$null. So {"modules":false} - seventeen bytes,
+# no thresholds, no `interaction` block, none of the shipped defaults - was
+# accepted as a GOOD config, the operator's override was merged over it, and
+# delegate_gate came up ARMED. The self-check in the same process reported the
+# config degraded and the banner reported the gate live anyway.
+#
+# WHY THE ASSERTION IS ON THE BANNER'S GATE COUNT. The consequence that matters
+# is a LOCKOUT: with delegate_gate armed the main thread cannot call Bash, so it
+# cannot run the command that would switch the gate off, and the operator's way
+# out is hand-editing JSON. docs/configuration.md's "a corrupt config leaves the
+# gate off" and docs/modules.md's "it keeps a bad config a nuisance rather than
+# a lockout" are both statements about this number. This suite already drives
+# the hook that prints it (F5 to F9), so the polarity is observable here without
+# a second harness.
+#
+# I2 IS NOT DECORATION. Without it, a Get-LwgConfig that had simply stopped
+# merging overrides at all would pass I1 - green because nothing works, which is
+# the shape of pass this file's header calls execution without coverage.
+# =========================================================================
+
+function Test-I1-AMangledConfigCannotArmAGateThroughTheOverride {
+    <#
+      RED-FIRST: this case FAILS at 6aebcd6, where the banner over the same two
+      files reads `1 gate` and `partial`, and gate_delegate exits 2 on the next
+      main-thread call. Measured there on {"modules":false}, {"modules":0},
+      {"modules":"yes"}, {"modules":[]} and {"modules":{}} alike.
+    #>
+    $c = Invoke-SessionStartCase -Name 'i1' -ConfigJson '{"modules":false}' `
+                                 -OverrideJson '{"interaction":{"delegate":true}}'
+    $banner = [string]$c.envelope.systemMessage
+    $problems = @()
+    if ([string]::IsNullOrWhiteSpace($banner)) {
+        Add-Case 'I1 a config.json that is not a config cannot arm a gate through the override (#268)' $false `
+            "the hook printed no banner. exit $($c.code), stdout: [$($c.raw)], stderr: $($c.err)"
+        return
+    }
+    if ($banner -notmatch '0 gates') {
+        $problems += ("REGRESSION (#268): the banner reports a live gate over a config.json of seventeen bytes. " +
+                      "`$false is not `$null, so the null guard read it as a whole config and merged the operator's " +
+                      "override over it. With delegate_gate armed the main thread cannot call Bash, so it cannot run " +
+                      "the command that would switch the gate off - the lockout docs/modules.md says a bad config " +
+                      "cannot cause.")
+    }
+    if ($null -ne $c.record -and $c.record.selfcheck.config_from_file -ne $false) {
+        $problems += "config_from_file is [$($c.record.selfcheck.config_from_file)] for a document that is not a config, so the session would not report the damage either"
+    }
+    if ($c.code -ne 0) { $problems += "the hook exited $($c.code); it must always exit 0. stderr: $($c.err)" }
+    if ($problems.Count -gt 0) { $problems += "banner: [$banner]" }
+    Add-Case 'I1 a config.json that is not a config cannot arm a gate through the override (#268)' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-I2-TheSameOverrideOverTheShippedConfigDoesArmTheGate {
+    <#
+      The control for I1, and the only thing that stops it passing on a plugin
+      that has stopped reading overrides. Same override, same hook, the SHIPPED
+      config.json underneath it: one gate, mode partial.
+    #>
+    $c = Invoke-SessionStartCase -Name 'i2' -OverrideJson '{"interaction":{"delegate":true}}'
+    $banner = [string]$c.envelope.systemMessage
+    $problems = @()
+    if ($banner -notmatch '1 gate\b') {
+        $problems += ("the override does not arm the gate over the SHIPPED config.json either, so I1 beside this " +
+                      "case establishes nothing: a Get-LwgConfig that had stopped merging overrides at all would " +
+                      "pass it.")
+    }
+    if (-not (Test-BannerMode $banner 'partial')) { $problems += "the banner does not report mode 'partial' with one gate live" }
+    if ($problems.Count -gt 0) { $problems += "banner: [$banner]" }
+    Add-Case 'I2 CONTROL: the same override over the SHIPPED config.json does arm the gate (#268)' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+# =========================================================================
 
 Say ''
 Say 'LW-WATCHTOWER state-resolution and platform suite'
@@ -1823,6 +1916,7 @@ Say '  D #8 marketplace layout    E #132 platform and hook events, #249 the regi
 Say '  F #177 the four unasserted probes and the mode ladder'
 Say '  G #144 the banner   #177 the additionalContext envelope   #266 its remainder count'
 Say '  H #269 the payload is UTF-8 and [Console]::In decoded it at the console''s code page'
+Say '  I #268 a config.json that parses and is not a config cannot arm a gate'
 Say ''
 
 try {
@@ -1837,7 +1931,7 @@ try {
     # written and never called is a suite that reports a clean pass over
     # coverage it does not have - the founding defect this repository exists to
     # catch, in its own test harness. Sorting on the name gives A1..A5, B1..B4,
-    # C1, D1..D3, E1..E4, F1..F9, G1..G8, H1, so section order is a property of
+    # C1, D1..D3, E1..E4, F1..F9, G1..G8, H1, I1..I2, so section order is a property of
     # the naming. IT IS A STRING SORT: F10 would come before F2, so a section stops
     # at nine cases and the next one takes a new letter. That costs nothing
     # except readability of the run, which is the only thing the order decides.

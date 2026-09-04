@@ -456,7 +456,12 @@ function New-Sandbox {
         '[remote "origin"]',
         '    url = https://github.com/owner/name.git',
         '    fetch = +refs/heads/*:refs/remotes/origin/*'), [Text.ASCIIEncoding]::new())
-    foreach ($sub in @('bin', 'lib')) {
+    # commands\ IS COPIED AND IT USED TO BE bin AND lib ALONE (#274). The command
+    # now derives the route to a switch it cannot write by asking whether
+    # commands\<key>.md exists under the plugin root, so a sandbox without that
+    # directory would answer "no command writes it" for delegate too - a fixture
+    # artefact that would make F8 assert against a tree the operator never has.
+    foreach ($sub in @('bin', 'lib', 'commands')) {
         $src = Join-Path $Root $sub
         if (Test-Path -LiteralPath $src) {
             Copy-Item -LiteralPath $src -Destination (Join-Path $sand.plugin $sub) -Recurse -Force
@@ -1102,6 +1107,69 @@ try {
         ($f4.code -eq 1 -and (-not (Test-Path -LiteralPath $sand.cfg)) -and ($f4.out -like '*cannot read*')) `
         ("exit was {0} and config.json {1}. A missing file is not an empty one: this command edits text it read, and it must not conjure a config it never saw" -f `
             $f4.code, $(if (Test-Path -LiteralPath $sand.cfg) { 'WAS CREATED' } else { 'was not created' }))
+
+    # -----------------------------------------------------------------------
+    # F5 to F8 - #268. A config.json that PARSES and is not a config.
+    #
+    # Every case above this one breaks config.json in a way ConvertFrom-Json
+    # rejects, and Get-LwgConfig's guard was a NULL TEST - `$null -ne
+    # $cfg.modules` - so everything that parsed at all sailed through it. In
+    # PowerShell $false, 0, '', @() and 'yes' are all non-$null, so
+    # {"modules":false} was read as a GOOD config: the operator's override was
+    # merged over seventeen bytes carrying no thresholds, no `interaction`
+    # block and none of the shipped defaults, and delegate_gate came up ARMED
+    # off a file the same process's self-check reported as degraded. That is a
+    # lockout - with the gate armed the main thread cannot call Bash, so it
+    # cannot run the command that would switch the gate off - and two pages say
+    # it cannot happen.
+    #
+    # This command is the right place to pin it because its refusal is the
+    # OBSERVABLE consequence: it refuses to write whenever _source is not
+    # 'file', so "is this document a config" and "will this command touch it"
+    # are the same question, asked through a real child process.
+    #
+    # RED-FIRST: F5 and F6 FAIL at 6aebcd6, where both documents are accepted
+    # and the command writes an override over them. F7 is the control that
+    # stops the fix being "refuse anything small", and F8 is the shipped file.
+    # -----------------------------------------------------------------------
+    Write-ConfigFile -Path $sand.ov -Text $goodOv
+    Write-ConfigFile -Path $sand.cfg -Text '{"modules":false}'
+    $f5 = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -Off -Apply' -Tag 'f5'
+
+    Add-Result 'F5 {"modules":false} is not a config: refused, and no override is written (#268)' `
+        ($f5.code -eq 1 -and (-not $f5.changed) -and ($f5.out -like '*BUILT-IN DEFAULTS*')) `
+        ("exit was {0} and the override {1}. `$false is not `$null, so the old guard read seventeen bytes as a whole config and merged the operator's override over it - which is how a destroyed config.json armed the only blocking gate this plugin has. stdout: {2}" -f `
+            $f5.code, $(if ($f5.changed) { 'WAS WRITTEN' } else { 'was untouched' }), (Get-FirstLines $f5.out 6))
+
+    Write-ConfigFile -Path $sand.cfg -Text '{"modules":{}}'
+    $f6 = Invoke-Config -Sand $sand -ScriptArgs '-Module git_hygiene -Off -Apply' -Tag 'f6'
+
+    Add-Result 'F6 an EMPTY modules object is not a config either: refused, nothing written (#268)' `
+        ($f6.code -eq 1 -and (-not $f6.changed) -and ($f6.out -like '*BUILT-IN DEFAULTS*')) `
+        ("exit was {0} and the override {1}. {{}} declares nothing, so every module resolves through the absent-key default and the file is a destroyed one wearing the right brackets. An object test alone passes it, which is why the rule is 'an object with at least one member'. stdout: {2}" -f `
+            $f6.code, $(if ($f6.changed) { 'WAS WRITTEN' } else { 'was untouched' }), (Get-FirstLines $f6.out 6))
+
+    Write-ConfigFile -Path $sand.cfg -Text '{"modules":{"git_hygiene":true}}'
+    $f7 = Invoke-Config -Sand $sand -ScriptArgs '' -Tag 'f7'
+
+    Add-Result 'F7 CONTROL: a hand-written minimal config IS a config, and is read as config.json (#268)' `
+        ($f7.code -eq 0 -and (-not $f7.changed) -and ($f7.out -like '*source: config.json*')) `
+        ("exit was {0}. One real declaration is a small config, not a destroyed one; a check that refused this would refuse a legitimate hand-edited file and send the operator to the doctor over nothing. stdout: {1}" -f `
+            $f7.code, (Get-FirstLines $f7.out 4))
+
+    Write-ConfigFile -Path $sand.cfg -Text ([IO.File]::ReadAllText((Join-Path $Root 'config.json')))
+    $f8 = Invoke-Config -Sand $sand -ScriptArgs '' -Tag 'f8'
+
+    # The whole point of F8 is that it reads the SHIPPED file rather than a
+    # fixture: a shape rule that rejected the file this plugin installs would be
+    # caught by nothing else here, because every other case builds its own.
+    $f8slash = @([regex]::Matches($f8.out, '/lw-watchtower:([a-z_]+)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+    $f8missing = @($f8slash | Where-Object { -not (Test-Path -LiteralPath (Join-Path $sand.plugin ('commands\' + $_ + '.md')) -PathType Leaf) })
+
+    Add-Result 'F8 every slash command this command names in its own output EXISTS (#274)' `
+        ($f8.code -eq 0 -and $f8slash.Count -gt 0 -and $f8missing.Count -eq 0) `
+        ("exit was {0}; the output named {1} slash command(s) [{2}] and {3} of them have no commands\<name>.md: [{4}]. Three of the four NOT SWITCHABLE HERE lines used to read 'use /lw-watchtower:send_liveness instead' and its two siblings, built at run time from the registry's switch key - and the plugin ships six commands, none of them those. bin\lwg-doctor.ps1's commands check scans FILES for these references, so a reference assembled at run time is invisible to it and this is the only place that can see it." -f `
+            $f8.code, $f8slash.Count, ($f8slash -join ', '), $f8missing.Count, $(if ($f8missing.Count) { $f8missing -join ', ' } else { 'none' }))
 
     # =======================================================================
     # SECTION G - the invariants, over every run this suite made
