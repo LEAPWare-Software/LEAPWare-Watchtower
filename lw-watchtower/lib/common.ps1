@@ -1118,6 +1118,13 @@ function Get-LwgRepoInfo {
 
       Every field is $null / 0 when $Path is not inside a repo. Never throws.
 
+      THE WALK FOLLOWS A REPARSE POINT THROUGH TO ITS TARGET (#228). A junction
+      is not a directory its parent contains: `Split-Path -Parent` is a STRING
+      operation and hands back the directory holding the LINK, which is
+      somewhere else on the disk entirely. `root` and `gitdir` are therefore
+      always physical paths, never link paths - see the block comment on the hop
+      below for the two ways the string walk answered wrongly without it.
+
       A hashtable, deliberately: PowerShell enumerates a returned collection but
       NOT a returned hashtable, so this survives the function boundary intact.
       The same unrolling trap has shipped three times in this repo already -
@@ -1155,6 +1162,82 @@ function Get-LwgRepoInfo {
                 if ($g) { $info.gitdir = $g; $info.root = $dir }
                 break
             }
+
+            # --- through a junction, before going to the parent (#228) --------
+            # THE DEV-ROUTE INSTALL IS A JUNCTION AND THE STRING WALK CANNOT SEE
+            # PAST ONE. Claude Code loads this plugin from
+            # ~\.claude\skills\lw-watchtower, which on the dev route is a
+            # junction into a clone. It used to point at the repository root, so
+            # the .git probe above succeeded at depth 0 and nobody noticed; since
+            # the payload moved under lw-watchtower\ it points at a SUBDIRECTORY
+            # of the clone, which has no .git of its own. `Split-Path -Parent` is
+            # a string operation on the LINK path, so from there the walk climbed
+            # ~\.claude\skills -> ~\.claude -> ~ -> C:\Users -> C:\ and produced
+            # one of two wrong answers:
+            #
+            #   * nothing, and bin\lwg-update.ps1 refused with "not inside a git
+            #     repository, so there is nothing to pull" - /lw-watchtower:update
+            #     dead on every dev-route machine; or
+            #   * SOMEBODY ELSE'S REPOSITORY, when any directory on that climb
+            #     carries a .git. A dotfiles repo under ~ is the common case, and
+            #     that answer is worse than none: the update route would report
+            #     and pull against it.
+            #
+            # So when this directory is a reparse point, the walk continues from
+            # what it POINTS AT rather than from what contains it, which is where
+            # the repository actually is. The hop happens after the .git probe,
+            # never before it, so a junction that is itself a work-tree root is
+            # still answered at depth 0.
+            #
+            # NO SUBPROCESS, DELIBERATELY, and that is why this is a reparse-point
+            # hop rather than the `git rev-parse --show-toplevel` #228 first
+            # proposed. See the note above this function: lib\gate_delegate.ps1
+            # dot-sources this file on the PreToolUse path, and "the gate cannot
+            # shell out" is a property of there being no process spawner in this
+            # file at all. Asking git here would also stop resolving the
+            # hand-built .git\config fixtures tests\gate_delegate.ps1 and
+            # tests\config_behaviour.ps1 are built on - measured: git exits 128 on
+            # a .git holding a config and no HEAD, where this walk resolves it.
+            #
+            # Windows PowerShell 5.1 reports LinkType and Target on a junction
+            # with no P/Invoke (measured, 5.1.26100). Target comes back as a
+            # collection; for a mklink /J junction 5.1 hands it back already
+            # stripped of the NT \??\ prefix, and the strip below costs one
+            # comparison and covers a reparse point some other tool wrote.
+            #
+            # ROOTED PATHS ONLY, and that guard is not decoration.
+            # [IO.File]::GetAttributes resolves a RELATIVE path against the .NET
+            # current directory, which in PowerShell is the process start
+            # directory and not Get-Location - so on a relative $Path it could
+            # answer about a directory this walk has never looked at, and hop
+            # somewhere the caller never named. Every caller passes an absolute
+            # path already (a plugin root, a hook payload's `cwd`,
+            # (Get-Location).Path), so the guard costs nothing real and removes
+            # the whole mismatch class rather than reasoning about it.
+            $hop = $null
+            try {
+                if ([IO.Path]::IsPathRooted($dir) -and
+                    ([IO.File]::GetAttributes($dir) -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    $h = [string](@((Get-Item -LiteralPath $dir -Force -ErrorAction Stop).Target)[0])
+                    if (-not [string]::IsNullOrWhiteSpace($h)) {
+                        $h = $h.Trim()
+                        if ($h.StartsWith('\??\')) { $h = $h.Substring(4) }
+                        # A relative target is resolved against the directory the
+                        # LINK lives in, which is how the filesystem reads it.
+                        if (-not [IO.Path]::IsPathRooted($h)) { $h = Join-Path (Split-Path -Path $dir -Parent) $h }
+                        $h = [IO.Path]::GetFullPath($h)
+                        # A link pointing at itself would otherwise burn the
+                        # remaining iterations standing still.
+                        if ($h -ne $dir) { $hop = $h }
+                    }
+                }
+            } catch {
+                # A path that does not exist, or one this process may not stat,
+                # is simply not a junction as far as the walk is concerned.
+                $hop = $null
+            }
+            if ($hop) { $dir = $hop; continue }
+
             $parent = Split-Path -Path $dir -Parent
             if ([string]::IsNullOrEmpty($parent) -or $parent -eq $dir) { break }
             $dir = $parent
