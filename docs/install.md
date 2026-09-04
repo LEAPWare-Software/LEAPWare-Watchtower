@@ -80,7 +80,7 @@ whose one entry sources `lw-watchtower` from the `lw-watchtower/` subdirectory.
 ```
 
 **Those two lines put two different trees on your disk, and only one of them is the plugin.** Stated
-precisely, because the shorter version of this sentence was wrong on the page for months:
+as two named directories, because the one-sentence version of it that this page carried was false:
 
 - **The cache** —
   `~\.claude\plugins\cache\leapware-watchtower\lw-watchtower\<version>\` — is the `lw-watchtower/`
@@ -561,12 +561,14 @@ The uninstaller deliberately does none of these.
   `~\.claude\plugins\data\lw-watchtower-leapware-watchtower\` is gone — the whole directory, every
   file in it, including a file this plugin never wrote — while the payload copy under
   `~\.claude\plugins\cache\leapware-watchtower\lw-watchtower\<version>\` is still there in full,
-  carrying a new `.orphaned_at` marker for a later CLI sweep to act on. So the plain form keeps the
+  carrying a new `.orphaned_at` marker holding a timestamp. What the CLI later does with that marker
+  was **not** measured here, so do not read "orphaned" as "will be deleted for you". So the plain
+  form keeps the
   code and destroys the evidence, which is the reverse of what `/lw-watchtower:uninstall` does with
   the same two artefacts. A data directory whose name does not match the installed plugin id — the
   pre-rename `lw-gmhh*` one, for instance — is not touched.
 
-  **`--keep-data` is the order that keeps it**, and it is the only one:
+  **`--keep-data` is the flag that keeps it**, and it is the only flag that does:
 
   ```powershell
   claude plugin uninstall lw-watchtower@leapware-watchtower --keep-data

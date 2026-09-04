@@ -185,8 +185,8 @@ Then, on the new machine:
    doctor's `state-dir` check can legitimately report UNRESOLVED.
 2. **Run `/lw-watchtower:doctor`.** Sub-second wiring checks — it prints how many it ran — and a non-zero
    exit is a real finding, not a glitch.
-3. **Install the status line separately if you want it.** It is *not* part of the plugin — `statusLine`
-   is a top-level `settings.json` key and a plugin has no manifest field for it. You copy
+3. **Install the status line — the doctor FAILs without it.** It is *not* part of the plugin —
+   `statusLine` is a top-level `settings.json` key and a plugin has no manifest field for it. You copy
    [`statusline/statusline.ps1`](../lw-watchtower/statusline/statusline.ps1) into your profile and wire the key by
    hand. See [Install § status line](install.md#installing-the-status-line-part-of-the-install-and-a-separate-step).
 
