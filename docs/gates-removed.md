@@ -186,9 +186,9 @@ is the `kind = 'gate'` entries in `$LwgModuleRegistry`
   **all three ship `false`**.
 
 The rest of this section is about `delegate_gate`, which is the gate this page's lessons were written
-against. `send_liveness_gate` and `completion_audit` have a row each in
-[the module table](modules.md#modules) and a registry entry each in `lib/common.ps1`, and neither has
-a section of its own on any page yet.
+against. `send_liveness_gate` and `completion_audit` have a section each in
+[Modules](modules.md#send_liveness_gate), written against what each one refuses and what each one
+lets through.
 
 What it does, and what it does not:
 

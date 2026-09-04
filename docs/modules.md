@@ -45,10 +45,9 @@ counted as coverage** — a `true` flag is a forward-declaration, not evidence t
 ## Caveats on the eight that only observe
 
 Read these before treating any module as coverage. Every module named below **observes**; not one of
-them can stop anything. The three gates are the exception — `delegate_gate`, with
-[its own section](#delegate_gate), and `send_liveness_gate` and `completion_audit`, which are
-described by their registry entries and by `config.json`'s `supervision` block and have no section
-here yet. All three ship switched off.
+them can stop anything. The three gates are the exception — [`delegate_gate`](#delegate_gate),
+[`send_liveness_gate`](#send_liveness_gate) and [`completion_audit`](#completion_audit), each with
+its own section below. All three ship switched off.
 
 - `self_health` (the `SessionStart` self-check) honours its flag. With it **off** no probe runs at
   all, and the session reports mode `unverified` rather than any word that would imply it was
@@ -67,10 +66,8 @@ here yet. All three ship switched off.
   It injects, it never blocks — `SubagentStart` has no blocking channel at all.
 - `orphan_watch` **ships switched off**, and its switch is `supervision.orphan_watch` rather than a
   `modules` flag. It runs inside [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1) *below*
-  the `failure_capture` flag check, which is deliberate rather than convenient: it reconciles against
-  the `SubagentStop` records `failure_capture` writes, and reconciling against records nothing was
-  writing would call every finished agent an orphan. `failure_capture` off means `orphan_watch`
-  inert, whatever its own switch says.
+  the `failure_capture` flag check, so `failure_capture` off means `orphan_watch` inert whatever its
+  own switch says. See [`orphan_watch`](#orphan_watch).
 
 ## Gates, and what counts as one
 
@@ -191,8 +188,8 @@ hook.
 
 ## `delegate_gate`
 
-**The first gate this plugin shipped after the removals, and the only one with a section here. Off
-by default**, as are the two that followed it.
+**The first gate this plugin shipped after the removals. Off by default**, as are the two that
+followed it.
 [`lib/gate_delegate.ps1`](../lw-watchtower/lib/gate_delegate.ps1), registered as a `PreToolUse` hook with matcher
 `Edit|Write|NotebookEdit|Bash|PowerShell`. Built on 30 July 2026, hours after the other two gates were removed,
 because it is the one gate on this project's plan that could be built **completely** rather than
@@ -351,6 +348,177 @@ themselves — that skip is why a run of the 62-case version could truthfully re
 was 71 until 1 August 2026, when the eight cases of section K were added: they put the gate and the
 command that reports it in front of the same config and require the same answer, after a
 boolean-only rule reached the gate's reader and not the command's.
+
+## `send_liveness_gate`
+
+**Refuses a `SendMessage` whose recipient it can *prove* is dead. Off by default.**
+[`lib/gate_send.ps1`](../lw-watchtower/lib/gate_send.ps1), registered as a `PreToolUse` hook with
+matcher `SendMessage`. Built on 1 August 2026 from a measured failure rather than from a plan.
+
+**The failure it exists for.** An orchestrator issued `SendMessage` to a subagent, received
+*"Message queued for delivery"*, and 3.46 seconds later told the operator the work was done. The
+recipient had been dead for **28 minutes 45 seconds**: its transcript existed, its last write was
+half an hour old, and `health.jsonl` held no `SubagentStop` record for it, because a subagent killed
+mid-flight produces no record anywhere. The message could never have been delivered, the file was
+never touched, and nothing refused or even flagged the send.
+
+**Switch.** `supervision.send_liveness`, declared on the registry entry's own `switch` field rather
+than as a `modules` flag — the same reasoning as [`delegate_gate`](#delegate_gate): `Get-LwgConfig`
+fails **open**, and a corrupt config must not arm a blocking gate.
+
+**The rule, and it is built only on what is observable.** A `SendMessage` payload carries
+`tool_input.to` and the session's `transcript_path`; on disk each spawned agent leaves
+`agent-<id>.jsonl` and `agent-<id>.meta.json` under this session's `subagents` directory; and
+`health.jsonl` records every agent that stopped **normally**. Three states follow:
+
+| What the evidence says | Verdict |
+| --- | --- |
+| a `SubagentStop` record exists | completed normally; a send **resumes** it — **allow** |
+| no record, transcript written recently | presumed running — **allow** |
+| no record, transcript silent past `stale_minutes` | **dead mid-flight** — **deny** |
+
+`module_config.send_liveness_gate.stale_minutes` defaults to **15**, deliberately above the
+ten-minute `Bash` tool ceiling: an agent inside one long tool call writes nothing for the length of
+that call, and a threshold under the ceiling would deny sends to agents that are merely busy.
+
+**A verdict needs the recorder to have been in the room.** *"No `SubagentStop` record"* means
+nothing if nothing was writing them, so a deny additionally requires that `health.jsonl` holds at
+least one record **of any kind** for this session. A session `failure_capture` never saw gets an
+**abstain** — allowed, and logged as `SendGateAbstain`. A gate must not convict on the silence of a
+witness that was never present.
+
+**Resolving the recipient**, and the two refusals that are not liveness verdicts:
+
+- **`main`** — the session itself; always allowed.
+- **an address containing `@`** — an agent-team address. Team layouts are not observable from a
+  hook, so this **abstains** and logs.
+- **a name** — matched case-insensitively against the `name` field of every `agent-*.meta.json` in
+  this session's subagents directory. Several matches and the newest wins, which is the platform's
+  own *latest wins* rule for a reused name.
+- **a raw agent id** — tried *after* the name lookup, so a name that happens to look like an id
+  still resolves as a name.
+- **anything that resolves to nothing** — no meta carries the name, no transcript carries the id, or
+  the session has no subagents directory at all — is **denied**. No such agent exists in this
+  session, so no such agent is live.
+
+**How it blocks** is `delegate_gate`'s two channels for the same reasons: the reason on stderr with
+**exit 2**, which is the only code that stops a `PreToolUse` call, plus the
+`permissionDecision: "deny"` envelope on stdout, redundant on this build and emitted because the two
+channels fail open in different circumstances.
+
+**Failing safe, per path.** Stdin that is empty, truncated, not JSON, or carries no `to` is a
+**deny** while the switch is on — the gate's one job is to establish the recipient before the send,
+and input it could not read is not evidence of a live recipient. A config it cannot read, or any
+throw, is an **allow**: a gate that cannot read its own switch must not act on a guess, and the
+switch defaults off.
+
+**The over-blocking it accepts, stated rather than left to be discovered:**
+
+- An agent that is alive but silent past `stale_minutes` — back-to-back long tool calls — is denied.
+  The deny text names exactly what was measured and names the knob.
+- A completed agent whose `SubagentStop` record has scrolled out of the health-log tail this gate
+  reads is denied as if dead. That takes over a thousand later records in one session, and the deny
+  text names the record it looked for.
+- **An operator running agent teams should not arm this gate.** A `name@team` recipient abstains, and
+  an unresolvable bare name is denied.
+
+**And the bypasses**, per [Gates were removed deliberately](gates-removed.md) Lesson 3, so nobody
+reads a green suite as soundness: a recipient that died **less** than `stale_minutes` ago passes as
+presumed running — the gate narrows the window, it does not close it; a dead agent whose name a later
+live agent took over resolves to the live one, exactly as the platform itself would route it; and
+**nothing here establishes delivery or completion** — an allowed send can still sit queued forever if
+the recipient dies afterwards. That half belongs to [`completion_audit`](#completion_audit).
+
+**No fast path**, deliberately, unlike `delegate_gate`. That gate sits on every `Edit`, `Write` and
+`Bash` call a session makes; this one fires only on `SendMessage`, which happens at orchestration
+frequency, so the interpreter floor is the cost and a raw-text scanner would buy back milliseconds
+nobody is paying.
+
+---
+
+## `completion_audit`
+
+**Refuses a turn end that claims completed work on the strength of a queued message. Off by
+default.** [`lib/gate_stop.ps1`](../lw-watchtower/lib/gate_stop.ps1), registered **twice** — once on
+`Stop` and once on `SubagentStop` — and on both **without `asyncRewake`**, which is what makes its
+exit 2 *block the turn end* and feed stderr back to the model rather than raise an alert. That is the
+exact opposite of the supervisor's registrations on the same events.
+
+It is a separate script rather than a sixth module inside
+[`lib/stop_advisories.ps1`](../lw-watchtower/lib/stop_advisories.ps1) because that file's header
+promises *"these are advisories, they must never block"* and exits 0 on every path; a blocking module
+inside it would falsify its own header. `Stop` hooks run concurrently, so the extra process costs
+roughly nothing at turn end.
+
+**Switch.** `supervision.completion_audit`, on the registry entry's `switch` field, for the same
+fail-open reason as the other two gates.
+
+**The failure it exists for** is the prose half of `send_liveness_gate`'s. The orchestrator issued
+`SendMessage` at 13:20:12.391Z and told the operator *"Added to the handoff."* at 13:20:15.851Z —
+**3.46 seconds later, with no tool call in between**. The assertion rested on a *"Message queued for
+delivery"* acknowledgement and on nothing else.
+
+**The rule, exactly.** Reading the current turn — every record after the last typed user prompt — the
+turn end is refused when **all four** hold:
+
+1. the turn contains at least one `tool_use`, and the **last** one in it is `SendMessage`, so nothing
+   after the send could have established anything;
+2. assistant text **follows** that `SendMessage`;
+3. the final assistant text matches the completion-claim vocabulary — past-tense completion verbs,
+   *added*, *updated*, *fixed*, *done*, *committed*;
+4. and it does **not** match the hedging vocabulary — *will*, *once*, *queued*, *dispatched*,
+   *asked*, *awaiting*, *in progress*. A reply that says the work was **handed off** is the honest
+   sentence this gate exists to demand, and must never be refused.
+
+The refusal text names the evidence that would make the same claim honest: read the artifact the
+claim is about, or wait for the recipient's completion notification, then assert.
+
+**It fires at most once per turn end.** On the continuation the payload carries `stop_hook_active`
+and this script stands down, as every `Stop` hook here does, or a model that repeated the claim would
+loop forever. Stated plainly: **this gate can force one round of verification; it cannot force
+honesty.** A model that re-asserts the same claim without verifying ends the turn.
+
+**Why it is registered twice, and why registering the same file twice would have been worse than the
+gap.** Subagents and teammates emit `SubagentStop` and never `Stop`, so under `Stop` alone this gate
+fired for no worker at all. Two measured facts make the two registrations non-interchangeable:
+
+- **On `SubagentStop`, `transcript_path` is the *parent's* transcript**; the subagent's own is
+  `agent_transcript_path`. A gate reading the former there would audit the **orchestrator's** turn
+  whenever any subagent stopped — and in a delegate pattern a parent whose last tool was
+  `SendMessage` beside a completion claim is the common case, so it would have blocked a worker for
+  what the parent said.
+- **Every record in a real subagent transcript is `isSidechain: true`.** The sidechain skip is
+  unconditional in `Stop` mode, so pointed at the subagent's transcript with that skip left in place
+  the gate would have been a **silent no-op** — armed, auditing nothing.
+
+So subagent mode changes three things and nothing else: which transcript is read (an absent
+`agent_transcript_path` degrades to a silent no-op rather than falling back to the parent's), the
+sidechain skip is lifted, and the turn boundary uses a local reader instead of the shared
+`Get-LwgPromptText`. Mode is taken from **either** the `-HookEvent` argument or the payload's
+`hook_event_name`, and that asymmetry is deliberate: subagent mode during a `Stop` reads an absent
+path and exits 0, while `Stop` mode during a `SubagentStop` audits the parent and **falsely blocks**.
+
+**What this is and is not — the honest half.** Detecting *"asserted completion"* in prose is a
+**regex over language**, and that is the weakest kind of rule this plugin ships. It is shipped anyway
+because the alternative is what allowed the measured failure, and because the trigger is guarded by
+three **structural** conditions that are not prose: a tool call happened, it was `SendMessage`, and
+it was last. Enumerated rather than glossed:
+
+| It will stay silent when it should not | It can refuse an honest sentence |
+| --- | --- |
+| a claim phrased outside the verb list (*"the handoff now reflects it"*) | completion verbs describing **old**, already-verified work in a turn that happens to end with a `SendMessage` |
+| a claim in a turn whose last tool call is anything but `SendMessage` — including a cosmetic `Read` after the send | quoted text: the model quoting a file that contains *"added"* |
+| a hedge word anywhere in a message that also asserts completion — *"dispatched the fix and updated the doc"* is suppressed by *dispatched* | |
+| the continuation after a block, by design | |
+| a claim made in an earlier turn and merely not repeated | |
+
+A refusal costs one continuation in which the model states its evidence or rephrases honestly, and
+the block text says exactly that. An error **allows** — exit 0, logged `GateError` — because a broken
+audit must never pin a session shut.
+
+**Pinned to a CLI build.** `agent_transcript_path`, the blocking behaviour of exit 2 on
+`SubagentStop`, and `stop_hook_active` on that payload are all observed facts about Claude Code
+2.1.227, not documented contracts. **Re-check them after a CLI upgrade.**
 
 ## Session modes
 
@@ -772,6 +940,77 @@ never parsed. Errors are logged on the error path only — logging every dispatc
 `ConvertTo-Json` warm-up and a file append per worker, which is most of the budget.
 
 Measured cost is in [Architecture § context_injection cost](architecture.md#context_injection-cost).
+
+---
+
+## `orphan_watch`
+
+**Reconciles this session's subagent transcripts against its `SubagentStop` records and alerts on an
+agent that died mid-flight. Off by default.** It runs inside
+[`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1) on `Stop` and on `SubagentStop`, and it
+**observes** — it raises the supervisor's exit-2 `asyncRewake` alert, which reaches the orchestrator
+mid-turn, and blocks nothing.
+
+**Switch.** `supervision.orphan_watch`, on the registry entry's own `switch` field rather than as a
+`modules` flag.
+
+**The gap it closes.** `failure_capture`'s failed-task count reads
+`$payload.background_tasks` and counts only entries the harness marked `failed` or `killed` — and
+**a subagent killed mid-flight appears in that list not at all**. Measured on 1 August 2026: a
+cross-check of 70 subagent transcripts against the health log found **four** transcripts with no
+`SubagentStop` record — four agents that died while `failed_tasks` read `0` — in a log holding
+**zero** `PostToolUseFailure` records across 1,175 entries. *Green* there has only ever meant *no
+`Agent` tool call returned an error*.
+
+**The rule.** An agent that was **spawned** — its transcript exists in this session's subagents
+directory — that never **stopped** — no `SubagentStop` record for its id in `health.jsonl` — and has
+gone **silent** — its transcript unwritten for `stale_minutes`, default 15, above the ten-minute
+`Bash` ceiling so one long tool call is not silence — is an **orphan**.
+
+**One death signal is stated rather than inferred, and it is believed with no threshold at all.**
+The harness writes a task-notification into the parent transcript naming the agent and saying
+`<status>failed</status>`, in milliseconds, for every death. Measured across all four deaths in one
+session on 10 August 2026 — and two of them went unreported for **ninety minutes** because nothing
+read that notification. An id found there is reported immediately; no silence rule applies to it,
+because a status of `failed` is a terminal statement about a specific agent rather than an inference
+that could be premature.
+
+**There is deliberately no second, shorter threshold, and the reason is measured.** A five-minute
+fast path keyed on an `isApiErrorMessage` transcript tail *was* shipped here, on the reasoning that
+such a record states a cause rather than inferring one. An adversarial re-derivation over 1,050
+transcripts falsified it: four gaps of 25.4 s, 93.8 s, 3,824 s and 4,011 s, **all four of which
+recovered and carried on**. The longest carried no `529` and no *"Overloaded"*, so it fell straight
+through the class exclusion onto the five-minute path — a live agent reported dead after five
+minutes, which then worked for another sixty-two. A false-positive rate of **one in four**, on the
+exact control that exists to stop an operator being told something is dead when it is not. Nor can
+the threshold be raised out of the problem: the longest live recovery observed is **66.85 minutes**,
+longer than the fifteen-minute silence rule it was meant to beat. **Do not reintroduce a threshold
+keyed on transcript prose.**
+
+**Where its verdict stops, in three places, and each of them is an abstain rather than a guess:**
+
+- **It sits below the `failure_capture` flag check**, and that coupling is correct rather than
+  convenient: `SubagentStop` records are what `failure_capture` writes, and reconciling transcripts
+  against records nothing was writing would call every finished agent an orphan. **`failure_capture`
+  off means `orphan_watch` inert**, whatever its own switch says, and the doctor's module roster
+  counts it from the registry either way.
+- **A session with no health records at all yields no orphans**, for the same reason: the recorder's
+  silence proves nothing.
+- **The evidence horizon.** The health-log reader takes a bounded tail, and rotation keeps only the
+  last 500 lines, so a `SubagentStop` record can leave the window while the agent's transcript sits
+  on disk forever. The verdict is *"no stop record exists"*, so a lost record does not weaken the
+  conclusion — it **inverts** it, and a cleanly stopped agent becomes a permanent orphan. The module
+  therefore judges only as far back as it can prove it looked: the session's `SessionStart` record is
+  written once, before any agent can be dispatched, so its presence in the window proves the window
+  reaches past every `SubagentStop` this session could have written. Without it, the earliest record
+  visible is the furthest back the module may judge.
+
+**Deduped, and the dedupe is what keeps the indicator honest.** An orphan is *standing*: the dead
+transcript stays on disk for the rest of the session, so every later turn end re-detects it.
+`alerted.json` holds the ids already alerted on, so the operator is told once; and the health record
+carries the **standing** count as an evidence trail beside a separate count of what is **new**,
+because the status line takes a peak of the recorded counts over the log tail it reads and a standing
+orphan re-reported as new would push that indicator up forever with no way to bring it down.
 
 ---
 
