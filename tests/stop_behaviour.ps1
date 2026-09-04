@@ -672,8 +672,11 @@ try {
     # THE ONLY REDACTION CONTROL THIS PLUGIN HAS, and until these cases it had
     # no test of any kind - docs/limitations.md said so in as many words. It is
     # also load bearing twice over: every module runs it over anything headed
-    # for the log, and bin\lwg-resolve.ps1 PRINTS its output into a
-    # fixed-column console report, a row at a time.
+    # for the log, and the resolver command this repository shipped until
+    # wave 1 PRINTED its output into a fixed-column console report, a row at a
+    # time. That command and its library half were deleted with the clearing
+    # mechanism (#192); the one-line and text-only properties below were
+    # written against it, and they are kept because the LOG has them too.
     #
     # The two properties below the credential masking are the ones that were
     # broken, and both are about what the value IS rather than what it hides:
@@ -744,7 +747,7 @@ try {
     $rNl = Get-LwgRedacted -Text "first half`nsecond half"
     Add-Result 'redact: a newline cannot end the row' `
         ((Test-LwgIsCleanField $rNl) -and $rNl -eq 'first half\nsecond half') `
-        "bin\lwg-resolve.ps1 prints this value into a fixed-column report one row per fault, and the text inside it is a failed task's stderr. A raw newline splits one record into two ROWS, and the second row is a fault record the operator never had. got: $rNl"
+        "the resolver command deleted in wave 1 (#192) printed this value into a fixed-column report one row per fault, and the text inside it is a failed task's stderr. A raw newline splits one record into two ROWS, and the second row is a fault record the operator never had. The reader that remains is the JSONL log, where the same newline splits one event into two LINES. got: $rNl"
 
     $rCrTab = Get-LwgRedacted -Text "a`r`nb`tc"
     Add-Result 'redact: CR and TAB are escaped too' `
@@ -855,7 +858,7 @@ try {
     $rBenign = '{"ts":"2026-01-01T00:00:00Z","event":"Stop","session_id":"lwg-1","tool_name":"Bash","cwd":"C:/repo","failed_tasks":1}'
     Add-Result 'redact: an ordinary health record passes through with nothing masked' `
         ((Get-LwgRedacted -Text $rBenign -MaxLength 400) -eq $rBenign) `
-        "CANNOT GO RED AT fd8d023 - nothing was masked there either. It is the BLAST-RADIUS guard on the rules above, and the direction they fail in is over-redaction: the keyword may now be followed by more identifier, so a wider keyword list would start masking session_id, tool_name and failed_tasks - the fields the status line and bin\lwg-resolve.ps1 exist to read. got: $(Get-LwgRedacted -Text $rBenign -MaxLength 400)"
+        "CANNOT GO RED AT fd8d023 - nothing was masked there either. It is the BLAST-RADIUS guard on the rules above, and the direction they fail in is over-redaction: the keyword may now be followed by more identifier, so a wider keyword list would start masking session_id, tool_name and failed_tasks - the fields the status line exists to read, and which the resolver command deleted in wave 1 (#192) read too. got: $(Get-LwgRedacted -Text $rBenign -MaxLength 400)"
 
     # ----------------------------------------------------------------------
     # A10-A13: THE FOUR SHAPES THE 3 AUGUST RULES CLAIMED AND DID NOT HAVE

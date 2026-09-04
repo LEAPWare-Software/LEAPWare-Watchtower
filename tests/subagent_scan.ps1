@@ -230,18 +230,41 @@ function Invoke-SubagentStart {
       Omitting -Config leaves the root with no config.json at all, which is one
       of the cases.
 
+      -Override writes config.override.json into the redirected STATE DIRECTORY,
+      under the same rule and for the same reason - #11. That file is the one
+      the operator's own ON/OFF choices go to, and the hook reads it merged over
+      config.json. Omitting it deletes any left by a previous run in the same
+      tree, so a case that says "no override" gets one.
+
+      PRESENCE IS TESTED WITH $PSBoundParameters AND NOT AGAINST $null, and that
+      is a correction rather than a style choice. PowerShell gives an unpassed
+      [string] parameter the value '' - never $null - so `if ($null -ne $Config)`
+      was ALWAYS true, and the case that says "no config.json at all" was in fact
+      run against a ZERO-BYTE one. It passed, and for a near-enough reason (the
+      hook treats unreadable and absent alike, by design), but it was not the
+      fixture the case names. The same trap cost QA-C4 two timing runs on #11
+      when empty override files silently made the gate's fast exit unreachable.
+
       Returns @{ code; out } where `out` is the whole stdout as one string.
     #>
     param(
         [Parameter(Mandatory = $true)][hashtable]$Tree,
-        [string]$Config
+        [string]$Config,
+        [string]$Override
     )
 
     $cfgPath = Join-Path $Tree.root 'config.json'
-    if ($null -ne $Config) {
+    if ($PSBoundParameters.ContainsKey('Config')) {
         [IO.File]::WriteAllText($cfgPath, $Config, [Text.UTF8Encoding]::new($false))
     } elseif ([IO.File]::Exists($cfgPath)) {
         [IO.File]::Delete($cfgPath)
+    }
+
+    $ovPath = Join-Path $Tree.data 'config.override.json'
+    if ($PSBoundParameters.ContainsKey('Override')) {
+        [IO.File]::WriteAllText($ovPath, $Override, [Text.UTF8Encoding]::new($false))
+    } elseif ([IO.File]::Exists($ovPath)) {
+        [IO.File]::Delete($ovPath)
     }
 
     $saveRoot = $env:CLAUDE_PLUGIN_ROOT
@@ -479,6 +502,195 @@ function Test-NoConfigFailsOpen {
                -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | exit $($r.code)")
 }
 
+function Test-TheOperatorOverrideSwitchesTheModuleOff {
+    <#
+      #11, AND THE ONE MODULE /lw-watchtower:config STILL WILL NOT WRITE.
+
+      Since 3 September 2026 config.json is the SHIPPED DEFAULTS and nothing
+      writes it: the operator's own ON/OFF choices go to config.override.json
+      under the state directory, and Get-LwgConfig merges that over the
+      defaults for every reader in this plugin. This hook read config.json
+      ALONE, so an operator who switched context_injection off got a flag the
+      SessionStart banner, /lw-watchtower:doctor and the config command's own
+      read-back all reported as off - while the hook went on injecting into
+      every dispatch. bin\lwg-config.ps1 refused to write this one module
+      rather than ship that, which made it the only module of seven that could
+      not be switched at all.
+
+      THE OVERRIDE IS THE ONLY DIFFERENCE BETWEEN THE TWO RUNS. Both carry the
+      same config.json, with the global flag TRUE, so a silent off-run is
+      earned against a fixture that injects rather than against nothing.
+
+      RED AT c39e782: the off run injects, because config.override.json was
+      read by nothing on this path.
+    #>
+    $t = New-CaseRoot 'override-off'
+
+    $base = New-OrderedConfig -Enabled $true
+    $off = Invoke-SubagentStart -Tree $t -Config $base -Override ('{ "modules": { "' + $ModuleName + '": false } }')
+    $on  = Invoke-SubagentStart -Tree $t -Config $base -Override ('{ "modules": { "' + $ModuleName + '": true } }')
+
+    $bad = @()
+    if ($off.code -ne 0)              { $bad += "the off run exited $($off.code); this hook must always exit 0" }
+    if ($on.code  -ne 0)              { $bad += "the on run exited $($on.code); this hook must always exit 0" }
+    if (Test-Injected $off.out)       { $bad += "IT INJECTED WHILE THE OPERATOR OVERRIDE SAYS false - config.override.json is where /lw-watchtower:config writes, and this hook did not read it: $($off.out)" }
+    if ($off.out -ne '')              { $bad += "the off run printed something: $($off.out)" }
+    if (-not (Test-Injected $on.out)) { $bad += "the on run did not inject, so the off run's silence proves nothing: $($on.out)" }
+
+    Add-Result -Name 'the operator override switches this module OFF, and config.json is only the default it overrides (#11)' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | off exit $($off.code), on exit $($on.code)")
+}
+
+function Test-TheOperatorOverrideSwitchesTheModuleOn {
+    <#
+      THE MIRROR, and it is what stops the case above being passed by a hook
+      that simply goes silent whenever an override file exists. Here
+      config.json's global flag is FALSE and the override says true, so the
+      only correct answer is to INJECT - the direction in which "abstain when
+      configured" gives the wrong answer.
+
+      Paired the other way for the same reason: the same config.json with an
+      override saying false must be silent, so the injection is earned.
+
+      RED AT c39e782, in the opposite direction to the case above: the on run
+      is silent, because config.json's false was the only value read.
+    #>
+    $t = New-CaseRoot 'override-on'
+
+    $base = New-OrderedConfig -Enabled $false
+    $on  = Invoke-SubagentStart -Tree $t -Config $base -Override ('{ "modules": { "' + $ModuleName + '": true } }')
+    $off = Invoke-SubagentStart -Tree $t -Config $base -Override ('{ "modules": { "' + $ModuleName + '": false } }')
+
+    $bad = @()
+    if ($on.code  -ne 0)              { $bad += "the on run exited $($on.code); this hook must always exit 0" }
+    if ($off.code -ne 0)              { $bad += "the off run exited $($off.code); this hook must always exit 0" }
+    if (-not (Test-Injected $on.out)) { $bad += "IT STAYED SILENT WHILE THE OPERATOR OVERRIDE SAYS true - the override must win over the shipped default in BOTH directions, or 'abstain whenever an override exists' passes the off case for nothing: $($on.out)" }
+    if (Test-Injected $off.out)       { $bad += "the paired off run injected, so the on run's injection proves nothing about the override: $($off.out)" }
+
+    Add-Result -Name 'and switches it ON over a shipped default of false, so the override wins in both directions (#11)' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | on exit $($on.code), off exit $($off.code)")
+}
+
+function Test-AnOverrideWithoutThisModuleLeavesTheDefaultStanding {
+    <#
+      THE CONTROL THAT FORBIDS THE CHEAP READING. Merge-LwgConfigOverride merges
+      member by member: an override with no `modules` block, or a `modules`
+      block that does not name this module, changes nothing about it and the
+      shipped default stands. A hook that treated "an override exists" as an
+      answer - either way - would pass the two cases above and get this wrong,
+      and this is the shape a configured machine is actually in: nearly every
+      override in the world will hold `interaction.delegate` and nothing else,
+      because that is what /lw-watchtower:delegate writes.
+
+      GREEN AT c39e782 TOO, and it is here for that reason: it is the guard on
+      the fix rather than a regression case for the defect.
+    #>
+    $t = New-CaseRoot 'override-silent-on-this-module'
+
+    $ov  = '{ "interaction": { "delegate": true } }'
+    $off = Invoke-SubagentStart -Tree $t -Config (New-OrderedConfig -Enabled $false) -Override $ov
+    $on  = Invoke-SubagentStart -Tree $t -Config (New-OrderedConfig -Enabled $true)  -Override $ov
+
+    $bad = @()
+    if ($off.code -ne 0)              { $bad += "the off run exited $($off.code); this hook must always exit 0" }
+    if ($on.code  -ne 0)              { $bad += "the on run exited $($on.code); this hook must always exit 0" }
+    if (Test-Injected $off.out)       { $bad += "an override that says nothing about this module flipped it ON: $($off.out)" }
+    if (-not (Test-Injected $on.out)) { $bad += "an override that says nothing about this module flipped it OFF, which is how 'abstain whenever an override exists' would pass the two cases above: $($on.out)" }
+
+    Add-Result -Name 'CONTROL: an override that does not name this module leaves the shipped default standing (#11)' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | off exit $($off.code), on exit $($on.code)")
+}
+
+function Test-APerRepoBlockInTheOverrideEscalatesAndResolvesIt {
+    <#
+      THE OVERRIDE ON THE SLOW PATH TOO. A `repos` block in the override can
+      only be resolved with a slug, which this path never parses, so the hook
+      escalates - dot-source common.ps1, parse the payload, ask Test-LwgModule -
+      exactly as it already does for a `repos` block in config.json.
+
+      THE FIXTURE MAKES THAT ESCALATION MEASURABLE. The override carries BOTH a
+      global value for this module and a per-repo one that disagrees with it,
+      and config.json carries the opposite global. The dispatch has an empty
+      payload, so no repo resolves and Test-LwgModule falls back to the merged
+      GLOBAL - the override's, not config.json's. So the answer is only right if
+      Get-LwgConfig resolved the override as well, which is the half of #11 the
+      fast scan alone cannot cover.
+
+      RED AT c39e782 in both directions: the escalation ran there too, but
+      Get-LwgConfig had no override to merge, so the answer came from
+      config.json's global and both runs report the opposite of what they must.
+    #>
+    $t = New-CaseRoot 'override-repos'
+
+    $ovOff = '{ "modules": { "' + $ModuleName + '": false },' +
+             '  "repos": { "acme/example-repo": { "modules": { "' + $ModuleName + '": true } } } }'
+    $ovOn  = '{ "modules": { "' + $ModuleName + '": true },' +
+             '  "repos": { "acme/example-repo": { "modules": { "' + $ModuleName + '": false } } } }'
+
+    $off = Invoke-SubagentStart -Tree $t -Config (New-OrderedConfig -Enabled $true)  -Override $ovOff
+    $on  = Invoke-SubagentStart -Tree $t -Config (New-OrderedConfig -Enabled $false) -Override $ovOn
+
+    $bad = @()
+    if ($off.code -ne 0)              { $bad += "the off run exited $($off.code); this hook must always exit 0, escalation included" }
+    if ($on.code  -ne 0)              { $bad += "the on run exited $($on.code); this hook must always exit 0, escalation included" }
+    if (Test-Injected $off.out)       { $bad += "the escalation answered from config.json's global and not from the merged override, or applied the per-repo value to a dispatch that resolved no repo: $($off.out)" }
+    if ($off.out -ne '')              { $bad += "the off run printed something: $($off.out)" }
+    if (-not (Test-Injected $on.out)) { $bad += "the escalation answered from config.json's global rather than the merged override: $($on.out)" }
+
+    Add-Result -Name 'a repos block in the OVERRIDE escalates, and the slow path resolves the override too (#11)' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | off exit $($off.code), on exit $($on.code)")
+}
+
+function Test-AnEscapedKeyInTheOverrideIsNotReadAsAbsence {
+    <#
+      THE FAIL-OPEN THE SECOND SCANNER WOULD HAVE SHIPPED, and it is the same
+      one lib\gate_delegate.ps1 records finding in itself on the same day.
+
+      This path never decodes the override; it scans the raw text. So
+
+          { "modules": { "context_injection": false } }
+
+      contains no member spelled `modules` for the scanner to find, while
+      ConvertFrom-Json hands Get-LwgConfig a member called exactly that. A
+      scanner that read "no modules block" as "the override says nothing" would
+      leave the shipped default standing and inject, over an override that says
+      not to - a value written, verified by every reporting surface, and
+      honoured by nothing, which is the whole of #11 reappearing one layer down.
+
+      \uXXXX IS THE ONLY JSON ESCAPE THAT CAN SPELL A LETTER, so its two opening
+      characters anywhere in the override are enough to abstain, and nothing on
+      this path has to decode anything. The run then escalates and
+      ConvertFrom-Json answers.
+
+      RED AT c39e782 for the simpler reason that no override was read at all,
+      and red against the obvious implementation of this fix for the reason
+      above - which is why it is here rather than left to review.
+    #>
+    $t = New-CaseRoot 'override-escaped-key'
+
+    # THE KEY IS ASSEMBLED FROM [char]92 rather than typed as a literal, so no
+    # editor, diff tool or copy-paste on the way here can quietly decode it and
+    # turn this case into a duplicate of the one above. What reaches the file is
+    # backslash-u-0-0-6-d followed by `odules`: six characters that any JSON
+    # parser reads as the letter `m` plus `odules`, and that a raw text scan for
+    # the eight characters `"modules"` cannot see.
+    $escKey = ([char]92) + 'u006dodules'
+    $esc = '{ "' + $escKey + '": { "' + $ModuleName + '": __V__ } }'
+
+    $off = Invoke-SubagentStart -Tree $t -Config (New-OrderedConfig -Enabled $true)  -Override $esc.Replace('__V__', 'false')
+    $on  = Invoke-SubagentStart -Tree $t -Config (New-OrderedConfig -Enabled $false) -Override $esc.Replace('__V__', 'true')
+
+    $bad = @()
+    if ($off.code -ne 0)              { $bad += "the off run exited $($off.code); this hook must always exit 0" }
+    if ($on.code  -ne 0)              { $bad += "the on run exited $($on.code); this hook must always exit 0" }
+    if (Test-Injected $off.out)       { $bad += "an ESCAPED spelling of the modules key was read as no override at all, and the shipped default injected over an operator setting that says not to: $($off.out)" }
+    if ($off.out -ne '')              { $bad += "the off run printed something: $($off.out)" }
+    if (-not (Test-Injected $on.out)) { $bad += "the on run stayed silent, so the escape sent it nowhere: the override says true and config.json says false, and only the slow path can reconcile them: $($on.out)" }
+
+    Add-Result -Name 'an escaped spelling of the override key sends the run to the slow path rather than reading it as absence (#11)' `
+               -Ok ($bad.Count -eq 0) -Detail (($bad -join '; ') + " | off exit $($off.code), on exit $($on.code)")
+}
+
 function Test-FastScanAgreesWithTheSlowPathOnTheShippedConfig {
     <#
       THE DUPLICATION IS ONLY SAFE WHILE THE TWO AGREE. The fast scan exists to
@@ -619,6 +831,11 @@ try {
     Test-ShippedOrderReadsTheGlobalFlag
     Test-PerRepoOverrideStillEscalates
     Test-NoConfigFailsOpen
+    Test-TheOperatorOverrideSwitchesTheModuleOff
+    Test-TheOperatorOverrideSwitchesTheModuleOn
+    Test-AnOverrideWithoutThisModuleLeavesTheDefaultStanding
+    Test-APerRepoBlockInTheOverrideEscalatesAndResolvesIt
+    Test-AnEscapedKeyInTheOverrideIsNotReadAsAbsence
     Test-FastScanAgreesWithTheSlowPathOnTheShippedConfig
 }
 catch {

@@ -1029,6 +1029,121 @@ try {
         "expected the detail to say the module stays on; got [$($row.status)] $($row.detail)"
 
     # -------------------------------------------------------------------
+    # 6a. #11. AN OPERATOR OVERRIDE THAT WAS READ AND THEN DISCARDED.
+    #
+    #     Since 3 September 2026 config.json is the SHIPPED DEFAULTS and nothing
+    #     writes it: the operator's ON/OFF choices go to config.override.json
+    #     under the state directory, and Get-LwgConfig merges that over the
+    #     defaults. It IGNORES an override it cannot parse rather than throwing -
+    #     the right polarity, because a half-written settings file must not arm a
+    #     gate and must not take the plugin down - and carries the reason out in
+    #     _override_error.
+    #
+    #     _source IS STILL 'file' ON THAT PATH, which is why this needs its own
+    #     case. config.json parsed perfectly; it is the second document that did
+    #     not. So every check below, the roster at the foot and the SessionStart
+    #     banner report the SHIPPED DEFAULTS while an operator's entire
+    #     configuration sits in a file nothing read - and until this row the
+    #     doctor called that machine healthy and exited 0. Both configuring
+    #     commands already refuse to write in this state and name the file; this
+    #     is the reporting half of the same rule.
+    #
+    #     THE FIXTURE IS TRUNCATED JSON, not gibberish: it is what a settings
+    #     file looks like after a crashed or interrupted write, which is how an
+    #     operator gets into this state without doing anything wrong.
+    #
+    #     BASELINE c39e782: '[PASS] config-registry  parses; all 9 module flags
+    #     match the registry exactly ...' and exit 0 - the doctor reported a
+    #     healthy machine over a configuration it had thrown away.
+    # -------------------------------------------------------------------
+    Set-CaseConfig -Mutate $null
+    $t = New-HealthyCase -Tag 'cfg-override-broken' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $ovBroken = Join-Path $t.state 'config.override.json'
+    [IO.File]::WriteAllText($ovBroken, '{ "modules": { "docs_coupling": fal',
+                            (New-Object Text.UTF8Encoding($false)))
+    $rOv  = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state
+    $rowOv = Get-DoctorRow -Text $rOv.out -Id 'config-registry'
+
+    Add-Result 'an operator override that does not parse FAILS config-registry, naming the file (#11)' `
+        ($rowOv.found -and $rowOv.status -eq 'FAIL' -and
+         $rowOv.detail -match [regex]::Escape($ovBroken) -and $rowOv.detail -match '(?i)ignored') `
+        ("expected FAIL naming $ovBroken and saying its contents are being ignored; got [$($rowOv.status)] $($rowOv.detail). " +
+         "config.json parses here, so _source is 'file' and the existing checks see nothing wrong. Full output:`n$($rOv.out)")
+
+    # -------------------------------------------------------------------
+    # 6b. THE SAME SEED, READ THE WAY A CALLER READS IT. Same argument as
+    #     case 3: a row that says FAIL under an exit 0 is a diagnosis nothing
+    #     acts on, and case 1 established that this sandbox reaches 0 without
+    #     the seed.
+    #
+    #     BASELINE c39e782: exit 0.
+    # -------------------------------------------------------------------
+    Add-Result 'a discarded override makes the doctor exit 1, not 0 (#11)' `
+        ($rOv.code -eq 1) `
+        "expected exit 1; got $($rOv.code), and case 1 showed this sandbox reaching 0 without the seed. Full output:`n$($rOv.out)"
+
+    # -------------------------------------------------------------------
+    # 6c. AND THE ROSTER SAYS WHICH FILE, beside the one it already names.
+    #
+    #     The `config:` line at the foot of the report named config.json alone,
+    #     which on a configured machine credits every operator setting to a file
+    #     that holds none of them. The wording is lifted from bin\lwg-config.ps1's
+    #     own source line so the two commands describe one machine in one
+    #     vocabulary.
+    #
+    #     THE ROSTER IS NOT A ROW, so this is asserted against the whole report
+    #     text. It is also informational and cannot fail the run, which is
+    #     exactly why the row above exists as well: a reader who stops at the
+    #     verdict must still be told.
+    #
+    #     BASELINE c39e782: the line read 'resolved for repo: ...   config:
+    #     config.json' and said nothing about an override at all.
+    # -------------------------------------------------------------------
+    Add-Result 'and the roster names the discarded override rather than crediting config.json (#11)' `
+        ($rOv.out -match ('(?m)^\s+resolved for repo:.*override: IGNORED - ' + [regex]::Escape($ovBroken))) `
+        "expected the roster's resolved-for-repo line to carry 'override: IGNORED - $ovBroken'. Full output:`n$($rOv.out)"
+
+    # -------------------------------------------------------------------
+    # 6d. CONTROL. A VALID override is NOT a finding, and the roster names it.
+    #
+    #     Without this, "FAIL whenever an override exists" passes 6a, 6b and 6c
+    #     and breaks every configured machine - which is the shape of over-fix
+    #     this file's other controls exist to catch. The override here switches a
+    #     real module off, which is the ordinary state of any machine that has
+    #     ever run /lw-watchtower:config.
+    #
+    #     BASELINE c39e782: the row PASSED (correctly) and the roster named no
+    #     override, so the second half of this case is red there and the first
+    #     is green - which is what makes it a control rather than a duplicate.
+    # -------------------------------------------------------------------
+    $t2 = New-HealthyCase -Tag 'cfg-override-valid' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $ovGood = Join-Path $t2.state 'config.override.json'
+    [IO.File]::WriteAllText($ovGood, '{ "modules": { "docs_coupling": false } }',
+                            (New-Object Text.UTF8Encoding($false)))
+    $rGood  = Invoke-Doctor -ProfileDir $t2.profile -StateDir $t2.state
+    $rowGood = Get-DoctorRow -Text $rGood.out -Id 'config-registry'
+
+    Add-Result 'CONTROL: a VALID override is not a finding, and the roster names it as the file in effect (#11)' `
+        ($rowGood.found -and $rowGood.status -eq 'PASS' -and $rGood.code -eq 0 -and
+         $rGood.out -match ('(?m)^\s+resolved for repo:.*override: ' + [regex]::Escape($ovGood))) `
+        ("expected a PASS row, exit 0 and the roster naming $ovGood; got [$($rowGood.status)] at exit $($rGood.code). Full output:`n$($rGood.out)")
+
+    # -------------------------------------------------------------------
+    # 6e. CONTROL. NO override at all - a fresh install - says so positively.
+    #
+    #     'none - these are the shipped defaults' is not decoration: the other
+    #     two states are a path, and a blank there would be indistinguishable
+    #     from a line that failed to render. This is also what stops the roster
+    #     printing the word `override` only when something is wrong, which would
+    #     make its absence the thing a reader has to notice.
+    #
+    #     BASELINE c39e782: no override text on that line in any state.
+    # -------------------------------------------------------------------
+    Add-Result 'CONTROL: with no override the roster says so, rather than leaving the line silent (#11)' `
+        ($clean.out -match '(?m)^\s+resolved for repo:.*override: none - these are the shipped defaults') `
+        "case 1's sandbox has no config.override.json, so the roster must say so positively. Full output:`n$($clean.out)"
+
+    # -------------------------------------------------------------------
     # 7. #55. A THIRD PARTY'S STATUS LINE MUST NOT BE DIAGNOSED AS OURS.
     #
     #    The operator wrote their own status line, or another plugin ships one.

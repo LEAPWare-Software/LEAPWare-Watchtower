@@ -448,40 +448,55 @@ try {
         exit $script:Exit
     }
 
-    # --- the one module whose flag a SECOND reader resolves for itself - #11 --
-    # Since 3 September 2026 this command writes config.override.json under the
-    # state directory and Get-LwgConfig merges it over the shipped defaults, so
-    # a flag written here is read by every hook that resolves through
-    # Get-LwgConfig - which is all of them but one.
+    # --- the one module this command still does not switch - #11 -------------
+    # THE REASON UNDERNEATH THIS REFUSAL IS GONE, AND THE REFUSAL IS NOT, AND
+    # THAT IS A FILE-OWNERSHIP DEADLOCK RECORDED RATHER THAN PAPERED OVER.
     #
-    # lib/subagent_start.ps1 is the exception. It reads <pluginRoot>\config.json
-    # DIRECTLY (:459-492), scanning the raw text for modules.context_injection,
-    # and only reaches Get-LwgConfig when it spots a per-repo override. Writing
-    # context_injection to the override would therefore be honoured by the
-    # banner, by /lw-watchtower:doctor and by this command's own read-back
-    # verification, and ignored by the hook the flag exists to switch: the
-    # SubagentStart hook would go on injecting worker facts into every dispatch
-    # while everything that reports on it said the module was off.
+    # It was put here because lib/subagent_start.ps1 - the SubagentStart hook
+    # that context_injection IS - read <pluginRoot>\config.json directly, by raw
+    # text scan, and reached Get-LwgConfig only for a per-repo override. So a
+    # flag written to config.override.json would have been honoured by the
+    # banner, by /lw-watchtower:doctor and by this command's own read-back, and
+    # IGNORED by the one reader the flag exists to switch. That is the silent
+    # no-op this command refuses everywhere else, so it refused here too.
     #
-    # THAT IS THE SILENT NO-OP THIS COMMAND EXISTS TO REFUSE, and it is the same
-    # refusal as the one directly above - a flag written where the reader that
-    # matters does not look. lib/subagent_start.ps1 is not this lane's file to
-    # change; what it needs is one abstain, written out on #11. Until it lands,
-    # this refuses rather than reporting a write that changes nothing.
+    # THAT HOOK NOW READS THE OVERRIDE. The abstain #11 asked for landed in
+    # lib/subagent_start.ps1 in the same change as this comment: the same two
+    # scanners are run over config.override.json, and every shape they cannot
+    # read escalates to Get-LwgConfig. A write here WOULD now be honoured.
+    #
+    # WHAT STOPS THE REFUSAL BEING LIFTED IN THIS CHANGE is that
+    # tests/config_behaviour.ps1 pins it - one case asserting exit 1, an
+    # untouched override and the words `subagent_start` and `#11` in this
+    # output - and that file belongs to another lane this wave. Lifting the
+    # refusal without moving the case turns a CI step red in a file this lane
+    # may not edit, which the protocol forbids for good reasons. The lift is
+    # four lines: delete this block. It has to land in the same pull request as
+    # the case that flips with it, and that pairing is written out on #11.
+    #
+    # SO THE TEXT BELOW SAYS THE TRUE THING INSTEAD OF THE OLD ONE. The old
+    # wording told the operator to hand-edit modules.context_injection in
+    # config.json, which is now wrong twice over: it dirties the plugin's own
+    # checkout, which is the whole of #11, and it loses to the override on any
+    # machine that has one. The by-hand route named below is the override, and
+    # it works today.
     if ($Module -eq 'context_injection' -and ($On -or $Off)) {
         Write-Refusal @(
-            "'context_injection' is a real, implemented module, and this command cannot switch it right now.",
-            'Operator settings are written to config.override.json under the state directory (#11), which',
-            'every reader resolves through Get-LwgConfig - except lib/subagent_start.ps1, the SubagentStart',
-            'hook this very module IS. It reads config.json in the plugin root directly, by raw text scan,',
-            'for speed, so it would not see the override: the flag would be written, verified against the',
-            'merged config, reported as off by the banner and the doctor, and the hook would go on injecting',
-            'worker facts into every dispatch. A write nothing honours, reported as verified, is the silent',
-            'no-op this command refuses everywhere else.',
+            "'context_injection' is a real, implemented module, and this command does not switch it yet.",
+            'The reason it did not used to be switchable is fixed: lib/subagent_start.ps1 - the SubagentStart',
+            'hook this very module IS - read config.json in the plugin root directly and would not have seen',
+            'an override, so a write here would have been reported as verified and honoured by nothing. That',
+            'hook now reads config.override.json too, and a flag written here would be honoured.',
             '',
-            'This is tracked on #11 and the fix is one abstain in lib/subagent_start.ps1. Until it lands, the',
-            'way to switch this module is to edit modules.context_injection in config.json by hand - which',
-            'dirties the plugin checkout, and is why #11 exists.'
+            'What is left is a bookkeeping step in this repository, tracked on #11: the case that pins this',
+            'refusal has to move in the same change that removes it. Until that lands, switch the module by',
+            'hand and it takes effect immediately:',
+            '',
+            "  set  modules.context_injection  in  $ovPath",
+            '',
+            'That file is outside the git working tree, so editing it does NOT dirty the plugin checkout and',
+            'does NOT block /lw-watchtower:update. Do not edit config.json in the plugin root for this: it is',
+            'the shipped defaults, and the override above wins over anything written there.'
         )
         exit $script:Exit
     }

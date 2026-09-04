@@ -281,6 +281,10 @@ $SetupPath      = Join-Path $Root 'bin\lwg-setup.ps1'
 $RepoStatusLine = Join-Path $Root 'statusline\statusline.ps1'
 $ManifestPath   = Join-Path $Root '.claude-plugin\plugin.json'
 $UpdatePath     = Join-Path $Root 'bin\lwg-update.ps1'
+# Section 26l drives the toggle in the same fixture the updater is run against,
+# because #11's third done-condition is a claim about the two TOGETHER: arming
+# the gate must not be what makes the next update refuse.
+$TogglePath     = Join-Path $Root 'bin\lwg-toggle.ps1'
 
 $script:Pass    = 0
 $script:Results = New-Object System.Collections.ArrayList
@@ -507,8 +511,14 @@ function Invoke-Setup {
       stdout, which are the only two things those cases assert on. It is a
       switch and not the default because everywhere else an unexpected stderr
       is a thing a maintainer should see.
+
+      -PluginData SEEDS CLAUDE_PLUGIN_DATA, which every other call leaves at ''.
+      Section 32 needs it: the operator override the detection report now names
+      lives in the state directory, and a case that plants one has to know where
+      the child will look. Defaulting to '' keeps every existing call on the
+      discovery path they were written against.
     #>
-    param([string]$ProfileDir, [string[]]$Arguments, [switch]$ExpectsStderr, [string]$ConfigDir = '')
+    param([string]$ProfileDir, [string[]]$Arguments, [switch]$ExpectsStderr, [string]$ConfigDir = '', [string]$PluginData = '')
 
     $prev  = $env:USERPROFILE
     $prevR = $env:CLAUDE_PLUGIN_ROOT
@@ -523,7 +533,7 @@ function Invoke-Setup {
     try {
         $env:USERPROFILE                 = $ProfileDir
         $env:CLAUDE_PLUGIN_ROOT          = ''
-        $env:CLAUDE_PLUGIN_DATA          = ''
+        $env:CLAUDE_PLUGIN_DATA          = $PluginData
         $env:CLAUDE_CODE_PLUGIN_CACHE_DIR = ''
         $env:CLAUDE_CONFIG_DIR           = $ConfigDir
         $env:APPDATA                     = $ad.roaming
@@ -786,8 +796,26 @@ function New-BehindClone {
       does not have that file makes the comparison unreachable - the row is not
       merely wrong then, it is absent, which is a third answer no case should be
       satisfied by. Defaults to empty, so every case above this one is unchanged.
+
+      -IncomingFiles is -IncomingFile for more than one path, and it REPLACES it
+      when given. Sections 26j and 26k need an incoming commit that touches
+      several of the paths bin\lwg-update.ps1 advises about, because the block
+      under test is the one that ENUMERATES them - one file at a time could not
+      tell "three needs" from "one need printed three times". Additive: with it
+      omitted, -IncomingFile is what it always was.
+
+      -IncomingContent gives one of those paths its own bytes instead of the
+      fixture line, which is how an incoming config.json can be a DIFFERENT
+      valid document rather than a corrupted one - the config-flags row parses
+      it, and a case about which flags moved cannot afford it to be the row
+      about a file that would not parse.
+
+      -IncomingDeletes removes paths in the incoming commit. `git diff
+      --name-only` lists a deletion like any other change, so this is how the
+      one branch that reports `git show` FAILING gets reached at all.
     #>
-    param([string]$Dir, [string]$IncomingFile = 'notes.md', [hashtable]$BaseFiles = @{})
+    param([string]$Dir, [string]$IncomingFile = 'notes.md', [hashtable]$BaseFiles = @{},
+          [string[]]$IncomingFiles = @(), [hashtable]$IncomingContent = @{}, [string[]]$IncomingDeletes = @())
 
     $bare     = Join-Path $Dir 'upstream.git'
     $seed     = Join-Path $Dir 'seed'
@@ -808,9 +836,28 @@ function New-BehindClone {
 
     [void](Invoke-Git -WorkDir $Dir  -GitArgs @('clone', '--quiet', '--branch', 'main', $bare, $consumer))
 
-    $inc = Join-Path $seed $IncomingFile
-    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $inc))
-    [IO.File]::WriteAllText($inc, "lwg fixture incoming`r`n")
+    $incoming = if ($IncomingFiles.Count -gt 0) { $IncomingFiles } else { @($IncomingFile) }
+    foreach ($rel in $incoming) {
+        $inc = Join-Path $seed $rel
+        [void][IO.Directory]::CreateDirectory((Split-Path -Parent $inc))
+        # APPENDED, not overwritten, where the path is one of -BaseFiles. Those
+        # arrive committed, and rewriting one with the fixture's own line would
+        # make an incoming config.json that no longer parses - which sends the
+        # config-flags row down its WARN branch and takes a case's subject with
+        # it. One trailing comment line changes the bytes without changing the
+        # meaning of any of the file types these fixtures use.
+        if ($IncomingContent.Contains($rel)) {
+            [IO.File]::WriteAllText($inc, [string]$IncomingContent[$rel])
+        } elseif ([IO.File]::Exists($inc)) {
+            [IO.File]::AppendAllText($inc, "`r`n")
+        } else {
+            [IO.File]::WriteAllText($inc, "lwg fixture incoming`r`n")
+        }
+    }
+    foreach ($rel in $IncomingDeletes) {
+        $del = Join-Path $seed $rel
+        if ([IO.File]::Exists($del)) { [IO.File]::Delete($del) }
+    }
     [void](Invoke-Git -WorkDir $seed -GitArgs @('add', '-A'))
     [void](Invoke-Git -WorkDir $seed -GitArgs @('commit', '--quiet', '-m', 'lwg fixture: incoming commit'))
     [void](Invoke-Git -WorkDir $seed -GitArgs @('push', '--quiet', 'origin', 'HEAD:refs/heads/main'))
@@ -3060,36 +3107,57 @@ try {
         "a machine that has never wired the status line up must still be told its default copy has drifted. Row:`n$slRow2`nOutput:`n$($b.out)"
 
     # -------------------------------------------------------------------
-    # 26i. THE REFUSAL NAMES WHAT IS DIRTY, AND SAYS WHICH OF IT THE PLUGIN
-    #      WROTE ITSELF (#11).
+    # 26i. THE REFUSAL NAMES WHAT IS DIRTY, AND NO LONGER BLAMES THE PLUGIN FOR
+    #      IT (#11, #234).
     #
-    #      config.json is TRACKED, and /lw-watchtower:config and the toggle
-    #      commands write into it. So arming a gate dirties the plugin's own
-    #      checkout, and the next /lw-watchtower:update refuses:
+    #      THE ATTRIBUTION HALF OF THIS SECTION HAS BEEN INVERTED, and the
+    #      history is kept because it is the whole reason #234 exists. Until
+    #      3 September 2026 config.json was TRACKED and /lw-watchtower:config and
+    #      the toggle commands wrote into it. So arming a gate dirtied the
+    #      plugin's own checkout, and the next /lw-watchtower:update refused:
     #
     #        [FAIL] worktree     1 uncommitted change(s) on main. This command
     #                            does not stash, reset or check out anything -
     #                            commit or set them aside first.
     #
-    #      That sentence names no file. It reads to an operator as their own
-    #      work in progress, and it is not - the plugin wrote it, by doing the
-    #      thing the plugin is for. Batch A1 reproduced the whole chain end to
-    #      end and refused to half-fix it, correctly: moving the WRITE without
-    #      moving the READ produces a silent no-op that the command's own exit-2
-    #      verification would report as verified. That decision is above a
-    #      builder and is still open on #11.
+    #      That sentence named no file. It read to an operator as their own work
+    #      in progress, and it was not - the plugin had written it, by doing the
+    #      thing the plugin is for. #220 added the path list and a sentence
+    #      saying so, and that sentence was correct on the day it landed.
     #
-    #      WHAT IS LANDABLE HERE IS THE SENTENCE, which #11's own "what done
-    #      looks like" asks for as the minimum. The same row is what makes #214
-    #      hurt, so it is worth more than one issue.
+    #      PR #229 THEN MOVED EVERY ONE OF THOSE WRITES OUT OF THE REPOSITORY.
+    #      config.json is the shipped defaults and nothing in this tree writes
+    #      it; operator settings go to config.override.json under the state
+    #      directory. So the only way config.json can be dirty today is that a
+    #      PERSON edited it - and the row went on telling that person the change
+    #      was probably the plugin's and "may not be yours to commit". An
+    #      operator who believed it would discard their own work as residue.
+    #      That is a report stating a mechanism that is no longer running, which
+    #      is the class of defect this plugin exists to catch, pointed at its own
+    #      updater. #234.
     #
-    #      TWO DIRTY PATHS, ONE OF EACH KIND: config.json, which the plugin
-    #      writes, and a file that is nobody's but the operator's. A case with
+    #      AND THIS SUITE HELD IT THERE. The case below asserted the row still
+    #      contained `toggle commands` and `#11`, so the guard pinned the false
+    #      sentence and any fix had to move the case with it. Recorded rather
+    #      than quietly rewritten: a test that keeps a wrong statement green is
+    #      the shape this repository keeps filing against itself.
+    #
+    #      NAMING THE PATH IS KEPT. That half was always useful - it is escape
+    #      route 2b on #11 - and only the ATTRIBUTION is inverted. The useful
+    #      half now runs the other way: this is the one file in a dirty list the
+    #      operator can be told, positively, that no command in this plugin
+    #      touched.
+    #
+    #      TWO DIRTY PATHS, ONE OF EACH KIND: config.json, which this plugin
+    #      ships, and a file that is nobody's but the operator's. A case with
     #      only config.json in it would pass against a row that names every
-    #      dirty path and says nothing about which one this plugin caused.
+    #      dirty path and says nothing particular about that one.
     #
     #      BASELINE ec80e88: "2 uncommitted change(s) on main. This command does
     #      not stash..." - no path, no mention of config.json.
+    #      BASELINE c39e782: the row said "config.json is written by
+    #      /lw-watchtower:config and by the toggle commands ... that change may
+    #      not be yours to commit", which is the opposite of the truth.
     # -------------------------------------------------------------------
     $t = New-CaseTree -Tag 'update-dirty-named' -Bytes $null
     $pair = New-BehindClone -Dir (Join-Path $t.dir 'repos') -BaseFiles @{
@@ -3104,9 +3172,12 @@ try {
     Add-Result 'update: the worktree refusal names the files that are dirty' `
         ([bool]($wtRow -match 'config\.json' -and $wtRow -match 'operator-work\.md')) `
         "the row counted the changes and threw the paths away, so it reads as the operator's own work in progress whatever caused it. Row:`n$wtRow"
-    Add-Result 'update: and says config.json is one this plugin writes itself (#11)' `
-        ([bool]($wtRow -match 'toggle commands' -and $wtRow -match '#11')) `
-        "config.json is tracked and /lw-watchtower:config writes into it, so arming a gate refuses the next update over a change the operator did not make. Naming the file is not the fix - moving the write needs the reader moved with it, which is #11 - but the operator must at least be told which of these is theirs. Row:`n$wtRow"
+    Add-Result 'update: and says config.json is NOT one this plugin writes, so the edit is the operator''s (#234)' `
+        ([bool]($wtRow -match 'no command in this plugin writes it' -and
+                $wtRow -match 'config\.override\.json' -and
+                $wtRow -notmatch 'may not be yours to commit')) `
+        ("config.json is the shipped defaults and nothing in this tree writes it since #229, so a dirty config.json is somebody's edit in this repository. " +
+         "The row must say that and must name the file the plugin does write. It said the opposite for a day, and this case is what held the false sentence green. Row:`n$wtRow")
     Add-Result 'update: the refusal still refuses - nothing about naming it makes it a warning' `
         ([bool]($wtRow -match '\[FAIL\]' -and $a.out -match 'does not stash, reset or check out anything')) `
         "a dirty tree is still a refusal; this section only changes what the refusal says. Row:`n$wtRow"
@@ -3121,6 +3192,271 @@ try {
     Add-Result 'CONTROL update: a clean worktree is still reported clean, with no file list' `
         ([bool]($wtRow2 -match '\[OK' -and $wtRow2 -match 'clean on' -and $wtRow2 -notmatch 'uncommitted')) `
         "Row:`n$wtRow2`nOutput:`n$($b.out)"
+
+    # -------------------------------------------------------------------
+    # 26j. THE RE-APPROVAL BLOCK CAN COUNT, AND CAN ENUMERATE (#222).
+    #
+    #      Get-Needs ended `return , @($n)`. The unary comma wraps
+    #      UNCONDITIONALLY, so what left the function was a ONE-ELEMENT array
+    #      holding the whole list, and the caller's own `@(...)` could not undo
+    #      it. Both branches were wrong: an empty list rendered
+    #      "NEEDS RE-APPROVAL OR RE-INSTALL (1):" over a BLANK bullet, and three
+    #      needs rendered "(1):" over ONE bullet with all three space-joined by
+    #      $OFS in "    - $n".
+    #
+    #      THE BLOCK'S WHOLE JOB IS TO ENUMERATE what an operator must re-approve
+    #      after an update. A count that always reads (1) is not a wrong number
+    #      in a report; it is a report that cannot say "three things need your
+    #      attention". Nothing caught it - the block rendered, the exit code was
+    #      unchanged, and the only two assertions section 26 made about it were
+    #      NEGATIVE substring tests, which the space-joining left true either
+    #      way.
+    #
+    #      GREEN AT c39e782, WHICH IS WHERE THE FIX ALREADY IS. #229's lane
+    #      landed `return @($n)` and recorded a probe rather than a case, and QA
+    #      refused to close on that. So the red for these two is BY MUTATION:
+    #      restore `return , @($n)` in bin\lwg-update.ps1 and both go red, one
+    #      on the count and one on the blank bullet. That is stated here rather
+    #      than dressed up as a baseline failure.
+    #
+    #      THREE NEEDS, NOT ONE, and the file list is chosen so exactly three of
+    #      the five branches fire: hooks/hooks.json, .claude-plugin/plugin.json
+    #      and one commands/*.md. statusline\statusline.ps1 and config.json are
+    #      deliberately absent, so (3) is a number this fixture earns.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'update-needs-three' -Bytes $null
+    $pair = New-BehindClone -Dir (Join-Path $t.dir 'repos') -IncomingFiles @(
+        'hooks/hooks.json', '.claude-plugin/plugin.json', 'commands/delegate.md')
+    $a = Invoke-Update -ProfileDir $t.profile -Arguments @('-Root', $pair.consumer, '-Offline', '-SkipDoctor')
+    $bullets = @($a.out -split "`r?`n" | Where-Object { $_ -match '^\s+- \S' })
+    $blanks  = @($a.out -split "`r?`n" | Where-Object { $_ -match '^\s+- \s*$' })
+
+    Add-Result 'update: three incoming files that need re-approval render (3) and three bullets (#222)' `
+        ([bool]($a.out -match 'NEEDS RE-APPROVAL OR RE-INSTALL \(3\):') -and $bullets.Count -eq 3) `
+        ("expected '(3):' and three lines matching '^\s+- \S'; found $($bullets.Count) bullet(s). " +
+         "`return , @(`$n)` collapses every need onto one space-joined bullet while the count still says (1), so the block cannot say how many things need attention. Output:`n$($a.out)")
+
+    # PER BULLET, NOT OVER THE JOINED TEXT, and the difference is the whole
+    # defect. Asserting that all three substrings appear ANYWHERE is satisfied
+    # by the collapse - one bullet holding all three space-joined contains every
+    # one of them - which is exactly the shape of the two negative substring
+    # tests in 26h that let this ship. So: each pattern must match exactly ONE
+    # bullet, and no bullet may match more than one.
+    $needPatterns = @('hooks/hooks\.json changes:',
+                      '\.claude-plugin/plugin\.json changes:',
+                      'new or changed slash command \(commands/delegate\.md\)')
+    $perPattern = @($needPatterns | ForEach-Object { $p = $_; @($bullets | Where-Object { $_ -match $p }).Count })
+    $overloaded = @($bullets | Where-Object { $b = $_; @($needPatterns | Where-Object { $b -match $_ }).Count -gt 1 })
+    Add-Result 'update: and each of the three is its own bullet, not three joined into one (#222)' `
+        ([bool](@($perPattern | Where-Object { $_ -ne 1 }).Count -eq 0 -and $overloaded.Count -eq 0)) `
+        ("each need must be on a line of its own: bullets matched per need = $($perPattern -join ', ') (each must be 1), and $($overloaded.Count) bullet(s) carried more than one need. " +
+         "`$OFS joins the whole array into one string in `"    - `$n`", so the collapse puts all three on one line and every plain substring test stays true. Bullets:`n" + ($bullets -join "`n"))
+
+    # CONTROL, and the other half of #222: an EMPTY need list. The wrapper made
+    # this the worse of the two - a header saying (1) over a bullet with nothing
+    # after it - and it is the branch an ordinary pull takes.
+    $t2 = New-CaseTree -Tag 'update-needs-none' -Bytes $null
+    $pair2 = New-BehindClone -Dir (Join-Path $t2.dir 'repos')
+    $b = Invoke-Update -ProfileDir $t2.profile -Arguments @('-Root', $pair2.consumer, '-Offline', '-SkipDoctor')
+    $blanks2 = @($b.out -split "`r?`n" | Where-Object { $_ -match '^\s+- \s*$' })
+    Add-Result 'update: an incoming commit needing no re-approval says so, with no blank bullet (#222)' `
+        ([bool]($b.out -match 'NEEDS RE-APPROVAL OR RE-INSTALL: nothing found\.') -and
+                $b.out -notmatch 'NEEDS RE-APPROVAL OR RE-INSTALL \(' -and $blanks2.Count -eq 0) `
+        ("expected 'nothing found.' and no line matching '^\s+- \s*$'; found $($blanks2.Count) blank bullet(s). " +
+         "The wrapper made an empty list into a one-element one, so this branch printed '(1):' over an empty bullet. Output:`n$($b.out)")
+
+    # -------------------------------------------------------------------
+    # 26k. THE PAYLOAD IS A SUBDIRECTORY NOW, AND EVERY ADVISORY IN THIS FILE
+    #      COMPARES A PATH (#238, #118).
+    #
+    #      $changed is built from `git diff --name-only` with -WorkDir $Root and
+    #      NO --relative, so git prints paths relative to the REPOSITORY ROOT.
+    #      After PR #236 the shipped payload lives under lw-watchtower/, so every
+    #      one of those paths is `lw-watchtower/...` while EIGHT comparisons in
+    #      bin\lwg-update.ps1 were written against `hooks/hooks.json`,
+    #      `.claude-plugin/plugin.json`, `statusline/statusline.ps1`,
+    #      `config.json` and `commands/*`.
+    #
+    #      #238 COUNTS NINE AND THE NINTH GOES THE OTHER WAY, which this section
+    #      is how anybody found out. $dirtyPaths comes from
+    #      `git status --porcelain=v2`, which honours status.relativePaths -
+    #      default true - and therefore prints paths relative to -WorkDir, i.e.
+    #      ALREADY payload-relative. PR #236 gave that comparison the prefix too,
+    #      and it then matched nothing on the shape it was added for. So the
+    #      count is eight-plus-one, and the mutation note below says what each
+    #      half does.
+    #
+    #      NOTHING GOES RED WHEN THOSE STOP MATCHING. No row disappears, no exit
+    #      code moves: the operator simply stops being told that a hooks change
+    #      needs a new session, that the status-line copy is now stale, that
+    #      module flags moved, or which file in a dirty tree is the shipped
+    #      defaults. The advisories quietly stop. That is the failure shape this
+    #      project is named for, and #236 landed the fix - a prefix derived from
+    #      `git rev-parse --show-prefix` - with no case at all, which is #238.
+    #
+    #      THIS FIXTURE IS THE SHIPPED SHAPE: a repository whose payload is in a
+    #      subdirectory, with -Root pointing INTO it, which is what
+    #      /lw-watchtower:update does on a real install. --show-prefix returns
+    #      '' when -Root is the repository root, which is what every case above
+    #      exercises, so the two shapes are both covered.
+    #
+    #      HOW EACH ASSERTION BELOW GOES RED, and they do not all go the same
+    #      way, which is the whole finding:
+    #
+    #        the WORKTREE one is red at c39e782 with NO mutation at all - the
+    #        prefix is on that comparison there and it matches nothing;
+    #        the other three are green at c39e782 and go red BY MUTATION -
+    #        force `$script:PathPrefix = ''` at bin\lwg-update.ps1's derivation,
+    #        which is the one place the eight literals are built from.
+    #
+    #      Under that same mutation the worktree one goes GREEN, because the bare
+    #      `config.json` is what git status prints. Two mutations pointing
+    #      opposite ways over one variable is the evidence for the split, and it
+    #      is stated rather than averaged into "all four fail together".
+    # -------------------------------------------------------------------
+    $repoConfigBytes = [IO.File]::ReadAllBytes((Join-Path $Root 'config.json'))
+    $t = New-CaseTree -Tag 'update-payload-prefix' -Bytes $null
+    $pair = New-BehindClone -Dir (Join-Path $t.dir 'repos') -BaseFiles @{
+        'lw-watchtower/config.json'              = $Utf8NoBom.GetBytes('{"modules":{"docs_coupling":true}}')
+        'lw-watchtower/statusline/statusline.ps1' = $repoStatusLineBytes
+    } -IncomingFiles @(
+        'lw-watchtower/hooks/hooks.json', 'lw-watchtower/.claude-plugin/plugin.json',
+        'lw-watchtower/statusline/statusline.ps1', 'lw-watchtower/config.json',
+        'lw-watchtower/commands/delegate.md'
+    ) -IncomingContent @{
+        'lw-watchtower/config.json' = '{"modules":{"docs_coupling":false}}'
+    }
+    $payloadRoot = Join-Path $pair.consumer 'lw-watchtower'
+    # The dirty path, so the worktree row's literal is exercised too. A DIFFERENT
+    # flag from the incoming one, so the config-flags row below has two moves to
+    # report and cannot be satisfied by an empty diff.
+    [IO.File]::WriteAllText((Join-Path $payloadRoot 'config.json'), '{"modules":{"docs_coupling":true,"git_hygiene":false}}')
+    $a = Invoke-Update -ProfileDir $t.profile -Arguments @('-Root', $payloadRoot, '-Offline', '-SkipDoctor')
+    $wtRow3 = (@($a.out -split "`r?`n" | Where-Object { $_ -match '^\s+\[\w+\s*\]\s+worktree\s' }) -join ' ')
+    $cfRow  = (@($a.out -split "`r?`n" | Where-Object { $_ -match '^\s+\[\w+\s*\]\s+config-flags\s' }) -join ' ')
+    $needBullets = @($a.out -split "`r?`n" | Where-Object { $_ -match '^\s+- \S' })
+    $needText = ($needBullets -join "`n")
+
+    # RED AT c39e782 WITHOUT ANY MUTATION, and it is the one assertion here that
+    # is. PR #236 applied the prefix to this comparison as well, and
+    # `git status --porcelain=v2` prints paths relative to -WorkDir - which is
+    # the payload directory - so `lw-watchtower/config.json` matched nothing and
+    # the sentence #220 added, and #234 corrected, could not fire on the shape
+    # the plugin actually ships. Measured with git 2.53.0:
+    #
+    #   git -C <repo>     status --porcelain=v2  ->  sub/config.json
+    #   git -C <repo/sub> status --porcelain=v2  ->  config.json
+    #   git -C <repo/sub> diff   --name-only     ->  sub/config.json
+    #
+    # so the eight comparisons against $changed need the prefix and this one
+    # must not have it. Filed as its own issue; fixed here because it is the
+    # ninth literal and this section is what #238 asked for.
+    Add-Result 'update: the worktree row still recognises config.json when the payload is a subdirectory (#238)' `
+        ([bool]($wtRow3 -match 'config\.json' -and $wtRow3 -match 'no command in this plugin writes it')) `
+        ("git status --porcelain=v2 prints paths relative to -WorkDir, so this comparison must NOT carry the repo prefix - with it the row lists the file and says nothing about it, which is the advisory going silent. Row:`n$wtRow3`nOutput:`n$($a.out)")
+
+    $missing = @(
+        @{ n = 'hooks/hooks.json';           p = 'hooks/hooks\.json changes:' }
+        @{ n = '.claude-plugin/plugin.json'; p = '\.claude-plugin/plugin\.json changes:' }
+        @{ n = 'statusline/statusline.ps1';  p = 'statusline/statusline\.ps1 changes:' }
+        @{ n = 'config.json';                p = 'config\.json changes:' }
+        @{ n = 'commands/*';                 p = 'new or changed slash command \(lw-watchtower/commands/delegate\.md\)' }
+    ) | Where-Object { $needText -notmatch $_.p } | ForEach-Object { $_.n }
+
+    Add-Result 'update: all five re-approval advisories still fire when the payload is a subdirectory (#238)' `
+        ([bool]($missing.Count -eq 0 -and $a.out -match 'NEEDS RE-APPROVAL OR RE-INSTALL \(5\):')) `
+        ("$($missing.Count) advisory(ies) did not fire: $($missing -join ', '). These are five of the eight repo-root-relative path literals PR #236 had to change, and nothing went red when they stopped matching. Bullets:`n$needText`nOutput:`n$($a.out)")
+
+    Add-Result 'update: the config-flags row is computed for a payload config.json, and names the flags that move (#238)' `
+        ([bool]($cfRow -and $cfRow -match 'docs_coupling' -and $cfRow -match 'git_hygiene')) `
+        ("the row is built by `git show <upstream>:<prefix>config.json`, so without the prefix the branch is never entered and the row is ABSENT - which is a third answer, not a wrong one. Row:`n$cfRow`nOutput:`n$($a.out)")
+
+    # THE LAST OF THE EIGHT is the FAILURE twin of the one above it: the same
+    # `git show`, reported when it does not answer. It is only reachable when the ref is not
+    # there, so the incoming commit DELETES the payload config.json - a deletion
+    # is a change like any other to `git diff --name-only`, so the branch is
+    # entered and the show then fails.
+    $t2 = New-CaseTree -Tag 'update-prefix-show-fails' -Bytes $null
+    $pair2 = New-BehindClone -Dir (Join-Path $t2.dir 'repos') -BaseFiles @{
+        'lw-watchtower/config.json' = $Utf8NoBom.GetBytes('{"modules":{"docs_coupling":true}}')
+    } -IncomingFiles @('notes.md') -IncomingDeletes @('lw-watchtower/config.json')
+    $b = Invoke-Update -ProfileDir $t2.profile -Arguments @('-Root', (Join-Path $pair2.consumer 'lw-watchtower'), '-Offline', '-SkipDoctor')
+    $cfRow2 = (@($b.out -split "`r?`n" | Where-Object { $_ -match '^\s+\[\w+\s*\]\s+config-flags\s' }) -join ' ')
+    Add-Result 'update: and when that git show cannot answer, the WARN names the prefixed ref (#238)' `
+        ([bool]($cfRow2 -match '\[WARN\]' -and $cfRow2 -match 'git show .*:lw-watchtower/config\.json')) `
+        ("the row that reports the failure spells the ref itself, so it is a ninth place the prefix has to reach. Row:`n$cfRow2`nOutput:`n$($b.out)")
+
+    # -------------------------------------------------------------------
+    # 26l. ARMING THE GATE NO LONGER DISABLES THE UPDATER (#11, done-condition
+    #      (c)).
+    #
+    #      THE WHOLE OF #11 IN ONE CASE. Until 3 September 2026 the four
+    #      configuring commands wrote config.json, which is TRACKED and inside
+    #      the plugin's own git working tree. So the documented first thing a new
+    #      operator does - /lw-watchtower:delegate on, arming the only gate this
+    #      plugin ships - left the checkout dirty, and /lw-watchtower:update
+    #      refused to pull for good. Neither escape worked: discarding the change
+    #      disarms the gate, and committing it puts a commit on local main that
+    #      origin does not have, which turns the --ff-only pull into a permanent
+    #      not-a-fast-forward.
+    #
+    #      IT WAS MEASURED BY HAND TWICE AND PINNED BY NOTHING. #229 moved the
+    #      write to config.override.json under the state directory and QA
+    #      verified all three done-conditions in a fresh clone, and recorded that
+    #      this one had no committed case anywhere. This is that case: the toggle
+    #      and the updater in ONE fixture, which is the shape no suite had.
+    #
+    #      -ConfigPath IS THE SEAM, not a copied tree: bin\lwg-toggle.ps1 takes
+    #      it, so the REAL script writes against the fixture's defaults while
+    #      CLAUDE_PLUGIN_DATA sends the override to a scratch directory. Nothing
+    #      here touches this machine.
+    #
+    #      GREEN AT c39e782, where #229 already is. The red is history rather
+    #      than mutation, and is recorded as such: at 4342980 the toggle wrote
+    #      the fixture's config.json, `git status` reported it, and the worktree
+    #      row was [FAIL].
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'update-after-toggle' -Bytes $null
+    $pair = New-BehindClone -Dir (Join-Path $t.dir 'repos') -BaseFiles @{
+        'lw-watchtower/config.json' = $repoConfigBytes
+    }
+    $togglePayload = Join-Path $pair.consumer 'lw-watchtower'
+    $toggleData    = Join-Path $t.dir 'plugin-data'
+    [void][IO.Directory]::CreateDirectory($toggleData)
+    $toggleCfg     = Join-Path $togglePayload 'config.json'
+
+    $prevU = $env:USERPROFILE; $prevD2 = $env:CLAUDE_PLUGIN_DATA
+    $prevR2 = $env:CLAUDE_PLUGIN_ROOT; $prevG2 = $env:CLAUDE_CONFIG_DIR
+    $tog = @{ code = 255; out = '' }
+    try {
+        $env:USERPROFILE        = $t.profile
+        $env:CLAUDE_PLUGIN_DATA = $toggleData
+        $env:CLAUDE_PLUGIN_ROOT = ''
+        $env:CLAUDE_CONFIG_DIR  = ''
+        $lines = & powershell -NoProfile -ExecutionPolicy Bypass -File $TogglePath -Flag delegate on -ConfigPath $toggleCfg
+        $togCode = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+        $tog = @{ code = $togCode; out = ($lines | Out-String) }
+    } finally {
+        $env:USERPROFILE        = $prevU
+        $env:CLAUDE_PLUGIN_DATA = $prevD2
+        $env:CLAUDE_PLUGIN_ROOT = $prevR2
+        $env:CLAUDE_CONFIG_DIR  = $prevG2
+    }
+
+    $porcelain = (Invoke-Git -WorkDir $pair.consumer -GitArgs @('status', '--porcelain')).Trim()
+    $ovFile    = Join-Path $toggleData 'config.override.json'
+    $ovText    = if ([IO.File]::Exists($ovFile)) { [IO.File]::ReadAllText($ovFile) } else { '' }
+
+    Add-Result 'update: arming the gate writes the override outside the checkout, and writes nothing into it (#11)' `
+        ([bool]($tog.code -eq 0 -and $ovText -match '"delegate"\s*:\s*true' -and $porcelain -eq '')) `
+        ("the toggle exited $($tog.code); git status --porcelain in the checkout said '$porcelain'; the override file $(if ($ovText) { 'holds ' + $ovText.Trim() } else { 'DOES NOT EXIST' }). " +
+         "config.json is tracked, so a write there is what disabled the updater. Toggle output:`n$($tog.out)")
+
+    $c = Invoke-Update -ProfileDir $t.profile -PluginData $toggleData -Arguments @('-Root', $togglePayload, '-Offline', '-SkipDoctor')
+    $wtRow4 = (@($c.out -split "`r?`n" | Where-Object { $_ -match '^\s+\[\w+\s*\]\s+worktree\s' }) -join ' ')
+    Add-Result 'update: and the very next update reports a CLEAN worktree rather than refusing (#11)' `
+        ([bool]($wtRow4 -match '\[OK' -and $wtRow4 -match 'clean on')) `
+        ("this is #11's third done-condition and it had no case anywhere. The gate is armed at this point; the row must still be OK. Row:`n$wtRow4`nOutput:`n$($c.out)")
 
     # -------------------------------------------------------------------
     # 27. THE STATUS LINE IS NOT THE ONLY THING THE OPERATOR SEES (#175).
@@ -3569,6 +3905,78 @@ try {
     Add-Result 'hooks writer: a stale -BaseHash takes no backup' `
         ((Get-SettingsBackups $t.dir).Count -eq 0) `
         "found $((Get-SettingsBackups $t.dir).Count) .bak on a hooks run that wrote nothing; a backup is a write, and one taken here leaves an artefact the operator has no reason to expect"
+
+    # -------------------------------------------------------------------
+    # 32. THE DETECTION REPORT NAMES BOTH CONFIG FILES, NOT JUST THE ONE THAT
+    #     HOLDS NOTHING (#11).
+    #
+    #     The MODULE SWITCHBOARD block named <pluginRoot>\config.json alone and
+    #     then told the operator "to turn a module on or off, edit that file".
+    #     Since 3 September 2026 that is wrong twice over. config.json is the
+    #     SHIPPED DEFAULTS; the operator's own ON/OFF choices go to
+    #     config.override.json under the state directory, Get-LwgConfig merges it
+    #     over the defaults, and it WINS. So the advice sent the operator to
+    #     dirty the plugin's own git working tree - which is the whole of #11 -
+    #     in order to write a value the override would then override.
+    #
+    #     THE STATE IS SAID, NOT JUST THE PATH. An override that exists and does
+    #     not parse is IGNORED by Get-LwgConfig on purpose, so the table above it
+    #     is the defaults and everything recorded in that file is doing nothing.
+    #     Printing a path with no verdict would read as "these came from here"
+    #     about a file that was thrown away.
+    #
+    #     THREE RUNS, ONE PER STATE, because a report that only mentions the
+    #     override when something is wrong makes its ABSENCE the thing a reader
+    #     has to notice - and nobody notices an absence.
+    #
+    #     -PluginData is what makes this fixture possible: every other call here
+    #     leaves CLAUDE_PLUGIN_DATA at '' and lets the child discover a state
+    #     directory, and a case that PLANTS an override has to know where the
+    #     child will look.
+    #
+    #     BASELINE c39e782: '  file               : ...\config.json' followed by
+    #     'To turn a module on or off, edit that file.' - and no mention of the
+    #     override in any of the three states.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'setup-override-absent' -Bytes $null
+    $sd = Join-Path $t.dir 'plugin-data'
+    [void][IO.Directory]::CreateDirectory($sd)
+    $ovp = Join-Path $sd 'config.override.json'
+
+    $r1 = Invoke-Setup -ProfileDir $t.profile -PluginData $sd -Arguments @('-Step', 'detect', '-SettingsPath', $t.settings)
+    Add-Result 'setup: the switchboard names the defaults file AND the override that would win over it (#11)' `
+        ([bool]($r1.out -match '(?m)^\s+file\s+:.*config\.json' -and
+                $r1.out -match ('(?m)^\s+operator override\s+:\s+none yet - ' + [regex]::Escape($ovp)))) `
+        ("a fresh install has no override, and the report must say so positively - a block that mentions the file only when one exists makes its absence the thing a reader has to spot. Output:`n$($r1.out)")
+
+    Add-Result 'setup: and no longer tells the operator to edit the tracked file to switch a module (#11)' `
+        ([bool]($r1.out -notmatch 'To turn a module on or off, edit that file' -and
+                $r1.out -match '/lw-watchtower:config or edit the override file')) `
+        ("editing config.json dirties the plugin's own git working tree, which is #11, and the override wins over whatever is written there. Output:`n$($r1.out)")
+
+    $t2 = New-CaseTree -Tag 'setup-override-valid' -Bytes $null
+    $sd2 = Join-Path $t2.dir 'plugin-data'
+    [void][IO.Directory]::CreateDirectory($sd2)
+    $ovp2 = Join-Path $sd2 'config.override.json'
+    [IO.File]::WriteAllBytes($ovp2, $Utf8NoBom.GetBytes('{ "modules": { "docs_coupling": false } }'))
+    $r2 = Invoke-Setup -ProfileDir $t2.profile -PluginData $sd2 -Arguments @('-Step', 'detect', '-SettingsPath', $t2.settings)
+    Add-Result 'setup: an override that IS in effect is named as the file a hook reads (#11)' `
+        ([bool]($r2.out -match ('(?m)^\s+operator override\s+:\s+' + [regex]::Escape($ovp2) + '\s+\[merged over the defaults'))) `
+        ("the values in the table above are resolved through Get-LwgConfig, which merged this file over the defaults; naming only config.json credits them to a file that holds none of them. Output:`n$($r2.out)")
+
+    $t3 = New-CaseTree -Tag 'setup-override-broken' -Bytes $null
+    $sd3 = Join-Path $t3.dir 'plugin-data'
+    [void][IO.Directory]::CreateDirectory($sd3)
+    $ovp3 = Join-Path $sd3 'config.override.json'
+    # Truncated, not gibberish: what a settings file looks like after a crashed
+    # or interrupted write, which is how an operator reaches this state without
+    # having done anything wrong.
+    [IO.File]::WriteAllBytes($ovp3, $Utf8NoBom.GetBytes('{ "modules": { "docs_coupling": fal'))
+    $r3 = Invoke-Setup -ProfileDir $t3.profile -PluginData $sd3 -Arguments @('-Step', 'detect', '-SettingsPath', $t3.settings)
+    Add-Result 'setup: an override that was DISCARDED is reported as ignored, and raised as a caveat (#11)' `
+        ([bool]($r3.out -match ('(?m)^\s+operator override\s+:\s+IGNORED - ' + [regex]::Escape($ovp3)) -and
+                $r3.out -match '(?m)^\s+!\s+the operator override exists but could not be read')) `
+        ("Get-LwgConfig ignores an override it cannot parse rather than throwing, so every ON/OFF choice in it is silently not in effect while the table above shows the defaults. Output:`n$($r3.out)")
 
     # -------------------------------------------------------------------
     # 29. THIS SUITE MUST NOT LEAVE ANYTHING IN THE WORKING DIRECTORY (#214).

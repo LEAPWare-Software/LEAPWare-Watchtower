@@ -1149,9 +1149,36 @@ function Write-DetectionReport {
             Write-Output '                       choice in it is being ignored'
             Add-Caveat 'config.json is unreadable, so the plugin is running on built-in defaults'
         }
-        Write-Output ("  file               : {0}" -f ([IO.Path]::Combine($D.pluginRoot, 'config.json')))
-        Write-Output '  To turn a module on or off, edit that file. Setup deliberately does not: it is a'
-        Write-Output '  tracked file in a git working tree, and writing to it would dirty the repo.'
+        # TWO FILES, AND NAMING ONLY THE FIRST SENT THE OPERATOR TO THE WRONG
+        # ONE - #11. Since 3 September 2026 config.json is the SHIPPED DEFAULTS
+        # and nothing writes it; the operator's own ON/OFF choices live in
+        # config.override.json under the state directory, which Get-LwgConfig
+        # merges over the defaults and which every reader therefore resolves.
+        # This block used to name config.json alone and then tell the operator
+        # to edit it - advice that now loses to the override on any machine
+        # that has one, silently, which is the class of wrongness this report
+        # exists to remove.
+        #
+        # THE OVERRIDE'S STATE IS SAID, NOT JUST ITS PATH. An override that
+        # exists and does not parse is IGNORED by Get-LwgConfig on purpose, so
+        # the values above are the defaults and everything recorded in that file
+        # is doing nothing. Printing its path with no verdict would read as
+        # "these came from here" about a file that was discarded.
+        $ovPath = ''
+        try { $ovPath = "$(Get-LwgConfigOverridePath)" } catch { $ovPath = '' }
+        if ([string]::IsNullOrWhiteSpace($ovPath)) { $ovPath = 'config.override.json under the state directory' }
+        Write-Output ("  file               : {0}   [the SHIPPED DEFAULTS - nothing writes this]" -f ([IO.Path]::Combine($D.pluginRoot, 'config.json')))
+        if ("$($D.config._override_error)" -ne '') {
+            Write-Output ("  operator override  : IGNORED - {0} exists but {1}, so nothing recorded in it is in effect" -f $ovPath, $D.config._override_error)
+            Add-Caveat 'the operator override exists but could not be read, so every ON/OFF choice recorded in it is being ignored'
+        } elseif ("$($D.config._override)" -ne '') {
+            Write-Output ("  operator override  : {0}   [merged over the defaults; this is what a hook reads]" -f $D.config._override)
+        } else {
+            Write-Output ("  operator override  : none yet - {0} would be it" -f $ovPath)
+        }
+        Write-Output '  To turn a module on or off, run /lw-watchtower:config or edit the override file.'
+        Write-Output '  Setup deliberately writes neither. config.json is a tracked file in a git working'
+        Write-Output '  tree and editing it there would dirty the repo, and it loses to the override anyway.'
     }
 }
 
