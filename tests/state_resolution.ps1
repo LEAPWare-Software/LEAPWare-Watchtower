@@ -1821,7 +1821,8 @@ Say 'LW-WATCHTOWER state-resolution and platform suite'
 Say '  A #146 CLAUDE_CONFIG_DIR   B #60 probe 2   C #106 selfcheck.probe'
 Say '  D #8 marketplace layout    E #132 platform and hook events, #249 the registry''s own prose'
 Say '  F #177 the four unasserted probes and the mode ladder'
-Say '  G #144 the banner   #177 the additionalContext envelope'
+Say '  G #144 the banner   #177 the additionalContext envelope   #266 its remainder count'
+Say '  H #269 the payload is UTF-8 and [Console]::In decoded it at the console''s code page'
 Say ''
 
 try {
