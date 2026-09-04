@@ -440,6 +440,56 @@ function New-Sandbox {
     return $sand
 }
 
+function New-NoFileHashRunner {
+    <#
+      A launcher that runs $Target in a real Windows PowerShell 5.1 child with
+      one difference: `Get-FileHash` does not resolve, and any call to it throws
+      the CommandNotFoundException a 5.1 child throws once a PowerShell 7
+      PSModulePath has shadowed Microsoft.PowerShell.Utility - message verbatim
+      (#273). Returns the launcher's path, for Invoke-Toggle -ScriptPath.
+
+      A SECOND COPY, DELIBERATELY. tests\uninstall_footprint.ps1 carries the
+      original and its full reasoning - why the NAME is shadowed rather than the
+      module (a synthetic module does not reproduce it; four were measured), why
+      an ALIAS rather than a function (a function is replaced by the module's own
+      when the call triggers the auto-load), and what the fixture therefore does
+      and does not establish. That reasoning is not repeated here. It is copied
+      rather than shared because the two suites share no harness file and the
+      standing rule is that no new file appears under tests\ - fifteen lines
+      duplicated is the cheaper of the two.
+
+      IT DISCRIMINATES ON THE RIGHT THING: red for any code that calls
+      Get-FileHash on the path under test, green only for code that does not.
+    #>
+    param([Parameter(Mandatory = $true)][string]$Path,
+          [Parameter(Mandatory = $true)][string]$Target)
+
+    $dir = Split-Path -Parent $Path
+    [void][IO.Directory]::CreateDirectory($dir)
+    $thrower = Join-Path $dir 'lwg-no-filehash.ps1'
+    [IO.File]::WriteAllText($thrower, (
+        'throw (New-Object System.Management.Automation.CommandNotFoundException(' +
+        '"The term ''Get-FileHash'' is not recognized as the name of a cmdlet, function, script file, ' +
+        'or operable program. Check the spelling of the name, or if a path was included, verify that ' +
+        'the path is correct and try again."))' + "`r`n"), [Text.UTF8Encoding]::new($false))
+    # NO param BLOCK, and that is the one line where this copy differs from
+    # tests\uninstall_footprint.ps1's - measured, not preferred. That one
+    # forwards through `[Parameter(ValueFromRemainingArguments)]$Rest`, which is
+    # enough for the switches the uninstaller takes. This suite's arguments are
+    # `-Flag delegate on`, and the binder consumes `-Flag` as a parameter name
+    # attempt on the LAUNCHER before $Rest ever sees it: the child then received
+    # `delegate on` positionally and answered "A positional parameter cannot be
+    # found that accepts argument 'delegate'". A script with no param block gets
+    # every argument in $args verbatim, and `@args` re-splats them as the named
+    # arguments they were written as.
+    $text = @(
+        ('Set-Alias -Name Get-FileHash -Value ' + "'" + $thrower.Replace("'", "''") + "'" + ' -Scope Global -Force')
+        ('& ' + "'" + $Target.Replace("'", "''") + "'" + ' @args')
+    ) -join "`r`n"
+    [IO.File]::WriteAllText($Path, $text + "`r`n", [Text.UTF8Encoding]::new($false))
+    return $Path
+}
+
 function Push-ChildEnv {
     <#
       Returns the previous values so the caller can restore them in a finally.
@@ -509,16 +559,22 @@ function Invoke-Toggle {
         # writes since #11.
         [string]$CfgPath,
         # Run the child with USERPROFILE unset - see Push-ChildEnv.
-        [switch]$NoUserProfile
+        [switch]$NoUserProfile,
+        # The script the child actually runs. Defaults to the copied
+        # bin\lwg-toggle.ps1, which is what every case but one wants. The #273
+        # case passes New-NoFileHashRunner's launcher, which runs that same
+        # script with Get-FileHash unresolvable.
+        [string]$ScriptPath
     )
 
     if ([string]::IsNullOrWhiteSpace($CfgPath)) { $CfgPath = $Sand.ov }
+    if ([string]::IsNullOrWhiteSpace($ScriptPath)) { $ScriptPath = $Sand.toggle }
 
     $of  = Join-Path $Sand.work "$Tag.out"
     $ef  = Join-Path $Sand.work "$Tag.err"
     $bat = Join-Path $Sand.work "$Tag.cmd"
 
-    $cmd = ('powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" {1} 1>"{2}" 2>"{3}"' -f $Sand.toggle, $ScriptArgs, $of, $ef)
+    $cmd = ('powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" {1} 1>"{2}" 2>"{3}"' -f $ScriptPath, $ScriptArgs, $of, $ef)
     [IO.File]::WriteAllLines($bat, @('@echo off', ('cd /d "{0}"' -f $Sand.work), $cmd, 'exit /b %ERRORLEVEL%'), [Text.ASCIIEncoding]::new())
 
     $before = Get-Bytes -Path $CfgPath
@@ -1037,8 +1093,63 @@ try {
             $l.code, $(if ($l.changed) { 'CHANGED - correctly' } else { 'was NOT changed' }))
 
     # =======================================================================
+    # SECTION H - THE TERMINAL THE OPERATOR LAUNCHED FROM (#273)
+    #
+    # Claude Code hands every command the environment the terminal was started
+    # with. Started from a PowerShell 7 prompt - the Windows Terminal default
+    # wherever pwsh is installed - every `powershell` this plugin spawns is a
+    # Windows PowerShell 5.1 child carrying PS7's PSModulePath, 5.1 resolves
+    # Microsoft.PowerShell.Utility to PS7's 7.0.0.0 manifest ahead of its own
+    # 3.1.0.0, and Get-FileHash - a FUNCTION in 5.1's module, not a compiled
+    # cmdlet - is gone.
+    #
+    # THIS COMMAND FAILED QUIETLY, WHICH IS WHY IT WAS FOUND LAST. The doctor
+    # printed "check threw" and the uninstaller exited 3 before a single row, so
+    # both were traced. Here the three call sites were bin\lwg-cmdlib.ps1's, all
+    # inside a try/catch: Read-LwgTextFile returned ok = $false and the toggle
+    # reported "config.json could not be read" and exited 3 - a REFUSAL that
+    # blames the operator's file, on a correct install, for a reason that has
+    # nothing to do with the file. An operator locked out of Bash by the gate
+    # runs this command to get out, and is told their config is broken.
+    #
+    # RED AT 3e36d79 with this hunk alone: exit 3, nothing written, the refusal
+    # naming config.json. The fixture is New-NoFileHashRunner's, whose header
+    # in tests\uninstall_footprint.ps1 states what it reproduces and what it
+    # does not - it makes the CONSEQUENCE deterministic on any runner; that a
+    # PowerShell 7 launch produces that state was measured by hand and recorded
+    # on #273, and by nothing in these suites.
+    #
+    # bin\lwg-toggle.ps1's OWN call site moved with them and has NO case here,
+    # stated rather than implied: it sits in the read-back-disagrees branch,
+    # which is reachable only when something rewrites config.override.json
+    # between this command's write and its re-read. Nothing in this harness can
+    # arrange that, and a case that could would be racing itself.
+    # =======================================================================
+    Write-Output ''
+    Write-Output 'H. a child that cannot resolve Get-FileHash still writes (#273)'
+
+    Write-ConfigFile -Path $sand.cfg -Text $good
+    Write-ConfigFile -Path $sand.ov  -Text $goodOv
+    $noFh = New-NoFileHashRunner -Path (Join-Path $sand.work 'run-toggle-nofh.ps1') -Target $sand.toggle
+    $h1 = Invoke-Toggle -Sand $sand -ScriptArgs '-Flag delegate on' -Tag 'h1' -ScriptPath $noFh
+    $h1Text = [Text.UTF8Encoding]::new($false).GetString($h1.after)
+    $h1Bad = @()
+    if ($h1.code -ne 0) { $h1Bad += "exit $($h1.code) rather than 0" }
+    if (-not $h1.changed) { $h1Bad += 'the override was NOT written' }
+    if ($h1Text -notmatch '"delegate"\s*:\s*true') { $h1Bad += 'the override does not hold the value that was asked for' }
+    if ($h1.out -match '(?i)could not be read' -or $h1.err -match '(?i)could not be read') {
+        $h1Bad += 'the run still refuses with "could not be read"'
+    }
+    if (($h1.out + $h1.err) -match 'Get-FileHash') { $h1Bad += 'Get-FileHash reached the output' }
+    Add-Result 'a run whose child cannot resolve Get-FileHash still writes the override and exits 0 (#273)' `
+        ($h1Bad.Count -eq 0) `
+        (($h1Bad -join '; ') + " | exit $($h1.code), override $(if ($h1.changed) { 'CHANGED' } else { 'NOT changed' }). " +
+         "Until bin\lwg-cmdlib.ps1's three Get-FileHash call sites moved to Get-LwgFileSha256 this exited 3 with " +
+         "'config.json could not be read', which reads as a broken config file and is nothing of the kind. Output:`n$($h1.out)`n$($h1.err)")
+
+    # =======================================================================
     # SECTION G - the invariant, over every run this suite made
-    # Evaluated LAST, so $script:Runs holds sections A to F rather than A to C.
+    # Evaluated LAST, so $script:Runs holds sections A to H rather than A to C.
     # =======================================================================
     Write-Output ''
     Write-Output 'G. the exit-3 invariant over every run above'

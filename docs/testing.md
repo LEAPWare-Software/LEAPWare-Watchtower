@@ -22,14 +22,14 @@ which is the one external binary any suite here depends on besides `powershell` 
 `tests/stop_behaviour.ps1` runs the two hooks that fire at every turn end —
 `lib/stop_advisories.ps1` and `lib/supervisor.ps1` — with 120 cases, and covers more
 **observing** modules than anything else here. `tests/uninstall_footprint.ps1` drives `bin/lwg-uninstall.ps1` against
-throwaway data directories and throwaway `settings.json` files with 37 cases, and is the only one
+throwaway data directories and throwaway `settings.json` files with 38 cases, and is the only one
 that covers a **deletion**.
 `tests/state_resolution.ps1` runs the `SessionStart` hook itself in a real child process: the
 `CLAUDE_CONFIG_DIR` precedence, the five self-check probes, every rung of the mode ladder, the banner
 and the model-visible `additionalContext` envelope.
 `tests/doctor_behaviour.ps1` runs `bin/lwg-doctor.ps1` against seeded configs and seeded
 `settings.json` files with 42 cases, on **two of its ten checks and no others**.
-`tests/toggle_behaviour.ps1` drives `bin/lwg-toggle.ps1`'s write to the override file with 28 cases,
+`tests/toggle_behaviour.ps1` drives `bin/lwg-toggle.ps1`'s write to the override file with 29 cases,
 and `tests/config_behaviour.ps1` does the same for `bin/lwg-config.ps1`, each closing with an
 invariant that the plugin root's tracked `config.json` was not moved by a byte. They are the only
 suites besides the merge suite that cover a **write to a file an operator owns**.

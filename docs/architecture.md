@@ -189,7 +189,7 @@ tests/config_behaviour.ps1   bin/lwg-config.ps1's read/validate/write path,
                              invariant that the plugin root's config.json is not
                              moved by a byte
 tests/uninstall_footprint.ps1
-                             37 cases driving bin/lwg-uninstall.ps1 against
+                             38 cases driving bin/lwg-uninstall.ps1 against
                              throwaway data directories and throwaway
                              settings.json files, asserting on the FILESYSTEM as
                              well as on the report: what the footprint says it
@@ -203,7 +203,7 @@ tests/doctor_behaviour.ps1   42 cases driving bin/lwg-doctor.ps1 from a scratch
                              TWO of the doctor's ten checks - config-registry
                              and statusline - and no others. Fourteen of its cases
                              are labelled CONTROL and pass before the fix too
-tests/toggle_behaviour.ps1   28 cases driving bin/lwg-toggle.ps1's WRITE to
+tests/toggle_behaviour.ps1   29 cases driving bin/lwg-toggle.ps1's WRITE to
                              the override file, against a byte copy of bin/ and
                              lib/ under a scratch plugin root
 tests/subagent_scan.ps1      14 cases piping payloads into lib/subagent_start.ps1,

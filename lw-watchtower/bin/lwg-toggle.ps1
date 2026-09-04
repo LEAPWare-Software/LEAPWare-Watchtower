@@ -999,7 +999,7 @@ try {
             # wrote, and where the copy taken before the write is.
             $stillOurs = $false
             if ($backup) {
-                try { $stillOurs = ((Get-FileHash -LiteralPath $ovPath -Algorithm SHA256).Hash -eq $wroteSha) } catch { $stillOurs = $false }
+                try { $stillOurs = ((Get-LwgFileSha256 -Path $ovPath) -eq $wroteSha) } catch { $stillOurs = $false }
             }
             $tail = if (-not $backup) {
                 'nothing was written'
