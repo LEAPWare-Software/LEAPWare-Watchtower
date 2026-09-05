@@ -105,6 +105,20 @@
        MENTIONS - naming a deleted thing AND SAYING IT IS DELETED is the
        opposite of this defect, and the two are told apart one line at a time
        rather than one file at a time.
+    7. A ROLE ALLOWLIST NAMING A TOOL THE MODEL DOES NOT HAVE. The same shape as
+       item 6 and here for the same reason: a shipped file asserting that
+       something exists which does not. A role's `tools:` frontmatter is
+       validated against nothing - an entry naming a tool the session does not
+       carry is simply never matched, and nothing reports it - so the role
+       advertises a capability it cannot have while a model reads that list as
+       a statement of what it may do. Measured 2026-09-05: agents\lw-orchestrator.md
+       named four Task tools that do not exist on the model it declares. The
+       obvious guard was `claude plugin validate --strict`, and it was PROBED
+       rather than assumed: it passes with those four restored, and it passes
+       with a tool named NotARealToolXyz. It does not read tool names at all.
+       Anchored to the `tools:` line, so a file may still record which tools it
+       removed and why - the same distinction HISTORICAL MENTIONS draws for
+       item 6, free here because an allowlist is exactly one line.
 
   HOW IT WORKS
 
@@ -1119,9 +1133,11 @@ if ($fail.Count -gt 0) {
 Write-Output ''
 Write-Output 'Every tracked file was read and no unledger''d disclosure is in the payload,'
 Write-Output 'which is the lw-watchtower/ subtree and not the whole repository.'
-Write-Output 'Read that as "these six shapes are absent", not as "the payload is safe to'
+Write-Output 'Read that as "these seven shapes are absent", not as "the payload is safe to'
 Write-Output 'publish" - this guard knows the disclosures it was told about and no others.'
 Write-Output 'The sixth is scoped to the payload and is now asked of commands/ and agents/ too,'
 Write-Output 'which is the surface it was written for. tests/ stays out, stated at the rule.'
+Write-Output 'The seventh is narrower still - agents/ alone - and it is pinned to a CLI build'
+Write-Output 'rather than to a contract: it names four tools that build gates off by default.'
 Write-Output 'EXIT: 0'
 exit 0

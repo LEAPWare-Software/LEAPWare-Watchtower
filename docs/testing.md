@@ -36,7 +36,7 @@ suites besides the merge suite that cover a **write to a file an operator owns**
 `tests/subagent_scan.ps1` pipes payloads into `lib/subagent_start.ps1` with 14 cases, and is the only
 coverage of any kind that `context_injection` has.
 `tests/payload_guard.ps1` reads every file `git ls-files` reports under `lw-watchtower/` — which is
-the whole shipped payload — with 23 cases, and is the only one that asks what a **stranger
+the whole shipped payload — with 24 cases, and is the only one that asks what a **stranger
 receives**.
 `tests/portability_scan.ps1` scans tracked files for machine-specific strings,
 `tests/workflow_guard.ps1` parses every workflow file and holds it to a set of rules, and
