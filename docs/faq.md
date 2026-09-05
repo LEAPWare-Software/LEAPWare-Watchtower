@@ -517,22 +517,26 @@ than quietly dropped, because a reader who remembers two reasons should be told 
 
 ## What version is this? Is there a release?
 
-The manifests declare **0.4.0**, and **no tag carries that number**. It is pre-1.0, and this
-repository has **no release tag at all**: `v0.3.0` was tagged on a predecessor repository whose
-history this one does not carry, so it is not served here. `v0.4.0` will be the first tag this
-repository publishes.
+The manifests declare **0.5.0**, and **no tag carries that number** — that gap is the rule below.
+It is pre-1.0. This repository has published one release: `v0.4.0`, tagged at `7952992` on
+2026-09-04 as a
+[GitHub Release](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/releases/tag/v0.4.0), and
+it is the first tag served from here. `v0.3.0` was tagged on a predecessor repository whose history
+this one does not carry, so it is not served here.
 
 **That gap is deliberate, and it is a rule rather than an oversight.** `main` must never declare a
 version a tag has already published, because while the two carry the same number the version cannot
 tell a tagged tree from the branch — and this project shipped exactly that for twelve commits, two
 of which changed how an existing `config.json` is read. See
 [CONTRIBUTING.md](../CONTRIBUTING.md#versions-and-releases) for the rule and
-[CHANGELOG.md](../CHANGELOG.md#040--unreleased) for what changed.
+[CHANGELOG.md](../CHANGELOG.md#040--2026-09-04) for what changed.
 
-**So the declared version does not identify the tree you are running**, and cannot until 0.4.0 is
-tagged. It names the release *line*. The commit does the identifying: `git rev-parse --short HEAD`
-in a clone. The documented marketplace install resolves the **default branch**, so it gives you
-`main` rather than any release — see [Install](install.md#which-tree-this-actually-gives-you).
+**So the declared version does not identify the tree you are running**, and cannot. It names the
+release *line*. The commit does the identifying: `git rev-parse --short HEAD` in a clone, or the
+`gitCommitSha` the CLI records for a marketplace install. The documented marketplace install
+resolves the **default branch**, so in its plain form it gives you `main` rather than any release;
+added as `LEAPWare-Software/LEAPWare-Watchtower@v0.4.0` it gives you the tag — see
+[Install](install.md#which-tree-this-actually-gives-you).
 
 ## Why do the commands all start with `/lw-watchtower:`?
 
