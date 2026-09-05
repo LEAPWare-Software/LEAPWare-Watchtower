@@ -8,10 +8,14 @@
 
   WHY THIS FILE EXISTS
 
-  This repository has never cut a release from itself. There is no tag, no
-  GitHub Release and, until the workflow beside this file, nothing that reacts
-  to a tag. CONTRIBUTING.md already carries the checklist and the rule it
-  exists for - `main` must never declare a version a tag has already published -
+  This file was written while this repository had never cut a release from
+  itself: no tag, no GitHub Release, and - until the workflow beside this file -
+  nothing that reacts to a tag. THAT IS NO LONGER TRUE, and the sentence is
+  rewritten rather than deleted because the guard's reason for existing is
+  clearer with its own starting condition on the record. `v0.4.0` was tagged at
+  `7952992` on 2026-09-04 and published, and this file's first real exercise was
+  that tag's own run. CONTRIBUTING.md already carries the checklist and the rule
+  it exists for - `main` must never declare a version a tag has already published -
   and names the five sites that declare it. Nothing enforced any of it at the
   moment a tag is pushed, which is the only moment the rule can still be acted
   on cheaply.
