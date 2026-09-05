@@ -393,6 +393,48 @@ $Rules = @(
                     'lw-watchtower/commands/*', 'lw-watchtower/agents/*',
                     'lw-watchtower/config.json', 'lw-watchtower/.claude-plugin/*')
     }
+    @{
+        id      = 'gated-tool'
+        name    = 'a role allowlist naming a tool the model does not have'
+        why     = 'the same shape as the rule above it - a shipped file asserting something exists that does not - and it is here for the same reason: it is a property of what a STRANGER RECEIVES. A `tools:` allowlist is not validated against anything. An entry naming a tool the session does not carry is never matched and nothing reports it, so the role advertises a capability it cannot have and a model reads that list as a statement of what it may do. Measured 2026-09-05: lw-orchestrator.md named TaskCreate, TaskUpdate, TaskList and TaskGet while declaring `model: opus`, and none of the four exists on Opus 5, Opus 4.8, Sonnet 5 or Fable 5 unless the operator sets CLAUDE_CODE_ENABLE_TODO_TOOLS. A switch wired to nothing, shipped inside the plugin that exists to catch them.'
+        # WHY THIS IS NOT `claude plugin validate --strict`. That was the obvious
+        # guard and it was PROBED before this rule was written rather than
+        # assumed: with the four names restored it printed `Validation passed`,
+        # exit 0, and with a tool named `NotARealToolXyz` it printed
+        # `Validation passed`, exit 0. It does not check tool names at all.
+        # Adding it to CI and calling it the guard here would have been a switch
+        # wired to nothing standing guard over a switch wired to nothing.
+        #
+        # ANCHORED TO THE `tools:` LINE, AND THAT IS THE WHOLE PRECISION OF IT.
+        # Matching the bare names anywhere would refuse the paragraph in
+        # lw-orchestrator.md that RECORDS the removal and says why - the same
+        # distinction HISTORICAL MENTIONS draws for the rule above, obtained
+        # here for free because these lines are matched one at a time and a
+        # frontmatter allowlist is exactly one line. Naming a gated tool while
+        # saying it is gated is the opposite of this defect.
+        #
+        # TaskStop AND TaskOutput ARE DELIBERATELY ABSENT FROM THE NEEDLE. Both
+        # are present on those models - measured in a live session's own tool
+        # list, not inferred from the four being gone - and a coordinator that
+        # cannot stop a runaway worker is worse than one that cannot open a task
+        # ledger. `\b` after each alternative is what keeps TaskList from
+        # matching inside a longer name.
+        #
+        # PINNED TO A CLI BUILD, NOT TO A CONTRACT, and said so here rather than
+        # discovered later. The gate is CLAUDE_CODE_ENABLE_TODO_TOOLS in the
+        # shipped binary, beside CLAUDE_CODE_ENABLE_TASKS. If a release returns
+        # the four to the default set this rule is wrong and must be deleted in
+        # the commit that says so - the same standing that bin\lwg-doctor.ps1's
+        # $atRisk list has against $LwgVerifiedBuild. Re-read the gate before
+        # touching it; do not reason from this comment's age.
+        pattern = '(?i)^\s*tools:\s.*\b(?:TodoWrite|TaskCreate|TaskGet|TaskUpdate|TaskList)\b'
+        # agents/ ONLY. commands/ pages carry `allowed-tools` for a different
+        # purpose - a turn-scoped grant, not a role's standing capability - and
+        # a name there that the session lacks fails loudly at invocation rather
+        # than silently at every turn. Widening this to commands/ would be a
+        # rule asserting something it was not written to assert.
+        scope   = @('lw-watchtower/agents/*')
+    }
 )
 # LWG-PAYLOAD-REGION: end
 

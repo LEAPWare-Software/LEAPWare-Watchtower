@@ -139,14 +139,45 @@ update overwrites it.
 ## What a plugin cannot do to the main thread
 
 **A plugin cannot withhold `Bash`, `Edit` or `Write` from the main thread, and cannot force a
-role onto it.** A plugin-root `settings.json` may set only `agent` and `subagentStatusLine`;
-there is no plugin-side lever over the top-level session's tool grants.
+role onto it.** There is no plugin-side lever over the top-level session's tool grants.
+
+**This paragraph used to say a plugin-root `settings.json` "may set only `agent` and
+`subagentStatusLine`", and that was wrong** — corrected 2026-09-05 against the shipped binary rather
+than argued. A plugin ships *components*, and the loader's own list of component directories is
+`["commands","agents","skills","output-styles","themes"]`. `settings.json` is not among them, so a
+file of that name at a plugin root is not read as settings at all and cannot set `agent`. The
+sentence mattered because `agent` is precisely the key that puts the main thread into a role: had it
+been true, this plugin could have bound the orchestrator itself, and the rest of this section would
+be describing a choice rather than a limit. It is a limit.
+
+**What the plugin CAN do is ship the role, and one other thing.** `output-styles` *is* on that list,
+and an output style applies to the main conversation only — a subagent runs its own system prompt.
+So the plugin has exactly one channel that reaches the main thread without the user configuring
+anything, and it shapes the thread's *instructions*, never its *tool grants*. Keep the two apart
+whenever this is described.
 
 So `lw-orchestrator` ships as a **default, never an invariant**. Its `tools` list omits `Bash`,
 `Edit` and `Write`, and that restriction is real *while the role is running* — but whether the
 top-level session runs it, and whether the top-level session can edit at all, are the user's
 settings to make. Denying the main thread those tools is a **documented user step**, not
 something installing this plugin accomplishes.
+
+**The documented user step, spelled out, because "documented" is worth nothing if the page never
+says it.** One key in your own `settings.json`:
+
+```json
+{ "agent": "lw-watchtower:lw-orchestrator" }
+```
+
+or, for one session only, `claude --agent lw-watchtower:lw-orchestrator`. The flag's own help text on
+CLI 2.1.261 reads *"Agent for the current session. Overrides the 'agent' setting."*
+
+Two things to know before you set it. The role's system prompt **replaces** Claude Code's own rather
+than adding to it — the same way `--system-prompt` does — so what the role file says is the whole of
+what the main thread is told; `CLAUDE.md` and project memory still load. And the way out is a
+setting, not a tool call: change the key, or start without the flag. That is the difference between
+this and `delegate_gate`, whose off switch runs through `Bash` and is refused by the gate it turns
+off.
 
 Say this plainly wherever the orchestrator is described. A delegation discipline that the
 governance layer only *recommends* is a different product from one it *enforces*, and pretending
