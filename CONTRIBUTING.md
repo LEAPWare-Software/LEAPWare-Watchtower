@@ -818,9 +818,12 @@ Two holes, both real, both stated rather than left to be discovered:
 4. The documented marketplace install route resolves the **default branch**, not the tag. It always
    will; there is no ref key in play. Do not write release notes that imply otherwise, and see
    [docs/install.md](docs/install.md) for the wording that tells a consumer the truth.
-5. `v0.4.0` will be the **first tag this repository serves**. `v0.3.0` was tagged on a predecessor
-   repository whose history this one does not carry, so step 2 has nothing to compare against until
-   `v0.4.0` exists, and no page here should offer a reader an earlier tree to check out.
+5. `v0.4.0` **is** the first tag this repository serves — cut at `7952992` on 2026-09-04 and
+   published as a GitHub Release. `v0.3.0` was tagged on a predecessor repository whose history this
+   one does not carry, so `v0.4.0` is still the earliest tree a reader here can check out, and no
+   page should offer them one before it. **Step 2 now has something to compare against**, which is
+   the whole reason that step exists: from this release onward `main` must never declare a version a
+   tag has already published, and the check is no longer vacuous.
 
 ---
 
