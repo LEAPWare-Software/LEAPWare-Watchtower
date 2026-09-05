@@ -597,8 +597,15 @@ project exists to refuse.
   **What this does NOT cover, and it is not a small residual.** Four pull-request refs on this remote
   carry the address as the **author and committer** of their tip commits — not merely as a credit
   line. A pull-request ref is owned by GitHub: deleting the branch does not remove it, no push
-  reaches it, and rewriting `main` does not touch it. **Only GitHub Support can purge one**, and that
-  request is outstanding. The pre-rewrite commits also stay fetchable by SHA until GitHub collects
+  reaches it, and rewriting `main` does not touch it. **Only GitHub Support can purge one, and the
+  owner decided on 2026-09-04 not to ask** — so the residual is permanent by design rather than
+  pending. *(Corrected 2026-09-05, and the original wording is quoted rather than hidden: this
+  shipped saying "that request is outstanding", which was already false when the tag was cut. #178
+  closed at 16:15:55Z that day as a documented limitation, sixteen minutes before the pull request
+  that dated this heading was opened; that PR's body says it corrected the sentence, and the edit
+  never landed. Found by the release-notes prose audit, tracked on #320. The tagged commit carries
+  the false text and always will — a dated section is history, so this is a correction beside it
+  rather than a rewrite of it.)* The pre-rewrite commits also stay fetchable by SHA until GitHub collects
   them. So the honest state is *`main` is clean and the refs are not*. The scan is scoped to `main`'s
   history for exactly that reason: a check that goes red on a condition no contributor can fix is a
   check somebody eventually deletes.
@@ -1069,10 +1076,18 @@ on the day.
 
 **What this list is not.** It is not the whole open tracker. What was open **above** `sev:low` when
 this heading was dated is named here rather than left to be inferred, because a list that stops at
-one severity and says nothing about the others reads as a claim that there are none: **#178**, the
-pull-request refs only GitHub Support can purge, and **#211**, the release-workflow gate this tag is
-the first real exercise of. Both are recorded above, neither is a defect a contributor can close,
-and nothing else above `sev:low` was open.
+one severity and says nothing about the others reads as a claim that there are none: **#211**, the
+release-workflow gate this tag is the first real exercise of. It is recorded above, it is not a
+defect a contributor can close, and nothing else above `sev:low` was open.
+
+*(Corrected 2026-09-05. This paragraph shipped naming **two** issues — #211 and **#178** — and the
+measurement it claims to be reporting returned one. #178 carries `sev:high` and `blocking` and had
+closed at 16:15:55Z on 2026-09-04, before the pull request that dated this heading existed; that
+PR's own body records the re-measurement as "one issue — #211", with `sev:high 0`. So this list told
+a reader a `sev:high` security issue was open at release when the tracker said it was closed. The
+error was conservative — it overstated what was outstanding — and it is corrected here rather than
+left, because a list whose whole purpose is to refuse the inference "there are none" cannot itself
+be wrong about which ones there were. Found by the release-notes prose audit, tracked on #320.)*
 
 - #125 — Owner-only repository settings that remain: social preview image, the stale docs/session-transition-spec branch, and the empty wiki
 - #169 — Status line cannot show the subscription plan name: no hook and no status-line field carries it
