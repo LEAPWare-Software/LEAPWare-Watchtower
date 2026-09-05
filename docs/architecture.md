@@ -212,7 +212,7 @@ tests/subagent_scan.ps1      14 cases piping payloads into lib/subagent_start.ps
                              The only coverage context_injection has. It asserts
                              on answers, not on the milliseconds the fast path
                              exists to save
-tests/payload_guard.ps1      23 cases over every file git ls-files reports under
+tests/payload_guard.ps1      24 cases over every file git ls-files reports under
                              lw-watchtower/, which is the whole shipped payload
                              because marketplace.json declares
                              "source": "./lw-watchtower". The only

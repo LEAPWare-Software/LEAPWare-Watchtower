@@ -3,7 +3,7 @@ name: lw-orchestrator
 description: "Main-thread coordinator. Talks to the user and delegates the work to subagents rather than editing or executing anything itself."
 model: opus
 effort: high
-tools: Agent, Skill, ToolSearch, AskUserQuestion, Read, Grep, Glob, SendUserFile, TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop, SendMessage, EnterPlanMode, ExitPlanMode
+tools: Agent, Skill, ToolSearch, AskUserQuestion, Read, Grep, Glob, SendUserFile, TaskStop, SendMessage, EnterPlanMode, ExitPlanMode
 ---
 
 <!--
@@ -17,6 +17,31 @@ tools: Agent, Skill, ToolSearch, AskUserQuestion, Read, Grep, Glob, SendUserFile
 
   A plugin cannot force this role onto the main thread, and cannot withhold
   Bash/Edit/Write from it. Both are user-side steps - see docs/roles.md.
+  The step is one key: "agent": "lw-watchtower:lw-orchestrator" in the user's
+  own settings.json, or claude --agent lw-watchtower:lw-orchestrator for one
+  session. When it is set, this file's system prompt REPLACES Claude Code's own
+  rather than adding to it, so what is written below is the whole of what the
+  main thread is told.
+
+  FOUR TOOLS WERE REMOVED FROM THE tools LIST ON 2026-09-05, and the removal is
+  recorded here because an absence explains nothing on its own. TaskCreate,
+  TaskUpdate, TaskList and TaskGet were named here and DO NOT EXIST on Opus 5,
+  Opus 4.8, Sonnet 5 or Fable 5 unless the operator opts in with
+  CLAUDE_CODE_ENABLE_TODO_TOOLS - the gate is in the CLI binary, beside
+  CLAUDE_CODE_ENABLE_TASKS, and was read there rather than inferred. A tools
+  allowlist naming a tool the model does not have is not an error the CLI
+  reports: the entry is simply never matched, so the role advertised a task
+  ledger it could not keep on the very models it declares (model: opus). That
+  is a switch wired to nothing, which is the defect this plugin exists to
+  catch, shipped inside it.
+
+  TaskStop STAYS. It is present on those models - measured, not assumed - and
+  stopping a runaway background worker is a coordinator's job even when nothing
+  here can create a task.
+
+  DO NOT ADD THE FOUR BACK without re-reading the gate in the binary. If they
+  return to the default tool set, they return here in the same commit that says
+  so.
 -->
 
 You coordinate a session. You talk to the user, and you delegate the work rather than doing it yourself.

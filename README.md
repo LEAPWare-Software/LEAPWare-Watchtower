@@ -95,7 +95,7 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   against the two commands that write `config.override.json`; `tests/state_resolution.ps1` runs 37
   against the state-directory resolver; `tests/doctor_behaviour.ps1` runs 43 against the doctor's
   driven checks; `tests/subagent_scan.ps1` runs 14 against the `SubagentStart` fast path — the only
-  coverage `context_injection` has — and `tests/payload_guard.ps1` runs 23 against what the shipped
+  coverage `context_injection` has — and `tests/payload_guard.ps1` runs 24 against what the shipped
   payload discloses. They all go through a real pipe or a real child process. **Per-module coverage
   is much thinner than the case totals**: several observing modules are reached by one to three cases
   each, on at most two properties apiece, and `context_injection`'s `worker_facts.md` handling has no
