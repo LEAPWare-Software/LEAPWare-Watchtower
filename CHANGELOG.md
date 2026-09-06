@@ -526,7 +526,13 @@ project exists to refuse.
   list and the `ci.yml` step list — where a contributor is told a block IS that list.
   `branch-protection-not-the-job-id` holds `README.md` and `docs/limitations.md` to the check
   run's **name** rather than the job id. The guard reads **190 recognised claims** at this release,
-  and `.github/ISSUE_TEMPLATE/config.yml`'s marker now exempts the quotation it is on rather than
+  *(Corrected 2026-09-06, and the original figure is kept rather than overwritten: the tagged
+  commit's own run printed **193 of 193**, not 190 - CI run `33897119979` at `7952992`. The number
+  was written while the release was still being assembled and three further claims landed before the
+  tag was cut. Found by the release-notes prose audit, tracked on #321. `CHANGELOG.md` carries
+  `doc-claims:ignore-file`, so no guard could have held this line and none ever will - which is why
+  the figure drifted silently and why the correction sits beside it rather than replacing it.)*
+  And `.github/ISSUE_TEMPLATE/config.yml`'s marker now exempts the quotation it is on rather than
   splitting it (#284) — before that fix `Test-Claim` reached `Test-LineExempt` only after a match,
   so the exemption never fired and the reason recorded for the unread line was not the operating one.
 
