@@ -275,7 +275,11 @@ It runs [`bin/lwg-toggle.ps1`](../lw-watchtower/bin/lwg-toggle.ps1) with `-Flag 
 records the shape of the thing: **it was five flags, then three, and is now one.** `verbosity` and
 `plain` went with the output styles they recorded a preference about, and their removal took the
 `NOT WIRED` half of this page with them — the two flags that needed that block were exactly the two
-that recorded a preference and enforced nothing.
+that recorded a preference and enforced nothing. **A style shipped again on 6 September 2026 and
+neither flag came back with it**, deliberately: the style is chosen in the `/config` picker or by the
+`outputStyle` key in the operator's own settings, which is where that value has always lived, and a
+command that recorded a second copy of it is the thing that was deleted. See
+[Output styles](output-styles.md).
 
 With no argument it **reports** and changes nothing. With an argument it writes the global default;
 with a trailing `repo` it writes an override for this repository only.

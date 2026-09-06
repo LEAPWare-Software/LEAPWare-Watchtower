@@ -409,7 +409,9 @@ function New-Sandbox {
 
       output-styles\ was copied too until that directory was deleted with the
       output-style feature; the two flags that probed it with Test-Path are gone
-      with it.
+      with it. The DIRECTORY returned on 6 September 2026 (#316) and is still
+      not copied here, which is correct rather than an oversight: nothing this
+      suite drives reads it. lwg-toggle.ps1 has one flag and it is `delegate`.
     #>
     # NOT $root: PowerShell variable names are case-insensitive, so a local $root
     # would shadow this script's $Root parameter and the copy below would take

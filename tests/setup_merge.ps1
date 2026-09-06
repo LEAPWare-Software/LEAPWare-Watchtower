@@ -3342,7 +3342,14 @@ try {
     } -IncomingFiles @(
         'lw-watchtower/hooks/hooks.json', 'lw-watchtower/.claude-plugin/plugin.json',
         'lw-watchtower/statusline/statusline.ps1', 'lw-watchtower/config.json',
-        'lw-watchtower/commands/delegate.md'
+        'lw-watchtower/commands/delegate.md',
+        # THE SIXTH ADVISORY, ADDED 2026-09-06 (#316). bin\lwg-update.ps1's
+        # output-styles/ branch was deleted when that directory was, and came
+        # back with it. It is driven here rather than asserted by inspection,
+        # because the branch it sits beside - commands/ - is one of the five
+        # whose literals stopped matching once and nothing went red, which is
+        # what this whole section exists to record.
+        'lw-watchtower/output-styles/lw-orchestrator.md'
     ) -IncomingContent @{
         'lw-watchtower/config.json' = '{"modules":{"docs_coupling":false}}'
     }
@@ -3381,11 +3388,12 @@ try {
         @{ n = 'statusline/statusline.ps1';  p = 'statusline/statusline\.ps1 changes:' }
         @{ n = 'config.json';                p = 'config\.json changes:' }
         @{ n = 'commands/*';                 p = 'new or changed slash command \(lw-watchtower/commands/delegate\.md\)' }
+        @{ n = 'output-styles/*';            p = 'new or changed output style \(lw-watchtower/output-styles/lw-orchestrator\.md\)' }
     ) | Where-Object { $needText -notmatch $_.p } | ForEach-Object { $_.n }
 
-    Add-Result 'update: all five re-approval advisories still fire when the payload is a subdirectory (#238)' `
-        ([bool]($missing.Count -eq 0 -and $a.out -match 'NEEDS RE-APPROVAL OR RE-INSTALL \(5\):')) `
-        ("$($missing.Count) advisory(ies) did not fire: $($missing -join ', '). These are five of the eight repo-root-relative path literals PR #236 had to change, and nothing went red when they stopped matching. Bullets:`n$needText`nOutput:`n$($a.out)")
+    Add-Result 'update: all six re-approval advisories still fire when the payload is a subdirectory (#238, #316)' `
+        ([bool]($missing.Count -eq 0 -and $a.out -match 'NEEDS RE-APPROVAL OR RE-INSTALL \(6\):')) `
+        ("$($missing.Count) advisory(ies) did not fire: $($missing -join ', '). Five of these are the repo-root-relative path literals PR #236 had to change, and nothing went red when they stopped matching; the sixth is the output-styles/ branch restored by #316, which had no coverage at all before this line. Bullets:`n$needText`nOutput:`n$($a.out)")
 
     Add-Result 'update: the config-flags row is computed for a payload config.json, and names the flags that move (#238)' `
         ([bool]($cfRow -and $cfRow -match 'docs_coupling' -and $cfRow -match 'git_hygiene')) `

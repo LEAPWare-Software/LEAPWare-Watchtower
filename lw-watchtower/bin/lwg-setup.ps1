@@ -1253,6 +1253,33 @@ function Write-Questions {
     Write-Output '       present? This only looks and reports - it writes nothing at all."'
     Write-Output '      -> pass  -AgentRoles yes   or   -AgentRoles no'
     Write-Output ''
+    # Q5 IS TEXT AND ONLY TEXT, AND THAT IS THE DESIGN RATHER THAN A SHORTCUT.
+    # Both keys below live in the OPERATOR's settings.json. This installer could
+    # write them - it already merges that file for two other sections - and it
+    # deliberately does not, because either one changes how every future session
+    # behaves and neither is reversible by anything this plugin ships: the way
+    # back out is the operator editing the same file. A section that wrote them
+    # would also put an outputStyle key into the footprint bin\lwg-uninstall.ps1
+    # reports and tests\uninstall_footprint.ps1 asserts, for a value the /config
+    # picker already owns. So this OFFERS, in the operator's own words, and the
+    # writing stays theirs. Q4 has the same shape and says so out loud.
+    Write-Output '  Q5  DELEGATION - THE MAIN CHAT WINDOW              recommended: mention, do not write'
+    Write-Output '      "This plugin ships two ways to keep the main chat window talking to you while'
+    Write-Output '       the reading and editing happen in background helpers. Both are one line in'
+    Write-Output '       your own settings file, and I will not write either one for you:'
+    Write-Output '         the STYLE    - a request. The assistant is asked to hand work to helpers.'
+    Write-Output '                        It keeps every tool it has. Pick lw-watchtower:lw-orchestrator'
+    Write-Output '                        in /config, or add:'
+    Write-Output '                          { "outputStyle": "lw-watchtower:lw-orchestrator" }'
+    Write-Output '         the ROLE     - the real thing. The main window no longer HAS the tools that'
+    Write-Output '                        edit files or run commands, so the work has to go to a helper.'
+    Write-Output '                          { "agent": "lw-watchtower:lw-orchestrator" }'
+    Write-Output '                        or, for one session only, claude --agent lw-watchtower:lw-orchestrator'
+    Write-Output '       The role REPLACES the assistant`s standing instructions with that file`s;'
+    Write-Output '       the style is ADDED to them. They are different keys and not alternatives."'
+    Write-Output '      -> nothing to pass. This installer writes NEITHER key, ever, in any step.'
+    Write-Output '         Whether the two compose or one wins has NOT been measured - say so if asked.'
+    Write-Output ''
     Write-Output 'THEN, ONE SECTION AT A TIME AND ONE YES EACH:'
     Write-Output '  1. -Step diff -Section statusline    then apply, only if the operator agrees'
     Write-Output '  2. -Step diff -Section hooks         then apply, only if the operator agrees'

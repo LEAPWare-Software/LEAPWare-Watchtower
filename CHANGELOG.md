@@ -40,6 +40,36 @@ land here as they merge.
 
 ### Added
 
+- **One output style, and `output-styles/` returns to the payload (2026-09-06, #316).**
+  `output-styles/lw-orchestrator.md` asks the main thread to talk to the operator and send the
+  reading, editing and building to subagents. The component loader's own directory list, read out of
+  the 2.1.263 binary, is `["commands","agents","skills","output-styles","themes"]`, so it reaches
+  every install with the plugin enabled and appears in the `/config` picker as
+  `lw-watchtower:lw-orchestrator`. **It is not selected for anyone.**
+  **`force-for-plugin: true` is deliberately absent and is an owner decision, not a default** — it
+  silently overrides the consumer's own `outputStyle`, the same objection that argued against arming
+  a gate by default, and it is marked `@internal` in the binary. `keep-coding-instructions: true` is
+  set, so the style sits beside the default coding instructions rather than replacing them. Both keys
+  are held by a new `payload_guard` case rather than by a sentence.
+  **This is not a reversal of the 2 September deletion below.** That deletion had two reasons — two
+  commands that recorded a preference nothing applied, and a plugin that cannot audit compliance —
+  and **neither says the mechanism fails to steer**. The first was about a *command*; the second is a
+  limit on verification, not on instruction. Neither command came back, and no `config.json` key
+  did either: the style is chosen in the picker or in the operator's own settings, which is where
+  that value has always lived. **Why a style rather than re-spending the `SessionStart`
+  `additionalContext` budget:** under compaction the system prompt and the output style are
+  unchanged, while hook-added context is summarised away, so an injected policy evaporates exactly
+  when a long session needs it. Documented in `docs/output-styles.md`, which stops being a tombstone.
+- **`tests/payload_guard.ps1` case S15** — every `output-styles/*.md` carries
+  `keep-coding-instructions: true` and does **not** carry `force-for-plugin: true`, failing on an
+  absent or empty directory rather than passing over one. Proven RED before the style file existed.
+  Case **S14** now lints `output-styles/` alongside `agents/` and `commands/`, and
+  `tests/gate_delegate.ps1`'s payload sweep gets `output-styles` back in `$nPayloadDirs`, which it
+  lost when the directory was deleted — coverage restored, not a new assertion.
+- **`bin/lwg-setup.ps1` offers the delegation step as Q5** and writes neither key. It prints both
+  `{"outputStyle": "lw-watchtower:lw-orchestrator"}` (a request; the thread keeps every tool) and
+  `{"agent": "lw-watchtower:lw-orchestrator"}` (the real restriction; the role replaces the system
+  prompt), and says they are different keys rather than alternatives.
 - **`tests/payload_guard.ps1` case S13** — the orchestrator role grants itself no tool that edits or
   executes. `Bash`, `PowerShell`, `Edit`, `Write` or `NotebookEdit` on that one frontmatter line would
   silently end the delegation discipline the whole body is written around, while the body went on
