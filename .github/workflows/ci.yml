@@ -6,7 +6,7 @@ name: CI
 # matrix, and every step runs under Windows PowerShell 5.1 rather than the `pwsh`
 # (PowerShell 7) that GitHub's Windows runners default to.
 #
-# THERE IS ONE JOB, AND ELEVEN OF ITS TWENTY CHECK STEPS TEST BEHAVIOUR. The
+# THERE IS ONE JOB, AND TWELVE OF ITS 21 CHECK STEPS TEST BEHAVIOUR. The
 # `gate-regression` job and tests\gate_regression.ps1 went on 30 July 2026 with
 # the destructive command gate; the `permissions.deny parity` step and
 # tests\deny_parity.ps1 went the same day with the secret gate. Neither is coming
@@ -154,7 +154,7 @@ defaults:
 
 jobs:
   # The whole workflow. It was one of two jobs until the gate regression suite
-  # was removed on 30 July 2026, and it stays one job now that ELEVEN
+  # was removed on 30 July 2026, and it stays one job now that TWELVE
   # behavioural suites are in it: a second job would buy parallelism this
   # workflow does not need at the cost of a second required check to configure.
   #
@@ -230,6 +230,14 @@ jobs:
   # against a 1800 s budget: the healthy path uses under half of it and leaves
   # roughly 950 s of headroom.
   #
+  # THE METRICS SUITE IS NOT IN THAT TOTAL AND IS NOT FOLDED INTO IT. It read
+  # 13 s on a different machine on 6 September 2026, the day it landed, and
+  # adding a figure taken elsewhere to a total taken here would turn a
+  # measurement into a guess wearing one's clothes. It adds one step - the
+  # series above is 4-15 rather than 4-14 - and nothing to the parallel wall
+  # clock, because setup_merge is still the slowest job by a wide margin. The
+  # headroom below absorbs it either way, and nothing is re-measured to say so.
+  #
   # THE TOTAL WENT DOWN WHILE FOUR SUITES WERE ADDED, which is worth stating
   # plainly rather than leaving as a surprise. The previous revision measured
   # 695 s in series and 249 s in parallel, about 950 s together; the four new
@@ -277,7 +285,7 @@ jobs:
       #
       #   * `persist-credentials` DEFAULTS TO TRUE, which writes an
       #     AUTHORIZATION header into .git\config in the runner workspace where
-      #     it stays for the rest of the job - twenty steps, fourteen of them
+      #     it stays for the rest of the job - 21 steps, fifteen of them
       #     invoking powershell.exe against a script in tests\. Nothing after this step
       #     uses git over the network: the checks run `git ls-files` and
       #     `git tag -l`, which need no credential. Turning it off is free here.
@@ -540,7 +548,7 @@ jobs:
       - name: Delegate gate regression suite
         shell: powershell
         run: |
-          # One of the eleven tests of behaviour in this repository, and the only
+          # One of the twelve tests of behaviour in this repository, and the only
           # one that tests a GATE. The parse and scan steps ask whether files are
           # well formed; this asks whether the one gate this plugin ships refuses
           # what it says it refuses. The installer merge suite, the stop-hook
@@ -1213,6 +1221,93 @@ jobs:
           }
           exit $code
 
+      - name: Metrics behaviour suite
+        shell: powershell
+        run: |
+          # The step that exercises the transcript INDEXER and the scoreboard
+          # behind /lw-watchtower:metrics - bin\lwg-metrics.ps1 and the pure
+          # functions in lib\metrics.ps1.
+          #
+          # WHY IT IS ITS OWN SUITE AND ITS OWN STEP. tests\metrics_behaviour.ps1
+          # is one of two files added under tests\ under a waiver the owner
+          # granted once on 6 September 2026. The standing rule is that tests\
+          # takes no new file and a case goes in the suite that owns the
+          # behaviour; no suite here owns a bin\ script it is not named after,
+          # and folding an indexer under the suite named for the doctor would
+          # make that file mean two things.
+          #
+          # WHAT IT PINS. One measurement decides whether any number the command
+          # ever prints is true: the CLI writes ONE API response as SEVERAL
+          # assistant lines - one per content block - each repeating the
+          # identical usage object under the same message.id, so a per-line sum
+          # overstates by roughly twice. Section A drives a fixture with three
+          # such lines and asserts one request. It also pins that the arithmetic
+          # is 64-bit (a real corpus is already past [int]::MaxValue on cache
+          # reads, where an [int] accumulator wraps rather than rounds), that a
+          # <synthetic> line contributes nothing, and that
+          # subagents\workflows\wf_*\ is recursed rather than silently dropped.
+          # Section B pins that a requested tier and a resolved model are never
+          # collapsed into one. Section S pins the slice's own contract: every
+          # column with no source prints NOT DETERMINED rather than a zero, and
+          # NO FILESYSTEM PATH REACHES STDOUT - the transcript directory names
+          # are working directories with their separators replaced, so they carry
+          # the operator's account name, and tests\portability_scan.ps1 guards
+          # the payload while nothing but this suite guards what it prints.
+          #
+          # Every case runs in a real child process against a BYTE COPY of bin\
+          # and lib\ under a scratch plugin root built at runtime from the temp
+          # root. CLAUDE_CONFIG_DIR is pointed at a scratch tree holding a
+          # hand-built fixture corpus - that is the REAL resolution path with a
+          # different answer, not a test-only branch, so the command grows no
+          # surface that exists only for this file. No real transcript, session
+          # id or path is in any fixture.
+          #
+          # WHAT A GREEN RUN DOES NOT MEAN: this slice is the indexer and the
+          # scoreboard. There is no hook, no usage-meter history, no review-round
+          # capture, no landing detection, no verdict and no written file, and
+          # the suite's header reserves a section for each of those naming the
+          # requirement that owns it.
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly, and stderr is deliberately not merged with 2>&1 - in
+          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\metrics_behaviour.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - the indexer's arithmetic was never exercised, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\metrics_behaviour.ps1, the same three this
+          # repo's other suites use. An abort is never reported as a pass.
+          #   0  every case passed
+          #   1  at least one case failed
+          #   2  the suite aborted, or a case could not be made conclusive; the
+          #      indexer was NOT exercised. Zero cases run is an abort, never an
+          #      empty-set pass.
+          $label = switch ($code) {
+            0       { 'PASS - usage is still summed once per message.id, the four token categories are still kept apart, the totals are still 64-bit, workflow children are still recursed, a requested tier is still told from a resolved model, and every column with no source still prints NOT DETERMINED rather than a zero. That is the indexer and the scoreboard: there is no hook, no meter history, no landing and no verdict in this slice for it to have covered.' }
+            1       { 'FAIL (exit 1) - the indexer did not behave as declared. Read the per-case lines above. A dedupe failure overstates every token figure by roughly twice; a NOT DETERMINED that came back as a zero turns "I could not measure it" into "it was fine", which is the failure the whole metrics issue was opened about.' }
+            2       { 'ABORT (exit 2) - the suite did not complete, or a case could not be made conclusive, so nothing about the indexer was established by this run.' }
+            255     { 'NOT RUN (exit 255) - tests\metrics_behaviour.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "metrics behaviour suite: $label"
+          } else {
+            Write-Host "::error title=Metrics behaviour suite::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Metrics behaviour suite:** $label"
+          }
+          exit $code
       - name: Supervision suite
         shell: powershell
         run: |
@@ -1673,7 +1768,7 @@ jobs:
       #
       # IT DOES NOT LIVE UNDER tests\ ON PURPOSE. Every file there exercises the
       # PLUGIN; this one checks a pull request's metadata and asserts nothing
-      # about the product. Counting it among "fourteen files in tests\, eleven of
+      # about the product. Counting it among "fifteen files in tests\, twelve of
       # which test behaviour" would make both of those documented numbers LESS
       # true, and tests\doc_claims.ps1 derives them from tests\*.ps1 - so it
       # sits beside the workflow that is its only caller instead.

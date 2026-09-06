@@ -278,7 +278,7 @@ These are not vulnerabilities in this project.
 We prefer coordinated disclosure. Once a fix is on `main`, we will publish a GitHub Security
 Advisory describing the issue, the affected behaviour, and the commit that fixed it — including a
 check that **fails against the commit before the fix**. A finding without such a check is not
-considered closed. Eleven suites in this repository establish a behaviour, and between them they reach the
+considered closed. Twelve suites in this repository establish a behaviour, and between them they reach the
 delegate gate (`tests/gate_delegate.ps1`), the installer's `statusline` merge and `hooks` decisions
 (`tests/setup_merge.ps1`), the two turn-end hooks (`tests/stop_behaviour.ps1`), the uninstaller's
 state-data deletions (`tests/uninstall_footprint.ps1`), the state-directory resolver
@@ -289,7 +289,7 @@ checks (`tests/doctor_behaviour.ps1`), the toggle's and the config command's wri
 (`tests/payload_guard.ps1`). The 233-case gate suite went with `destructive_gate` and the
 `permissions.deny` parity harness went with `secret_scan`, and **nothing replaced what either
 covered** — nothing here inspects a command, a path or a credential to have a harness for. So unless
-your finding lands inside one of those eleven, closing a report means writing a check, not reusing
+your finding lands inside one of those twelve, closing a report means writing a check, not reusing
 one.
 
 ## What this plugin does not protect

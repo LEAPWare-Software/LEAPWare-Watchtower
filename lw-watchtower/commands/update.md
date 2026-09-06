@@ -86,7 +86,7 @@ Rules for reporting it:
   the repo copy is installed on top of it, and nothing else on this machine compares the two.
 
 `/lw-watchtower:doctor` is what this runs afterwards, and it checks wiring only. **Much of what a pull can
-change is covered by no behavioural test.** `tests/` holds 14 files, 11 of them behavioural:
+change is covered by no behavioural test.** `tests/` holds 15 files, 12 of them behavioural:
 `gate_delegate.ps1` covers `delegate_gate`, `supervision.ps1` covers the other two gates and
 `orphan_watch`, `setup_merge.ps1` covers the installer's `statusline`
 merge and what its `hooks` section decides — **and, in sections that are not about the
@@ -98,8 +98,9 @@ resolution, `uninstall_footprint.ps1` covers the uninstaller's state-data deleti
 `doctor_behaviour.ps1` covers two of the doctor's
 10 checks, `config_behaviour.ps1` and `toggle_behaviour.ps1` cover the two writers of
 `config.override.json`, `subagent_scan.ps1`
-covers the `SubagentStart` fast path, and `payload_guard.ps1` covers what the shipped payload
-discloses. The other three, `workflow_guard.ps1`,
+covers the `SubagentStart` fast path, `payload_guard.ps1` covers what the shipped payload
+discloses, and `metrics_behaviour.ps1` covers the transcript indexer and the scoreboard behind
+`/lw-watchtower:metrics`. The other three, `workflow_guard.ps1`,
 `portability_scan.ps1` and `doc_claims.ps1`, check the tree and the documentation rather than
 behaviour. **Nothing covers the installer's `hooks` section end to end or the uninstaller's
 `settings.json` edits**, so a pull

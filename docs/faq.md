@@ -71,7 +71,7 @@ Concretely, as shipped:
   `lib/subagent_start.ps1`. On a genuine failure the supervisor exits 2, which injects a task
   notification into the live session. That exit code is the only channel that reaches an
   orchestrator mid-turn; the dispatch record never uses it.
-- **Six slash commands** report on the install or manage it. Four of
+- **Seven slash commands** report on the install or manage it. Four of
   the lifecycle ones dry-run by default.
 
 What it does **not** do is a longer and more important list: [Limitations](limitations.md).
@@ -467,7 +467,7 @@ unless you pass `-RemoveData` with the confirmation token. See `## [0.4.0]` in
 
 ## Can I run the tests myself?
 
-Yes. All 14, from the repo root — the same 14 CI runs:
+Yes. All 15, from the repo root — the same 15 CI runs:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1        # the delegate gate
@@ -481,12 +481,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\config_behaviour.ps1  
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\toggle_behaviour.ps1     # the toggle's write to config.override.json
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1        # the SubagentStart fast path
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1        # the shipped payload, and the tree around it
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\metrics_behaviour.ps1    # the transcript indexer and the scoreboard
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\workflow_guard.ps1       # every workflow file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\portability_scan.ps1     # every tracked file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doc_claims.ps1           # every tracked page's counts
 ```
 
-**The first 11 tally cases; 10 of them drive this plugin's code.** Each of those spawns a
+**The first 12 tally cases; 11 of them drive this plugin's code.** Each of those spawns a
 child PowerShell process per case, through a real
 pipe, because a PowerShell object pipe never reaches `[Console]::In`, which is where a hook reads its
 payload. Nothing real is touched: every case builds a throwaway tree under the temp directory, and no

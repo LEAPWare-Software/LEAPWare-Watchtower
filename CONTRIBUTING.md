@@ -222,7 +222,7 @@ because no suite reaches those three — see below.
 
 ## There is a test suite, and it is narrower than it sounds
 
-`tests/` holds **fourteen files, and eleven of them test behaviour**, and every one of them runs in
+`tests/` holds **fifteen files, and twelve of them test behaviour**, and every one of them runs in
 the `fast-checks` CI job on every push and every PR:
 
 ```powershell
@@ -237,6 +237,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\state_resolution.ps1  
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1    # the doctor's driven checks, 43
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1       # the SubagentStart fast path + the dispatch record, 20
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1       # every tracked file, as shipped payload, 27
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\metrics_behaviour.ps1   # the transcript indexer and the scoreboard, 23
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\workflow_guard.ps1      # every workflow file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\portability_scan.ps1    # every tracked file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doc_claims.ps1          # every tracked page's counts
@@ -261,13 +262,13 @@ files and the third checks that the documentation's numbers match the tree. They
 contract: `0` passed, `1` a check failed, `2` the harness aborted and **nothing was checked**. There
 is no "passed with a caveat" code, and a suite that ran zero cases exits `2`, never `0`.
 
-**"Eleven of them test behaviour" is a classification, not a compliment, and one of the eleven is a
+**"Twelve of them test behaviour" is a classification, not a compliment, and one of the twelve is a
 borderline case worth naming.** `tests/doc_claims.ps1` decides which suites are behavioural by
 RUNNING each of them and reading what each says about itself: a suite that tallies `N of M case(s)`
 is counted behavioural, one that tallies violations is a scan. `tests/payload_guard.ps1` reads
 tracked files rather than running any of this plugin's code, but it reports cases, so the derived
 count includes it. That is the guard observing the tree instead of being told about it — which is the
-property the whole file exists for — and the honest reading of "eleven" is "eleven suites tally
+property the whole file exists for — and the honest reading of "twelve" is "twelve suites tally
 cases", of which ten drive this plugin's code in a real process and one scans the payload.
 
 **Two suites were deleted on 30 July 2026 and neither is coming back.**
@@ -353,7 +354,7 @@ because the code it tests did not exist there — is still a legitimate case, bu
 rather than implying a red run you did not get; `.github/scripts/redfirst_annotations.ps1` holds the
 annotation's shape, and it cannot tell those two apart for you.
 
-**If your fix is inside what one of the eleven behavioural suites covers, add the case to that
+**If your fix is inside what one of the twelve behavioural suites covers, add the case to that
 suite** — `delegate_gate`, the two supervision gates, the installer's `statusline` and `hooks` merge,
 either turn-end hook, the uninstaller's state-data deletions, the state-directory resolver, the
 doctor's driven checks, either command's write to `config.override.json`, the `SubagentStart` fast
@@ -571,7 +572,7 @@ That applies to your PR description and to any documentation you touch:
 - **Never document a command, flag or behaviour that does not exist.** If you are unsure, check, and
   if it does not exist, leave it out.
 - **Every number in the docs must come from a file you read or a measurement you took.** Say which.
-- **Do not claim coverage you do not have.** Exactly eleven behavioural suites exist in this
+- **Do not claim coverage you do not have.** Exactly twelve behavioural suites exist in this
   repository, and between them they reach three gates, three writers, one deleter, one resolver, the
   doctor's driven checks, one hook's fast path, the shipped payload, and some but not all of what
   observes — so unless your change lands inside one of those, "tested" means an assertion you wrote

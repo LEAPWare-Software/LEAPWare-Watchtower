@@ -54,6 +54,7 @@ Refs #
      powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1
      powershell -NoProfile -ExecutionPolicy Bypass -File tests\workflow_guard.ps1
      powershell -NoProfile -ExecutionPolicy Bypass -File tests\portability_scan.ps1
+     powershell -NoProfile -ExecutionPolicy Bypass -File tests\metrics_behaviour.ps1
      powershell -NoProfile -ExecutionPolicy Bypass -File tests\doc_claims.ps1
 
      That list is `git ls-files -- tests/*.ps1`. If it and the tree disagree, the tree is right
@@ -73,7 +74,7 @@ Refs #
      (.github\scripts\pr_issue_ref.ps1 reads a pull request body, so CI is where it fires.) -->
 ```
 
-<!-- ELEVEN SUITES TEST BEHAVIOUR, each through a real pipe into a real child process:
+<!-- TWELVE SUITES TEST BEHAVIOUR, each through a real pipe into a real child process:
      gate_delegate covers delegate_gate; supervision covers send_liveness_gate, completion_audit
      and orphan_watch; setup_merge covers the installer's statusline and hooks merge AND the
      surviving reporting surfaces; stop_behaviour covers the two turn-end hooks and the advisory
@@ -82,7 +83,8 @@ Refs #
      config.override.json; state_resolution covers the state-directory resolver;
      doctor_behaviour covers the doctor's driven checks; subagent_scan covers the SubagentStart
      fast path and is the only coverage context_injection has; payload_guard covers what the
-     shipped payload discloses.
+     shipped payload discloses; metrics_behaviour covers the transcript indexer and the
+     scoreboard behind /lw-watchtower:metrics.
      NO PER-SUITE CASE COUNT IS WRITTEN HERE ANY MORE, DELIBERATELY. tests\doc_claims.ps1 cannot
      read a number inside a parenthesis - a named hole in its header, not an oversight - and this
      block is what fell down it: three of the counts sat at 81, 153 and 10 through the wave that
@@ -109,11 +111,11 @@ against the parent commit.
       results:
 
 ```
-<!-- If your fix is inside what one of the eleven behavioural suites covers - any of the three
+<!-- If your fix is inside what one of the twelve behavioural suites covers - any of the three
      gates, the installer's statusline and hooks merge, either turn-end hook, the uninstaller's
      state-data deletions, the state-directory resolver, a driven doctor check, either command's
-     write to config.override.json, the SubagentStart fast path, or what the shipped payload
-     discloses - ADD THE CASE TO THAT SUITE and paste its per-case line from before and after.
+     write to config.override.json, the SubagentStart fast path, what the shipped payload
+     discloses, or the transcript indexer and the scoreboard - ADD THE CASE TO THAT SUITE and paste its per-case line from before and after.
      Anywhere else there is no harness to hang a case on, so include the script you wrote. Take
      the red from a THROWAWAY CLONE at the parent commit carrying only your test change, never
      from your working tree. e.g.

@@ -187,7 +187,7 @@
   EXACTLY ONE CASE MAY BE SKIPPED, IN EXACTLY ONE PLACE, AND IT IS STILL COUNTED
   WHEN IT IS. J10 is the only case in this file whose verdict is a wall-clock
   difference, and it does not run under tests\doc_claims.ps1's sibling phase,
-  which starts thirteen suites at once (#250). It is not subtracted: Add-Result
+  which starts fourteen suites at once (#250). It is not subtracted: Add-Result
   is still called, the tally is still 100, and the run prints a line saying it
   skipped and why - so a run that skipped it cannot be read as a run that passed
   it. It is enforced on every other run, which is its own CI step and every local
@@ -2280,11 +2280,11 @@ try {
     #      line a green run of this suite emits.
     #
     #      IT DOES NOT RUN UNDER tests\doc_claims.ps1's SIBLING PHASE - #250.
-    #      That phase starts all thirteen sibling suites at once, most of them
+    #      That phase starts all fourteen sibling suites at once, most of them
     #      spawning a child process per case, and sets LWG_SUITE_PARALLEL in the
     #      children. Everything this case reasons about above is about MACHINE
     #      SPEED - a slow laptop against a fast one - and none of it is about
-    #      twelve other suites running beside it. The minimum of nine survives a
+    #      thirteen other suites running beside it. The minimum of nine survives a
     #      disturbed CI runner; it is not known to survive that, and on main at
     #      1799146 it did not: CI step 6 passed this suite 99 of 99 standalone
     #      while step 18's parallel phase aborted the whole documentation guard
@@ -2305,7 +2305,7 @@ try {
     #      it launched siblings and nothing more. A list of "which cases are
     #      timing cases" held over there is a list that goes stale here.
     #
-    #      THE OTHER DURATION VERDICT IN THE FOURTEEN SUITES is
+    #      THE OTHER DURATION VERDICT IN THE FIFTEEN SUITES is
     #      tests\stop_behaviour.ps1's D4 (:2210, two render medians against a
     #      5000 ms difference) - the suite the first two aborts named. It needs
     #      the same three lines and is not this lane's file; the shape is written
@@ -2317,7 +2317,7 @@ try {
     if ($j10Parallel) {
         Write-Output '  J10 timing  SKIPPED under the parallel runner - a duration measured beside twelve other suites measures the runner, not the gate (#250)'
         Add-Result 'J10 an off switch the fast path can prove still exits 0, and quicker than one it cannot' $true `
-            ('SKIPPED: LWG_SUITE_PARALLEL is set, so this run is one of the thirteen sibling suites tests\doc_claims.ps1 starts at once. This is the only case in this file whose verdict is a wall-clock difference, and a difference taken while twelve other suites are spawning a process per case measures the runner. Nothing is widened and nothing is retried - run this suite on its own, which its own CI step and every local run do, and the case is enforced exactly as written. See the block above it and #250.')
+            ('SKIPPED: LWG_SUITE_PARALLEL is set, so this run is one of the fourteen sibling suites tests\doc_claims.ps1 starts at once. This is the only case in this file whose verdict is a wall-clock difference, and a difference taken while thirteen other suites are spawning a process per case measures the runner. Nothing is widened and nothing is retried - run this suite on its own, which its own CI step and every local run do, and the case is enforced exactly as written. See the block above it and #250.')
     } else {
     # NOT RE-INDENTED, deliberately: the body below is unchanged, and shifting it
     # four spaces would bury a three-line change in a forty-line whitespace diff.

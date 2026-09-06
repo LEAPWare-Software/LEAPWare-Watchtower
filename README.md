@@ -87,7 +87,7 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   further work on this plugin will change that, so on 30 July 2026 the placeholders were removed and
   the reasoning kept. See
   [Attempted and blocked](docs/modules.md#attempted-and-blocked-ratelimit_escalation-and-cost_tracking).
-- **Eleven suites test behaviour, and a green run of all of them is a narrower claim than the
+- **Twelve suites test behaviour, and a green run of all of them is a narrower claim than the
   totals suggest.** `tests/gate_delegate.ps1` runs 100 cases against `delegate_gate`;
   `tests/supervision.ps1` runs 67 against `send_liveness_gate`, `completion_audit` and
   `orphan_watch`; `tests/stop_behaviour.ps1` runs 133 against the two turn-end hooks and the
@@ -344,7 +344,7 @@ preserved at
 
 ## Commands
 
-Six slash commands. Claude Code namespaces a plugin's commands with the plugin name and the
+Seven slash commands. Claude Code namespaces a plugin's commands with the plugin name and the
 prefix **cannot be suppressed**, so they are `/lw-watchtower:…` and nothing shorter.
 
 **Report on governance** — this reads and prints; it changes nothing.
@@ -352,6 +352,12 @@ prefix **cannot be suppressed**, so they are `/lw-watchtower:…` and nothing sh
 | Command | What it does |
 | --- | --- |
 | `/lw-watchtower:doctor` | Wiring checks aimed at what is **not** working, counted in its own output, then the module roster — every module with its kind, whether it is enabled and, the only column that reports behaviour, its state. Exits non-zero when it finds something. |
+
+**Report on your own sessions** - this reads transcripts Claude Code has already written; it writes nothing.
+
+| Command | What it does |
+| --- | --- |
+| `/lw-watchtower:metrics` | How much work left the main thread, what it cost in tokens by model and by category, and **whether delegation is happening at all**. Every column it has no source for prints `NOT DETERMINED` with the reason - there is no verdict, no dollar figure and no written file. |
 
 **Lifecycle** — the four that can change your machine all dry-run by default.
 
@@ -398,10 +404,10 @@ Exit codes and reporting rules: [Commands](docs/commands.md).
 | [Configuration](docs/configuration.md) | `lw-watchtower/config.json` and the override beside it, in full |
 | [Modules](docs/modules.md) | All eleven, with their blind spots, **the three gates**, and the removal of the two that could not be built |
 | [Gates were removed deliberately](docs/gates-removed.md) | The rules a gate has to follow here, **what the trip ledger's removal means a new gate must rebuild**, and what four failed fix attempts taught |
-| [Commands](docs/commands.md) | All six slash commands, their exit codes, and which preference commands are enforced |
+| [Commands](docs/commands.md) | All seven slash commands, their exit codes, and which preference commands are enforced |
 | [Roles](docs/roles.md) | The six agent roles the plugin ships, and when each is dispatched |
 | [Architecture](docs/architecture.md) | Layout, hooks, measured costs, state, failure policy |
-| [Testing and CI](docs/testing.md) | **Fourteen files in `tests/`, and eleven of them test behaviour** — what each one covers, and what is uncovered |
+| [Testing and CI](docs/testing.md) | **Fifteen files in `tests/`, and twelve of them test behaviour** — what each one covers, and what is uncovered |
 | [Portability](docs/portability.md) | The no-local-environment-dependencies mandate, and the scan that enforces it |
 | [Troubleshooting](docs/troubleshooting.md) | Symptom-first index |
 
@@ -421,7 +427,7 @@ which is why that number was `0.4.0` and not `0.3.1`. See
 refs. See [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-releases) for the rule and for the part the
 guard cannot see.
 
-CI runs on `windows-latest` under Windows PowerShell 5.1, in **one job with twenty check steps**:
+CI runs on `windows-latest` under Windows PowerShell 5.1, in **one job with 21 check steps**:
 JSON validity, PowerShell parse, the workflow guard, the delegate gate suite, the installer merge
 suite, the stop-hook behaviour suite, the uninstaller footprint suite, the doctor behaviour suite,
 the toggle write-path suite, the `SubagentStart` fast-scan suite, the payload disclosure guard, the

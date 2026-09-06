@@ -69,8 +69,8 @@ contact_links:
     url: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/blob/main/CONTRIBUTING.md
     about: >-
       Dev setup, the reports-yes, code-by-invitation posture and the invited contributor's flow, the
-      exit-code contract, and what a good PR looks like. There are fourteen files in `tests/`,
-      eleven of them test behaviour, and a green run of all fourteen is a narrower claim than it
+      exit-code contract, and what a good PR looks like. There are fifteen files in `tests/`,
+      twelve of them test behaviour, and a green run of all fifteen is a narrower claim than it
       sounds — CONTRIBUTING.md says exactly how narrow.
   # WHY THIS REPOSITORY'S COMMUNITY PROFILE SCORE IS NOT 100, RECORDED HERE SO THE
   # NEXT REVIEWER FINDS THE ANSWER BESIDE THE FORMS. Measured 2026-09-03 with

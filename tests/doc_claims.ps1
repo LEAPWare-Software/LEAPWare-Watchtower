@@ -803,7 +803,7 @@ if (-not $SkipSuites) {
     # LWG_SUITE_PARALLEL IS SET FOR THE CHILDREN AND FOR NOTHING ELSE - #250.
     #
     # A case whose verdict is a DURATION cannot be trusted here and must not be
-    # allowed to fail here. Thirteen suites start at once, most of them spawning
+    # allowed to fail here. Fourteen suites start at once, most of them spawning
     # a child process per case, and a case that asserts on the clock is then
     # measuring the runner rather than the product. That is not a hypothesis:
     # this guard aborted twice on tests\stop_behaviour.ps1 exiting 1 while the

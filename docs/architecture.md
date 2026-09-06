@@ -38,7 +38,7 @@ lw-watchtower/config.json    module switchboard, per-repo overrides, thresholds,
                              per-module tuning (module_config), plus the
                              interaction and supervision switch blocks, which
                              carry the gate switches and are NOT modules keys
-lw-watchtower/commands/*.md  six slash commands - prose only; every one of
+lw-watchtower/commands/*.md  seven slash commands - prose only; every one of
                              them is a thin wrapper that runs a script in bin/
                              and reports its output. The logic is never in the
                              command prose - see docs/commands.md
@@ -179,7 +179,7 @@ lw-watchtower/statusline/statusline.ps1
                              the two can drift - see docs/install.md
 tests/gate_delegate.ps1      100 cases against lib/gate_delegate.ps1, each run
                              through a real pipe into a real child process. One
-                             of ELEVEN behavioural suites, and the only one that
+                             of TWELVE behavioural suites, and the only one that
                              covers a PreToolUse gate - see docs/testing.md
 tests/stop_behaviour.ps1     133 cases against the Stop-hook handlers:
                              helpers in process, lib/stop_advisories.ps1 and
@@ -250,7 +250,7 @@ tests/doc_claims.ps1         every tracked .md/.json/.yml, against counts DERIVE
                              suites, per-suite cases, CI check steps, doctor
                              checks, commands, modules. Asserts nothing about
                              behaviour either; it checks the pages, not the code
-.github/workflows/ci.yml     CI - one job, TWENTY check steps: JSON validity,
+.github/workflows/ci.yml     CI - one job, 21 check steps: JSON validity,
                              PowerShell parse, workflow guard, delegate gate
                              suite, installer merge suite, stop-hook behaviour
                              suite, supervision suite, uninstaller footprint
@@ -259,9 +259,10 @@ tests/doc_claims.ps1         every tracked .md/.json/.yml, against counts DERIVE
                              suite, SubagentStart fast-scan suite, payload
                              disclosure guard, portability scan, documentation
                              claims, pull-request issue reference,
-                             commit identity, version declarations and red-first
-                             annotations. Eleven
-                             of the twenty test BEHAVIOUR; the other nine ask
+                             commit identity, version declarations, metrics
+                             behaviour suite and red-first
+                             annotations. Twelve
+                             of the 21 test BEHAVIOUR; the other nine ask
                              whether files are well formed or whether the docs
                              agree with the tree. The job's DISPLAY
                              NAME is deliberately unchanged and now understates

@@ -91,8 +91,8 @@
 
      THAT ONE CASE - D4's duration verdict, and only that one - REPORTS SKIPPED
      WHEN LWG_SUITE_PARALLEL IS SET, which tests\doc_claims.ps1 sets in the
-     thirteen sibling suites it starts at once (#250). The reasoning above is
-     about machine speed and not about twelve suites running beside this one.
+     fourteen sibling suites it starts at once (#250). The reasoning above is
+     about machine speed and not about thirteen suites running beside this one.
      It is still counted in the tally, it still prints a line saying it skipped,
      and it is still enforced by this suite's own CI step and by every local
      run. Nothing else in this file may skip: a case that cannot run is an abort
@@ -2663,10 +2663,10 @@ try {
 
     # THE ONLY VERDICT IN THIS FILE THAT IS A DURATION, AND IT DOES NOT RUN
     # UNDER tests\doc_claims.ps1's SIBLING PHASE - #250. That phase starts all
-    # thirteen sibling suites at once, most of them spawning a child process per
+    # fourteen sibling suites at once, most of them spawning a child process per
     # case, and sets LWG_SUITE_PARALLEL in the children. Section D's header
     # reasons about MACHINE SPEED - a slow laptop against a fast one - and about
-    # nothing else; none of it is about twelve other suites running beside this
+    # nothing else; none of it is about thirteen other suites running beside this
     # one. Two aborts of the whole documentation guard named THIS suite
     # (`ABORT: tests\stop_behaviour.ps1 exited 1`, green 117 of 117 standalone
     # minutes later, both recorded on #250), and the abort is total - "nothing
@@ -2693,13 +2693,13 @@ try {
     # THE VARIABLE IS READ HERE, not declared in doc_claims: that file knows it
     # launched siblings and nothing more. A list of "which cases are timing
     # cases" held over there is a list that goes stale here. The other duration
-    # verdict in the fourteen suites is tests\gate_delegate.ps1's J10, which
+    # verdict in the fifteen suites is tests\gate_delegate.ps1's J10, which
     # reads the same flag for the same reason.
     $d4Parallel = -not [string]::IsNullOrWhiteSpace($env:LWG_SUITE_PARALLEL)
     if ($d4Parallel) {
-        Write-Output '  D4 timing  SKIPPED under the parallel runner - a difference between two medians taken beside twelve other suites measures the runner, not the renderer (#250)'
+        Write-Output '  D4 timing  SKIPPED under the parallel runner - a difference between two medians taken beside thirteen other suites measures the runner, not the renderer (#250)'
         Add-Result 'D4: ten oversized records cost the render almost nothing' $true `
-            ('SKIPPED: LWG_SUITE_PARALLEL is set, so this run is one of the thirteen sibling suites tests\doc_claims.ps1 starts at once. This is the only case in this file whose verdict is a wall-clock difference, and a difference between two medians taken while twelve other suites are spawning a process per case measures the runner. Nothing is widened and nothing is retried - run this suite on its own, which its own CI step and every local run do, and the case is enforced exactly as written. The render-content case below it is NOT skipped: it asserts on the ''!'' marker rather than on a clock, so both renders still happen. See the block above it and #250.')
+            ('SKIPPED: LWG_SUITE_PARALLEL is set, so this run is one of the fourteen sibling suites tests\doc_claims.ps1 starts at once. This is the only case in this file whose verdict is a wall-clock difference, and a difference between two medians taken while twelve other suites are spawning a process per case measures the runner. Nothing is widened and nothing is retried - run this suite on its own, which its own CI step and every local run do, and the case is enforced exactly as written. The render-content case below it is NOT skipped: it asserts on the ''!'' marker rather than on a clock, so both renders still happen. See the block above it and #250.')
     } else {
         Add-Result 'D4: ten oversized records cost the render almost nothing' `
             ($d4delta -lt 5000) `
