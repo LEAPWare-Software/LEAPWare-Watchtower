@@ -58,12 +58,22 @@ land here as they merge.
   The `GitHygiene` evidence record **moved out of the "git answered" branch** and gained a
   `conflicts` field: a class-2 finding does not depend on git having answered, and a record written
   only inside that branch left a machine with no git telling the operator about an interrupted
-  rebase and telling `lw-watchtower.jsonl` nothing.
+  rebase and telling `lw-watchtower.jsonl` nothing. **That move is gated on there being a real tree
+  condition**, and the gate is the whole of it: on the git-unreachable path `query-failed` is
+  already in the condition list, so an ungated move would have written a second, all-zeroes
+  `GitHygiene` record beside the `GitHygieneUnavailable` one at **every** turn end of every session
+  on a machine where git is missing, hanging or refusing. Caught in review of this very change and
+  pinned by B35's second row, which asserts both halves — the Unavailable record still written, no
+  `GitHygiene` record beside it.
 
-  `tests/stop_behaviour.ps1` **120 → 132 cases**: B27–B37, eleven of them proven red against
-  `97f0697` and B35 the anti-vacuity control that passes before the fix as well as after.
+  `tests/stop_behaviour.ps1` **120 → 133 cases**: B27–B37, twelve rows and thirteen assertions.
+  Eleven were proven red against `97f0697`; B35's second row was proven red against the first commit
+  of this slice, where it reported the duplicate record verbatim. B35's first row is the
+  anti-vacuity control and passes before the fix as well as after, which is what it is for.
   **B36 makes `git` a dependency of this suite for the first time** — one case of the twelve, which
-  fails rather than skips without it.
+  fails rather than skips without it. The suite's own header is rewritten rather than left standing:
+  section B is no longer "the four cases that were always about something else", and section D is no
+  longer the only section that measures.
 
   **This is one slice of #167 and the rest is not built:** every other worktree, every branch that
   is not `HEAD`, tags, submodules, LFS, unreachable commits, CI, and a half-finished revert

@@ -1347,6 +1347,14 @@ try {
 
                 }
 
+                # The split between conditions of the TREE and conditions of the
+                # OBSERVATION. Resolved here rather than in the dedupe below,
+                # because the record above it needs the same distinction; the
+                # long argument for why the two kinds are not interchangeable is
+                # at the dedupe, which is where it was learned.
+                $obsIds    = @('query-failed', 'gh-unavailable')
+                $treeConds = @($conds | Where-Object { $obsIds -notcontains $_ })
+
                 # --- the evidence record, on BOTH paths ---------------------
                 # MOVED OUT OF THE `git answered` BRANCH (#167). A class-2
                 # finding does not depend on git having answered - the probes
@@ -1356,7 +1364,19 @@ try {
                 # is the file everything else in this plugin reads. The branch
                 # fields are empty or zero on that path, which is honest: they
                 # were not measured. `conditions` still says what was found.
-                if ($conds.Count -gt 0) {
+                #
+                # AND THE SECOND CLAUSE IS NOT DECORATION. On the path where git
+                # did not answer, $conds ALREADY holds 'query-failed' - so
+                # gating this on $conds alone would write a GitHygiene record
+                # with every tree field zeroed at every turn end of every
+                # session on a machine where git is missing, hanging or
+                # refusing, BESIDE the GitHygieneUnavailable record that path
+                # already writes. Two records per turn, for ever, saying one
+                # thing. On the path where git DID answer the gate is exactly
+                # what it always was, so no record that used to be written has
+                # stopped being written. Case B35 is the one that fails if this
+                # clause is removed.
+                if ($conds.Count -gt 0 -and ($st.ok -or $treeConds.Count -gt 0)) {
                     Write-LwgEvent -Event 'GitHygiene' -Payload $payload -Extra @{
                         module    = 'git_hygiene'
                         conditions = ($conds -join ',')
@@ -1415,8 +1435,9 @@ try {
                 # advisory fires on a change, not on a state" - in terms that no
                 # longer cover these two conditions. That page is outside this
                 # change and still needs the carve-out.
-                $obsIds    = @('query-failed', 'gh-unavailable')
-                $treeConds = @($conds | Where-Object { $obsIds -notcontains $_ })
+                # $obsIds and $treeConds are resolved above the evidence record,
+                # which needs the same split; this is where the reasoning for it
+                # lives and where it was learned.
                 $sig  = ($treeConds -join '+')
                 $prev = [string]$state['git_sig']
                 if ($sig -ne $prev) {

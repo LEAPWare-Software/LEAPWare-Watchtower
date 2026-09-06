@@ -17,10 +17,18 @@
   IT WAS BUILT AROUND mission_drift, WHICH IS GONE. That module ran at every
   turn end on every install with no test of any kind, and section B was written
   to end that. The module was removed and its cases went with it; what section B
-  holds now is the four cases that were always about something else, driven
-  through the same plumbing. Read the section as "the Stop advisory hook, end to
-  end" - which is what it was already called by the one case that never belonged
-  to mission_drift.
+  held after that was the four cases that were always about something else,
+  driven through the same plumbing. Read the section as "the Stop advisory hook,
+  end to end" - which is what it was already called by the one case that never
+  belonged to mission_drift.
+
+  IT IS NO LONGER FOUR. #167's coverage class 2 added B27-B37 on 6 September
+  2026 - twelve rows and thirteen assertions on git_hygiene's interrupted-work
+  probes - so section B is now the largest here and git_hygiene is the module it
+  covers most. That block also brings TWO things this file's header used to be
+  able to state more simply, and both are corrected below rather than left:
+  git is now a dependency of one case, and section D is no longer the only
+  section that measures.
 
   ---------------------------------------------------------------------------
   FIVE SECTIONS, AND THEY ANSWER DIFFERENT KINDS OF QUESTION
@@ -47,6 +55,17 @@
      that is how Claude Code invokes it and because what these cases assert
      lives in state files carried between turns. A turn is one child run.
 
+     ONE CASE OF THIS SUITE NEEDS git ON PATH, AND IT IS THE ONLY ONE. B36
+     builds a real repository with a real conflicted index, because an
+     unresolved conflict is stage-1/2/3 entries in the INDEX and is not a file
+     whose existence can be tested. It is isolated from the operator's own git
+     configuration - user.name, user.email and commit.gpgsign are forced on
+     every invocation, because a machine with global signing on would otherwise
+     block the fixture build on a prompt. WITHOUT git THAT CASE FAILS, with the
+     reason on the line; it does not skip. Every other case in that block
+     builds a .git DIRECTORY by hand and runs with git REMOVED from the child's
+     PATH, which is how they prove those probes cost no subprocess.
+
   C. failure_capture, END TO END, in a child process, the same way -
      lib\supervisor.ps1 -HookEvent <Event>.
 
@@ -56,11 +75,19 @@
      a child process because what section D asserts about it is how long it
      takes, and that is not a property an in-process function call has.
 
-     D is the only section that MEASURES rather than compares. Its one timing
-     case asserts a DIFFERENCE between two medians taken back to back on the
-     same machine in the same run, never an absolute duration, because an
-     absolute threshold is a case that fails on a slow laptop and passes on a
-     fast one for reasons that have nothing to do with the code.
+     D MEASURES rather than compares - and since 6 September 2026 it is not the
+     only one: B37 measures the class-2 probe cost the same way. Both assert a
+     DIFFERENCE between two medians taken back to back on the same machine in
+     the same run, never an absolute duration, because an absolute threshold is
+     a case that fails on a slow laptop and passes on a fast one for reasons
+     that have nothing to do with the code.
+
+     THE TWO MEASURING CASES DIFFER ON ONE POINT, AND IT IS DELIBERATE: D4
+     skips under LWG_SUITE_PARALLEL and B37 does not. D4 compares two
+     WHOLE-RENDER medians, which sibling load moves differently. B37's
+     reference leg is a SUBPROCESS: load makes a spawn slower, which makes the
+     reference bigger, which makes its assertion strictly easier. A guard that
+     load can only make more likely to pass has no reason to skip under it.
 
      THAT ONE CASE - D4's duration verdict, and only that one - REPORTS SKIPPED
      WHEN LWG_SUITE_PARALLEL IS SET, which tests\doc_claims.ps1 sets in the
@@ -969,8 +996,11 @@ try {
 
           ws has no .git, so Get-LwgRepoInfo resolves no root and the workspace
           root falls back to the payload's cwd - the same path either way, but
-          reached by the branch a session outside a repository takes. B24
-          creates a .git directory inside its own ws to take the other branch.
+          reached by the branch a session outside a repository takes. B24 and
+          the whole of B27-B36 create a .git inside their own ws to take the
+          other branch - a DIRECTORY built by hand in every case but B36, which
+          needs a real repository, and B34, whose .git is a FILE holding a
+          gitdir pointer because it is the linked-worktree case.
         #>
         param([string]$Name, [hashtable]$Modules)
 
@@ -1695,6 +1725,27 @@ try {
     Add-Result 'B35: a repository with NO interrupted operation reports none of them' `
         ($r35.code -eq 0 -and $r35.msg -notlike '*IN PROGRESS*' -and $r35.msg -notlike '*STASH*') `
         ("CANNOT GO RED against the pre-fix tree - it is the anti-vacuity control for B27-B34, which are all satisfied by a module that reports an interrupted rebase unconditionally. The UNKNOWN sentence IS expected here, because git is off PATH for this child; nothing about an interrupted operation is. exit $($r35.code), message [$($r35.msg)], stderr [$($r35.err)]")
+
+    # --- B35, second row: the log is not DOUBLED on the git-less path -------
+    # THE COST OF THE FIX ABOVE, PINNED. Moving the GitHygiene record out of
+    # the "git answered" branch is what lets a class-2 finding reach
+    # lw-watchtower.jsonl on a machine with no git - and gated on the condition
+    # list alone it would ALSO fire here, because `query-failed` is a condition
+    # and it is on this path at every turn end. That is a second record per
+    # turn, for ever, on the machine this module's own header calls the one
+    # that matters, saying the same thing GitHygieneUnavailable already says
+    # and carrying nothing but zeroes. The record it must NOT write is a
+    # GitHygiene; the record it must still write is the Unavailable one, so
+    # both halves are asserted - a "fix" that silenced the path entirely would
+    # satisfy the first and undo B24.
+    #
+    # BASELINE: RED against 7e61bd0, the first commit of this slice, where the
+    # gate was $conds.Count alone and this case reports TWO records.
+    $b35ev = ''
+    try { $b35ev = [IO.File]::ReadAllText((Join-Path $b35.data 'lw-watchtower.jsonl')) } catch { }
+    Add-Result 'B35: git off PATH writes the Unavailable record and NOT a second GitHygiene one' `
+        ($b35ev -like '*"event":"GitHygieneUnavailable"*' -and $b35ev -notlike '*"event":"GitHygiene"*') `
+        ("a GitHygiene record here would be a zeroed duplicate of the Unavailable record beside it, written at every turn end for the whole session on any machine where git is missing, hanging or refusing. lw-watchtower.jsonl held:`n$b35ev")
 
     # --- B36: an UNRESOLVED CONFLICT is named, in a REAL repository ---------
     # THE ONE CASE HERE THAT NEEDS A REAL git, and the reason is structural: an
