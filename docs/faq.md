@@ -66,9 +66,11 @@ Concretely, as shipped:
 - **At every turn end** it runs three advisories in one process — context-window pressure, whether
   source changed without docs, and git branch/commit/push hygiene — and rotates two logs beside them.
   Every one of them warns; none blocks.
-- **On five hook events** it records failures to `health.jsonl`, and on a genuine failure it exits 2,
-  which injects a task notification into the live session. That exit code is the only channel that
-  reaches an orchestrator mid-turn.
+- **On six hook events** it writes to `health.jsonl` — five of them failure records from
+  `lib/supervisor.ps1`, and one, `SubagentStart`, the START half of the dispatch record from
+  `lib/subagent_start.ps1`. On a genuine failure the supervisor exits 2, which injects a task
+  notification into the live session. That exit code is the only channel that reaches an
+  orchestrator mid-turn; the dispatch record never uses it.
 - **Six slash commands** report on the install or manage it. Four of
   the lifecycle ones dry-run by default.
 

@@ -118,6 +118,19 @@ is no bare public issue to open. What remains in scope is narrower, and real.
   edited paths, so it handles material that may carry secrets even though it no longer scans for
   them.
 
+  **ONE WRITE PATH DOES NOT PASS THROUGH THAT CONTROL AT ALL, AND IT IS NAMED HERE RATHER THAN
+  LEFT TO BE FOUND.** Since 6 September 2026 `lw-watchtower/lib/subagent_start.ps1` appends a
+  dispatch record to `health.jsonl` on every subagent dispatch, and it does **not** call
+  `Get-LwgRedacted` — that helper is the regex engine and the `SubagentStart` fast path cannot pay
+  for it. The mitigation is the shape of the row rather than a filter: it carries only `ts`,
+  `event`, `session`, `agent_id` and `agent_type`, and **`cwd` is deliberately omitted** because it
+  is the one field on that payload that holds an operator name and a clone root. Each field is
+  capped at 200 characters. **A credential pasted into an `agent_type` or a session id therefore
+  reaches `health.jsonl` unmasked**, and that is a stated limit, not an oversight — see
+  [Limitations § The dispatch record](docs/limitations.md#the-dispatch-record-costs-18-ms-and-halves-the-status-lines-fault-history).
+  A report of any *other* field reaching that row, or of a field being added to it that can carry
+  free text, is in scope.
+
   **This page used to say that helper existed "so this cannot happen". That was an overstatement,
   and it was wrong in a way that had already shipped.** Until 3 August 2026 its generic rule
   required a key name to be followed *immediately* by a colon or an equals sign, so a single quote

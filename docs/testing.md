@@ -62,7 +62,9 @@ tracked file carries a disclosure this repository knows the shape of.**
 **Every module name is now reached by at least one suite, and that is a much weaker statement than it
 sounds.** `failure_capture`, `context_pressure`, `docs_coupling`, `git_hygiene` and `log_rotation`
 are driven by `tests/stop_behaviour.ps1`; `self_health` by `tests/state_resolution.ps1`;
-`context_injection` by `tests/subagent_scan.ps1`; `orphan_watch`, `send_liveness_gate` and
+`context_injection` by `tests/subagent_scan.ps1`, which since 6 September 2026 also reaches
+`failure_capture`'s **dispatch record** — the second module in that one file; `orphan_watch`,
+`send_liveness_gate` and
 `completion_audit` by `tests/supervision.ps1`; `delegate_gate` by `tests/gate_delegate.ps1`. Four of
 the observing ones arrived on **3 August 2026** with one to three
 cases each on at most two properties apiece
@@ -761,6 +763,25 @@ write into the operator's own state directory on every failure.
 Exit codes: `0` every case passed, `1` at least one failed, `2` the suite aborted — and zero cases
 run is an abort, never a pass.
 
+**Six of the twenty cases are not about `context_injection` at all.** On 6 September 2026 a second
+module started writing from this same file — `failure_capture`'s **dispatch record**, one line
+appended to `health.jsonl` per dispatch — so this suite now covers two modules, and each of the six
+was proved to fail before the fix existed:
+
+| | What it requires |
+| --- | --- |
+| the row lands | four correct fields, `New-Record`'s envelope, and **no `cwd`** |
+| `failure_capture` off | **no row** — *and* `context_injection` still injects, because a bare negative is satisfied by a hook that crashed |
+| `context_injection` off | the row still lands, because it sits above this file's own early exit |
+| garbage stdin | no row, exit 0, and the injection still appears |
+| a non-ASCII `agent_type` | the emitted line is pure ASCII and round-trips through the same escaper the injection uses |
+| `CLAUDE_PLUGIN_DATA` unset | the escalation resolves the state directory and writes **exactly one** row into it |
+
+The two cases whose subject is a *silence* carry their positive control inside the same case, for
+the reason the rule below gives. One further case lives in `tests/supervision.ps1` (E15) rather than
+here, and is labelled a **pin** rather than a regression case: it is green by construction, because
+slice 0 never touched `lib/supervisor.ps1`.
+
 **What a green run does not mean.** It says the fast scan answers the **global** flag whatever order
 the top-level keys appear in, and that it agrees with the slow path it exists to avoid. It says
 nothing about:
@@ -772,7 +793,12 @@ nothing about:
   the comment-stripping and the 2000-character ceiling have no case at all;
 - **the performance budget** — which is the entire reason the raw-text path exists. This suite
   asserts on *answers*, not on milliseconds, so a green run is **not** evidence the hook is still
-  fast.
+  fast. **That matters more since the dispatch record landed**, because that row is known to cost
+  ~18 ms per dispatch and nothing here would notice it becoming 80: see
+  [Limitations § The dispatch record](limitations.md#the-dispatch-record-costs-18-ms-and-halves-the-status-lines-fault-history);
+- **that the row is redacted, because it is not.** `cwd` is omitted rather than masked, and no case
+  asserts anything about a credential in an `agent_type`; the non-ASCII case is about encoding, not
+  about secrets.
 
 ## The payload disclosure guard
 
@@ -1073,8 +1099,11 @@ as coverage:
    the backup-collision suffix, the post-write auto-restore, and the atomicity of the write.
 2. That the advisory handler in `lib/stop_advisories.ps1` **cannot block** rests on inspection of the
    source.
-3. That the `context_injection` escaper in `lib/subagent_start.ps1` emits **pure ASCII** rests on
-   inspection of the source.
+3. That the escaper in `lib/subagent_start.ps1` emits **pure ASCII** rests on inspection of the
+   source **for the `worker_facts.md` path only**. Since 6 September 2026 one `tests/subagent_scan.ps1`
+   case drives the same `ConvertTo-LwgJsonString` with a non-ASCII `agent_type` and requires the
+   emitted dispatch record to be pure ASCII and to round-trip, so the function is exercised — but
+   nothing pipes a non-ASCII facts file through the injection half.
 4. **No advisory's trigger has been validated against real sessions.** A suite can establish that a
    trigger behaves as written; it cannot establish that being warned by it is right, because that
    judgement is not in the code. `mission_drift` was the standing example — on by default, at every

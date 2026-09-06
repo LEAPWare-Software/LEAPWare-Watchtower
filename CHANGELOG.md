@@ -127,6 +127,37 @@ land here as they merge.
   `{"outputStyle": "lw-watchtower:lw-orchestrator"}` (a request; the thread keeps every tool) and
   `{"agent": "lw-watchtower:lw-orchestrator"}` (the real restriction; the role replaces the system
   prompt), and says they are different keys rather than alternatives.
+- **`failure_capture` writes the START half of the dispatch record (2026-09-06, #166, #311).**
+  `lib/subagent_start.ps1` now appends one line to `health.jsonl` per subagent dispatch —
+  `{"ts","event":"SubagentStart","session","agent_id","agent_type"}`, `New-Record`'s own envelope so
+  the four existing readers parse it unchanged. The STOP half has always been written on
+  `SubagentStop`; nothing could say when a dispatch *began*. The module is now declared on **six**
+  hook events across **two** files. **`cwd` is deliberately omitted** because this path cannot pay
+  for `Get-LwgRedacted`, and the limit that leaves is stated rather than glossed: the row is **not
+  redacted**, and the 200-character field cap bounds that exposure without removing it. The row is
+  gated on `failure_capture` alone and sits above `context_injection`'s early exit, so either flag
+  off leaves the other working. No registry `modules` key, no state file, no rotation wiring, no
+  `hooks/hooks.json` edit.
+- **The row costs ~18 ms per dispatch against a ~10 ms budget, and the 18 ms was accepted.** Stated
+  unrounded, with the breakdown: ~10 ms is Windows PowerShell 5.1 compiling a longer file — so
+  **prose in `lib/subagent_start.ps1` is charged per dispatch**, a fact about that file nothing in
+  this repository had written down — ~4 ms is `[DateTime]` first use, ~2 ms is the append. The
+  ~10 ms budget was a guess made before anyone measured what a timestamp costs on this path; the
+  measurement is real. 18 ms is ~4% of the hook's own 430–580 ms, and the alternative was no start
+  row from this event at all. Documented in `docs/modules.md`, `docs/limitations.md`,
+  `docs/architecture.md`, `docs/faq.md` and both hook headers, along with the second cost: each
+  dispatch now contributes two records, so the status line's 300-record window and
+  `Invoke-LwgRotate`'s 500-line carry-forward reach half as far back on a dispatch-heavy session.
+  **The start row is inert** — it falls through every fault arm and can never raise a fault count —
+  **and it still consumes depth.**
+- **`tests/subagent_scan.ps1` 14 → 20 cases**, all six proved red first: the row lands with four
+  correct fields and no `cwd`; `failure_capture` off means no row and `context_injection` still
+  injects; `context_injection` off and the row still lands; garbage stdin means no row, exit 0, and
+  still injects; a non-ASCII `agent_type` escapes to pure ASCII and round-trips; `CLAUDE_PLUGIN_DATA`
+  unset escalates and writes exactly one row to the resolved directory.
+- **`tests/supervision.ps1` 66 → 67 cases** — E15, labelled a **pin** rather than a regression case
+  because it is green by construction: a `SubagentStart` row neither rescues an orphan nor creates
+  one, because the reconciliation filters on `SubagentStop` alone.
 - **`tests/payload_guard.ps1` case S13** — the orchestrator role grants itself no tool that edits or
   executes. `Bash`, `PowerShell`, `Edit`, `Write` or `NotebookEdit` on that one frontmatter line would
   silently end the delegation discipline the whole body is written around, while the body went on

@@ -8,7 +8,7 @@
                         cost was written for it.
     failure_capture     appends ONE line to health.jsonl per dispatch: the START
                         half of the dispatch record whose STOP half
-                        lib/supervisor.ps1:814-819 has always written. It is an
+                        lib/supervisor.ps1:825-830 has always written. It is an
                         ADDITION to that module, not a module of its own - no
                         registry entry, no `modules` key, no state file, no
                         rotation wiring and no hooks/hooks.json edit. See THE
@@ -86,6 +86,10 @@
       appear.
     * NO JSON engine. ConvertFrom-Json / ConvertTo-Json are the single most
       expensive thing a fresh PowerShell 5.1 process can touch.
+    * NO PROSE THAT CAN LIVE SOMEWHERE ELSE. 5.1 compiles the WHOLE file before
+      running a statement, so comments HERE cost ms per dispatch as comments in
+      no other file in this plugin do - ~10 of the row's 18 ms, measured below
+      by a leg that writes no row. Long form goes to docs/modules.md.
 
   That is a deliberate, narrow duplication of Get-LwgConfig + Test-LwgModule,
   and it is bounded by the escalation rule below rather than being left free to
@@ -104,12 +108,12 @@
       {"ts":"<ISO-8601 o>","event":"SubagentStart","session":"<session_id>",
        "agent_id":"...","agent_type":"..."}
 
-  That is New-Record's envelope (lib/supervisor.ps1:184-192), not a new set of
-  names, because four readers already parse that shape - supervisor.ps1:392,
+  That is New-Record's envelope (lib/supervisor.ps1:195-203), not a new set of
+  names, because four readers already parse that shape - supervisor.ps1:403,
   gate_send.ps1:330, Get-LwgHealthRecords, statusline/statusline.ps1:942. `ts`
   IS the dispatch time; no second timestamp under a second name in a file whose
   readers sort on ts. The STOP half has always been written at
-  supervisor.ps1:814-819; this is the START half.
+  supervisor.ps1:825-830; this is the START half.
 
   IT STAYS ON THE FAST PATH. The flag is failure_capture, read from the
   `modules` span this file has ALREADY extracted for its own module - an IndexOf
@@ -155,10 +159,16 @@
       D - A   the same file, flag OFF       +6.8    +5.0  ms
       C - A   NULL CONTROL, must be ~0      +4.2    +0.3  ms
 
-  SO THE ROW COSTS ABOUT 18 ms PER DISPATCH. Slice 0's budget was ~10 ms, and
-  above it the design is re-argued rather than absorbed. THIS IS OVER, it is
-  stated here rather than rounded, and the decision is the owner's. Where it
-  goes, from component profiling in a fresh PowerShell 5.1 process:
+  SO THE ROW COSTS ABOUT 18 ms PER DISPATCH. Slice 0's budget was ~10 ms, so the
+  design was re-argued rather than absorbed, and ON 6 SEPTEMBER 2026 THE 18 ms WAS
+  ACCEPTED. Three reasons, none of them "it is small": the ~10 ms budget was a
+  guess made before anyone had measured what a timestamp costs on this path, and a
+  measurement beats a guess; ~10 of the 18 is the INTERPRETER, not the design, so no
+  rewrite of the row removes it; and 18 ms is ~4% of this hook's own 430-580 ms. The
+  alternative was not a cheaper row - it was NO START ROW FROM THIS EVENT AT ALL,
+  which is a decision about whether the feature exists. The number stays stated
+  rather than rounded. Where it goes, from component profiling in a fresh
+  PowerShell 5.1 process:
 
       [DateTime]::UtcNow.ToString('o')   first call   ~4.0 ms  irreducible -
                                                       Get-Date costs 145-220 ms,
@@ -210,7 +220,7 @@ $LwgModuleName = 'context_injection'
 # row is an addition to failure_capture and gated on its flag alone.
 $LwgLedgerModule = 'failure_capture'
 
-# Where the row goes. ALREADY rotated from supervisor.ps1:634, above the
+# Where the row goes. ALREADY rotated from supervisor.ps1:645, above the
 # failure_capture gate, so the 5 MB / 500-line discipline covers this writer for
 # free and nothing is wired here for it.
 $LwgLedgerLog = 'health.jsonl'
@@ -935,7 +945,7 @@ try {
     #    ITS OWN try, so a ledger that cannot write costs the row and never the
     #    injection below it.
     #
-    #    SESSION AND AGENT ARE BOTH REQUIRED - supervisor.ps1:392 keys on
+    #    SESSION AND AGENT ARE BOTH REQUIRED - supervisor.ps1:403 keys on
     #    agent_id and every reader filters on session, so a row carrying neither
     #    is matched by nothing. A payload that is not JSON writes nothing and
     #    still exits 0. agent_type is NOT required: a dispatch with no subagent

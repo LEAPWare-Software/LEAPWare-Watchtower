@@ -1188,7 +1188,7 @@ try {
     # #166 (tracked on #311) made lib\subagent_start.ps1 append a SubagentStart
     # row to health.jsonl on every dispatch, so this module's evidence file now
     # carries a second record per agent that it never saw before. The
-    # reconciliation at supervisor.ps1:392 filters on SubagentStop and on
+    # reconciliation at supervisor.ps1:403 filters on SubagentStop and on
     # SubagentStop alone, and the start row is INERT: it can never close an
     # orphan and it can never raise a fault count.
     #
@@ -1199,7 +1199,7 @@ try {
     # day somebody widens that filter to "any record naming this agent", which
     # would turn every dispatched agent into a finished one and make this
     # module report nothing for the rest of its life. That is the failure
-    # supervisor.ps1:645 already records once: a check reading a file nothing
+    # supervisor.ps1:656 already records once: a check reading a file nothing
     # wrote, reporting "0 orphans" unconditionally for its entire life.
     #
     # BOTH DIRECTIONS, because one alone proves nothing. A start row must not
@@ -1229,7 +1229,7 @@ try {
          $r15b.code -eq 0 -and [string]::IsNullOrWhiteSpace($r15b.err)) `
         ("expected the started-but-never-stopped agent to STILL be reported (exit 2 naming aaaaaaaaaaaaaaaa7) and the " +
          "started-and-stopped one to raise nothing (exit 0, silent); got $($r15a.code)/'$($r15a.err)' and " +
-         "$($r15b.code)/'$($r15b.err)'. supervisor.ps1:392 filters on SubagentStop alone and the start row is inert.")
+         "$($r15b.code)/'$($r15b.err)'. supervisor.ps1:403 filters on SubagentStop alone and the start row is inert.")
 
     # -------------------------------------------------------------------
     # RESULT

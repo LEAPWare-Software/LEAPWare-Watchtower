@@ -62,8 +62,11 @@ its own section below. All three ship switched off.
   is invisible to it.
 - `git_hygiene` is the **only module that spawns a subprocess**, and it does so on `Stop` only.
   Nothing outside a repo, nothing with the flag off. See [Turn-end cost](architecture.md#turn-end-cost).
-- `context_injection` runs once **per subagent dispatch** and is the only module on that event.
-  It injects, it never blocks — `SubagentStart` has no blocking channel at all.
+- `context_injection` runs once **per subagent dispatch**, and since 6 September 2026 it is **no
+  longer the only module on that event**: `failure_capture` appends the dispatch record's START half
+  from the same file and the same process, gated on its own flag. Either flag off leaves the other
+  working. `context_injection` injects, it never blocks — `SubagentStart` has no blocking channel at
+  all — and neither does the row. See [`failure_capture`](#failure_capture-and-healing).
 - `orphan_watch` **ships switched off**, and its switch is `supervision.orphan_watch` rather than a
   `modules` flag. It runs inside [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1) *below*
   the `failure_capture` flag check, so `failure_capture` off means `orphan_watch` inert whatever its
@@ -987,15 +990,27 @@ Likewise the fast `String.Replace` escaper is not the trusting one: a UTF-8 byte
 from the character count proves a character above `U+007F` is present, `IndexOfAny` finds the
 control characters the chain does not cover, and either one routes the string to an exact `\uXXXX`
 escaper that emits every character outside printable ASCII as an escape — so the emitted envelope
-is pure ASCII whatever the facts file holds and whatever the console code page is. **That, too, is
-a property of the source rather than a tested one:** nothing in this repository exercises this
-script.
+is pure ASCII whatever the facts file holds and whatever the console code page is. **This claim used
+to end "a property of the source rather than a tested one: nothing in this repository exercises this
+script", and that stopped being true.** `tests/subagent_scan.ps1` drives the real script, and one of
+its dispatch-record cases pipes a non-ASCII `agent_type` through the same `ConvertTo-LwgJsonString`
+and requires the emitted line to be pure ASCII and to round-trip. What is still untested is the
+**`worker_facts.md` path** through that escaper — the injection half has no case of its own.
 
 **Failure policy.** Any error at all exits 0 and the dispatch proceeds. A missing, empty or
 comment-only facts file emits nothing. Unreadable or corrupt `config.json` **fails open** and still
 injects, matching `Get-LwgConfig`. Garbage or empty stdin is fine, because stdin is drained and
-never parsed. Errors are logged on the error path only — logging every dispatch would cost a
-`ConvertTo-Json` warm-up and a file append per worker, which is most of the budget.
+never parsed. Errors are logged on the error path only, and **that is still true after the dispatch
+record moved a file append onto the happy path**: what the record costs is one
+`[IO.File]::AppendAllText` of a hand-built line, not a `ConvertTo-Json` warm-up and not a diagnostic
+log of the injection itself. The expensive halves — the JSON engine, and a record of what this
+module did — are still off this path.
+
+**This file is no longer one module's.** `failure_capture`'s dispatch record is written from the
+same process, above `context_injection`'s early exit, gated on its own flag. See
+[`failure_capture`](#failure_capture-and-healing) for the row, the redaction limit and the ~18 ms it
+costs — of which most is paid whichever way the two flags are set, because it is the interpreter
+compiling a longer file.
 
 Measured cost is in [Architecture § context_injection cost](architecture.md#context_injection-cost).
 
@@ -1074,4 +1089,85 @@ orphan re-reported as new would push that indicator up forever with no way to br
 
 ## `failure_capture` and healing
 
-See [Health and healing](architecture.md#health-and-healing).
+See [Health and healing](architecture.md#health-and-healing) for the event table and the exit-2
+alerting path.
+
+### The dispatch record — the START half, and what it cost to have
+
+`failure_capture` is declared on **six** hook events and implemented in **two** files. Five events
+are [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1). The sixth is `SubagentStart`, where
+[`lib/subagent_start.ps1`](../lw-watchtower/lib/subagent_start.ps1) appends **one line per dispatch**
+to `health.jsonl`:
+
+```json
+{"ts":"<ISO-8601 o>","event":"SubagentStart","session":"<session_id>","agent_id":"...","agent_type":"..."}
+```
+
+That is `New-Record`'s envelope, not a new set of names, because four readers already parse that
+shape — `supervisor.ps1:403`, `gate_send.ps1:330`, `Get-LwgHealthRecords` and the status line. `ts`
+**is** the dispatch time; there is no second timestamp under a second name in a file whose readers
+sort on `ts`. The **STOP** half of this record has always been written on `SubagentStop`; until now
+the START half did not exist, so nothing could say when a dispatch began, only when it ended.
+
+**Two modules, one process, two flags, and neither switches the other.** The row is gated on
+`failure_capture` alone and sits *above* `context_injection`'s own early exit: `context_injection`
+off still writes the row, `failure_capture` off writes no row and still injects.
+`tests/subagent_scan.ps1` has a case for each direction.
+
+**`cwd` is deliberately omitted, and that omission is load-bearing.** `lib/supervisor.ps1` redacts
+every payload field through `Get-LwgRedacted`, which is the regex engine, and this path cannot pay
+for it. So the row carries only fields that need no redaction, and `cwd` — the one field here that
+holds an operator name and a clone root — is not written. **The limit that leaves, stated rather
+than glossed: this row is not redacted.** A credential pasted into an `agent_type` or a session id
+reaches `health.jsonl` unmasked. The 200-character cap on every field bounds that exposure and does
+not remove it. A field added here that could carry free text needs redaction this path cannot
+afford, and that is where the decision is re-argued rather than extended.
+
+**It costs ~18 ms per dispatch, the budget was ~10 ms, and the 18 ms was accepted.** The number is
+stated rather than rounded, and the reasoning is recorded here because it is the kind of decision a
+later reader will otherwise assume was never taken:
+
+| Where the 18 ms goes | ms | Reducible? |
+| --- | --- | --- |
+| the file being **longer at all** | ~10 | **No.** Windows PowerShell 5.1 tokenises and compiles the whole file before running a statement, so prose in `lib/subagent_start.ps1` is charged per dispatch. The flag-**off** leg — which writes no row — measures ~5–7 ms of this. |
+| `[DateTime]::UtcNow.ToString('o')`, first use in a fresh process | ~4 | **No.** `Get-Date` costs 145–220 ms and `Ticks.ToString()` costs the same as `'o'`. `ts` is not optional — four readers sort on it. |
+| `[IO.File]::AppendAllText`, first use | ~2 | That is the feature. |
+
+Three things follow, and they are why the cost was taken rather than argued down:
+
+1. **The ~10 ms budget was set before anyone had measured what a timestamp costs on this path.** It
+   was a guess about a path nobody had profiled; the 18 ms is a measurement. When a guess meets a
+   measurement, the measurement wins.
+2. **Most of the cost is the interpreter, not the design.** The floor is a property of PowerShell
+   5.1 and not of this row's shape, so no rewrite of the row removes it. One bounded optimisation
+   pass was made — header prose trimmed, `[IO.Directory]::Exists` moved off the happy path into the
+   retry `catch` — and it took the total from ~20.5 ms to ~18.0 ms and then stopped.
+3. **18 ms is about 4% of the hook's own measured cost**, which ran 430–580 ms in the same rounds.
+
+The alternative was not a cheaper row. It was **no start row written from `SubagentStart` at all**,
+because the floor is the interpreter's — and that is a decision about whether the feature exists,
+not about how it is implemented.
+
+**How it was measured**, because a 10 ms question needed a better instrument than this file's older
+note describes: four legs run back to back inside each of 96 rounds, all eight leg orders used
+equally often, the statistic being the **median of per-round differences** rather than a difference
+of medians (at 25 and 100 rounds a baseline leg's median sat 18 ms from a second baseline leg doing
+identical work, so the older method reported its own error); a **null-control leg** running the
+baseline hook a second time, so an added cost is read against what the instrument reports for a
+difference known to be zero; a same-size `config.override.json` in every leg so the override read is
+not charged to the leg that needs it; one warm-up sweep discarded; the real shipped `config.json`
+everywhere; and every run verified to have actually injected and to have written or not written the
+row its leg should.
+
+**What the row costs its readers** — the status line's fault history reaching half as far back on a
+dispatch-heavy session — is in
+[Limitations § The dispatch record](limitations.md#the-dispatch-record-costs-18-ms-and-halves-the-status-lines-fault-history).
+
+**Nothing reads the START half yet, by design.** It is written first so that the four things that
+want it — `#168`'s black tier, `#165`'s cost field, `#316` layer 4, and the daemon — are not each
+shipping a reader ahead of its writer. `supervisor.ps1:656` is this repository's standing record of
+what that looks like when it goes the other way round.
+
+**Nothing else moved.** No registry `modules` key, no state file, no rotation wiring, no
+`hooks/hooks.json` edit, no new hook process — the `SubagentStart` registration that
+`context_injection` already had is the one that carries this.

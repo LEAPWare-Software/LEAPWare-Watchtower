@@ -45,7 +45,7 @@
   ---------------------------------------------------------------------------
   lib\subagent_start.ps1 used to write NOTHING on its happy path. It now appends
   ONE line to health.jsonl per dispatch, gated on the failure_capture flag - the
-  START half of a record whose STOP half lib\supervisor.ps1:814-819 has always
+  START half of a record whose STOP half lib\supervisor.ps1:825-830 has always
   written. Six cases below are about that row and nothing else:
 
       Test-TheDispatchRecordLands
@@ -475,7 +475,7 @@ $LedgerModule = 'failure_capture'
 
 # The fixture payload's fields, invented and distinctive, so finding them in
 # health.jsonl is proof the row came from this dispatch and not from anywhere
-# else. agent_id is what supervisor.ps1:392 keys on; agent_type is what #168's
+# else. agent_id is what supervisor.ps1:403 keys on; agent_type is what #168's
 # black tier will render; session is what every reader filters by.
 $LedgerSession   = 'lwg-scan-session-0001'
 $LedgerAgentId   = 'lwg-scan-agent-abcdef0123'
@@ -525,7 +525,7 @@ function Get-LedgerStartRows {
     <#
       The SubagentStart rows among them, PARSED WITH ConvertFrom-Json, which is
       deliberate: that is the parser all four readers of this file use
-      (supervisor.ps1:392, gate_send.ps1:330, Get-LwgHealthRecords,
+      (supervisor.ps1:403, gate_send.ps1:330, Get-LwgHealthRecords,
       statusline.ps1:942), so parsing the row here proves reader compatibility
       rather than asserting it. A line that will not parse is NOT silently
       dropped - it is returned as $null so the caller can fail on it.
@@ -1163,9 +1163,9 @@ function Test-TheDispatchRecordLands {
     <#
       ONE ROW PER DISPATCH, IN New-Record's ENVELOPE.
 
-      lib\supervisor.ps1:184-192 builds every record in this file as
+      lib\supervisor.ps1:195-203 builds every record in this file as
       { ts, event, session, cwd, ...extra }, and four readers parse that shape:
-      supervisor.ps1:392 (the orphan reconciliation), gate_send.ps1:330,
+      supervisor.ps1:403 (the orphan reconciliation), gate_send.ps1:330,
       Get-LwgHealthRecords in common.ps1 and statusline.ps1:942. So the start row
       is that envelope and not a new spelling - ts IS the dispatch time, and there
       is deliberately no second timestamp under a second name in a file whose
@@ -1202,11 +1202,11 @@ function Test-TheDispatchRecordLands {
     } else {
         $row = $rows[0]
         if ([string]$row.session    -ne $LedgerSession)   { $bad += "session was '$($row.session)', expected '$LedgerSession'" }
-        if ([string]$row.agent_id   -ne $LedgerAgentId)   { $bad += "agent_id was '$($row.agent_id)', expected '$LedgerAgentId' - supervisor.ps1:392 keys on this field" }
+        if ([string]$row.agent_id   -ne $LedgerAgentId)   { $bad += "agent_id was '$($row.agent_id)', expected '$LedgerAgentId' - supervisor.ps1:403 keys on this field" }
         if ([string]$row.agent_type -ne $LedgerAgentType) { $bad += "agent_type was '$($row.agent_type)', expected '$LedgerAgentType'" }
         $ts = [datetime]::MinValue
         if (-not [datetime]::TryParse([string]$row.ts, [ref]$ts)) {
-            $bad += "ts '$($row.ts)' did not parse as a date; supervisor.ps1:392 and statusline.ps1 both sort on it"
+            $bad += "ts '$($row.ts)' did not parse as a date; supervisor.ps1:403 and statusline.ps1 both sort on it"
         } elseif (([string]$row.ts) -notmatch 'Z$') {
             $bad += "ts '$($row.ts)' is not UTC in round-trip ('o') form; New-Record's ts always ends in Z"
         }
@@ -1430,7 +1430,7 @@ function Test-TheStateDirectoryIsNeverGuessed {
       composes health.jsonl off it and pays nothing. When it is NOT set the
       answer is a RANKED DISCOVERY over the configuration root, and a second,
       cheaper spelling of that ranking here could pick a different directory and
-      produce TWO health logs, each half a session's history. lib\supervisor.ps1:645
+      produce TWO health logs, each half a session's history. lib\supervisor.ps1:656
       records what a reader over a file nothing wrote looks like: it reported
       "0 orphans" unconditionally for its entire life.
 
