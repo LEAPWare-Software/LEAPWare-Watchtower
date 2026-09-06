@@ -86,9 +86,9 @@
 # things in this plugin that can block anything. All three gates - and
 # orphan_watch, the eighth observer - declare their own `switch` and SHIP OFF.
 $script:LwgModuleRegistry = [ordered]@{
-    failure_capture      = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1'
-                              events = @('SessionStart', 'PostToolUseFailure', 'SubagentStop', 'Stop', 'StopFailure')
-                              note = 'Five hook events, gated on the flag; exits 2 to alert the orchestrator.' }
+    failure_capture      = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1 + lib/subagent_start.ps1'
+                              events = @('SessionStart', 'PostToolUseFailure', 'SubagentStart', 'SubagentStop', 'Stop', 'StopFailure')
+                              note = 'Six hook events, gated on the flag. FIVE are lib/supervisor.ps1, which exits 2 on a genuine failure to alert the orchestrator. The SIXTH is SubagentStart: lib/subagent_start.ps1 appends the START half of the dispatch record whose STOP half SubagentStop has always written, and that row never exits 2 and can never raise a fault count.' }
     context_pressure     = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/stop_advisories.ps1'
                               events = @('Stop')
                               note = 'context_window is NOT in any hook payload. Occupancy is recomputed from the transcript''s last assistant usage block using the CLI''s own formula. The context window SIZE is not observable, so it is resolved from config/observation and the percentage is suppressed outright when the size is not trustworthy.' }
@@ -106,7 +106,7 @@ $script:LwgModuleRegistry = [ordered]@{
                               note = 'ADVISORY on Stop - it warns and never blocks. The only module allowed to spawn a subprocess, and it only does so at turn end, inside a repo, with a hard timeout. A git command that fails or times out is reported as UNKNOWN, never as a clean tree. The open-PR check is the one network call, is skipped unless there is unpushed work on a non-default branch, and is skipped loudly when gh is missing or slow.' }
     context_injection    = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/subagent_start.ps1'
                               events = @('SubagentStart')
-                              note = 'SubagentStart, once per dispatch. Injects context/worker_facts.md as hookSpecificOutput.additionalContext, because CLAUDE.md is snapshotted into a subagent at PARENT-SESSION start and a mid-session edit never reaches a worker dispatched afterwards. The file is read live on every dispatch, so what a worker gets is current by construction. Deliberately does NOT dot-source this file on its fast path: that plus one ConvertFrom-Json measured 634 ms against a 273 ms interpreter floor, on a hook that every worker in every session pays for.' }
+                              note = 'SubagentStart, once per dispatch. Injects context/worker_facts.md as hookSpecificOutput.additionalContext, because CLAUDE.md is snapshotted into a subagent at PARENT-SESSION start and a mid-session edit never reaches a worker dispatched afterwards. The file is read live on every dispatch, so what a worker gets is current by construction. Deliberately does NOT dot-source this file on its fast path: that plus one ConvertFrom-Json measured 634 ms against a 273 ms interpreter floor, on a hook that every worker in every session pays for. SHARES ITS FILE, NOT ITS FLAG: since 6 September 2026 failure_capture writes the dispatch record from the same process, above this module''s early exit, so switching this one off does not stop that row and switching that one off does not stop this injection.' }
     send_liveness_gate   = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_send.ps1'
                               events = @('PreToolUse')
                               switch = @{ block = 'supervision'; key = 'send_liveness'; default = $false }
@@ -2084,7 +2084,7 @@ function Add-LwgLine {
       by writing a timestamp, and it fires on every SessionStart - start,
       resume, clear and compact. Nothing in the tree rotates, truncates or READS
       selfcheck.probe: Invoke-LwgRotate has three call sites and not one of them
-      names it - lib/supervisor.ps1:634 (health.jsonl), :635
+      names it - lib/supervisor.ps1:645 (health.jsonl), :646
       (lw-watchtower.jsonl) and lib/post_edit.ps1:99 (the edits file). This
       sentence said "exactly one call site and it is passed health.jsonl" until
       4 September 2026, which was true when it was written and had been wrong

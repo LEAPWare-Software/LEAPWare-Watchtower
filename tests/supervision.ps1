@@ -1184,6 +1184,53 @@ try {
         ($r.code -eq 2 -and $r.err -like '*aaaaaaaaaaaaaaaa6*') `
         "expected exit 2 naming the orphan when the window is provably complete; got exit $($r.code), stderr: $($r.err)"
 
+    # E15 - THE DISPATCH RECORD DOES NOT MOVE AN ORPHAN VERDICT. Slice 0 of
+    # #166 (tracked on #311) made lib\subagent_start.ps1 append a SubagentStart
+    # row to health.jsonl on every dispatch, so this module's evidence file now
+    # carries a second record per agent that it never saw before. The
+    # reconciliation at supervisor.ps1:403 filters on SubagentStop and on
+    # SubagentStop alone, and the start row is INERT: it can never close an
+    # orphan and it can never raise a fault count.
+    #
+    # THIS IS A PIN, NOT A REGRESSION CASE, and it is labelled as one rather
+    # than presented as red-first evidence. It is GREEN at 97f0697 by
+    # construction - slice 0 does not touch lib\supervisor.ps1 at all - and it
+    # would be green if the row had never been written. What it catches is the
+    # day somebody widens that filter to "any record naming this agent", which
+    # would turn every dispatched agent into a finished one and make this
+    # module report nothing for the rest of its life. That is the failure
+    # supervisor.ps1:656 already records once: a check reading a file nothing
+    # wrote, reporting "0 orphans" unconditionally for its entire life.
+    #
+    # BOTH DIRECTIONS, because one alone proves nothing. A start row must not
+    # RESCUE an orphan, and it must not CREATE one out of an agent that
+    # stopped cleanly.
+    $e15 = New-LwgSession -Base $work -Tag 'e15'
+    [void](Add-LwgAgent -Sess $e15 -AgentId 'aaaaaaaaaaaaaaaa7' -AgeMinutes 40)
+    [void](Write-LwgHealth -RootDir $rootOn -Records @(
+        @{ ts = '2026-08-01T12:00:00.0000000Z'; event = 'SessionStart';  session = $e15.id },
+        @{ ts = '2026-08-01T12:01:00.0000000Z'; event = 'SubagentStart'; session = $e15.id; agent_id = 'aaaaaaaaaaaaaaaa7'; agent_type = 'lwg-fixture' }
+    ))
+    $r15a = Invoke-LwgScript -ScriptPath $SupervisorPath -FakeRoot $rootOn -WorkDir $work -Tag 'e15a' `
+                -ScriptArgs '-HookEvent Stop' -Payload (New-LwgStopPayload -Sess $e15 -HookActive $false)
+
+    $e16 = New-LwgSession -Base $work -Tag 'e16'
+    [void](Add-LwgAgent -Sess $e16 -AgentId 'aaaaaaaaaaaaaaaa8' -AgeMinutes 300)
+    [void](Write-LwgHealth -RootDir $rootOn -Records @(
+        @{ ts = '2026-08-01T12:00:00.0000000Z'; event = 'SessionStart';  session = $e16.id },
+        @{ ts = '2026-08-01T12:01:00.0000000Z'; event = 'SubagentStart'; session = $e16.id; agent_id = 'aaaaaaaaaaaaaaaa8'; agent_type = 'lwg-fixture' },
+        @{ ts = '2026-08-01T12:30:00.0000000Z'; event = 'SubagentStop';  session = $e16.id; agent_id = 'aaaaaaaaaaaaaaaa8' }
+    ))
+    $r15b = Invoke-LwgScript -ScriptPath $SupervisorPath -FakeRoot $rootOn -WorkDir $work -Tag 'e15b' `
+                -ScriptArgs '-HookEvent Stop' -Payload (New-LwgStopPayload -Sess $e16 -HookActive $false)
+
+    Add-Result 'E15 a SubagentStart row changes no orphan verdict in either direction (#166 slice 0)' `
+        ($r15a.code -eq 2 -and $r15a.err -like '*aaaaaaaaaaaaaaaa7*' -and
+         $r15b.code -eq 0 -and [string]::IsNullOrWhiteSpace($r15b.err)) `
+        ("expected the started-but-never-stopped agent to STILL be reported (exit 2 naming aaaaaaaaaaaaaaaa7) and the " +
+         "started-and-stopped one to raise nothing (exit 0, silent); got $($r15a.code)/'$($r15a.err)' and " +
+         "$($r15b.code)/'$($r15b.err)'. supervisor.ps1:403 filters on SubagentStop alone and the start row is inert.")
+
     # -------------------------------------------------------------------
     # RESULT
     # -------------------------------------------------------------------

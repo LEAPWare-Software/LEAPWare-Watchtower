@@ -38,6 +38,7 @@ from running it, it says so.
 - [The three gates block little, and all ship off](#the-three-gates-block-little-and-all-ship-off)
 - [The advisory modules advise; they do not enforce](#the-advisory-modules-advise-they-do-not-enforce)
 - [The gate costs ~330 ms on every edit and command, on or off](#the-gate-costs-330-ms-on-every-edit-and-command-on-or-off)
+- [The dispatch record costs ~18 ms and halves the status line's fault history](#the-dispatch-record-costs-18-ms-and-halves-the-status-lines-fault-history)
 - [What no test covers](#what-no-test-covers)
 - [Platform, install and state](#platform-install-and-state)
 - [The documentation is not checked against the tree](#the-documentation-is-not-checked-against-the-tree)
@@ -270,7 +271,7 @@ runs a **heuristic**. Both are advisory; only the first is telling you something
 | `context_pressure` | **partly** — real token counts, an **inferred** denominator | No hook receives `context_window`. Occupancy is recomputed from the transcript with the CLI's own arithmetic, but the **window size** depends on account entitlement and is assumed at 200 000 unless configured, `[1m]`-tagged, or proven by observation. For an unrecognised 1 M model, occupancy between 150 k and 200 k reads as `75–100%` until one turn crosses 200 k. |
 | `docs_coupling` | a fact — the paths edited, over a **narrow window** | `Write`/`Edit`/`NotebookEdit` only. **A file rewritten by a shell command is invisible to it.** Its doc/source/neither classification is a configurable word list, not an analysis. |
 | `git_hygiene` | a fact — git's own answer | The only module that spawns a subprocess, on `Stop` only. If git is missing, times out or exits nonzero it reports **UNKNOWN**, never "clean" — but the operator has to read that word. Its open-PR half needs `gh` and the network and is best-effort by construction. |
-| `context_injection` | a fact — it emits the current bytes of one file per dispatch | It injects; it cannot block, because `SubagentStart` has no blocking channel. **Nothing verifies the worker read it or acted on it.** That the escaper emits pure ASCII rests on inspection of the source. |
+| `context_injection` | a fact — it emits the current bytes of one file per dispatch | It injects; it cannot block, because `SubagentStart` has no blocking channel. **Nothing verifies the worker read it or acted on it.** That the escaper emits pure ASCII rests on inspection of the source **for this path**; the dispatch record's path through the same function is covered by a case. Since 6 September 2026 this is no longer the only module in that file — see [the dispatch record](#the-dispatch-record-costs-18-ms-and-halves-the-status-lines-fault-history). |
 
 Blind spots per module, in the modules' own words:
 [the per-module caveats in Modules](modules.md).
@@ -345,6 +346,68 @@ median for the advisory handler against a 283 ms interpreter floor, and the rema
 overwhelmingly **PowerShell 5.1 engine warm-up, not data work**. It is not reducible much further
 from this side.
 
+## The dispatch record costs ~18 ms and halves the status line's fault history
+
+Since 6 September 2026 `failure_capture` appends one row to `health.jsonl` on every subagent
+dispatch, from [`lib/subagent_start.ps1`](../lw-watchtower/lib/subagent_start.ps1) — the START half
+of the record whose STOP half `SubagentStop` has always written. It buys the ability to say when a
+dispatch *began*. It has two costs, and both are stated here rather than folded into the feature.
+
+### ~18 ms on every dispatch, and the budget it was measured against was ~10 ms
+
+The number is **~18 ms**, measured as the median of per-round differences over 96 rounds against a
+null-control leg, and it is written here unrounded because rounding it to "about 20" or "negligible"
+is how a measured cost stops being one. Where it goes:
+
+| | ms | |
+| --- | --- | --- |
+| the hook file being **longer at all** | ~10 | Windows PowerShell 5.1 tokenises and compiles the whole script before it runs a statement, so **prose in that file is charged per dispatch**. The flag-**off** leg — which writes no row — measures ~5–7 ms of this, so most of the 18 ms is paid whether or not `failure_capture` is on. |
+| `[DateTime]::UtcNow.ToString('o')`, first use in a fresh process | ~4 | `Get-Date` costs 145–220 ms and `Ticks.ToString()` costs the same as `'o'`, so no spelling of a timestamp avoids it. |
+| `[IO.File]::AppendAllText`, first use | ~2 | The write itself. |
+
+**The ~10 ms budget was set before anyone had measured what a timestamp costs on this path**, and
+one bounded optimisation pass (header prose trimmed, `[IO.Directory]::Exists` moved off the happy
+path into the retry `catch`) took the total from ~20.5 ms to ~18.0 ms and then stopped. 18 ms is
+about **4%** of this hook's own 430–580 ms. The cost was accepted knowingly; the reasoning is in
+[Modules § The dispatch record](modules.md#the-dispatch-record--the-start-half-and-what-it-cost-to-have).
+
+**An operator who wants none of it has one lever and it is coarse**: `failure_capture` off stops the
+row and still leaves ~5–7 ms, because that part is the interpreter and not the write.
+
+### The status line's fault history reaches half as far back on a dispatch-heavy session
+
+`statusline.ps1` reads the **last 300 records** of the health logs to compute the `HH` fault count,
+and `Invoke-LwgRotate` carries the **last 500 lines** forward when the live log rolls. Each dispatch
+now contributes **two** records where it contributed one, so on a session that dispatches heavily
+both windows reach roughly **half as far back in time** as they did. Nothing was reduced; the window
+is a record count and dispatches now fill it faster.
+
+**Both halves of that matter, and neither is the other's answer:**
+
+- **The start row is INERT.** It carries no `supervisor_error`, no `PostToolUseFailure`, no
+  `failed_tasks` and no `orphans`, so it falls through every fault arm in the status line's reader
+  untouched. **It can never raise a fault count**, and no `HH` number goes up because of it.
+- **It still consumes depth.** Inert is not free: an inert record occupies one of the 300 and one of
+  the 500 exactly as a fault record does, so a real fault can be pushed out of the window sooner.
+
+The inertness is a property read out of the arms in
+[`statusline/statusline.ps1`](../lw-watchtower/statusline/statusline.ps1), **not something a case
+pins**. What *is* pinned is the orphan reconciliation: `tests/supervision.ps1` case E15 requires a
+`SubagentStart` row to neither rescue an orphan nor create one, because `supervisor.ps1:403` filters
+on `SubagentStop` alone.
+
+### Unmeasured, by name
+
+- **Everything only a live session could show.** No lane here holds a credential or runs a live
+  session, so what this row costs **inside a real dispatch under real CLI load**, and how far a real
+  session's `health.jsonl` depth actually moves over a real working day, are **not measured**. The
+  18 ms is a child-process wall-clock measurement of the hook alone, on one development machine.
+- **Whether the row is shaped right for its readers.** Nothing reads the START half yet, by design,
+  so nothing here establishes more than that it matches `New-Record`'s envelope.
+- **The row is not redacted.** `cwd` is omitted precisely because this path cannot afford
+  `Get-LwgRedacted`, but a credential pasted into an `agent_type` or a session id still reaches
+  `health.jsonl` unmasked. The 200-character cap on each field bounds that and does not remove it.
+
 ## What no test covers
 
 **Eleven suites in this repository establish a behaviour of this plugin, and between them they reach
@@ -359,14 +422,14 @@ one hook's fast path, the shipped payload, and all eight observing modules.**
 | `tests/setup_merge.ps1` | 203 cases. Against `bin/lwg-setup.ps1`: that the installer's merge preserves settings it was not asked to touch, takes one backup, is idempotent and rolls back; that it recognises a marketplace install and a registration of its own scripts under another root. The only suite that tests a **write**. Its last sections are not about the installer — they are the only coverage the **reporting surfaces that survive it** have: `statusline/statusline.ps1` (payload decoding, the three states a number can be in, the `HH` fault gauge, the reset clock, the paths and the config it reads) and `bin/lwg-update.ps1` (`-Offline` with `-Apply`, a diverged branch, the exit-4 attribution, the junction route). Nothing exercised `bin/lwg-update.ps1` in any form before that. |
 | `tests/doctor_behaviour.ps1` | 43 cases driving `bin/lwg-doctor.ps1` from a scratch copy of the whole plugin tree against seeded configs and seeded `settings.json` files: that `config-registry` refuses a switch whose value is not a real `[bool]` rather than passing it for being present, that `statusline` asks whose file a status line is before diagnosing it as a stale copy of this plugin's, and that it reads the `settings.json` the CLI actually reads rather than one composed from the profile. **Two of the doctor's ten checks and no others**, and a substantial minority are `CONTROL` cases that pass before the fix too. A byte-identical or token-bearing foreign status line is a stated limit, not something these cases catch. |
 | `tests/toggle_behaviour.ps1` | 32 cases against `bin/lwg-toggle.ps1`'s write to `config.override.json`, in real child processes against a byte copy of `bin/` and `lib/`: that the write takes a backup, re-checks that the file on disk is still the one it read, keeps a BOM, refuses a config it cannot read back, never reports exit `3` for a run that changed the file, and closes with an invariant that no run moved a byte of the plugin root's `config.json`. The only suite besides the merge one that tests a **write to a file an operator owns**. |
-| `tests/subagent_scan.ps1` | 14 cases piping payloads into the real `lib/subagent_start.ps1`: that its raw-text fast path answers the **global** `modules` flag whatever order the top-level keys appear in, and agrees with the slow path it exists to avoid. The only coverage `context_injection` has. Every case asserting silence re-runs the same fixture with one bit changed and requires the injection to appear, because a bare negative is satisfied by a hook that crashed. It asserts on answers, **not on the milliseconds** the fast path exists to save. |
+| `tests/subagent_scan.ps1` | 20 cases piping payloads into the real `lib/subagent_start.ps1`: that its raw-text fast path answers the **global** `modules` flag whatever order the top-level keys appear in, and agrees with the slow path it exists to avoid. The only coverage `context_injection` has. Every case asserting silence re-runs the same fixture with one bit changed and requires the injection to appear, because a bare negative is satisfied by a hook that crashed. It asserts on answers, **not on the milliseconds** the fast path exists to save. |
 | `tests/payload_guard.ps1` | 27 cases over two enumerations, and the split is the point: the **shipped payload**, which since the restructure is `lw-watchtower/` alone because `marketplace.json` declares `"source": "./lw-watchtower"`, and the rest of the tracked tree, which is never *loaded* as the plugin. **The split is about loading, not about reach:** adding the marketplace clones the whole repository onto a consumer's disk beside the cache, so a tracked file outside the payload is still a file a consumer has — see [Install § Option A](install.md#option-a--marketplace-install-recommended-for-consumers). That is why the second enumeration exists at all rather than being waved off. That no tracked file carries a pull-ref narrative, a former personal address, a plan file's name, a release-plan heading, a containment claim that inverts when visibility changes, or — inside the payload — a shipped file naming a script this branch deleted. It reads files rather than running this plugin's code, and it is a statement about **the shapes it carries**, not about everything a reader would rather not ship. |
 | `tests/portability_scan.ps1` | That no tracked file names a machine. **Nothing about behaviour** — a file can be perfectly portable and completely broken. |
 | `tests/workflow_guard.ps1` | That no workflow definition reaches a runner GitHub does not host. A *file* check, not a behaviour. |
 | `tests/doc_claims.ps1` | That no tracked page states a count — of suites, cases, CI steps, doctor checks, commands or modules — that the tree contradicts, and that every page under `docs/` is reachable from the index the site's front door renders. A check on the *documentation*, not on anything this plugin does. |
 | `tests/config_behaviour.ps1` | 57 cases against `bin/lwg-config.ps1`, the module switchboard's write path, which nothing in `tests/` had ever executed: the refusals it is built around, the two-phase preview, the surgical JSON edit and the exit-2 read-back. Like the toggle suite it closes with an invariant that no run moved a byte of the plugin root's `config.json`. |
 | `tests/state_resolution.ps1` | 37 cases against `lib/session_start.ps1` — the one surface every session sees — which nothing in `tests/` had ever executed either: the five self-check probes, the mode words, the state-directory resolution including `CLAUDE_CONFIG_DIR`, the banner, and the `additionalContext` envelope. Its own header states why its later sections exist: **execution is not coverage**, and the hook was being run nine times by cases that asserted almost nothing about it. |
-| `tests/supervision.ps1` | 66 cases against the other two gates, `send_liveness_gate` and `completion_audit`, and against `orphan_watch`, through a real pipe into a real child process against a throwaway plugin root. Its anchor cases reproduce the measured 1 August 2026 failure exactly — a 28-minute-45-second-stale transcript with no stop record, and a completion claim whose turn ends in `SendMessage` — and require the deny, the block and the orphan alert respectively. It carries the same standing caveat as the delegate suite: a green run says these cases still behave, not that the gates are sound. |
+| `tests/supervision.ps1` | 67 cases against the other two gates, `send_liveness_gate` and `completion_audit`, and against `orphan_watch`, through a real pipe into a real child process against a throwaway plugin root. Its anchor cases reproduce the measured 1 August 2026 failure exactly — a 28-minute-45-second-stale transcript with no stop record, and a completion claim whose turn ends in `SendMessage` — and require the deny, the block and the orphan alert respectively. It carries the same standing caveat as the delegate suite: a green run says these cases still behave, not that the gates are sound. |
 
 **Every module in the registry is now reached by some suite, and that is a much weaker statement than
 it sounds.** Coverage here is the cases somebody thought to write, not coverage in general.
@@ -388,7 +451,9 @@ Uncovered, item by item, because an absence nobody writes down reads as coverage
 - **Thin coverage across the modules that only observe.** Five are reached by
   `tests/stop_behaviour.ps1`, in the cases somebody thought to write: `failure_capture` since
   31 July 2026, and `context_pressure`, `docs_coupling`, `git_hygiene` and `log_rotation` since
-  3 August 2026. `context_injection` is reached by `tests/subagent_scan.ps1`, `orphan_watch` by
+  3 August 2026. `context_injection` is reached by `tests/subagent_scan.ps1` — which since
+  6 September 2026 reaches `failure_capture` there as well, through the six cases on the dispatch
+  record that second module writes from the same file — `orphan_watch` by
   `tests/supervision.ps1`, and `self_health`'s probes by `tests/state_resolution.ps1`.
   **This list said seven modules were exercised by nothing until the second set landed and named four
   of them — it was the coverage claim itself going stale, which is the failure this page exists to

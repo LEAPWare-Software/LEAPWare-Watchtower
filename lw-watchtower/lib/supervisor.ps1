@@ -17,6 +17,15 @@
   failure events exits 2 so an asyncRewake hook injects a task-notification into the
   live session (that exit-2 path is the ONLY way to alert the orchestrator).
 
+  THIS FILE IS NO LONGER THE ONLY WRITER OF health.jsonl, AND SINCE 6 SEPTEMBER 2026
+  IT IS NO LONGER THE WHOLE OF failure_capture. The module declares SIX hook events
+  in $LwgModuleRegistry; five of them are handled here. The sixth is SubagentStart,
+  where lib/subagent_start.ps1 appends the START half of the dispatch record whose
+  STOP half this file has always written at the SubagentStop arm below. That row uses
+  New-Record's own envelope so every reader of this file's output parses it unchanged,
+  it is gated on the same failure_capture flag, and it NEVER exits 2 - a dispatch
+  starting is not a failure. Nothing about this file's behaviour changed for it.
+
   Exit codes:  0 = healthy / nothing to report     2 = alert the orchestrator
   Any internal error exits 0 - a broken supervisor must never break the session.
 
@@ -46,7 +55,9 @@ $ErrorActionPreference = 'Stop'
 # $ErrorActionPreference = 'Stop' a terminating error in any of them left
 # PowerShell to print a raw error record to stderr and exit 1 - the two things
 # the header says cannot happen. The blast radius is per-event and none of it is
-# cosmetic: this handler is registered on five events, exit 2 is its DESIGNED
+# cosmetic: this handler is registered on five of failure_capture's six events -
+# the sixth, SubagentStart, is lib/subagent_start.ps1's and never reaches here -
+# exit 2 is its DESIGNED
 # alerting channel on Stop and PostToolUseFailure, so exit 1 was a third,
 # undesigned outcome on the same events, and on SessionStart it landed at the
 # top of the session where it is most visible and least actionable. Nothing was

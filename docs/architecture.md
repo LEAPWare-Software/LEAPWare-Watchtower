@@ -160,11 +160,14 @@ lw-watchtower/lib/post_edit.ps1
                              the edited-path recorder for docs_coupling -
                              PostToolUse on Write|Edit|NotebookEdit
 lw-watchtower/lib/subagent_start.ps1
-                             context_injection - SubagentStart, once per dispatch.
+                             context_injection AND failure_capture's dispatch
+                             record - SubagentStart, once per dispatch, two flags
+                             in one process and neither switches the other.
                              Deliberately dot-sources NOTHING and uses no cmdlet,
                              no character loop and no JSON engine on its fast path
 lw-watchtower/lib/supervisor.ps1
-                             failure_capture - the five-event health hook handler,
+                             failure_capture - five of its SIX events (the sixth
+                             is subagent_start.ps1's, above), the health handler,
                              orphan_watch below its flag check, and the one place
                              log_rotation is invoked (above the failure_capture
                              gate, so those two are independent)
@@ -221,7 +224,7 @@ tests/doctor_behaviour.ps1   43 cases driving bin/lwg-doctor.ps1 from a scratch
 tests/toggle_behaviour.ps1   32 cases driving bin/lwg-toggle.ps1's WRITE to
                              the override file, against a byte copy of bin/ and
                              lib/ under a scratch plugin root
-tests/subagent_scan.ps1      14 cases piping payloads into lib/subagent_start.ps1,
+tests/subagent_scan.ps1      20 cases piping payloads into lib/subagent_start.ps1,
                              holding its raw-text fast path to the GLOBAL modules
                              block whatever order the top-level keys appear in.
                              The only coverage context_injection has. It asserts
@@ -334,7 +337,7 @@ mangles Windows paths. `${CLAUDE_PLUGIN_ROOT}` is substituted inside the `args` 
 | `PreToolUse` | `SendMessage` | `lib/gate_send.ps1` | 10 s | `send_liveness_gate`. Off unless `supervision.send_liveness` is on |
 | `PostToolUse` | `Write\|Edit\|NotebookEdit` | `lib/post_edit.ps1` | 5 s | records edited paths |
 | `PostToolUseFailure` | `Agent` | `lib/supervisor.ps1 -HookEvent PostToolUseFailure` | 15 s | `asyncRewake` |
-| `SubagentStart` | — | `lib/subagent_start.ps1` | 5 s | injects; cannot block |
+| `SubagentStart` | — | `lib/subagent_start.ps1` | 5 s | `context_injection` injects, and `failure_capture` appends the dispatch record's START half; cannot block |
 | `SubagentStop` | — | `lib/supervisor.ps1 -HookEvent SubagentStop` | 15 s | `asyncRewake` |
 | `SubagentStop` | — | `lib/gate_stop.ps1 -HookEvent SubagentStop` | 10 s | `completion_audit`, **no** `asyncRewake`, so its exit 2 blocks |
 | `Stop` | — | `lib/supervisor.ps1 -HookEvent Stop` | 20 s | `asyncRewake` |
@@ -524,6 +527,12 @@ PowerShell 5.1 charges for. Direct process spawn with stdin redirected — the w
 | `lib/subagent_start.ps1`, flag **on** | **437 ms** | 406 | 542 |
 | `lib/subagent_start.ps1`, flag **off** | 384 ms | 364 | 440 |
 
+Those rows predate the dispatch record. `failure_capture`'s row, added to this same file on
+6 September 2026, costs a further **~18 ms per dispatch** — most of it the interpreter compiling a
+longer file, and therefore charged with `failure_capture` off as well. The measurement and the
+decision to accept it are in
+[Limitations § The dispatch record](limitations.md#the-dispatch-record-costs-18-ms-and-halves-the-status-lines-fault-history).
+
 **The 300 ms target this module was written to is below the floor**, so no PowerShell hook of any
 kind can meet it — an empty script costs 248 ms. What could be controlled was the 189 ms above that
 floor, and it was: the first draft cost 361 ms above the floor, and profiling in-process showed the
@@ -547,18 +556,23 @@ site once, not the work, and it is not reducible from this side.
 
 ## Health and healing
 
-`failure_capture` ([`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1)) handles five hook events and
-appends one JSONL record per event to `health.jsonl` in the state dir. On a genuine failure it
-**exits 2**, which is what makes an `asyncRewake` hook inject a task-notification into the live
-session — that exit code is the only channel that reaches the orchestrator mid-turn.
+`failure_capture` handles **six** hook events and appends one JSONL record per event to
+`health.jsonl` in the state dir. **Five of them are
+[`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1); the sixth is
+[`lib/subagent_start.ps1`](../lw-watchtower/lib/subagent_start.ps1)**, which since 6 September 2026
+appends the START half of the dispatch record whose STOP half `SubagentStop` has always written. On
+a genuine failure the supervisor **exits 2**, which is what makes an `asyncRewake` hook inject a
+task-notification into the live session — that exit code is the only channel that reaches the
+orchestrator mid-turn. The dispatch record has no such arm and never exits 2.
 
-| Event | Exits 2 when |
-| --- | --- |
-| `SessionStart` | never — records `source` only |
-| `PostToolUseFailure` | the failure is not a user interrupt |
-| `Stop` | a background task ended `failed`/`killed`, not already in `alerted.json` |
-| `SubagentStop` | never — records the agent and its transcript |
-| `StopFailure` | never — output and exit code are ignored by the CLI |
+| Event | Handler | Exits 2 when |
+| --- | --- | --- |
+| `SessionStart` | `lib/supervisor.ps1` | never — records `source` only |
+| `PostToolUseFailure` | `lib/supervisor.ps1` | the failure is not a user interrupt |
+| `Stop` | `lib/supervisor.ps1` | a background task ended `failed`/`killed`, not already in `alerted.json` |
+| `SubagentStart` | `lib/subagent_start.ps1` | **never** — the START half of the dispatch record. It is inert to every fault arm the status line and the health readers run, and it costs ~18 ms per dispatch; see [Limitations § The dispatch record](limitations.md#the-dispatch-record-costs-18-ms-and-halves-the-status-lines-fault-history) |
+| `SubagentStop` | `lib/supervisor.ps1` | never — records the agent and its transcript |
+| `StopFailure` | `lib/supervisor.ps1` | never — output and exit code are ignored by the CLI |
 
 `alerted.json` dedupes the `Stop` alert so one dead task cannot re-alert every turn, and
 `stop_hook_active` guards the loop.

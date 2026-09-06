@@ -1,6 +1,18 @@
 #requires -version 5
 <#
-  LW-WATCHTOWER context_injection module - the SubagentStart hook.
+  LW-WATCHTOWER SubagentStart hook - TWO modules, in one process, on purpose.
+
+    context_injection   reads context/worker_facts.md and hands it to the worker
+                        as hookSpecificOutput.additionalContext. This file's
+                        original and principal job, and everything below about
+                        cost was written for it.
+    failure_capture     appends ONE line to health.jsonl per dispatch: the START
+                        half of the dispatch record whose STOP half
+                        lib/supervisor.ps1:825-830 has always written. It is an
+                        ADDITION to that module, not a module of its own - no
+                        registry entry, no `modules` key, no state file, no
+                        rotation wiring and no hooks/hooks.json edit. See THE
+                        DISPATCH RECORD below.
 
   Invoked from hooks/hooks.json in exec form:
       command: "powershell"
@@ -74,10 +86,106 @@
       appear.
     * NO JSON engine. ConvertFrom-Json / ConvertTo-Json are the single most
       expensive thing a fresh PowerShell 5.1 process can touch.
+    * NO PROSE THAT CAN LIVE SOMEWHERE ELSE. 5.1 compiles the WHOLE file before
+      running a statement, so comments HERE cost ms per dispatch as comments in
+      no other file in this plugin do - ~10 of the row's 18 ms, measured below
+      by a leg that writes no row. Long form goes to docs/modules.md.
 
   That is a deliberate, narrow duplication of Get-LwgConfig + Test-LwgModule,
   and it is bounded by the escalation rule below rather than being left free to
   drift from them.
+
+  THE DISPATCH RECORD - AND THE ARGUMENT THIS HEADER USED TO MAKE AGAINST IT
+  Until 6 September 2026 this file wrote NOTHING on its happy path and said so
+  in four places. The reasoning was sound: a log write here meant dot-sourcing
+  common.ps1 and a ConvertTo-Json warm-up per worker. What changed is that this
+  write does neither. THE LONG FORM - why the row exists, what it unblocks, what
+  it costs the readers - is in docs/modules.md under failure_capture, because
+  prose in THIS file is not free: see the measurement below.
+
+  ONE LINE, appended to health.jsonl in the state directory:
+
+      {"ts":"<ISO-8601 o>","event":"SubagentStart","session":"<session_id>",
+       "agent_id":"...","agent_type":"..."}
+
+  That is New-Record's envelope (lib/supervisor.ps1:195-203), not a new set of
+  names, because four readers already parse that shape - supervisor.ps1:403,
+  gate_send.ps1:330, Get-LwgHealthRecords, statusline/statusline.ps1:942. `ts`
+  IS the dispatch time; no second timestamp under a second name in a file whose
+  readers sort on ts. The STOP half has always been written at
+  supervisor.ps1:825-830; this is the START half.
+
+  IT STAYS ON THE FAST PATH. The flag is failure_capture, read from the
+  `modules` span this file has ALREADY extracted for its own module - an IndexOf
+  walk over a substring, not a second scan; the override and both `repos` spans
+  are asked for that name the same way, so the two flags escalate under one
+  rule. The three fields come out of the stdin text already drained, through
+  Get-LwgJsonStringValue below. [DateTime]::UtcNow, not Get-Date.
+  [IO.File]::AppendAllText with a BOM-less UTF8Encoding, as Add-LwgLine does at
+  common.ps1:2111-2113, with that function's 20/40/60/80/100 ms ladder spelled
+  as [Threading.Thread]::Sleep. No dot-source, no cmdlet, no JSON engine.
+
+  cwd IS DELIBERATELY OMITTED AND THAT OMISSION IS LOAD BEARING. supervisor.ps1
+  redacts every payload field through Get-LwgRedacted, which is the REGEX
+  ENGINE, and this path cannot pay for it - see Get-LwgWorkerFacts below. So the
+  row carries only fields that need no redaction, and cwd, the one field here
+  holding an operator name and a clone root, is not written. THE LIMIT THAT
+  LEAVES, stated rather than glossed: THIS ROW IS NOT REDACTED. A credential
+  pasted into an agent_type or a session id reaches health.jsonl unmasked. The
+  200-character cap bounds that exposure and does not remove it. A field added
+  here that could carry free text needs redaction this path cannot afford, and
+  that is where this decision is re-argued rather than extended.
+
+  IT IS GATED ON A MODULE THIS FILE IS NOT. failure_capture off means no row;
+  context_injection off does NOT - the write sits ABOVE this file's own early
+  exit. tests/subagent_scan.ps1 has a case for each direction.
+
+  MEASURED, AND THE MEASUREMENT DID NOT SAY WHAT THE FIRST DRAFT ASSUMED.
+  The override note below sets this file's standard - interleaved rounds, leg
+  order varied, one warm-up sweep discarded, the real shipped config.json in
+  every leg, every run checked to have actually injected and to have written or
+  not written its row. Two things are added to it here. A NULL CONTROL leg runs
+  the BASELINE hook a second time, so an added cost is read against what the
+  instrument reports for a difference known to be zero. And the statistic is the
+  MEDIAN OF PER-ROUND DIFFERENCES rather than a difference of medians: at 25 and
+  100 rounds the baseline leg's own median sat 18 ms from a second baseline leg
+  doing identical work, so a 10 ms question was inside the instrument's error.
+
+  Four legs, every leg carrying a same-size config.override.json so the override
+  READ is not charged to the leg that needs it. 96 rounds per run, two runs
+  after the prose in this header was cut back:
+
+      B - A   the row, added cost          +18.0   +18.5  ms
+      D - A   the same file, flag OFF       +6.8    +5.0  ms
+      C - A   NULL CONTROL, must be ~0      +4.2    +0.3  ms
+
+  SO THE ROW COSTS ABOUT 18 ms PER DISPATCH. Slice 0's budget was ~10 ms, so the
+  design was re-argued rather than absorbed, and ON 6 SEPTEMBER 2026 THE 18 ms WAS
+  ACCEPTED. Three reasons, none of them "it is small": the ~10 ms budget was a
+  guess made before anyone had measured what a timestamp costs on this path, and a
+  measurement beats a guess; ~10 of the 18 is the INTERPRETER, not the design, so no
+  rewrite of the row removes it; and 18 ms is ~4% of this hook's own 430-580 ms. The
+  alternative was not a cheaper row - it was NO START ROW FROM THIS EVENT AT ALL,
+  which is a decision about whether the feature exists. The number stays stated
+  rather than rounded. Where it goes, from component profiling in a fresh
+  PowerShell 5.1 process:
+
+      [DateTime]::UtcNow.ToString('o')   first call   ~4.0 ms  irreducible -
+                                                      Get-Date costs 145-220 ms,
+                                                      and Ticks.ToString() costs
+                                                      the same as 'o' does
+      [IO.File]::AppendAllText           first call   ~1.9 ms  the write itself
+      [Text.Encoding]::UTF8.GetByteCount first call   ~1.2 ms  the injection
+                                                      below would have paid this
+                                                      anyway - net zero
+
+  and the remaining ~6 ms is the file being LONGER AT ALL, which is what the
+  flag-OFF leg measures: it writes no row and still costs ~6 ms, because
+  PowerShell 5.1 tokenises and compiles the WHOLE file before running a
+  statement. Prose in THIS file is charged per dispatch in a way prose in every
+  other file in this plugin is not. That is a fact about this file nothing wrote
+  down before 6 September 2026; it is why the long form of this section is in
+  docs/modules.md, and it is a cost no rewrite of the row can remove.
 
   THE OPERATOR OVERRIDE IS READ TOO, AND THAT IS NEW - #11
   config.json is the SHIPPED DEFAULTS and nothing writes it any more. The
@@ -107,6 +215,21 @@
 $ErrorActionPreference = 'Stop'
 
 $LwgModuleName = 'context_injection'
+
+# THE SECOND MODULE IN THIS FILE - see THE DISPATCH RECORD in the header. The
+# row is an addition to failure_capture and gated on its flag alone.
+$LwgLedgerModule = 'failure_capture'
+
+# Where the row goes. ALREADY rotated from supervisor.ps1:645, above the
+# failure_capture gate, so the 5 MB / 500-line discipline covers this writer for
+# free and nothing is wired here for it.
+$LwgLedgerLog = 'health.jsonl'
+
+# The cap every payload-derived FIELD is truncated to. This is common.ps1:2138's
+# $script:LwgLogFieldMax REPEATED AS A LITERAL, for the reason
+# statusline/statusline.ps1:873-884 repeats common.ps1:2132's 8192 - both files
+# dot-source nothing. IF ONE MOVES, BOTH MOVE.
+$LwgLogFieldMax = 200
 
 # TWO files, in this order, and the second one is OPTIONAL.
 #
@@ -348,6 +471,134 @@ function Get-LwgJsonBool {
     return $null
 }
 
+function Get-LwgJsonStringValue {
+    <#
+      The DECODED string value of member "$Key" at DEPTH 1 of $Text, or $null
+      when there is no such member, its value is not a string, or $Text is not
+      parseable that far. $null is a THIRD answer, as it is for Get-LwgJsonBool:
+      the one caller writes no record at all when the fields that identify a
+      dispatch come back $null.
+
+      The same IndexOfAny jump loop, string-aware brace matching and depth rule
+      as Get-LwgJsonObjectSpan above, over the hook PAYLOAD rather than over
+      config.json, and here rather than in common.ps1 for the reason the header
+      gives. DEPTH 1 ONLY: a payload nests, and a row built from a nested member
+      would name something other than the dispatch - Get-LwgJsonObjectSpan's
+      docstring records what that cost the first time.
+
+      DECODING IS CHECKED, NOT ASSUMED, as ConvertTo-LwgJsonString checks its
+      Replace chain: a literal with no backslash IS its value and comes back
+      from one Substring; only an escaped one pays for the loop. It must decode
+      BEFORE the value is re-escaped for our record, or \n would be written as
+      \\n, and before truncation, or a cut could fall inside a \uXXXX.
+    #>
+    param([string]$Text, [string]$Key)
+
+    if ([string]::IsNullOrEmpty($Text) -or [string]::IsNullOrEmpty($Key)) { return $null }
+
+    $len   = $Text.Length
+    $depth = 0
+    $k     = 0
+    while ($k -ge 0 -and $k -lt $len) {
+        $k = $Text.IndexOfAny($script:LwgScanChars, $k)
+        if ($k -lt 0) { break }
+        $c = $Text[$k]
+        if ($c -eq '{') { $depth++; $k++; continue }
+        if ($c -eq '}') { $depth--; $k++; continue }
+        # Outside a string a backslash is not meaningful JSON - ONE character.
+        if ($c -ne '"') { $k++; continue }
+
+        $p   = $k + 1
+        $end = -1
+        while ($p -ge 0 -and $p -lt $len) {
+            $p = $Text.IndexOfAny($script:LwgScanChars, $p)
+            if ($p -lt 0) { break }
+            $ch = $Text[$p]
+            if ($ch -eq '\') { $p += 2; continue }
+            if ($ch -eq '"') { $end = $p; break }
+            $p++
+        }
+        # An unterminated string is not JSON and there is nothing to be said
+        # about a member of it.
+        if ($end -lt 0) { return $null }
+
+        if ($depth -eq 1 -and ($end - $k - 1) -eq $Key.Length -and
+            [string]::CompareOrdinal($Text, ($k + 1), $Key, 0, $Key.Length) -eq 0) {
+            $colon = $Text.IndexOf(':', $end + 1)
+            if ($colon -ge 0 -and $Text.Substring(($end + 1), ($colon - $end - 1)).Trim().Length -eq 0) {
+                $q = $Text.IndexOf('"', $colon + 1)
+                # Only whitespace may stand between the colon and the opening
+                # quote. A number, an object, an array or null therefore falls
+                # through to $null rather than being read as a string.
+                if ($q -ge 0 -and $Text.Substring(($colon + 1), ($q - $colon - 1)).Trim().Length -eq 0) {
+                    $v    = $q + 1
+                    $vend = -1
+                    while ($v -ge 0 -and $v -lt $len) {
+                        $v = $Text.IndexOfAny($script:LwgScanChars, $v)
+                        if ($v -lt 0) { break }
+                        $cv = $Text[$v]
+                        if ($cv -eq '\') { $v += 2; continue }
+                        if ($cv -eq '"') { $vend = $v; break }
+                        # A brace inside a string moves no depth and ends nothing.
+                        $v++
+                    }
+                    if ($vend -lt 0) { return $null }
+                    $lit = $Text.Substring(($q + 1), ($vend - $q - 1))
+                    if ($lit.IndexOf('\') -lt 0) { return $lit }
+
+                    # THE RARE PATH. A payload field carrying an escape - a
+                    # Windows path in a cwd is the ordinary case - is decoded
+                    # exactly, character by character. This is the same trade
+                    # ConvertTo-LwgJsonString makes in the other direction: the
+                    # loop is correct and is reached only by text the fast check
+                    # proved it had to be reached by.
+                    $sb = [System.Text.StringBuilder]::new()
+                    $i  = 0
+                    while ($i -lt $lit.Length) {
+                        $lc = $lit[$i]
+                        if ($lc -ne '\') { [void]$sb.Append($lc); $i++; continue }
+                        $i++
+                        if ($i -ge $lit.Length) { break }
+                        $e = $lit[$i]; $i++
+                        if     ($e -eq '"') { [void]$sb.Append('"') }
+                        elseif ($e -eq '\') { [void]$sb.Append('\') }
+                        elseif ($e -eq '/') { [void]$sb.Append('/') }
+                        elseif ($e -eq 'b') { [void]$sb.Append([char]8) }
+                        elseif ($e -eq 'f') { [void]$sb.Append([char]12) }
+                        elseif ($e -eq 'n') { [void]$sb.Append([char]10) }
+                        elseif ($e -eq 'r') { [void]$sb.Append([char]13) }
+                        elseif ($e -eq 't') { [void]$sb.Append([char]9) }
+                        elseif ($e -eq 'u' -and ($i + 4) -le $lit.Length) {
+                            $code = 0
+                            if ([int]::TryParse($lit.Substring($i, 4),
+                                                [Globalization.NumberStyles]::HexNumber,
+                                                [Globalization.CultureInfo]::InvariantCulture,
+                                                [ref]$code)) {
+                                [void]$sb.Append([char]$code); $i += 4
+                            } else {
+                                # Not a hex quad. Kept verbatim rather than
+                                # dropped: this is a decoder, not a validator,
+                                # and ConvertTo-LwgJsonString re-escapes
+                                # whatever comes out of it.
+                                [void]$sb.Append('\u')
+                            }
+                        }
+                        else { [void]$sb.Append('\'); [void]$sb.Append($e) }
+                    }
+                    return $sb.ToString()
+                }
+            }
+            # The member is here and its value is not a string. That is an
+            # answer, not a reason to keep looking.
+            return $null
+        }
+        # Not the member. Carry on from after the string - the depth is
+        # unchanged, because a string cannot move it.
+        $k = $end + 1
+    }
+    return $null
+}
+
 function ConvertTo-LwgJsonString {
     <#
       One JSON string literal, quotes included, built by hand. ConvertTo-Json
@@ -492,7 +743,12 @@ try {
     #    missing or unreadable config leaves every module ON, and a module the
     #    config does not mention is ON. A governance layer that switches itself
     #    off because it could not read its own settings is the failure mode.
+    #
+    #    TWO FLAGS, NOT ONE. $enabled is context_injection; $ledger is
+    #    failure_capture, which gates the row alone. Each span is extracted ONCE
+    #    and both names read out of the same substring. Both fail OPEN.
     $enabled  = $true
+    $ledger   = $true
     $escalate = $false
     $rawCfg   = ''
     try {
@@ -502,15 +758,25 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($rawCfg)) {
         $modSpan = Get-LwgJsonObjectSpan -Text $rawCfg -Key 'modules'
         if ($null -ne $modSpan) {
-            $v = Get-LwgJsonBool -Text $rawCfg.Substring($modSpan.start, ($modSpan.end - $modSpan.start)) -Key $LwgModuleName
+            $modText = $rawCfg.Substring($modSpan.start, ($modSpan.end - $modSpan.start))
+            $v = Get-LwgJsonBool -Text $modText -Key $LwgModuleName
             if ($null -ne $v) { $enabled = [bool]$v }
+            $lv = Get-LwgJsonBool -Text $modText -Key $LwgLedgerModule
+            if ($null -ne $lv) { $ledger = [bool]$lv }
         }
         # A per-repo override anywhere under `repos` means the fast scan cannot
         # answer the question - only the slug can. Escalate rather than guess.
+        #
+        # ASKED FOR BOTH NAMES: answering failure_capture's per-repo override
+        # with the global value would write start rows in a repo whose stop rows
+        # are switched off. One IndexOf over a span already extracted.
         $repoSpan = Get-LwgJsonObjectSpan -Text $rawCfg -Key 'repos'
         if ($null -ne $repoSpan) {
-            $o = Get-LwgJsonBool -Text $rawCfg.Substring($repoSpan.start, ($repoSpan.end - $repoSpan.start)) -Key $LwgModuleName
+            $repoText = $rawCfg.Substring($repoSpan.start, ($repoSpan.end - $repoSpan.start))
+            $o = Get-LwgJsonBool -Text $repoText -Key $LwgModuleName
             if ($null -ne $o) { $escalate = $true }
+            $lo = Get-LwgJsonBool -Text $repoText -Key $LwgLedgerModule
+            if ($null -ne $lo) { $escalate = $true }
         }
 
         # --- AND THE OPERATOR OVERRIDE - #11 --------------------------------
@@ -611,13 +877,20 @@ try {
                     } else {
                         $ovMod = Get-LwgJsonObjectSpan -Text $ovText -Key 'modules'
                         if ($null -ne $ovMod) {
-                            $ovVal = Get-LwgJsonBool -Text $ovText.Substring($ovMod.start, ($ovMod.end - $ovMod.start)) -Key $LwgModuleName
+                            # BOTH names out of the ONE span, as above.
+                            $ovModText = $ovText.Substring($ovMod.start, ($ovMod.end - $ovMod.start))
+                            $ovVal = Get-LwgJsonBool -Text $ovModText -Key $LwgModuleName
                             if ($null -ne $ovVal) { $enabled = [bool]$ovVal }
+                            $ovLedgerVal = Get-LwgJsonBool -Text $ovModText -Key $LwgLedgerModule
+                            if ($null -ne $ovLedgerVal) { $ledger = [bool]$ovLedgerVal }
                         }
                         $ovRepos = Get-LwgJsonObjectSpan -Text $ovText -Key 'repos'
                         if ($null -ne $ovRepos) {
-                            $ovRepoVal = Get-LwgJsonBool -Text $ovText.Substring($ovRepos.start, ($ovRepos.end - $ovRepos.start)) -Key $LwgModuleName
+                            $ovReposText = $ovText.Substring($ovRepos.start, ($ovRepos.end - $ovRepos.start))
+                            $ovRepoVal = Get-LwgJsonBool -Text $ovReposText -Key $LwgModuleName
                             if ($null -ne $ovRepoVal) { $escalate = $true }
+                            $ovRepoLedgerVal = Get-LwgJsonBool -Text $ovReposText -Key $LwgLedgerModule
+                            if ($null -ne $ovRepoLedgerVal) { $escalate = $true }
                         }
                     }
                 }
@@ -625,9 +898,25 @@ try {
         }
     }
 
+    # 2b. THE STATE DIRECTORY, AND IT IS NEVER GUESSED.
+    #     Get-LwgStateDirInfo (common.ps1:766) returns CLAUDE_PLUGIN_DATA
+    #     VERBATIM when it is set - "the branch every live hook takes" - so
+    #     composing health.jsonl off it here is the same resolution, not a
+    #     second one. UNSET, the answer is a RANKED DISCOVERY over the
+    #     configuration root, and a cheaper spelling of that ranking here could
+    #     pick a different directory and produce two health logs. So it
+    #     escalates on that condition - the branch this file already had twenty
+    #     lines above - and takes Get-LwgStateDir, the one resolver.
+    #
+    #     OUTSIDE the $modSpan test, because both flags fail open: a machine
+    #     with no readable config still records dispatches.
+    $LwgStateDir = $env:CLAUDE_PLUGIN_DATA
+    if ([string]::IsNullOrWhiteSpace($LwgStateDir)) { $LwgStateDir = ''; $escalate = $true }
+
     if ($escalate) {
         # The exact answer, at full price. Reached only when an operator has
-        # actually written a per-repo override for this module.
+        # actually written a per-repo override for one of these two modules, or
+        # when the state directory has to be discovered rather than read.
         . ([System.IO.Path]::Combine($PSScriptRoot, 'common.ps1'))
         $payload = [pscustomobject]@{}
         try {
@@ -637,16 +926,87 @@ try {
             }
         } catch { }
         $cfg     = Get-LwgConfig
-        $enabled = Test-LwgModule -Name $LwgModuleName -Config $cfg -Repo (Get-LwgRepo $payload)
+        $repo    = Get-LwgRepo $payload
+        $enabled = Test-LwgModule -Name $LwgModuleName   -Config $cfg -Repo $repo
+        # BOTH flags, once the slow path is being paid for: the branch that
+        # exists to be exact must not be exact about one module out of two.
+        $ledger  = Test-LwgModule -Name $LwgLedgerModule -Config $cfg -Repo $repo
+        if ([string]::IsNullOrWhiteSpace($LwgStateDir)) {
+            try { $LwgStateDir = Get-LwgStateDir } catch { $LwgStateDir = '' }
+        }
     }
 
-    # 3. Off means SILENT. No envelope, no log line, no state written.
+    # 3. THE DISPATCH RECORD - failure_capture's start row. See the header.
+    #
+    #    ABOVE THIS FILE'S OWN EARLY EXIT, deliberately: the row belongs to
+    #    failure_capture, and switching context_injection off must not switch
+    #    off a module the operator never touched.
+    #
+    #    ITS OWN try, so a ledger that cannot write costs the row and never the
+    #    injection below it.
+    #
+    #    SESSION AND AGENT ARE BOTH REQUIRED - supervisor.ps1:403 keys on
+    #    agent_id and every reader filters on session, so a row carrying neither
+    #    is matched by nothing. A payload that is not JSON writes nothing and
+    #    still exits 0. agent_type is NOT required: a dispatch with no subagent
+    #    type is still a dispatch and '' is the honest record of one.
+    if ($ledger -and -not [string]::IsNullOrWhiteSpace($LwgStateDir)) {
+        try {
+            $sid = Get-LwgJsonStringValue -Text $LwgStdinRaw -Key 'session_id'
+            $aid = Get-LwgJsonStringValue -Text $LwgStdinRaw -Key 'agent_id'
+            if (-not [string]::IsNullOrWhiteSpace($sid) -and -not [string]::IsNullOrWhiteSpace($aid)) {
+                $atype = Get-LwgJsonStringValue -Text $LwgStdinRaw -Key 'agent_type'
+                if ($null -eq $atype) { $atype = '' }
+
+                # The 200-character cap, AFTER decoding and BEFORE escaping - see
+                # $LwgLogFieldMax above. A truncation, NOT a redaction; the header
+                # states that limit rather than glossing it.
+                if ($sid.Length   -gt $LwgLogFieldMax) { $sid   = $sid.Substring(0, $LwgLogFieldMax) }
+                if ($aid.Length   -gt $LwgLogFieldMax) { $aid   = $aid.Substring(0, $LwgLogFieldMax) }
+                if ($atype.Length -gt $LwgLogFieldMax) { $atype = $atype.Substring(0, $LwgLogFieldMax) }
+
+                $LwgLedgerLine = '{"ts":"' + [DateTime]::UtcNow.ToString('o') +
+                                 '","event":"SubagentStart","session":' + (ConvertTo-LwgJsonString -Text $sid) +
+                                 ',"agent_id":' + (ConvertTo-LwgJsonString -Text $aid) +
+                                 ',"agent_type":' + (ConvertTo-LwgJsonString -Text $atype) + "}`n"
+
+                # THE APPEND, as Add-LwgLine does it at common.ps1:2111-2113.
+                # Concurrent hooks race on this file BY DESIGN - AppendAllText
+                # holds it FileShare.Read for the length of every append - so the
+                # ladder is that function's, and a hook that threw here would be
+                # a dispatch that failed over a log line.
+                #
+                # THE DIRECTORY IS PROBED ONLY ON FAILURE. [IO.Directory]::Exists
+                # costs ~1.3 ms on its first call in a fresh process and would be
+                # paid on every dispatch to guard a state no live path is in -
+                # Get-LwgStateDir creates the directory and SessionStart runs
+                # before any dispatch. Asking after the first exception instead
+                # keeps the 300 ms ladder from being spent on a directory that
+                # is not there, and costs nothing when it is.
+                $LwgLedgerPath = [System.IO.Path]::Combine($LwgStateDir, $LwgLedgerLog)
+                $LwgLedgerEnc  = [Text.UTF8Encoding]::new($false)
+                for ($LwgTry = 0; $LwgTry -lt 5; $LwgTry++) {
+                    try {
+                        [System.IO.File]::AppendAllText($LwgLedgerPath, $LwgLedgerLine, $LwgLedgerEnc)
+                        break
+                    } catch {
+                        if (-not [System.IO.Directory]::Exists($LwgStateDir)) { break }
+                        [System.Threading.Thread]::Sleep(20 * ($LwgTry + 1))
+                    }
+                }
+            }
+        } catch { }
+    }
+
+    # 4. context_injection off means SILENT. No envelope, no state written -
+    #    and, since 6 September 2026, no bearing on the record above, which is
+    #    failure_capture's and was already written.
     if (-not $enabled) { exit 0 }
 
     $facts = Get-LwgWorkerFacts -Path @($factsPath, $factsLocal)
     if ([string]::IsNullOrWhiteSpace($facts)) { exit 0 }
 
-    # 4. The envelope, hand-built. hookEventName is mandatory - the CLI rejects
+    # 5. The envelope, hand-built. hookEventName is mandatory - the CLI rejects
     #    the whole output without it - and there is deliberately no `decision`,
     #    `continue` or `stopReason` field, so this cannot interfere with a
     #    dispatch by construction rather than by intent.
@@ -655,9 +1015,13 @@ try {
                          '},"suppressOutput":true}')
 
 } catch {
-    # Never break a dispatch. The log write is on the ERROR path only: doing it
-    # on every dispatch would mean dot-sourcing common.ps1 and a ConvertTo-Json
-    # warm-up per worker, which is most of the budget this script exists to keep.
+    # Never break a dispatch. THIS log write - the ERROR record, into
+    # lw-watchtower.jsonl - is still on the error path alone, and for the reason
+    # it always was: it dot-sources common.ps1 and pays a ConvertTo-Json warm-up,
+    # which is most of the budget this script exists to keep. The dispatch record
+    # added on 6 September 2026 is a different write to a different file and buys
+    # its way onto the happy path by doing neither - see THE DISPATCH RECORD in
+    # the header, and note that it has its own catch and cannot arrive here.
     try {
         . ([System.IO.Path]::Combine($PSScriptRoot, 'common.ps1'))
         Write-LwgEvent -Event 'SubagentStartError' -Extra @{
