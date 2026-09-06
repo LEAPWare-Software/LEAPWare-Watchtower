@@ -1,6 +1,6 @@
 ---
 name: lw-scribe
-description: "Mechanical, diff-verifiable edits. Use for renames, formatting, boilerplate, import fixes and repetitive changes with an unambiguous correct answer."
+description: "Use for a MECHANICAL edit whose correct result is unambiguous and visible in the diff: a rename across every occurrence, formatting, import fixes, boilerplate, a repetitive substitution. The cheapest tier, and it hands the task back rather than guessing the moment judgement is required. NOT for anything that decides what the code SHOULD do."
 model: haiku
 effort: low
 ---

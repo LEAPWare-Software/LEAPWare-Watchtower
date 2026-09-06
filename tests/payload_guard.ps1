@@ -1053,6 +1053,237 @@ try {
          $(if ($noAllow.Count) { "page(s) whose allowed-tools does not carry Bash(powershell:*), so the one line the page tells the model to run is pre-approved for no tool at all: $($noAllow -join ', '). " } else { '' }) +
          "checked $($cmdPages.Count) page(s) under $($script:PayloadRel)/commands/")
 
+    # S13. #316. THE ORCHESTRATOR ROLE MAY NOT GRANT ITSELF A WORKING TOOL.
+    #
+    #     THE MISSION IN ONE ASSERTION. #316's whole mechanism is that the main
+    #     thread, when it runs this role, CANNOT edit or execute - so the work
+    #     goes to subagents and the thread stays a conversation. That property
+    #     is one frontmatter line, it is not validated by anything the CLI runs,
+    #     and it would be undone by a single well-meaning addition: `Bash` on
+    #     that line reads as a convenience and silently ends the delegation
+    #     discipline the role's entire body is written around. The body would
+    #     still SAY the thread cannot edit, which is the "switch wired to
+    #     nothing" shape inverted - prose asserting a restriction the
+    #     frontmatter no longer imposes.
+    #
+    #     NOT rule 7, AND NOT THE FRONTMATTER GUARD THAT IS STILL OWED. Rule 7
+    #     (`gated-tool`) forbids naming a tool the model DOES NOT HAVE; this
+    #     forbids naming five tools the model very much does have. And neither
+    #     is the YAML-validity guard #316 says is "validated in CI": NOTHING in
+    #     this repository parses a role's frontmatter for well-formedness, so a
+    #     malformed block still loads the agent with every field silently
+    #     dropped (docs/roles.md, "Frontmatter breaks silently") - INCLUDING
+    #     the `tools:` line this case
+    #     reads. Stated here rather than left to be assumed: a green S13 proves
+    #     the LINE is right, never that the block PARSES. That guard is owed and
+    #     is recorded as owed on #316.
+    #
+    #     PLANTED, NOT HISTORICAL, AND SAID SO. At 97f0697 the `tools:` line
+    #     already carries none of the five, so there is no commit at which this
+    #     case failed on its own - the same standing S12 above records. It was
+    #     proved red by MUTATION: `Bash` added to that line at 97f0697, this
+    #     suite run, S13 FAILED naming lw-orchestrator.md and the tool; the line
+    #     was then restored and it passed. That transcript is on the PR.
+    #
+    #     A MISSING FILE IS A FAILURE. The role is deletable by design - the
+    #     header says so - but a case that quietly passed when the file it reads
+    #     is absent would be green on the one tree where the mission ships
+    #     nothing at all. If the role is genuinely retired, this case is deleted
+    #     in the commit that retires it.
+    $orcPath = Join-Path $script:RepoRoot ($script:PayloadRel + '\agents\lw-orchestrator.md')
+    $orcFound = [IO.File]::Exists($orcPath)
+    $orcFm    = ''
+    $orcTools = ''
+    if ($orcFound) {
+        $orcText = ''
+        try { $orcText = [IO.File]::ReadAllText($orcPath) } catch { }
+        if ($orcText -match '(?s)^---\r?\n(.*?)\r?\n---\r?\n') { $orcFm = $Matches[1] }
+        if ($orcFm -match '(?m)^\s*tools:\s*(.+?)\s*$') { $orcTools = $Matches[1] }
+    }
+    # THE FIVE ARE THE delegate_gate MATCHER'S FIVE, and that is deliberate:
+    # hooks/hooks.json names exactly Edit, Write, NotebookEdit, Bash and
+    # PowerShell as the tools that do work rather than talk, and #316's table
+    # sets the role against that gate as the alternative mechanism for the same
+    # five. If the matcher ever widens, this needle widens with it.
+    $orcGranted = @()
+    if ($orcTools) {
+        foreach ($t in @('Bash', 'PowerShell', 'Edit', 'Write', 'NotebookEdit')) {
+            if ($orcTools -match ('(?i)(^|[,\s])' + $t + '($|[,\s])')) { $orcGranted += $t }
+        }
+    }
+    Add-Result 'S13 the orchestrator role grants itself no tool that edits or executes' `
+        ($orcFound -and $orcTools -ne '' -and $orcGranted.Count -eq 0) `
+        ($(if (-not $orcFound) { "$($script:PayloadRel)/agents/lw-orchestrator.md is NOT on disk, so this case asked nothing of anything and the role #316's mission rests on is not in the payload at all - an empty set is not a pass. " } else { '' }) +
+         $(if ($orcFound -and $orcTools -eq '') { "lw-orchestrator.md carries no 'tools:' line in its frontmatter, so it is an ALLOW-EVERYTHING role: the thread that runs it can edit and execute, and the body's claim that it cannot is false. " } else { '' }) +
+         $(if ($orcGranted.Count) { "lw-orchestrator.md's tools allowlist names $($orcGranted -join ', '), so the main thread running this role CAN do the work itself and the delegation the whole body describes is a suggestion rather than the shape of the seat. Remove the tool, or rewrite the body in the same commit. " } else { '' }) +
+         "read tools: '$orcTools'")
+
+    # S14. #316. THE FRONTMATTER GUARD, BECAUSE THE DOCUMENTED ONE DOES NOT WORK.
+    #
+    #     WHAT BREAKS. A malformed frontmatter block does NOT fail loudly. The
+    #     agent still loads, with its name taken from the filename and EVERY
+    #     other field silently dropped - no model, no effort, and no tool
+    #     restriction. A role whose entire purpose is a tool restriction is
+    #     therefore one typo away from being an allow-everything role that still
+    #     reads, to anyone opening the file, exactly as it did before. The same
+    #     failure on a command page drops `disallowed-tools`, which is the #277
+    #     property S12 above exists to protect - so this case is asked of BOTH
+    #     directories, and that is deliberate rather than incidental.
+    #
+    #     WHY NOT `claude plugin validate --strict`, WHICH docs/roles.md's
+    #     "Frontmatter breaks silently" section USED TO TELL YOU TO RUN - a
+    #     section, not a line, because a line number goes stale on the next edit
+    #     above it and this file's HISTORICAL MENTIONS table says so about its
+    #     own allowlist. Because it does not catch the failure that page
+    #     names as the commonest one. PROBED ON CLI 2.1.263, 2026-09-06, over a
+    #     scratch copy with fifteen planted malformations, each independently
+    #     confirmed malformed by two YAML parsers. In all fifteen the agent was
+    #     never rejected and never dropped from the roster. The validator exits
+    #     1 on five of them - an unclosed fence, an orphan indented key, a
+    #     missing description, no frontmatter block at all, an unbalanced quote
+    #     - and exits 0 on the rest:
+    #
+    #         * a TAB used as indentation;
+    #         * a DUPLICATE key - `tools:` twice, last-wins, so the WIDER list
+    #           survives and the narrower one is silently discarded;
+    #         * an UNQUOTED description containing a colon-space, which
+    #           that same section calls the commonest cause of all this, and
+    #           which was runtime-confirmed broken - the description vanished
+    #           from the roster and the always-on token cost halved;
+    #         * `tools:` written as a mapping - well-formed YAML, wrong type;
+    #         * a reserved character opening a value (`model: @haiku`);
+    #         * `name:` not matching the filename stem, which docs/roles.md:55
+    #           requires and nothing enforced until this case;
+    #         * unrecognised top-level keys, despite --strict's own help
+    #           promising to fail on them.
+    #
+    #     Re-run through all five invocation forms and --json: every one
+    #     returned success. Wiring that command into CI and calling it the
+    #     frontmatter guard would have been a switch wired to nothing standing
+    #     guard over the exact defect it was named for - the same finding rule 7
+    #     records about the same command for tool names.
+    #
+    #     PINNED TO CLI 2.1.263, NOT TO A CONTRACT. A later build could tighten
+    #     the validator. Nobody deletes this case on the strength of this
+    #     comment's age: re-probe first, the way this was probed.
+    #
+    #     A LINE LINTER, NOT A YAML PARSER, AND THE ASSUMPTION IS STATED.
+    #     Windows PowerShell 5.1 ships no YAML parser, and shelling out to one
+    #     would put a Node dependency and an install step into a suite that is
+    #     pure PowerShell over a Windows-only payload. What makes a linter
+    #     sufficient here is a property of THIS payload rather than of YAML:
+    #     every frontmatter block in it is flat `key: value`, one pair per line,
+    #     no nesting, no block scalars, no lists. If that ever stops being true,
+    #     this case starts failing on a legitimate file and must be rewritten
+    #     rather than loosened. Same standing as rule 7's pinned assumption.
+    #
+    #     THE COLON-SPACE TEST IS ASKED ONLY OF UNQUOTED VALUES, and that is a
+    #     deliberate narrowing: a QUOTED description containing a colon-space is
+    #     valid YAML and five of the six roles here carry one. It is the
+    #     unquoted form that YAML reads as a nested mapping and drops.
+    #
+    #     ENUMERATED FROM DISK, NEVER FROM A LIST. A hardcoded set would go
+    #     quietly stale the day a seventh role ships - the doctrine this file
+    #     already applies to every other enumeration. AN EMPTY SET IS A FAILURE:
+    #     zero files linted is a case that asked nothing of anything.
+    $fmDirs = @(
+        @{ rel = 'agents';   path = (Join-Path $script:RepoRoot ($script:PayloadRel + '\agents'))   },
+        @{ rel = 'commands'; path = (Join-Path $script:RepoRoot ($script:PayloadRel + '\commands')) }
+    )
+    $fmFiles   = @()
+    $fmMissing = @()
+    foreach ($d in $fmDirs) {
+        if ([IO.Directory]::Exists($d.path)) { $fmFiles += @([IO.Directory]::GetFiles($d.path, '*.md')) }
+        else { $fmMissing += $d.rel }
+    }
+    # THE KEY SET IS NOT ASSERTED. docs/roles.md:53-61 tables seven keys, and a
+    # subset check over them would be red the day the CLI adds an eighth - a
+    # guard that goes red on a correct file teaches the next contributor to
+    # loosen it. What IS asserted is that every key parses and that no key is
+    # written twice, which is the failure mode with teeth.
+    $fmBad = @()
+    foreach ($fp in $fmFiles) {
+        $fpName = Split-Path -Leaf $fp
+        $fpText = ''
+        try { $fpText = [IO.File]::ReadAllText($fp) } catch { $fmBad += "${fpName}: could not be read"; continue }
+        if ($fpText -notmatch '(?s)^---\r?\n(.*?)\r?\n---\r?\n') {
+            $fmBad += "${fpName}: no frontmatter block that opens with --- on line 1 and closes with ---, so every field is dropped"
+            continue
+        }
+        $fmBlock = $Matches[1]
+        if ($fmBlock.Contains("`t")) {
+            $fmBad += "${fpName}: the block contains a TAB. YAML forbids a tab as indentation and the block does not parse"
+        }
+        $fmKeys = @{}
+        $fmLineNo = 1
+        foreach ($fmLine in ($fmBlock -split "`r?`n")) {
+            if ([string]::IsNullOrWhiteSpace($fmLine)) { $fmLineNo++; continue }
+            if ($fmLine -notmatch '^([A-Za-z][A-Za-z0-9_-]*):\s+(\S.*)$') {
+                $fmBad += "${fpName}: frontmatter line $fmLineNo is not a flat 'key: value' pair - '$fmLine'"
+                $fmLineNo++
+                continue
+            }
+            $fmKey = $Matches[1]
+            $fmVal = $Matches[2]
+            if ($fmKeys.ContainsKey($fmKey)) {
+                $fmBad += "${fpName}: '$fmKey' appears twice. YAML takes the LAST one, so the earlier value is silently discarded - and on a tools list that means the WIDER grant wins"
+            }
+            $fmKeys[$fmKey] = $true
+            $fmQuoted = $false
+            foreach ($q in @('"', "'")) {
+                if ($fmVal.StartsWith($q)) {
+                    if ($fmVal.Length -ge 2 -and $fmVal.EndsWith($q)) { $fmQuoted = $true }
+                    else { $fmBad += "${fpName}: '$fmKey' opens with $q and does not close with one, so the block does not parse" }
+                }
+            }
+            if (-not $fmQuoted) {
+                if ($fmVal.EndsWith('"') -or $fmVal.EndsWith("'")) {
+                    $fmBad += "${fpName}: '$fmKey' closes with a quote it never opened, so the block does not parse"
+                }
+                if ($fmVal -match ':\s') {
+                    $fmBad += "${fpName}: '$fmKey' is UNQUOTED and contains a colon-space, which YAML reads as a nested mapping. This is the case docs/roles.md's 'Frontmatter breaks silently' section calls the commonest, and it is the one 'claude plugin validate --strict' passes clean"
+                }
+                # THE CHARACTER CLASS IS THE CLI'S OWN, NOT ONE INVENTED HERE.
+                # The 2.1.263 bundle carries `/[{}[\]*&#!|>%@` + "`" + `]|: /`
+                # as the test for whether a frontmatter value has to be quoted
+                # when it WRITES one - the same two questions this case asks,
+                # from the other direction, and it is why the colon-space test
+                # above is in the same paragraph as this one. Read out of the
+                # binary rather than reasoned from a YAML specification.
+                if ($fmVal -match '^[{}\[\]*&#!|>%@`]') {
+                    $fmBad += "${fpName}: '$fmKey' is UNQUOTED and opens with a character the CLI's own must-quote test reserves - '$($fmVal.Substring(0,1))'"
+                }
+            }
+            $fmLineNo++
+        }
+        # ROLES ONLY. docs/roles.md:55 - "Must match the filename stem" - and
+        # nothing in this repository enforced it before this line. A role whose
+        # name disagrees with its filename is dispatched under one spelling and
+        # shadowed under the other. Command pages carry no `name`.
+        if ($fp -like '*\agents\*') {
+            $fpStem = [IO.Path]::GetFileNameWithoutExtension($fp)
+            if (-not $fmKeys.ContainsKey('name')) {
+                $fmBad += "${fpName}: no 'name' key at all"
+            } elseif ($fmBlock -match '(?m)^name:\s+(.+?)\s*$') {
+                # QUOTES STRIPPED BEFORE THE COMPARE. `name: "lw-scribe"` is
+                # valid YAML and resolves to the same string; a case that failed
+                # it would be a guard going red on a correct file, which is the
+                # thing this suite's own S13/S14 prose says teaches the next
+                # contributor to loosen a rule.
+                $fmName = $Matches[1].Trim('"', "'")
+                if ($fmName -ne $fpStem) {
+                    $fmBad += "${fpName}: name is '$fmName' but the filename stem is '$fpStem' - docs/roles.md's role-contract table requires them to match"
+                }
+            }
+        }
+    }
+    Add-Result ("S14 every agents/ and commands/ frontmatter block parses as flat key: value ($($fmFiles.Count) file(s))") `
+        ($fmMissing.Count -eq 0 -and $fmFiles.Count -gt 0 -and $fmBad.Count -eq 0) `
+        ($(if ($fmMissing.Count) { "no directory at $($script:PayloadRel)/$($fmMissing -join ', '), so this case did not read what it claims to read. " } else { '' }) +
+         $(if ($fmFiles.Count -eq 0) { 'zero .md files were enumerated, so nothing was linted - an empty set is not a pass. ' } else { '' }) +
+         $(if ($fmBad.Count) { "$($fmBad.Count) defect(s), each of which loads the file with its fields silently dropped: " + ($fmBad -join ' | ') + '. ' } else { '' }) +
+         "linted $($fmFiles.Count) file(s) under $($script:PayloadRel)/agents/ and $($script:PayloadRel)/commands/")
+
     Add-Result 'S9  no out-of-payload record names a file that is now inside the payload' `
         ($recordInPayload.Count -eq 0) `
         ("$($recordInPayload.Count) path(s) recorded above as out of the payload are now tracked under $($script:PayloadRel)/, so they ARE shipped again and the rules that used to excuse them no longer exist: " + ($recordInPayload -join ', ') + ". Fix the file or move it back out - do not edit the record.")

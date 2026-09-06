@@ -1,6 +1,6 @@
 ---
 name: lw-verifier
-description: "Adversarial verification. Use to independently check that a change is correct, that tests genuinely pass, or to try to break a claim before it reaches the user."
+description: "Use to CHECK A CLAIM before it reaches the operator: does this change actually do what was asked, do these tests genuinely pass, what input breaks it, is this report true. Reads and executes but cannot edit, which is what makes the verdict independent. NOT for locating code, which is an explorer's job, and never for verifying work it wrote itself."
 model: opus
 effort: xhigh
 disallowedTools: Edit, Write, NotebookEdit

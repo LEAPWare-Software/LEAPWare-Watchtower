@@ -1,6 +1,6 @@
 ---
 name: lw-healer
-description: "Diagnoses and remediates failed background agents, stalled tasks and broken local tooling. Dispatched by the orchestrating session, or by the operator, once the plugin has reported that something went wrong."
+description: "Use when something has ALREADY FAILED: a subagent errored or went silent, a background task was killed or stalled, local tooling or a hook is broken, the plugin reported a fault and the cause is unknown. Diagnoses before touching anything, remedies only inside the scope it was given, and escalates rather than guessing. NOT for building a feature, and NOT for a first look at code that has not failed."
 model: opus
 effort: high
 ---

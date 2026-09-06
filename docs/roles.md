@@ -68,30 +68,67 @@ copied `lw-class: verify` into a role of your own, it is ignored by the loader a
 Because `model` and `effort` are honoured here, **model routing lives in the role file**. It is
 no longer a table in one operator's private `CLAUDE.md` that every dispatch has to remember.
 
-### Frontmatter breaks silently — validate it
+### Frontmatter breaks silently — and the documented check does not catch it
 
-A malformed frontmatter block does not fail loudly. **The agent still loads, with every metadata
-field silently dropped** — no model, no effort, no tool restrictions. A verification role that lost
-its `disallowedTools` this way is a role that can edit.
+A malformed frontmatter block does not fail loudly. **The agent still loads, with its name taken
+from the filename and every other metadata field silently dropped** — no description, no model, no
+effort, no tool restrictions. A verification role that lost its `disallowedTools` this way is a role
+that can edit, and it still reads, to anyone opening the file, exactly as it did before.
 
-The commonest cause is an unquoted `description` containing a colon-space. Quote every
-description. Then check it:
+**This section used to end by telling you to run `claude plugin validate --strict` and calling a
+green run "real evidence that these files parse". That was false, and it is corrected here rather
+than quietly deleted, because the page was recommending a check against the very failure it names as
+the commonest one.** Re-probed on **CLI 2.1.263, 2026-09-06**, over a scratch copy carrying fifteen
+planted malformations, each independently confirmed malformed by two YAML parsers. In all fifteen
+the agent was **never** rejected and never dropped from the roster — `claude plugin details` reported
+all six every time, which is the paragraph above, measured.
+
+`validate --strict` exits 1 on five of the fifteen: an unclosed fence, an orphan indented key, a
+missing `description`, no frontmatter block at all, and an unbalanced quote. It exits **0**, printing
+`✔ Validation passed`, on the other ten — including:
+
+| Malformation | `validate --strict` |
+| --- | --- |
+| unquoted `description` containing a colon-space — **the commonest cause** | passes |
+| a tab used as indentation | passes |
+| a duplicate key (`tools:` twice — last wins, so the **wider** grant survives) | passes |
+| `tools:` written as a mapping (well-formed YAML, wrong type) | passes |
+| a reserved character opening a value (`model: @haiku`) | passes |
+| `name:` not matching the filename stem, which the table above requires | passes |
+| unrecognised top-level keys, despite `--strict`'s own help promising otherwise | passes |
+
+The colon-space case was **runtime-confirmed broken** on that build: the description vanished from
+the roster and the always-on token cost roughly halved. Every one of the five invocation forms, and
+`--json`, returned success on it. There is no invocation that catches it.
+
+Two smaller corrections to what this section used to say. The transcript it quoted as a negative
+control — `Validating agent: …` followed by `YAML Parse error: Unexpected character` — is what an
+**unbalanced quote** produces, not a colon-space; and on 2.1.263 a passing run prints **no per-agent
+line at all**, only the manifest path and `✔ Validation passed`, so "the validator walks `agents/`
+and reports the exact failure" is not what a reader will see. The current build's wording for a
+failure it does catch is *"loads with its name taken from the filename and every other frontmatter
+field silently dropped."*
+
+**What actually guards this repository is `tests/payload_guard.ps1` case S14**, which lints every
+`agents/*.md` and `commands/*.md` frontmatter block as flat `key: value` — no tab, no duplicate key,
+balanced quotes, no colon-space in an unquoted value, no reserved character opening one, and `name`
+equal to the filename stem. It is a line linter and not a YAML parser, because Windows PowerShell 5.1
+ships no YAML parser; what makes that sufficient is that every block in this payload is flat, and
+that assumption is stated at the case. `commands/*.md` is in scope for the same reason: a silent
+parse failure there drops `disallowed-tools: "PowerShell"`, which is the property case S12 exists to
+protect.
+
+So: **quote every `description`**, and run the suite rather than the validator.
 
 ```
-claude plugin validate --strict lw-watchtower/.claude-plugin/plugin.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1
 ```
 
-The validator walks `agents/` and reports the exact failure. Confirmed by deliberately breaking
-one of these files as a negative control, which produced:
-
-```
-Validating agent: ...\lw-watchtower\agents\lw-scribe.md
-  ❯ frontmatter: YAML frontmatter failed to parse: YAML Parse error: Unexpected character.
-    At runtime this agent loads with empty metadata (all frontmatter fields silently dropped).
-✘ Validation failed
-```
-
-and passed again once restored. So a green validate is real evidence that these files parse.
+`validate --strict` is still worth running — it validates the manifest itself, which S14 does not
+look at, and it is the only one of the two that requires a `description` to be present at all. It is
+not the frontmatter guard, and this page will not call it one again. Both findings are pinned to
+2.1.263: a later build could tighten the validator, and nobody should conclude otherwise from this
+page's age without re-probing.
 
 ### A verification role should not be able to edit
 
