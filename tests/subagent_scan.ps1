@@ -40,6 +40,38 @@
       APPEAR IN, AND IT AGREES WITH THE SLOW PATH IT EXISTS TO AVOID.
 
   ---------------------------------------------------------------------------
+  AND SINCE 6 SEPTEMBER 2026, A SECOND CLAIM: THE DISPATCH RECORD - slice 0 of
+  #166, tracked on #311
+  ---------------------------------------------------------------------------
+  lib\subagent_start.ps1 used to write NOTHING on its happy path. It now appends
+  ONE line to health.jsonl per dispatch, gated on the failure_capture flag - the
+  START half of a record whose STOP half lib\supervisor.ps1:814-819 has always
+  written. Six cases below are about that row and nothing else:
+
+      Test-TheDispatchRecordLands
+      Test-FailureCaptureOffWritesNoRowAndStillInjects
+      Test-ContextInjectionOffStillWritesTheRow
+      Test-GarbageStdinWritesNoRowAndStillExitsZero
+      Test-ANonAsciiAgentTypeIsEscapedToPureAscii
+      Test-TheStateDirectoryIsNeverGuessed
+
+  All six are RED at 97f0697, which is the easy baseline: nothing wrote that file
+  from this path at all, so every positive half fails outright. The two cases
+  whose SUBJECT is a silence carry their positive control inside the same case
+  for the reason the rule above gives - a bare negative was already green.
+
+  The claim they defend:
+
+      ONE ROW PER DISPATCH, IN New-Record's ENVELOPE, GATED ON failure_capture
+      AND NOT ON THIS FILE'S OWN MODULE, WRITTEN TO THE STATE DIRECTORY THE REST
+      OF THE PLUGIN RESOLVES AND NEVER TO A GUESS.
+
+  What they deliberately do NOT cover: the COST of the row. This suite asserts on
+  answers, not on milliseconds - see WHAT IS DELIBERATELY NOT COVERED below. The
+  three-leg measurement is recorded in lib\subagent_start.ps1's own header and on
+  the pull request, and nothing here re-measures it.
+
+  ---------------------------------------------------------------------------
   THE RULE EVERY CASE HERE FOLLOWS
   ---------------------------------------------------------------------------
   NO BARE NEGATIVE STANDS ALONE. "It did not inject" is satisfied by a hook that
@@ -53,13 +85,13 @@
   green run, and written down 3 August 2026 after review found the distinction
   was being carried by nothing
   ---------------------------------------------------------------------------
-  Two of the fourteen cases below FAIL on the depth-blind scanner and are the
+  Two of the twenty cases below FAIL on the depth-blind scanner and are the
   regression cases for it:
 
       Test-ReposBeforeModulesReadsTheGlobalFlag
       Test-DecoyModulesUnderANonReposKeyIsIgnored
 
-  The other twelve are green on the depth defect as well, and each is here for
+  The other eighteen are green on the depth defect as well, and each is here for
   its own reason rather than as evidence about depth - with one exception, added
   4 September 2026, which is a regression case for a DIFFERENT defect:
 
@@ -211,6 +243,8 @@ function New-CaseRoot {
 
         <work>\<tag>\root\context\worker_facts.md   the thing that gets injected
         <work>\<tag>\data\                          the redirected state dir
+        <work>\<tag>\home\                          the redirected CLAUDE_CONFIG_DIR,
+                                                    used ONLY by -NoStateDir cases
 
       config.json is NOT written here - each case says what its config looks
       like, because the config is the subject.
@@ -221,11 +255,12 @@ function New-CaseRoot {
     $root = Join-Path $dir 'root'
     $ctx  = Join-Path $root 'context'
     $data = Join-Path $dir 'data'
-    foreach ($p in @($ctx, $data)) { [void][IO.Directory]::CreateDirectory($p) }
+    $home_ = Join-Path $dir 'home'
+    foreach ($p in @($ctx, $data, $home_)) { [void][IO.Directory]::CreateDirectory($p) }
     [IO.File]::WriteAllText((Join-Path $ctx 'worker_facts.md'),
                             "# a comment line the hook must drop`r`n$FactLine`r`n",
                             [Text.UTF8Encoding]::new($false))
-    return @{ dir = $dir; root = $root; data = $data }
+    return @{ dir = $dir; root = $root; data = $data; home = $home_ }
 }
 
 function Invoke-SubagentStart {
@@ -322,17 +357,43 @@ function Invoke-SubagentStartWithPayload {
           happens to sit at, and on one at 65001 it would pass at the baseline
           having proved nothing.
 
+      -Override writes config.override.json into the redirected state directory,
+      under the same verbatim rule Invoke-SubagentStart uses and for the same
+      reason (#11). Omitting it DELETES any file a previous run in the same tree
+      left, so a case that says "no override" gets one.
+
+      -NoStateDir REMOVES CLAUDE_PLUGIN_DATA from the child's environment rather
+      than blanking it, and points CLAUDE_CONFIG_DIR at $Tree.home instead. That
+      is the one condition under which lib\subagent_start.ps1 may not compose the
+      state directory itself, and the case that uses it is about where the row
+      lands. It is REMOVED and not set to '' because an empty variable is a
+      different state from an absent one for [Environment]::GetEnvironmentVariable
+      and this suite must exercise the absent one.
+
+      TEST SAFETY: -NoStateDir still writes nothing outside the scratch tree.
+      Get-LwgClaudeHomeInfo reads CLAUDE_CONFIG_DIR first and USERPROFILE only
+      when that is empty, so redirecting the former keeps the whole discovery
+      inside $Tree.home. A case that passed -NoStateDir without it would append
+      to the operator's own ~\.claude\plugins\data, which is what the TEST SAFETY
+      section in this header forbids.
+
       Returns @{ code; out }, the shape Invoke-SubagentStart returns.
     #>
     param(
         [Parameter(Mandatory = $true)][hashtable]$Tree,
         [Parameter(Mandatory = $true)][string]$Config,
-        [Parameter(Mandatory = $true)][string]$Payload
+        [Parameter(Mandatory = $true)][string]$Payload,
+        [string]$Override,
+        [switch]$NoStateDir
     )
 
     [IO.File]::WriteAllText((Join-Path $Tree.root 'config.json'), $Config, [Text.UTF8Encoding]::new($false))
     $ovPath = Join-Path $Tree.data 'config.override.json'
-    if ([IO.File]::Exists($ovPath)) { [IO.File]::Delete($ovPath) }
+    if ($PSBoundParameters.ContainsKey('Override')) {
+        [IO.File]::WriteAllText($ovPath, $Override, [Text.UTF8Encoding]::new($false))
+    } elseif ([IO.File]::Exists($ovPath)) {
+        [IO.File]::Delete($ovPath)
+    }
 
     $psi = New-Object Diagnostics.ProcessStartInfo
     $psi.FileName  = 'powershell'
@@ -345,7 +406,12 @@ function Invoke-SubagentStartWithPayload {
     $psi.StandardErrorEncoding  = New-Object Text.UTF8Encoding($false)
     $psi.CreateNoWindow         = $true
     $psi.EnvironmentVariables['CLAUDE_PLUGIN_ROOT'] = $Tree.root
-    $psi.EnvironmentVariables['CLAUDE_PLUGIN_DATA'] = $Tree.data
+    if ($NoStateDir) {
+        [void]$psi.EnvironmentVariables.Remove('CLAUDE_PLUGIN_DATA')
+        $psi.EnvironmentVariables['CLAUDE_CONFIG_DIR'] = $Tree.home
+    } else {
+        $psi.EnvironmentVariables['CLAUDE_PLUGIN_DATA'] = $Tree.data
+    }
 
     $bytes = [Text.UTF8Encoding]::new($false).GetBytes($Payload)
     $out = ''; $code = 255
@@ -396,6 +462,83 @@ function Test-Injected {
     #>
     param([string]$Out)
     return ($Out -like '*"hookEventName":"SubagentStart"*') -and ($Out -like "*$FactLine*")
+}
+
+# ---------------------------------------------------------------------------
+# THE DISPATCH RECORD - helpers (slice 0 of #166, tracked on #311)
+# ---------------------------------------------------------------------------
+
+# The two flags every ledger case sets, spelled once. failure_capture is the
+# module the ROW is gated on; context_injection is the module this FILE is. They
+# are deliberately independent, and three of the six cases below exist to say so.
+$LedgerModule = 'failure_capture'
+
+# The fixture payload's fields, invented and distinctive, so finding them in
+# health.jsonl is proof the row came from this dispatch and not from anywhere
+# else. agent_id is what supervisor.ps1:392 keys on; agent_type is what #168's
+# black tier will render; session is what every reader filters by.
+$LedgerSession   = 'lwg-scan-session-0001'
+$LedgerAgentId   = 'lwg-scan-agent-abcdef0123'
+$LedgerAgentType = 'lwg-scan-fixture-type'
+
+function New-LedgerConfig {
+    <#
+      A config.json carrying BOTH flags and nothing else, written verbatim for
+      the same reason every other fixture here is: the subject is the file text.
+      The shipped key order (`modules` at depth 1, no `repos`) keeps these cases
+      on the FAST path, so what they measure is the fast path's own answer.
+    #>
+    param([bool]$FailureCapture, [bool]$ContextInjection)
+    $fc = if ($FailureCapture)   { 'true' } else { 'false' }
+    $ci = if ($ContextInjection) { 'true' } else { 'false' }
+    return '{"modules":{"' + $LedgerModule + '":' + $fc + ',"' + $ModuleName + '":' + $ci + '}}'
+}
+
+function New-LedgerPayload {
+    <#
+      A SubagentStart payload of the shape the CLI writes. cwd is present and
+      carries a path, because the row must NOT contain it: redaction cannot run
+      on this path (the regex engine's first use costs more than everything else
+      the hook does), and cwd is the one field carrying an operator name and a
+      clone root. Its ABSENCE from the row is asserted, not assumed.
+    #>
+    param([string]$AgentType = $LedgerAgentType, [string]$SessionId = $LedgerSession)
+    return '{"session_id":"' + $SessionId + '","agent_id":"' + $LedgerAgentId +
+           '","agent_type":"' + $AgentType + '","cwd":"C:\\lwg-scan-fixture\\nowhere"}'
+}
+
+function Get-LedgerLines {
+    <#
+      Every non-blank line of health.jsonl under $Dir, decoded as UTF-8 without
+      a BOM - the encoding every writer in this plugin emits and the encoding
+      Get-Content in Windows PowerShell 5.1 does NOT assume. Returns an EMPTY
+      ARRAY when the file does not exist, which is the "no row" answer.
+    #>
+    param([string]$Dir)
+    $p = Join-Path $Dir 'health.jsonl'
+    if (-not [IO.File]::Exists($p)) { return @() }
+    $raw = [Text.UTF8Encoding]::new($false).GetString([IO.File]::ReadAllBytes($p))
+    return @($raw.Split([char]10) | ForEach-Object { $_.TrimEnd([char]13) } | Where-Object { $_.Trim() -ne '' })
+}
+
+function Get-LedgerStartRows {
+    <#
+      The SubagentStart rows among them, PARSED WITH ConvertFrom-Json, which is
+      deliberate: that is the parser all four readers of this file use
+      (supervisor.ps1:392, gate_send.ps1:330, Get-LwgHealthRecords,
+      statusline.ps1:942), so parsing the row here proves reader compatibility
+      rather than asserting it. A line that will not parse is NOT silently
+      dropped - it is returned as $null so the caller can fail on it.
+    #>
+    param([string[]]$Lines)
+    $out = @()
+    foreach ($l in $Lines) {
+        $o = $null
+        try { $o = $l | ConvertFrom-Json } catch { $o = $null }
+        if ($null -eq $o) { $out += $null; continue }
+        if ([string]$o.event -eq 'SubagentStart') { $out += $o }
+    }
+    return $out
 }
 
 function New-OrderedConfig {
@@ -1008,6 +1151,334 @@ function Test-TheLocalFactsFileIsStillIgnored {
                  "A rule still anchored at the old path ignores a file that cannot exist while the live one is staged by any -A, which reads as a working pin and is not one.")
 }
 
+# ---------------------------------------------------------------------------
+# THE DISPATCH RECORD - six cases (slice 0 of #166, tracked on #311)
+#
+# BASELINE FOR EVERY ONE OF THEM: 97f0697. At that commit lib\subagent_start.ps1
+# writes NO record of any kind on any path, so health.jsonl does not exist after
+# a run and every positive half below fails outright.
+# ---------------------------------------------------------------------------
+
+function Test-TheDispatchRecordLands {
+    <#
+      ONE ROW PER DISPATCH, IN New-Record's ENVELOPE.
+
+      lib\supervisor.ps1:184-192 builds every record in this file as
+      { ts, event, session, cwd, ...extra }, and four readers parse that shape:
+      supervisor.ps1:392 (the orphan reconciliation), gate_send.ps1:330,
+      Get-LwgHealthRecords in common.ps1 and statusline.ps1:942. So the start row
+      is that envelope and not a new spelling - ts IS the dispatch time, and there
+      is deliberately no second timestamp under a second name in a file whose
+      readers sort on ts.
+
+      FIVE FIELDS ARE ASSERTED AND SO IS THE ONE THAT MUST BE ABSENT. cwd is
+      omitted deliberately: ConvertTo-SafeField routes through Get-LwgRedacted
+      and therefore through the regex engine, whose first use in a fresh process
+      costs more than everything this hook does put together
+      (subagent_start.ps1's own header), and cwd is the one field here carrying
+      an operator name and a clone root. A row that quietly grew a cwd would put
+      an unredacted path into a log the status line prints from.
+
+      THE LINE IS PARSED WITH ConvertFrom-Json rather than matched with -like,
+      because that is the parser every reader uses. A row that matches a
+      substring and does not parse is not a record.
+
+      RED AT 97f0697: no health.jsonl exists after the run, so this reports zero
+      rows where it requires one.
+    #>
+    $t   = New-CaseRoot 'ledger-lands'
+    $cfg = New-LedgerConfig -FailureCapture $true -ContextInjection $true
+
+    $r    = Invoke-SubagentStartWithPayload -Tree $t -Config $cfg -Payload (New-LedgerPayload)
+    $rows = @(Get-LedgerStartRows -Lines (Get-LedgerLines -Dir $t.data))
+
+    $bad = @()
+    if ($r.code -ne 0) { $bad += "exited $($r.code); this hook must always exit 0" }
+    if ($rows.Count -ne 1) {
+        $bad += ("expected exactly ONE SubagentStart row in health.jsonl, found $($rows.Count). " +
+                 'At 97f0697 this hook wrote no record at all, which is the defect slice 0 fixes')
+    } elseif ($null -eq $rows[0]) {
+        $bad += 'the row did not parse as JSON - every reader of health.jsonl parses it, so an unparsable row is not a record'
+    } else {
+        $row = $rows[0]
+        if ([string]$row.session    -ne $LedgerSession)   { $bad += "session was '$($row.session)', expected '$LedgerSession'" }
+        if ([string]$row.agent_id   -ne $LedgerAgentId)   { $bad += "agent_id was '$($row.agent_id)', expected '$LedgerAgentId' - supervisor.ps1:392 keys on this field" }
+        if ([string]$row.agent_type -ne $LedgerAgentType) { $bad += "agent_type was '$($row.agent_type)', expected '$LedgerAgentType'" }
+        $ts = [datetime]::MinValue
+        if (-not [datetime]::TryParse([string]$row.ts, [ref]$ts)) {
+            $bad += "ts '$($row.ts)' did not parse as a date; supervisor.ps1:392 and statusline.ps1 both sort on it"
+        } elseif (([string]$row.ts) -notmatch 'Z$') {
+            $bad += "ts '$($row.ts)' is not UTC in round-trip ('o') form; New-Record's ts always ends in Z"
+        }
+        $names = @($row.PSObject.Properties.Name)
+        if ($names -contains 'cwd') {
+            $bad += ('the row carries a cwd field. That omission is load-bearing: redaction cannot run on this ' +
+                     'path and cwd is the one field carrying the operator name and the clone root')
+        }
+        $unexpected = @($names | Where-Object { @('ts', 'event', 'session', 'agent_id', 'agent_type') -notcontains $_ })
+        if ($unexpected.Count -gt 0) { $bad += ("the row carries unexpected field(s): " + ($unexpected -join ', ')) }
+    }
+
+    Add-Result -Name 'the dispatch record lands: one SubagentStart row, five fields, no cwd (#166 slice 0)' `
+               -Ok ($bad.Count -eq 0) `
+               -Detail (($bad -join '; ') + " | exit $($r.code), rows $($rows.Count)")
+}
+
+function Test-FailureCaptureOffWritesNoRowAndStillInjects {
+    <#
+      THE ROW IS GATED ON failure_capture, NOT ON THIS FILE'S OWN MODULE.
+
+      The row is an addition to failure_capture and not a new module - no
+      registry entry, no `modules` key of its own, no state file, no rotation
+      wiring. So the flag that stops lib\supervisor.ps1 writing to health.jsonl
+      has to stop this writer too, or an operator who switched failure capture
+      off would still be accruing records in the log it names.
+
+      NO BARE NEGATIVE. This case runs the SAME fixture twice with ONE BIT
+      changed - the global failure_capture value - and requires a row in the ON
+      run. Without that half, "no row" is satisfied by a hook that crashed, and
+      at 97f0697 it is satisfied by a hook that never wrote one.
+
+      AND THE INJECTION MUST SURVIVE BOTH. context_injection is true in both
+      runs, so if switching failure_capture off also silenced the injection, the
+      two modules would have been coupled in the wrong direction by the same
+      commit that separated them.
+
+      RED AT 97f0697: the ON half finds no row.
+    #>
+    $t = New-CaseRoot 'ledger-fc-off'
+
+    $on  = Invoke-SubagentStartWithPayload -Tree $t -Config (New-LedgerConfig -FailureCapture $true  -ContextInjection $true) -Payload (New-LedgerPayload)
+    $onRows = @(Get-LedgerStartRows -Lines (Get-LedgerLines -Dir $t.data))
+
+    # The OFF run appends to the same log, so the assertion is that the count
+    # does not MOVE rather than that the file is absent - the ON run put a row
+    # in it a moment ago and deleting the file would test a different thing.
+    $off = Invoke-SubagentStartWithPayload -Tree $t -Config (New-LedgerConfig -FailureCapture $false -ContextInjection $true) -Payload (New-LedgerPayload)
+    $offRows = @(Get-LedgerStartRows -Lines (Get-LedgerLines -Dir $t.data))
+
+    $bad = @()
+    if ($on.code  -ne 0) { $bad += "the failure_capture ON run exited $($on.code); this hook must always exit 0" }
+    if ($off.code -ne 0) { $bad += "the failure_capture OFF run exited $($off.code); this hook must always exit 0" }
+    if ($onRows.Count -ne 1) {
+        $bad += ("CONTROL FAILED: failure_capture ON wrote $($onRows.Count) rows, expected 1 - so the OFF half " +
+                 'below establishes nothing. At 97f0697 nothing wrote this file at all')
+    }
+    if ($offRows.Count -ne $onRows.Count) {
+        $bad += ("failure_capture OFF wrote a row anyway: the log went from $($onRows.Count) to $($offRows.Count) " +
+                 'SubagentStart rows. The dispatch record ships under that flag and must stop when it does')
+    }
+    if (-not (Test-Injected $on.out))  { $bad += 'failure_capture ON: nothing was injected, so the fixture is wrong rather than the gate' }
+    if (-not (Test-Injected $off.out)) { $bad += 'failure_capture OFF also silenced the INJECTION - the two modules must not be coupled in that direction' }
+
+    Add-Result -Name 'failure_capture off: no row, and context_injection still injects (#166 slice 0)' `
+               -Ok ($bad.Count -eq 0) `
+               -Detail (($bad -join '; ') + " | on exit $($on.code) rows $($onRows.Count) injected $(Test-Injected $on.out); off exit $($off.code) rows $($offRows.Count) injected $(Test-Injected $off.out)")
+}
+
+function Test-ContextInjectionOffStillWritesTheRow {
+    <#
+      THE OTHER DIRECTION, AND IT IS THE ONE THAT IS EASY TO GET WRONG.
+
+      This file's own early exit is `if (-not $enabled) { exit 0 }`, and until
+      slice 0 that exit was the whole of the off path: no envelope, no log line,
+      nothing. The row belongs to failure_capture, so it has to be written
+      BEFORE that exit or an operator who switched context_injection off would
+      silently switch off a module they never touched - which is the class of
+      quiet wrongness this plugin exists to remove.
+
+      NO BARE POSITIVE EITHER: the injection is required to be ABSENT in the
+      same run, so a fixture that failed to switch context_injection off cannot
+      pass this case by accident.
+
+      RED AT 97f0697: no row.
+    #>
+    $t   = New-CaseRoot 'ledger-ci-off'
+    $cfg = New-LedgerConfig -FailureCapture $true -ContextInjection $false
+
+    $r    = Invoke-SubagentStartWithPayload -Tree $t -Config $cfg -Payload (New-LedgerPayload)
+    $rows = @(Get-LedgerStartRows -Lines (Get-LedgerLines -Dir $t.data))
+
+    $bad = @()
+    if ($r.code -ne 0) { $bad += "exited $($r.code); this hook must always exit 0" }
+    if (Test-Injected $r.out) {
+        $bad += 'CONTROL FAILED: context_injection is false in this fixture and the hook injected anyway, so the row below proves nothing about the off path'
+    }
+    if ($rows.Count -ne 1) {
+        $bad += ("context_injection off suppressed the dispatch record too: expected 1 SubagentStart row, found $($rows.Count). " +
+                 'The row is gated on failure_capture and must be written above this file own early exit')
+    }
+
+    Add-Result -Name 'context_injection off: the dispatch record still lands (#166 slice 0)' `
+               -Ok ($bad.Count -eq 0) `
+               -Detail (($bad -join '; ') + " | exit $($r.code), rows $($rows.Count), injected $(Test-Injected $r.out)")
+}
+
+function Test-GarbageStdinWritesNoRowAndStillExitsZero {
+    <#
+      A PAYLOAD THAT IS NOT JSON MUST COST THE ROW AND NOTHING ELSE.
+
+      The fast path does not parse stdin - parsing it would cost the 141-182 ms
+      ConvertFrom-Json warm-up this file exists to avoid - so the row's fields
+      are lifted out of the raw text by a scanner. A scanner handed bytes that
+      are not JSON must find no session and no agent id and write NOTHING; a row
+      whose session is unknown is matched by no reader and is pure noise in a log
+      whose depth this slice already halves.
+
+      NO BARE NEGATIVE: the same fixture is run a second time with a REAL payload
+      and a row is required, so "no row" is earned against a run that writes one
+      rather than against a hook that fell over.
+
+      THE EXIT CODE IS PART OF THE CASE. This hook must always exit 0 - a
+      governance layer that cannot inject a note must never be able to fail a
+      dispatch - and that is now true of a ledger it cannot write as well.
+
+      RED AT 97f0697: the control half finds no row.
+    #>
+    $t   = New-CaseRoot 'ledger-garbage'
+    $cfg = New-LedgerConfig -FailureCapture $true -ContextInjection $true
+
+    # Not JSON at any depth, and deliberately carrying the WORDS the scanner
+    # looks for so a scanner matching on the bare name rather than on a quoted
+    # member followed by a colon would be caught.
+    $junk = 'session_id agent_id agent_type {{{ "unterminated'
+
+    $g     = Invoke-SubagentStartWithPayload -Tree $t -Config $cfg -Payload $junk
+    $gRows = @(Get-LedgerStartRows -Lines (Get-LedgerLines -Dir $t.data))
+
+    $ok     = Invoke-SubagentStartWithPayload -Tree $t -Config $cfg -Payload (New-LedgerPayload)
+    $okRows = @(Get-LedgerStartRows -Lines (Get-LedgerLines -Dir $t.data))
+
+    $bad = @()
+    if ($g.code  -ne 0) { $bad += "the garbage run exited $($g.code); this hook must always exit 0" }
+    if ($ok.code -ne 0) { $bad += "the control run exited $($ok.code); this hook must always exit 0" }
+    if ($gRows.Count -ne 0) { $bad += "garbage stdin still produced $($gRows.Count) SubagentStart row(s); a row with no session and no agent id is matched by no reader" }
+    if ($okRows.Count -ne 1) {
+        $bad += ("CONTROL FAILED: a real payload against the same fixture produced $($okRows.Count) rows, expected 1 - " +
+                 'so the silence above establishes nothing. At 97f0697 nothing wrote this file at all')
+    }
+    if (-not (Test-Injected $g.out)) { $bad += 'garbage stdin also stopped the INJECTION; the facts file does not come from the payload and must still be read' }
+
+    Add-Result -Name 'unreadable stdin: no row, still exit 0, still injects (#166 slice 0)' `
+               -Ok ($bad.Count -eq 0) `
+               -Detail (($bad -join '; ') + " | garbage exit $($g.code) rows $($gRows.Count); control exit $($ok.code) rows $($okRows.Count)")
+}
+
+function Test-ANonAsciiAgentTypeIsEscapedToPureAscii {
+    <#
+      THE ROW IS PURE ASCII WHATEVER THE PAYLOAD CARRIES, AND STILL MEANS WHAT
+      THE PAYLOAD SAID.
+
+      The row is built by hand - ConvertTo-Json would cost the warm-up this file
+      exists to avoid - so the escaping is this file's own ConvertTo-LwgJsonString,
+      which checks its fast Replace chain rather than trusting it: a UTF-8 byte
+      count that differs from the character count proves a character above U+007F
+      is present and sends the string to the exact escaper, which emits \uXXXX.
+
+      BOTH HALVES ARE ASSERTED, and one without the other is worthless. The BYTES
+      on disk must all be under 0x80 - a row written at the console code page
+      would be mojibake in a log every other writer emits as UTF-8 - AND the
+      parsed value must come back as the original characters, or the hook has
+      escaped its way to a row that is clean and wrong.
+
+      RED AT 97f0697: no row.
+    #>
+    $t   = New-CaseRoot 'ledger-nonascii'
+    $cfg = New-LedgerConfig -FailureCapture $true -ContextInjection $true
+
+    # Built from code points rather than typed, so this cannot be defeated by
+    # this file being saved in the wrong encoding one day - the class of defect
+    # under test. A Latin-1 umlaut and two CJK characters, as case
+    # Test-ANonAsciiCwdStillResolvesThePerRepoOverride uses above.
+    $type = 'agent-' + [char]0x00F6 + '-' + [char]0x65E5 + [char]0x672C
+
+    $r = Invoke-SubagentStartWithPayload -Tree $t -Config $cfg -Payload (New-LedgerPayload -AgentType $type)
+
+    $logPath = Join-Path $t.data 'health.jsonl'
+    $bytes   = @()
+    if ([IO.File]::Exists($logPath)) { $bytes = [IO.File]::ReadAllBytes($logPath) }
+    $high = @($bytes | Where-Object { $_ -gt 127 })
+
+    $rows = @(Get-LedgerStartRows -Lines (Get-LedgerLines -Dir $t.data))
+
+    $bad = @()
+    if ($r.code -ne 0) { $bad += "exited $($r.code); this hook must always exit 0" }
+    if ($rows.Count -ne 1) {
+        $bad += "expected exactly one SubagentStart row, found $($rows.Count). At 97f0697 nothing wrote this file at all"
+    } elseif ($null -eq $rows[0]) {
+        $bad += 'the row did not parse as JSON'
+    } elseif ([string]$rows[0].agent_type -ne $type) {
+        $bad += ("agent_type came back as '$([string]$rows[0].agent_type)' and the payload said '$type' - the row is " +
+                 'escaped to something that is not what was dispatched')
+    }
+    if ($high.Count -gt 0) {
+        $bad += ("$($high.Count) byte(s) in health.jsonl are above 0x7F. The row must escape to \uXXXX rather than " +
+                 'emit raw bytes, or a console at a different code page writes mojibake into a log every other writer emits as UTF-8')
+    }
+
+    Add-Result -Name 'a non-ASCII agent_type is escaped to pure ASCII and still round-trips (#166 slice 0)' `
+               -Ok ($bad.Count -eq 0) `
+               -Detail (($bad -join '; ') + " | exit $($r.code), rows $($rows.Count), bytes>0x7F $($high.Count)")
+}
+
+function Test-TheStateDirectoryIsNeverGuessed {
+    <#
+      CLAUDE_PLUGIN_DATA UNSET MUST ESCALATE, NOT GUESS.
+
+      Get-LwgStateDirInfo (common.ps1:766) returns CLAUDE_PLUGIN_DATA verbatim
+      when it is set - "the branch every live hook takes" - so the fast path
+      composes health.jsonl off it and pays nothing. When it is NOT set the
+      answer is a RANKED DISCOVERY over the configuration root, and a second,
+      cheaper spelling of that ranking here could pick a different directory and
+      produce TWO health logs, each half a session's history. lib\supervisor.ps1:645
+      records what a reader over a file nothing wrote looks like: it reported
+      "0 orphans" unconditionally for its entire life.
+
+      So this file escalates on that condition instead - the branch it already
+      had at subagent_start.ps1:594 - and takes the directory from
+      Get-LwgStateDir, the one resolver.
+
+      WHAT IS ASSERTED: exactly ONE health.jsonl exists anywhere under the case
+      tree, it sits under the configuration root's plugins\data, and it holds
+      exactly one row. Two logs, or a log outside that root, is the defect.
+
+      TEST SAFETY: CLAUDE_CONFIG_DIR is redirected into the case tree, so the
+      discovery this case forces cannot reach the operator's own
+      ~\.claude\plugins\data. See Invoke-SubagentStartWithPayload's -NoStateDir.
+
+      RED AT 97f0697: no health.jsonl anywhere.
+    #>
+    $t   = New-CaseRoot 'ledger-nostatedir'
+    $cfg = New-LedgerConfig -FailureCapture $true -ContextInjection $true
+
+    $r = Invoke-SubagentStartWithPayload -Tree $t -Config $cfg -Payload (New-LedgerPayload) -NoStateDir
+
+    $logs = @()
+    try { $logs = @([IO.Directory]::GetFiles($t.dir, 'health.jsonl', [IO.SearchOption]::AllDirectories)) } catch { }
+
+    $bad = @()
+    if ($r.code -ne 0) { $bad += "exited $($r.code); this hook must always exit 0" }
+    if ($logs.Count -ne 1) {
+        $bad += ("expected exactly ONE health.jsonl under the case tree, found $($logs.Count)" +
+                 $(if ($logs.Count -gt 0) { ': ' + (($logs | ForEach-Object { $_.Substring($t.dir.Length) }) -join ', ') } else { '' }) +
+                 '. At 97f0697 there is none; more than one is the guessed-directory defect this case exists for')
+    } else {
+        $dir = [IO.Path]::GetDirectoryName($logs[0])
+        if (-not $dir.StartsWith($t.home, [StringComparison]::OrdinalIgnoreCase)) {
+            $bad += "the row landed at '$dir', which is not under the redirected configuration root '$($t.home)'"
+        }
+        if ($dir.IndexOf('plugins', [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            $bad += "the row landed at '$dir', which is not a plugins\data state directory - the fast path guessed instead of escalating"
+        }
+        $rows = @(Get-LedgerStartRows -Lines (Get-LedgerLines -Dir $dir))
+        if ($rows.Count -ne 1) { $bad += "the resolved log holds $($rows.Count) SubagentStart row(s), expected exactly 1" }
+    }
+
+    Add-Result -Name 'CLAUDE_PLUGIN_DATA unset: the hook escalates and writes ONE row to the resolved state dir (#166 slice 0)' `
+               -Ok ($bad.Count -eq 0) `
+               -Detail (($bad -join '; ') + " | exit $($r.code), health.jsonl found $($logs.Count)")
+}
+
 try {
     if (-not (Test-Path -LiteralPath $HookPath -PathType Leaf)) {
         $script:Aborted = "lib\subagent_start.ps1 not found at $HookPath"
@@ -1034,6 +1505,13 @@ try {
     Test-APerRepoBlockInTheOverrideEscalatesAndResolvesIt
     Test-AnEscapedKeyInTheOverrideIsNotReadAsAbsence
     Test-FastScanAgreesWithTheSlowPathOnTheShippedConfig
+    # The dispatch record - slice 0 of #166. All six are RED at 97f0697.
+    Test-TheDispatchRecordLands
+    Test-FailureCaptureOffWritesNoRowAndStillInjects
+    Test-ContextInjectionOffStillWritesTheRow
+    Test-GarbageStdinWritesNoRowAndStillExitsZero
+    Test-ANonAsciiAgentTypeIsEscapedToPureAscii
+    Test-TheStateDirectoryIsNeverGuessed
 }
 catch {
     if (-not $script:Aborted) { $script:Aborted = $_.Exception.Message }
