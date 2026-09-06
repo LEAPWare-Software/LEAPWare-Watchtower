@@ -1484,6 +1484,399 @@ try {
         ("REGRESSION for #98, and it was RED before the fix: Process.Kill() on .NET Framework 4.x terminates the direct child only - there is no Kill(bool entireProcessTree) before .NET Core 3.0 - so a git or gh that had spawned a credential helper left it running with the inherited write ends of the redirected pipes. Expected state=timeout and the grandchild gone; got " + $b26.detail + ". Any kill= other than plain 'taskkill' - 'taskkill-failed' (not startable), 'taskkill-exit-<n>' (started and refused), 'taskkill-timeout' - means the tree kill did not do its job, which leaves the OLD behaviour and is a real failure of the fix rather than of the fixture. An empty kill= is the pre-fix file, which had no tree kill at all.")
 
     # =====================================================================
+    # B27-B37: COVERAGE CLASS 2 - INTERRUPTED OPERATIONS AND CONFLICTS (#167)
+    # =====================================================================
+    # WHAT THESE PIN, AND WHY THEY EXIST. #167's coverage class 2 - "no
+    # half-finished rebase, merge, cherry-pick or bisect, no unresolved
+    # conflicts, no forgotten stashes" - was ENTIRELY ABSENT from git_hygiene,
+    # not partially covered. Measured on the baseline below:
+    #
+    #     grep -c 'MERGE_HEAD|REBASE_HEAD|CHERRY_PICK_HEAD|BISECT_LOG|stash'
+    #         lw-watchtower/lib/stop_advisories.ps1      ->  0
+    #
+    # So a tree stopped in the middle of a rebase produced EXACTLY the advisory
+    # a clean tree produced, and an interrupted rebase is the state three of
+    # the September session's worktrees were actually found in.
+    #
+    # BASELINE: main = 97f0697. Every row below went RED against that tree,
+    # with two stated exceptions that could not and are labelled where they
+    # sit: B35 is the anti-vacuity control (it PASSES before the fix, which is
+    # the point of it), and B36's second row asserts the count carried in the
+    # event record rather than the sentence.
+    #
+    # NO git IS RUN TO BUILD THE MARKER FIXTURES. Every one of B27-B35 plants
+    # a hand-built .git the way B24 does, and runs the hook with git REMOVED
+    # FROM PATH. That is deliberate and it is the strongest form of the claim:
+    # these six probes are pure Test-Path, they cost no subprocess, and they
+    # therefore still answer on a machine where git cannot be reached at all -
+    # where the rest of this module can only report UNKNOWN. B36 is the one
+    # case that needs a real git, because an unresolved conflict lives in the
+    # INDEX and the index is not a file whose existence answers the question.
+    #
+    # SEVEN PROBES FOR SIX CONDITIONS, and the seventh is not padding.
+    # `git gc` PACKS refs/stash INTO packed-refs - measured on this machine,
+    # git 2.53.0.windows.2: after `git stash` then `git gc`, .git/refs/stash is
+    # GONE and the stash is still there. .git/logs/refs/stash survives, because
+    # reflogs are never packed, and it is removed when the last stash is popped
+    # (also measured). So the stash probe reads both, and B33 is the case that
+    # would go red if the packed half were ever dropped.
+
+    # git is made unresolvable for the child exactly as B24 does it: PATH is
+    # replaced with System32 plus the PowerShell directory the .cmd needs to
+    # find `powershell` by name. Nothing real is touched and nothing is
+    # uninstalled. Neither directory holds git on any install.
+    $c2sys  = Join-Path ([Environment]::GetFolderPath('Windows')) 'System32'
+    $c2path = $c2sys + ';' + (Join-Path $c2sys 'WindowsPowerShell\v1.0')
+
+    function New-LwgGitDirFixture {
+        <#
+          A .git DIRECTORY inside the case's ws, built by hand - no git is run
+          to make it. Get-LwgRepoInfo resolves a root by walking for .git and
+          parsing `config`, and never spawns anything to do it, so a fixture
+          built this way reaches git_hygiene carrying whatever markers the case
+          planted and needs no git to have planted them.
+
+          NO REMOTE IN THE CONFIG, deliberately: remote_count 0 is what makes
+          git_hygiene skip the rev-list probe, so these cases exercise the
+          class-2 path and nothing else.
+
+            -Files  paths under .git created as FILES
+            -Dirs   paths under .git created as DIRECTORIES
+        #>
+        param($Case, [string[]]$Files = @(), [string[]]$Dirs = @())
+
+        $g = Join-Path $Case.ws '.git'
+        [void][IO.Directory]::CreateDirectory($g)
+        [IO.File]::WriteAllText((Join-Path $g 'config'),
+            "[core]`n`trepositoryformatversion = 0`n", [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText((Join-Path $g 'HEAD'),
+            "ref: refs/heads/lwg-fixture`n", [Text.UTF8Encoding]::new($false))
+        foreach ($d in $Dirs) { [void][IO.Directory]::CreateDirectory((Join-Path $g $d)) }
+        foreach ($f in $Files) {
+            $p = Join-Path $g $f
+            [void][IO.Directory]::CreateDirectory((Split-Path -Parent $p))
+            [IO.File]::WriteAllText($p, "0000000000000000000000000000000000000000`n",
+                [Text.UTF8Encoding]::new($false))
+        }
+        return $g
+    }
+
+    function Get-LwgStopMessage {
+        <#
+          One turn, and the systemMessage it produced. A hashtable so the
+          detail string of a failing row can name the exit code and stderr as
+          well as the sentence, which is what tells "the module said nothing"
+          apart from "the hook fell over".
+        #>
+        param($Case, [string]$Tag, [string]$PathOverride)
+        $r = Invoke-LwgStop -Case $Case -Tag $Tag -PathOverride $PathOverride
+        $m = ''
+        try { $m = [string](($r.out | ConvertFrom-Json).systemMessage) } catch { }
+        return @{ code = $r.code; err = $r.err; out = $r.out; msg = $m }
+    }
+
+    # --- B27: a half-finished rebase, the merge backend ---------------------
+    # `git rebase -i`, and any rebase that stops on a conflict, leaves
+    # .git\rebase-merge\. The branch is mid-rewrite: the commits the operator
+    # believes are on it are not the commits on disk.
+    $b27 = New-LwgStopCase -Name 'b27' -Modules @{ git_hygiene = $true }
+    [void](New-LwgGitDirFixture -Case $b27 -Dirs @('rebase-merge'))
+    $r27 = Get-LwgStopMessage -Case $b27 -Tag 'b27-turn1' -PathOverride $c2path
+    Add-Result 'B27: a half-finished rebase (rebase-merge) is reported at turn end' `
+        ($r27.code -eq 0 -and $r27.msg -like '*REBASE is IN PROGRESS*') `
+        ("RED at 97f0697, where this module had no probe for an interrupted operation of any kind and a tree mid-rebase produced the same advisory as a clean one. exit $($r27.code), message [$($r27.msg)], stderr [$($r27.err)]")
+
+    # --- B28: a half-finished rebase, the apply backend ---------------------
+    # `git rebase --apply` and `git am` use .git\rebase-apply\ instead. Two
+    # backends, two directories, one condition - a fix that probed only the
+    # first would pass B27 and leave half the real cases silent.
+    $b28 = New-LwgStopCase -Name 'b28' -Modules @{ git_hygiene = $true }
+    [void](New-LwgGitDirFixture -Case $b28 -Dirs @('rebase-apply'))
+    $r28 = Get-LwgStopMessage -Case $b28 -Tag 'b28-turn1' -PathOverride $c2path
+    Add-Result 'B28: a half-finished rebase (rebase-apply) is reported at turn end' `
+        ($r28.code -eq 0 -and $r28.msg -like '*REBASE is IN PROGRESS*') `
+        ("RED at 97f0697. This is the second rebase backend and it is a separate row on purpose: a probe for rebase-merge alone passes B27 and says nothing about a 'git rebase --apply' or a 'git am' that stopped. exit $($r28.code), message [$($r28.msg)], stderr [$($r28.err)]")
+
+    # --- B29: a half-finished merge -----------------------------------------
+    $b29 = New-LwgStopCase -Name 'b29' -Modules @{ git_hygiene = $true }
+    [void](New-LwgGitDirFixture -Case $b29 -Files @('MERGE_HEAD'))
+    $r29 = Get-LwgStopMessage -Case $b29 -Tag 'b29-turn1' -PathOverride $c2path
+    Add-Result 'B29: a half-finished merge (MERGE_HEAD) is reported at turn end' `
+        ($r29.code -eq 0 -and $r29.msg -like '*MERGE is IN PROGRESS*') `
+        ("RED at 97f0697. exit $($r29.code), message [$($r29.msg)], stderr [$($r29.err)]")
+
+    # --- B30: a half-finished cherry-pick -----------------------------------
+    $b30 = New-LwgStopCase -Name 'b30' -Modules @{ git_hygiene = $true }
+    [void](New-LwgGitDirFixture -Case $b30 -Files @('CHERRY_PICK_HEAD'))
+    $r30 = Get-LwgStopMessage -Case $b30 -Tag 'b30-turn1' -PathOverride $c2path
+    Add-Result 'B30: a half-finished cherry-pick (CHERRY_PICK_HEAD) is reported at turn end' `
+        ($r30.code -eq 0 -and $r30.msg -like '*CHERRY-PICK is IN PROGRESS*') `
+        ("RED at 97f0697. exit $($r30.code), message [$($r30.msg)], stderr [$($r30.err)]")
+
+    # --- B31: a half-finished bisect ----------------------------------------
+    # A bisect leaves HEAD wherever the search put it, which is neither where
+    # the operator left it nor a branch - so work committed during one is the
+    # detached-HEAD loss case with a second way to arrive at it.
+    $b31 = New-LwgStopCase -Name 'b31' -Modules @{ git_hygiene = $true }
+    [void](New-LwgGitDirFixture -Case $b31 -Files @('BISECT_LOG'))
+    $r31 = Get-LwgStopMessage -Case $b31 -Tag 'b31-turn1' -PathOverride $c2path
+    Add-Result 'B31: a half-finished bisect (BISECT_LOG) is reported at turn end' `
+        ($r31.code -eq 0 -and $r31.msg -like '*BISECT is IN PROGRESS*') `
+        ("RED at 97f0697. exit $($r31.code), message [$($r31.msg)], stderr [$($r31.err)]")
+
+    # --- B32: a forgotten stash, loose ref ----------------------------------
+    # Stashed work is invisible to `git status`, belongs to no branch, is not
+    # pushed by anything, and goes with the clone. It is the class-2 condition
+    # closest in shape to the committed-but-unpushed commit #167 ranks first.
+    $b32 = New-LwgStopCase -Name 'b32' -Modules @{ git_hygiene = $true }
+    [void](New-LwgGitDirFixture -Case $b32 -Files @('refs\stash'))
+    $r32 = Get-LwgStopMessage -Case $b32 -Tag 'b32-turn1' -PathOverride $c2path
+    Add-Result 'B32: a forgotten stash (refs/stash) is reported at turn end' `
+        ($r32.code -eq 0 -and $r32.msg -like '*STASH*') `
+        ("RED at 97f0697. exit $($r32.code), message [$($r32.msg)], stderr [$($r32.err)]")
+
+    # --- B33: a forgotten stash AFTER git gc has packed the ref -------------
+    # THIS ROW IS A MEASUREMENT, NOT A GUESS. On this machine, git
+    # 2.53.0.windows.2: `git stash` then `git gc` leaves .git/refs/stash GONE
+    # and the stash still held, because gc packs it into packed-refs. A probe
+    # that read only refs/stash would report a clean tree on any repository
+    # that had been gc'd since its last stash - which is most of them, since gc
+    # runs itself. .git/logs/refs/stash survives gc (reflogs are never packed)
+    # and is removed when the last stash is popped, so it is the half that
+    # covers the packed case without inventing a false positive.
+    $b33 = New-LwgStopCase -Name 'b33' -Modules @{ git_hygiene = $true }
+    [void](New-LwgGitDirFixture -Case $b33 -Files @('logs\refs\stash'))
+    $r33 = Get-LwgStopMessage -Case $b33 -Tag 'b33-turn1' -PathOverride $c2path
+    Add-Result 'B33: a stash whose ref git gc has PACKED is still reported' `
+        ($r33.code -eq 0 -and $r33.msg -like '*STASH*') `
+        ("RED at 97f0697, and it is also the row that fails if the packed half of the stash probe is ever dropped for being redundant - it is not. Measured: after git stash + git gc, .git/refs/stash does not exist and the stash does. exit $($r33.code), message [$($r33.msg)], stderr [$($r33.err)]")
+
+    # --- B34: a LINKED WORKTREE reads two different git directories ---------
+    # The per-worktree git dir holds MERGE_HEAD, CHERRY_PICK_HEAD, BISECT_LOG
+    # and the rebase directories; refs/ - and therefore the stash - lives in the
+    # SHARED one, which is a different directory entirely and is reached through
+    # the `commondir` pointer. Get-LwgRepoInfo already resolves both (gitdir and
+    # common); a probe that used one for everything would miss half the
+    # conditions in exactly the place this project does most of its work, since
+    # every lane in this repository runs in a linked worktree.
+    #
+    # The fixture is the real on-disk shape: .git as a FILE holding
+    # `gitdir: <path>`, that directory holding `commondir` and MERGE_HEAD, and
+    # the shared directory holding config and refs/stash and NOT MERGE_HEAD.
+    $b34 = New-LwgStopCase -Name 'b34' -Modules @{ git_hygiene = $true }
+    $b34wt  = Join-Path $b34.dir 'worktreegit'
+    $b34com = Join-Path $b34.dir 'commongit'
+    foreach ($d in @($b34wt, $b34com, (Join-Path $b34com 'refs'))) { [void][IO.Directory]::CreateDirectory($d) }
+    [IO.File]::WriteAllText((Join-Path $b34.ws '.git'), ('gitdir: ' + $b34wt + "`n"),
+        [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $b34wt 'commondir'), "..\commongit`n",
+        [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $b34wt 'MERGE_HEAD'),
+        "0000000000000000000000000000000000000000`n", [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $b34com 'config'),
+        "[core]`n`trepositoryformatversion = 0`n", [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $b34com 'refs\stash'),
+        "0000000000000000000000000000000000000000`n", [Text.UTF8Encoding]::new($false))
+    $r34 = Get-LwgStopMessage -Case $b34 -Tag 'b34-turn1' -PathOverride $c2path
+    Add-Result 'B34: in a LINKED WORKTREE the merge is read from the worktree git dir and the stash from the shared one' `
+        ($r34.code -eq 0 -and $r34.msg -like '*MERGE is IN PROGRESS*' -and $r34.msg -like '*STASH*') `
+        ("RED at 97f0697, and it is the row that fails if both probes are pointed at the same directory. MERGE_HEAD exists ONLY in the per-worktree git dir and refs/stash ONLY in the shared one, which is where git actually puts them; every lane in this repository runs in a linked worktree. exit $($r34.code), message [$($r34.msg)], stderr [$($r34.err)]")
+
+    # --- B35: CONTROL - a repository with none of the markers says none of it
+    # THIS ROW PASSES BEFORE THE FIX AS WELL AS AFTER, and that is what it is
+    # for. Every row above is satisfied by a module that shouts about a rebase
+    # on every repository it sees; this one is not. It is the same shape as
+    # B25's second row - the anti-vacuity guard for the eight above it - and it
+    # is labelled here rather than left for somebody to discover that a whole
+    # block of cases could be passed by a constant.
+    $b35 = New-LwgStopCase -Name 'b35' -Modules @{ git_hygiene = $true }
+    [void](New-LwgGitDirFixture -Case $b35)
+    $r35 = Get-LwgStopMessage -Case $b35 -Tag 'b35-turn1' -PathOverride $c2path
+    Add-Result 'B35: a repository with NO interrupted operation reports none of them' `
+        ($r35.code -eq 0 -and $r35.msg -notlike '*IN PROGRESS*' -and $r35.msg -notlike '*STASH*') `
+        ("CANNOT GO RED against the pre-fix tree - it is the anti-vacuity control for B27-B34, which are all satisfied by a module that reports an interrupted rebase unconditionally. The UNKNOWN sentence IS expected here, because git is off PATH for this child; nothing about an interrupted operation is. exit $($r35.code), message [$($r35.msg)], stderr [$($r35.err)]")
+
+    # --- B36: an UNRESOLVED CONFLICT is named, in a REAL repository ---------
+    # THE ONE CASE HERE THAT NEEDS A REAL git, and the reason is structural: an
+    # unresolved conflict lives in the INDEX as stage-1/2/3 entries, and there
+    # is no file under .git whose existence answers "is anything conflicted".
+    # The five interrupted operations each have one; a conflict does not.
+    #
+    # SO IT COSTS NO NEW SUBPROCESS EITHER. `git status --porcelain=v2` is
+    # already launched by this module on every turn end in a repository, and
+    # its `u` lines ARE the unmerged paths. Before this change they were summed
+    # into the tracked-changes count and never named, which is #167's "conflicts
+    # by name" in one line. The count still includes them - `dirty` did not move
+    # - and the conflict is now said out loud beside it.
+    #
+    # THE FIXTURE IS ISOLATED FROM THE OPERATOR'S GIT CONFIG. user.name,
+    # user.email and commit.gpgsign are forced on every invocation: a machine
+    # with commit.gpgsign true globally would otherwise BLOCK the fixture build
+    # on a signing prompt, and one with no user.email would fail the commit.
+    # HEAD is set by symbolic-ref rather than `init -b`, which is 2.28+.
+    $b36 = New-LwgStopCase -Name 'b36' -Modules @{ git_hygiene = $true }
+    $b36armed = $false
+    $b36err   = ''
+    try {
+        $b36ver = ''
+        $prevEap = $ErrorActionPreference
+        try { $ErrorActionPreference = 'Continue'; $b36ver = (& git --version 2>&1 | Out-String).Trim() }
+        finally { $ErrorActionPreference = $prevEap }
+        if ($b36ver -notlike 'git version*') {
+            throw ("git is not resolvable from this suite's own process, so the one case here that needs a real index could not be built. git --version said [$b36ver]. This is an ABORT rather than a skip: a suite that quietly subtracts a case reports green about something it never ran.")
+        }
+
+        function Invoke-LwgFixtureGit {
+            param([string]$WorkDir, [string[]]$GitArgs)
+            $iso = @('-c', 'user.name=lwg fixture', '-c', 'user.email=lwg@example.invalid',
+                     '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false',
+                     '-c', 'gc.auto=0')
+            $prev = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                $null = & git -C $WorkDir @iso @GitArgs 2>&1
+            } finally { $ErrorActionPreference = $prev }
+        }
+
+        $b36f = Join-Path $b36.ws 'conflicted.txt'
+        Invoke-LwgFixtureGit -WorkDir $b36.ws -GitArgs @('init', '--quiet')
+        Invoke-LwgFixtureGit -WorkDir $b36.ws -GitArgs @('symbolic-ref', 'HEAD', 'refs/heads/lwgmain')
+        [IO.File]::WriteAllText($b36f, "base`n", [Text.UTF8Encoding]::new($false))
+        Invoke-LwgFixtureGit -WorkDir $b36.ws -GitArgs @('add', '--', 'conflicted.txt')
+        Invoke-LwgFixtureGit -WorkDir $b36.ws -GitArgs @('commit', '--quiet', '-m', 'base')
+        Invoke-LwgFixtureGit -WorkDir $b36.ws -GitArgs @('checkout', '--quiet', '-b', 'lwgside')
+        [IO.File]::WriteAllText($b36f, "side`n", [Text.UTF8Encoding]::new($false))
+        Invoke-LwgFixtureGit -WorkDir $b36.ws -GitArgs @('commit', '--quiet', '-a', '-m', 'side')
+        Invoke-LwgFixtureGit -WorkDir $b36.ws -GitArgs @('checkout', '--quiet', 'lwgmain')
+        [IO.File]::WriteAllText($b36f, "trunk`n", [Text.UTF8Encoding]::new($false))
+        Invoke-LwgFixtureGit -WorkDir $b36.ws -GitArgs @('commit', '--quiet', '-a', '-m', 'trunk')
+        Invoke-LwgFixtureGit -WorkDir $b36.ws -GitArgs @('merge', 'lwgside')
+
+        $b36armed = [IO.File]::Exists((Join-Path $b36.ws '.git\MERGE_HEAD'))
+        if (-not $b36armed) {
+            throw 'the merge did not conflict, so the fixture never armed and this case would have established nothing'
+        }
+    } catch {
+        $b36err = $_.Exception.Message
+    }
+
+    $r36 = $(if ($b36armed) { Get-LwgStopMessage -Case $b36 -Tag 'b36-turn1' } else { @{ code = -1; err = $b36err; out = ''; msg = '' } })
+    Add-Result 'B36: an unresolved CONFLICT is named, not folded into the change count' `
+        ($b36armed -and $r36.code -eq 0 -and $r36.msg -like '*UNRESOLVED CONFLICT*') `
+        ("RED at 97f0697, where the porcelain-v2 'u' lines were counted as ordinary tracked changes and the word conflict appeared nowhere. Fixture armed: $b36armed. exit $($r36.code), message [$($r36.msg)], stderr [$($r36.err)]")
+
+    $b36ev = ''
+    try { $b36ev = [IO.File]::ReadAllText((Join-Path $b36.data 'lw-watchtower.jsonl')) } catch { }
+    Add-Result 'B36: the GitHygiene record carries the conflict count' `
+        ($b36armed -and $b36ev -like '*"conflicts":1*') `
+        ("the sentence is what the operator reads and the record is what anything else reads; a fix that only wrote the sentence leaves every reader of lw-watchtower.jsonl unable to tell a conflicted turn end from a merely dirty one. lw-watchtower.jsonl held:`n$b36ev")
+
+    # --- B37: the six probes cost a fraction of the subprocess already paid --
+    # THE BUDGET CASE, and it is a DIFFERENCE OF MEDIANS taken back to back on
+    # the same machine in the same run - section D's method, for section D's
+    # reason: an absolute millisecond threshold is a case that fails on a slow
+    # laptop and passes on a fast one for reasons that have nothing to do with
+    # the code.
+    #
+    # THE COMPARATOR IS THE THING THE CLAIM IS ABOUT. #167's triage says these
+    # probes are "free next to the `git status` this module already pays for",
+    # so the reference leg is one real subprocess round trip through the
+    # module's OWN process plumbing - Start-LwgProcess plus Complete-LwgProcess,
+    # lifted from the shipped file by AST exactly as B26 lifts them, so this
+    # cannot pass against a copy that has drifted from the file it is testing.
+    #
+    # IT DOES NOT SKIP UNDER LWG_SUITE_PARALLEL, and that is reasoned rather
+    # than overlooked. D4's verdict is a difference between two whole-render
+    # medians, where twelve sibling suites spawning a process per case move the
+    # two legs differently. Here the loaded leg is the SUBPROCESS one: load
+    # makes a process spawn slower, which makes the reference leg bigger, which
+    # makes this assertion strictly easier. A guard that can only be made to
+    # pass by load is not a guard that needs to skip under it.
+    #
+    # LEG ORDER IS REVERSED ON ALTERNATE ROUNDS and one warm-up sweep is
+    # discarded - lib\subagent_start.ps1's measurement standard, cited by #311.
+    $b37 = @{ ok = $false; detail = ''; probe = -1.0; git = -1.0 }
+    try {
+        $b37tok = $null; $b37perr = $null
+        $b37ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            $AdvisoryPath, [ref]$b37tok, [ref]$b37perr)
+        $b37want = @('Get-LwgInterruptedOps', 'Start-LwgProcess', 'Complete-LwgProcess')
+        $b37defs = @($b37ast.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $b37want -contains $n.Name
+        }.GetNewClosure(), $true))
+        $b37got = @($b37defs | ForEach-Object { $_.Name })
+        foreach ($n in $b37want) {
+            if ($b37got -notcontains $n) {
+                throw ("lib\stop_advisories.ps1 does not define $n, so the probe cost could not be measured at all")
+            }
+        }
+        foreach ($d in $b37defs) { . ([scriptblock]::Create($d.Extent.Text)) }
+
+        $b37dir = Join-Path $work 'b37'
+        $b37git = Join-Path $b37dir '.git'
+        [void][IO.Directory]::CreateDirectory($b37git)
+        [IO.File]::WriteAllText((Join-Path $b37git 'config'),
+            "[core]`n`trepositoryformatversion = 0`n", [Text.UTF8Encoding]::new($false))
+
+        # THE CLEAN TREE IS THE CASE THAT MATTERS. Every probe misses, so every
+        # one of the seven Test-Path calls runs - the most expensive shape this
+        # function has, and the one every turn end on a tidy repository pays.
+        $b37K = 100
+        $b37probeTimes = New-Object 'System.Collections.Generic.List[double]'
+        $b37gitTimes   = New-Object 'System.Collections.Generic.List[double]'
+
+        $b37probeLeg = {
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            for ($i = 0; $i -lt $b37K; $i++) {
+                $null = Get-LwgInterruptedOps -GitDir $b37git -Common $b37git
+            }
+            $sw.Stop()
+            return ($sw.Elapsed.TotalMilliseconds / $b37K)
+        }
+
+        $b37gitLeg = {
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            $h  = Start-LwgProcess -File 'git' -ProcArgs @('--no-pager', '--version') -WorkDir $b37dir
+            $null = Complete-LwgProcess -Handle $h -TimeoutMs 5000
+            $sw.Stop()
+            return $sw.Elapsed.TotalMilliseconds
+        }
+
+        $null = & $b37probeLeg      # warm-up, discarded
+        $null = & $b37gitLeg        # warm-up, discarded
+
+        for ($b37r = 0; $b37r -lt 9; $b37r++) {
+            if ($b37r % 2 -eq 0) {
+                [void]$b37probeTimes.Add([double](& $b37probeLeg))
+                [void]$b37gitTimes.Add([double](& $b37gitLeg))
+            } else {
+                [void]$b37gitTimes.Add([double](& $b37gitLeg))
+                [void]$b37probeTimes.Add([double](& $b37probeLeg))
+            }
+        }
+
+        $b37ps = @($b37probeTimes | Sort-Object)
+        $b37gs = @($b37gitTimes   | Sort-Object)
+        $b37.probe = [double]$b37ps[[int][Math]::Floor($b37ps.Count / 2)]
+        $b37.git   = [double]$b37gs[[int][Math]::Floor($b37gs.Count / 2)]
+
+        # One call of the whole probe set must cost under a twentieth of one
+        # subprocess round trip. Measured on this machine it is far under; the
+        # threshold is deliberately loose because the CLAIM is "negligible next
+        # to the process this module already spawns", not a target.
+        $b37.ok = ($b37.git -gt 0) -and ($b37.probe -lt ($b37.git / 20.0))
+        $b37.detail = ("probe median $([Math]::Round($b37.probe, 4)) ms/call [$((@($b37probeTimes | ForEach-Object { [Math]::Round($_, 4) })) -join ',')], one git subprocess median $([Math]::Round($b37.git, 2)) ms [$((@($b37gitTimes | ForEach-Object { [Math]::Round($_, 2) })) -join ',')], ratio 1:$([Math]::Round($(if ($b37.probe -gt 0) { $b37.git / $b37.probe } else { 0 }), 1))")
+    } catch {
+        $b37.ok = $false
+        $b37.detail = 'the measurement did not run: ' + $_.Exception.Message
+    }
+    Add-Result 'B37: the class-2 probes cost under a twentieth of the subprocess this module already spawns' `
+        $b37.ok `
+        ("#167's triage claims these probes are free next to the git status git_hygiene already pays for, and this is the measurement rather than the assertion. Difference of medians, nine rounds, leg order reversed on alternate rounds, one warm-up sweep discarded, both legs on this machine in this run. $($b37.detail)")
+
+    # =====================================================================
     # SECTION C - failure_capture and log_rotation, END TO END
     # =====================================================================
     Write-Output 'C. supervisor (child process)'

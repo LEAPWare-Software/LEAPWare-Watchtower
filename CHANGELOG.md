@@ -23,6 +23,53 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 `main` must never declare a version a tag has already published (the rule `[0.4.0]` added). Entries
 land here as they merge.
 
+### Added
+
+- **`git_hygiene` now sees interrupted work — #167 coverage class 2, the first slice of five
+  (2026-09-06, #167).** The module warned about uncommitted changes, a detached `HEAD`, unpushed
+  commits and a stale PR, and was **entirely blind** to the states that actually lose work: a
+  half-finished rebase, merge, cherry-pick or bisect, an unresolved conflict, and a forgotten
+  stash. Measured before the change —
+  `grep -c 'MERGE_HEAD|REBASE_HEAD|CHERRY_PICK_HEAD|BISECT_LOG|stash'` over
+  `lw-watchtower/lib/stop_advisories.ps1` returned **0**. A tree stopped mid-rebase produced
+  exactly the advisory a clean tree produced, and mid-rebase is the state three of the September
+  session's worktrees were found in.
+
+  **It costs no new process.** Five of the six conditions are a file or a directory git itself
+  creates and removes, read by a new `Get-LwgInterruptedOps` with `Test-Path` and nothing else —
+  which also means they are reported on a machine where `git` is missing or hanging, the machine
+  where everything else in this module can only say **UNKNOWN**. The sixth, an unresolved conflict,
+  has no such file (it is stage-1/2/3 entries in the index) and is read from the `u` lines of the
+  `git status` that was already being fetched; unmerged paths are still counted in `dirty` as
+  before, and are now also named. **Measured, not asserted:** difference of medians against one real
+  subprocess round trip through the module's own plumbing, nine rounds with the leg order reversed
+  on alternate rounds and a warm-up sweep discarded — probe set **1.17 ms**, one `git` spawn
+  **96.85 ms**, so the whole set is **1.2 %** of a process this module already pays for
+  (`tests/stop_behaviour.ps1` case B37, which re-takes it on every run).
+
+  **The two git directories are read separately**, because in a linked worktree they are not the
+  same directory: `MERGE_HEAD`, `CHERRY_PICK_HEAD`, `BISECT_LOG` and the rebase directories belong
+  to the per-worktree git dir, `refs/` and therefore the stash to the shared one. **The stash is
+  probed twice** — `refs/stash` and `logs/refs/stash` — because `git gc` packs `refs/stash` into
+  `packed-refs` (measured on git 2.53.0.windows.2: after `git stash` then `git gc` the loose ref is
+  gone and the stash is still held), so a probe reading only the loose ref would report a clean tree
+  on any repository gc had touched.
+
+  The `GitHygiene` evidence record **moved out of the "git answered" branch** and gained a
+  `conflicts` field: a class-2 finding does not depend on git having answered, and a record written
+  only inside that branch left a machine with no git telling the operator about an interrupted
+  rebase and telling `lw-watchtower.jsonl` nothing.
+
+  `tests/stop_behaviour.ps1` **120 → 132 cases**: B27–B37, eleven of them proven red against
+  `97f0697` and B35 the anti-vacuity control that passes before the fix as well as after.
+  **B36 makes `git` a dependency of this suite for the first time** — one case of the twelve, which
+  fails rather than skips without it.
+
+  **This is one slice of #167 and the rest is not built:** every other worktree, every branch that
+  is not `HEAD`, tags, submodules, LFS, unreachable commits, CI, and a half-finished revert
+  (`REVERT_HEAD`). No marker file, no foreign-worktree register, no session-start work, no new hook
+  registration — registrations stay at **13** and the module registry at **11**.
+
 ### Changed
 
 - **`agents/lw-orchestrator.md` is now a real orchestrator system prompt (2026-09-06, #316).** When

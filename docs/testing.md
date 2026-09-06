@@ -19,8 +19,14 @@ because that file already owned the only harness that runs any of them for real.
 not the same as passing —
 which is the one external binary any suite here depends on besides `powershell` itself; every
 "remote" it builds is a local bare repository under the temp directory and no case reaches a network.
+**One case of the interrupted-work block in the Stop-hook behaviour suite needs `git` as well** —
+B36 builds a real repository with a real conflicted index, because an unresolved conflict lives in
+the index and is not a file whose existence can be tested. Without `git` that case **fails**, with
+the reason on the line; it never skips. Every other case in that block builds a `.git` directory by
+hand and deliberately runs with `git` removed from the child's `PATH`, which is how they prove the
+probes cost no subprocess.
 `tests/stop_behaviour.ps1` runs the two hooks that fire at every turn end —
-`lib/stop_advisories.ps1` and `lib/supervisor.ps1` — with 120 cases, and covers more
+`lib/stop_advisories.ps1` and `lib/supervisor.ps1` — with 132 cases, and covers more
 **observing** modules than anything else here. `tests/uninstall_footprint.ps1` drives `bin/lwg-uninstall.ps1` against
 throwaway data directories and throwaway `settings.json` files with 40 cases, and is the only one
 that covers a **deletion**.
@@ -395,6 +401,16 @@ Five sections:
   occupancy above the assumed window and asserts the module **refuses** it — reports no percentage
   and pins nothing — and then that a second, corroborating reading is what promotes it to a learned
   window.
+
+  **B27–B37 are `git_hygiene`'s coverage class 2** (#167), and they are the largest block in the
+  section: a half-finished rebase in each of its two backends, a half-finished merge, cherry-pick
+  and bisect, a forgotten stash both as a loose `refs/stash` and as one `git gc` has packed away, a
+  **linked worktree** whose merge marker and whose stash live in two different git directories, an
+  unresolved conflict named rather than folded into the change count, and the **control** that a
+  repository with none of them reports none of them. B37 is the budget: a difference of medians
+  between the probe set and one real subprocess round trip through the module's own process
+  plumbing, both taken on the same machine in the same run, because the claim being checked is that
+  these probes are free *next to the `git status` this module already pays for*.
 - **C — `failure_capture` and `log_rotation`, end to end.** Registration in `hooks.json` including
   the `asyncRewake` that makes exit 2 an *alert* rather than a *block*; the two shipped-bug
   regressions below; the interrupt that must not alert **and must still be recorded**; that the

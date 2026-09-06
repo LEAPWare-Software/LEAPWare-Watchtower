@@ -462,6 +462,97 @@ function Invoke-LwgGit {
                               -WorkDir $WorkDir -TimeoutMs $TimeoutMs)
 }
 
+function Get-LwgInterruptedOps {
+    <#
+      COVERAGE CLASS 2 of #167 - a half-finished rebase, merge, cherry-pick or
+      bisect, and a forgotten stash - answered with Test-Path and NOTHING ELSE.
+
+      Returns a HASHTABLE @{ conds = @(...); notes = @(...) }, deliberately: a
+      returned collection is enumerated across the function boundary and a
+      returned hashtable is not, which is the same trap Get-LwgRepoInfo names.
+
+      NO SUBPROCESS, AND THAT IS THE WHOLE POINT OF PUTTING THIS CLASS FIRST.
+      Every one of these states is a file or a directory that git itself
+      creates and removes, so the module can answer for them at a cost that
+      does not register beside the `git status` it already pays for - measured
+      by case B37 of tests\stop_behaviour.ps1 as a ratio against one real
+      subprocess round trip, not asserted. It also means these conditions are
+      still reported on a machine where git is missing, hanging or refusing,
+      which is precisely where the rest of this module can say only UNKNOWN.
+
+      TWO GIT DIRECTORIES, NOT ONE, and getting that wrong would make this
+      silent in the place this project does most of its work. The per-worktree
+      git dir holds MERGE_HEAD, CHERRY_PICK_HEAD, BISECT_LOG and the two rebase
+      directories; refs/ - and therefore the stash - lives in the SHARED one,
+      which in a linked worktree is a different directory reached through the
+      `commondir` pointer. Get-LwgRepoInfo already resolves both. Case B34 is
+      the one that fails if they are ever collapsed into one.
+
+      TWO REBASE BACKENDS. `git rebase -i`, and any rebase that stops on a
+      conflict, leaves rebase-merge\; `git rebase --apply` and `git am` leave
+      rebase-apply\. One condition, two directories - B27 and B28.
+
+      TWO STASH PROBES, AND THE SECOND IS NOT REDUNDANT. `git gc` PACKS
+      refs/stash into packed-refs: measured on git 2.53.0.windows.2, after
+      `git stash` followed by `git gc` the file .git\refs\stash is GONE and the
+      stash is still held. Reading only that file would report a clean tree on
+      any repository gc has touched since its last stash, which is most of them
+      because gc runs itself. logs\refs\stash survives gc - reflogs are never
+      packed - and git removes it when the last stash is popped, so it covers
+      the packed case without inventing a stash that is not there. B32 and B33.
+
+      WHAT IS DELIBERATELY NOT HERE. An unresolved CONFLICT has no such file:
+      it is stage-1/2/3 entries in the index. It is reported by the caller from
+      the porcelain-v2 `u` lines of the `git status` already in hand, which
+      costs nothing extra and is why it is not a probe. A half-finished REVERT
+      (REVERT_HEAD) is a seventh state of the same shape and is NOT covered -
+      #167 slice 1 names four interrupted operations and this function answers
+      those four; the gap is recorded on that issue rather than closed quietly.
+
+      Never throws: this decides one advisory sentence, and an exception here
+      would take the whole Stop hook's git block to its error handler.
+    #>
+    param(
+        [AllowEmptyString()][AllowNull()][string]$GitDir,
+        [AllowEmptyString()][AllowNull()][string]$Common
+    )
+
+    $conds = @()
+    $notes = @()
+    if ([string]::IsNullOrWhiteSpace($GitDir)) { return @{ conds = $conds; notes = $notes } }
+    # A repo that is not a linked worktree has no commondir and the two are the
+    # same directory; Get-LwgRepoInfo already answers that way, and the fallback
+    # is here so a caller that only has one of them still gets a real answer.
+    $shared = $(if ([string]::IsNullOrWhiteSpace($Common)) { $GitDir } else { $Common })
+
+    try {
+        if ((Test-Path -LiteralPath (Join-Path $GitDir 'rebase-merge') -PathType Container) -or
+            (Test-Path -LiteralPath (Join-Path $GitDir 'rebase-apply') -PathType Container)) {
+            $conds += 'rebase'
+            $notes += "a REBASE is IN PROGRESS and unfinished - the branch is mid-rewrite, so the commits you believe are on it are not the commits on disk; finish it with 'git rebase --continue' or undo it with 'git rebase --abort' before treating this work as landed"
+        }
+        if (Test-Path -LiteralPath (Join-Path $GitDir 'MERGE_HEAD') -PathType Leaf) {
+            $conds += 'merge'
+            $notes += "a MERGE is IN PROGRESS and uncommitted - MERGE_HEAD is still present, so the merge commit was never made and the result exists only in this working tree"
+        }
+        if (Test-Path -LiteralPath (Join-Path $GitDir 'CHERRY_PICK_HEAD') -PathType Leaf) {
+            $conds += 'cherry-pick'
+            $notes += "a CHERRY-PICK is IN PROGRESS and uncommitted - CHERRY_PICK_HEAD is still present, so the picked commit was never made"
+        }
+        if (Test-Path -LiteralPath (Join-Path $GitDir 'BISECT_LOG') -PathType Leaf) {
+            $conds += 'bisect'
+            $notes += "a BISECT is IN PROGRESS - HEAD is wherever the search left it rather than where you left it, and anything committed here belongs to no branch; end it with 'git bisect reset'"
+        }
+        if ((Test-Path -LiteralPath (Join-Path $shared 'refs\stash')      -PathType Leaf) -or
+            (Test-Path -LiteralPath (Join-Path $shared 'logs\refs\stash') -PathType Leaf)) {
+            $conds += 'stash'
+            $notes += "at least one STASH is still held - stashed work appears in no 'git status', belongs to no branch, is pushed by nothing, and goes no further than this clone"
+        }
+    } catch { }
+
+    return @{ conds = $conds; notes = $notes }
+}
+
 try {
     . (Join-Path $PSScriptRoot 'common.ps1')
 
@@ -924,8 +1015,25 @@ try {
     # fixed three times over in a private sibling project's watchdogs.
     #
     #   Warns on: uncommitted changes, detached HEAD, local commits directly on
-    #   the default branch, unpushed commits, and an open PR whose branch has
-    #   moved since the last push.
+    #   the default branch, unpushed commits, an open PR whose branch has moved
+    #   since the last push, and - #167 coverage class 2, added without a single
+    #   extra subprocess - a half-finished rebase, merge, cherry-pick or bisect,
+    #   an unresolved conflict, and a forgotten stash.
+    #
+    # THE CLASS-2 HALF COSTS NOTHING AND IS ANSWERED EVEN WITH NO git AT ALL.
+    # Five of its six conditions are a file or a directory git itself creates
+    # and removes, read by Get-LwgInterruptedOps with Test-Path and nothing
+    # else, so they are reported on a machine where git is missing or hanging -
+    # the machine where everything else here can only be UNKNOWN. The sixth,
+    # an unresolved conflict, has no such file: it is read from the `u` lines
+    # of the `git status` below, which was already being paid for.
+    #
+    # WHAT IS STILL MISSING, so that this list is not read as the whole of
+    # #167: every OTHER worktree, every branch that is not HEAD, tags,
+    # submodules, LFS, unreachable commits, CI, and a half-finished revert
+    # (REVERT_HEAD). Those are that issue's coverage classes 1, 3 and 4 and its
+    # foreign-worktree register; none of them is here, and the proposal for
+    # them is a comment on #167 rather than code in this file.
     if ($onGit) {
         try {
             $info = $gitInfo
@@ -942,6 +1050,38 @@ try {
                 # OBSERVATION rather than the tree. See the dedupe at the bottom
                 # of this block for why they are tracked separately.
                 $obsNotes = @()
+
+                # --- coverage class 2: interrupted operations, no subprocess --
+                # #167. FIRST, AND OUTSIDE THE `git status` BRANCH BELOW, and
+                # both of those are the design rather than an ordering
+                # accident. First, because "you are in the middle of a rebase"
+                # outranks "you have four uncommitted files" - it is the state
+                # in which the September session's worktrees were actually
+                # found, and the one the operator has to resolve before any of
+                # the rest means anything. Outside, because these probes are
+                # Test-Path and nothing else: they still answer on a machine
+                # where git is missing, hanging or exiting nonzero, which is
+                # exactly the machine where every other condition in this
+                # module can only be reported as UNKNOWN.
+                $ops = Get-LwgInterruptedOps -GitDir $info.gitdir -Common $info.common
+                if ($ops.conds.Count -gt 0) {
+                    $conds += $ops.conds
+                    $notes += $ops.notes
+                }
+
+                # --- carried out of the status branch below --------------------
+                # These used to be declared inside the `else` that runs only
+                # when git answered. They are hoisted because the GitHygiene
+                # record is now written on BOTH paths: a class-2 finding is a
+                # real finding on a machine with no git, and a record written
+                # only where git answered would leave every reader of
+                # lw-watchtower.jsonl unable to see it.
+                $branch = ''; $upstream = ''; $oid = ''
+                $ahead  = 0;  $behind   = 0
+                $dirty  = 0;  $untracked = 0; $conflicted = 0
+                $detached = $false
+                $defBranch = ''
+                $unpushed = 0; $unpushedKnown = $false
 
                 # --- one call answers four questions --------------------------
                 # porcelain=v2 --branch yields branch.oid / branch.head /
@@ -994,10 +1134,6 @@ try {
                         child_pid = $st.child_pid; kill = $st.kill
                     } | Out-Null
                 } else {
-                    $branch = ''; $upstream = ''; $oid = ''
-                    $ahead  = 0;  $behind   = 0
-                    $dirty  = 0;  $untracked = 0
-
                     foreach ($raw in $st.out.Split([char]10)) {
                         $l = $raw.TrimEnd([char]13)
                         if ($l.Length -eq 0) { continue }
@@ -1010,7 +1146,21 @@ try {
                         }
                         # '?' is untracked, '!' is ignored (not requested here),
                         # everything else - 1, 2, u - is a tracked change.
+                        #
+                        # 'u' IS COUNTED TWICE, ON PURPOSE (#167 coverage class
+                        # 2). An unmerged path is a tracked change and stays in
+                        # that count, so `dirty` did not move and no existing
+                        # case changed answer; it is ALSO counted separately,
+                        # because "4 uncommitted changes" and "4 uncommitted
+                        # changes, 2 of them unresolved conflicts" are different
+                        # states of the tree and the module used to say the
+                        # first for both. This is the ONE class-2 condition with
+                        # no file to probe - a conflict is stage-1/2/3 entries in
+                        # the index - and it costs nothing anyway, because these
+                        # are the lines of a `git status` this module has already
+                        # paid for.
                         if     ($l[0] -eq '?') { $untracked++ }
+                        elseif ($l[0] -eq 'u') { $conflicted++; $dirty++ }
                         elseif ($l[0] -ne '!') { $dirty++ }
                     }
 
@@ -1074,6 +1224,14 @@ try {
                         $conds += 'detached'
                         $short = if ($oid.Length -ge 8) { $oid.Substring(0, 8) } else { $oid }
                         $notes += "HEAD is DETACHED at $short - commits made here belong to no branch and become unreachable the moment anything else is checked out"
+                    }
+
+                    # Ahead of `dirty`, and for the same reason the class-2
+                    # probes sit ahead of everything: an unresolved conflict is
+                    # a specific finding and the change count is a general one.
+                    if ($conflicted -gt 0) {
+                        $conds += 'conflict'
+                        $notes += "$conflicted path(s) carry UNRESOLVED CONFLICTS - the merge markers are still in the files and the index still holds both sides; resolving them is not optional before this is committed"
                     }
 
                     if ($changed -gt 0) {
@@ -1187,22 +1345,33 @@ try {
                         }
                     }
 
-                    if ($conds.Count -gt 0) {
-                        Write-LwgEvent -Event 'GitHygiene' -Payload $payload -Extra @{
-                            module    = 'git_hygiene'
-                            conditions = ($conds -join ',')
-                            branch    = $branch
-                            default_branch = $defBranch
-                            detached  = $detached
-                            tracked_changes   = $dirty
-                            untracked_changes = $untracked
-                            unpushed  = $(if ($unpushedKnown) { $unpushed } else { $null })
-                            behind    = $behind
-                            upstream  = $upstream
-                            probe_ms  = $st.ms        # how long git itself ran
-                            probe_wait_ms = $st.wait_ms   # how much of that landed on turn end
-                        } | Out-Null
-                    }
+                }
+
+                # --- the evidence record, on BOTH paths ---------------------
+                # MOVED OUT OF THE `git answered` BRANCH (#167). A class-2
+                # finding does not depend on git having answered - the probes
+                # are Test-Path - so a record written only inside that branch
+                # left a machine with no git reporting an interrupted rebase to
+                # the operator and nothing at all to lw-watchtower.jsonl, which
+                # is the file everything else in this plugin reads. The branch
+                # fields are empty or zero on that path, which is honest: they
+                # were not measured. `conditions` still says what was found.
+                if ($conds.Count -gt 0) {
+                    Write-LwgEvent -Event 'GitHygiene' -Payload $payload -Extra @{
+                        module    = 'git_hygiene'
+                        conditions = ($conds -join ',')
+                        branch    = $branch
+                        default_branch = $defBranch
+                        detached  = $detached
+                        tracked_changes   = $dirty
+                        untracked_changes = $untracked
+                        conflicts = $conflicted
+                        unpushed  = $(if ($unpushedKnown) { $unpushed } else { $null })
+                        behind    = $behind
+                        upstream  = $upstream
+                        probe_ms  = $st.ms        # how long git itself ran
+                        probe_wait_ms = $st.wait_ms   # how much of that landed on turn end
+                    } | Out-Null
                 }
 
                 # --- dedupe -------------------------------------------------
