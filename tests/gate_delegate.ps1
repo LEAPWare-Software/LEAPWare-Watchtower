@@ -2736,15 +2736,21 @@ try {
     # the exact answer and is not used, because it would make the whole suite
     # need git on the machine, which section H goes to some length to avoid.
     # THE SWEEP SPANS TWO ROOTS SINCE THE PAYLOAD RESTRUCTURE, and it has to be
-    # spelled out rather than inferred. Seven of these directories moved under
-    # lw-watchtower/ and three - .github, docs, tests - stayed at the repository
+    # spelled out rather than inferred. Every one of the payload directories
+    # below moved under lw-watchtower/ and three - .github, docs, tests - stayed
+    # at the repository
     # root. `if (-not [IO.Directory]::Exists($r)) { continue }` below SKIPS A
     # DIRECTORY THAT IS NOT THERE, so a single-rooted walk after the move would
     # have gone on passing while quietly reading none of those three: the
     # empty-set pass, arrived at by a directory rename. `output-styles` was in
     # this list until the directory was deleted; a dead entry here is the same
-    # silent skip written down on purpose, so it is gone.
-    $nPayloadDirs = @('agents', 'bin', 'commands', 'context', 'hooks', 'lib', 'statusline')
+    # silent skip written down on purpose, so it went. IT IS BACK, 2026-09-06
+    # (#316), because the directory is back with one plugin-owned style in it -
+    # and an entry missing while the directory exists is the SAME silent skip in
+    # the other direction, which is the failure the paragraph above describes.
+    # This is coverage restored, not a new assertion: the sweep can only go red
+    # on a file that actually carries a hit.
+    $nPayloadDirs = @('agents', 'bin', 'commands', 'context', 'hooks', 'lib', 'output-styles', 'statusline')
     $nRepoDirs    = @('.github', 'docs', 'tests')
     # uat-report.md moved to .github\notes\ under #183 and .github IS still swept,
     # so the exemption has to follow it or the sweep starts reading a v0.3.0

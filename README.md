@@ -76,8 +76,11 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   touched or removed by setup.
 - **Nothing here can block assistant text.** There is no hook between the model and the transcript.
   Five output styles once asked for a house voice; they were requests and never enforcement, and they
-  were removed on 2 September 2026 along with the two commands that recorded the preference. Anyone
-  describing a style as enforcing is repeating this project's founding defect.
+  were removed on 2 September 2026 along with the two commands that recorded the preference. **One
+  style came back on 6 September 2026** — `lw-watchtower:lw-orchestrator`, which asks the main thread
+  to delegate rather than to read and edit itself. It is a request too, it is not selected for you,
+  and it is [documented as a request](docs/output-styles.md). Anyone describing a style as enforcing
+  is repeating this project's founding defect.
 - **All eleven declared modules are built. Seven are enabled; `orphan_watch` and the three gates are not.**
   `ratelimit_escalation` and `cost_tracking`
   were declared and are *blocked*, not merely unwritten: the data they need reaches no hook, and no
@@ -95,7 +98,7 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   against the two commands that write `config.override.json`; `tests/state_resolution.ps1` runs 37
   against the state-directory resolver; `tests/doctor_behaviour.ps1` runs 43 against the doctor's
   driven checks; `tests/subagent_scan.ps1` runs 14 against the `SubagentStart` fast path — the only
-  coverage `context_injection` has — and `tests/payload_guard.ps1` runs 26 against what the shipped
+  coverage `context_injection` has — and `tests/payload_guard.ps1` runs 27 against what the shipped
   payload discloses. They all go through a real pipe or a real child process. **Per-module coverage
   is much thinner than the case totals**: several observing modules are reached by one to three cases
   each, on at most two properties apiece, and `context_injection`'s `worker_facts.md` handling has no

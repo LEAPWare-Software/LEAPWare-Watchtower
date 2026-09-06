@@ -14,9 +14,16 @@ lw-watchtower/               THE SHIPPED PAYLOAD. Everything the marketplace
                              directory and nothing outside it
 lw-watchtower/.claude-plugin/plugin.json
                              manifest: identity only. Declares NO paths at all -
-                             hooks/hooks.json, commands/ and agents/ are all
-                             default-scanned, and naming one here REPLACES the
-                             default scan rather than adding to it. A
+                             hooks/hooks.json, commands/, agents/ and
+                             output-styles/ are all default-scanned, and naming
+                             one here REPLACES the
+                             default scan rather than adding to it. The
+                             component loader's own directory list, read out of
+                             the 2.1.263 binary, is
+                             ["commands","agents","skills","output-styles",
+                             "themes"] - settings.json is NOT on it, which is
+                             why binding the orchestrator role is a user step
+                             and not something this plugin can do. A
                              "hooks": "./hooks/hooks.json" key used to sit here
                              and cost a startup ERROR every session - see "The
                              manifest declares no paths"
@@ -37,6 +44,14 @@ lw-watchtower/commands/*.md  six slash commands - prose only; every one of
                              command prose - see docs/commands.md
 lw-watchtower/agents/lw-*.md the six agent roles the plugin ships. Discovered
                              from this directory name - see docs/roles.md
+lw-watchtower/output-styles/lw-orchestrator.md
+                             ONE output style, discovered the same way. It is
+                             the only channel this plugin has that reaches the
+                             MAIN thread's instructions without the operator
+                             configuring anything - and it shapes instructions,
+                             never tool grants. Not selected for anyone:
+                             force-for-plugin is deliberately absent and is an
+                             owner decision - see docs/output-styles.md
 lw-watchtower/bin/lwg-doctor.ps1
                              ten checks for what is NOT working. Exits 0/1/2/3
                              and is meant to be able to exit non-zero
@@ -212,7 +227,7 @@ tests/subagent_scan.ps1      14 cases piping payloads into lib/subagent_start.ps
                              The only coverage context_injection has. It asserts
                              on answers, not on the milliseconds the fast path
                              exists to save
-tests/payload_guard.ps1      26 cases over every file git ls-files reports under
+tests/payload_guard.ps1      27 cases over every file git ls-files reports under
                              lw-watchtower/, which is the whole shipped payload
                              because marketplace.json declares
                              "source": "./lw-watchtower". The only

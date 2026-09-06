@@ -220,6 +220,31 @@ Say this plainly wherever the orchestrator is described. A delegation discipline
 governance layer only *recommends* is a different product from one it *enforces*, and pretending
 otherwise is the class of defect this plugin exists to catch.
 
+**`bin/lwg-setup.ps1` offers this step and does not take it.** `-Step detect` prints it as **Q5**,
+beside the `outputStyle` key for the [output style](output-styles.md) that asks for the same
+discipline without withholding anything. The installer writes **neither key, in any step** — both
+change how every future session behaves, both are undone by editing the same file, and the `/config`
+picker already owns the style value. Offering and writing are different things and this page will not
+blur them.
+
+### One thing a bound role is observable by, and it is already in the tree
+
+A main thread running this role is **distinguishable from one that is not**, at the hook payload,
+by a field that already exists. [`lib/gate_delegate.ps1`](../lw-watchtower/lib/gate_delegate.ps1)
+records it in its own source as the reason that gate tests `agent_id` and must **never** test
+`agent_type`:
+
+> A `settings.json` `agent` key names the role the MAIN CONVERSATION runs as - an orchestrator role,
+> typically - so the main thread carries a non-empty `agent_type`. A gate matching on a non-empty
+> `agent_type` would classify the main thread as a subagent and allow every single call it exists to
+> refuse, while reporting itself as a live gate.
+
+Two things follow, and the second is the more important one. **`agent_type` is an observable for
+"this thread is running a role"** — it costs no module, no file and no registration. And **it is the
+wrong field for any gate that asks "did this call come from a subagent"**, permanently: a check
+written against it would report itself as live while allowing everything. Nothing in this release
+reads it either way.
+
 ## The status line probes for `lw-healer.md`
 
 Fixed in commit `5ee0494`. `statusline/statusline.ps1` used to look for the healer role

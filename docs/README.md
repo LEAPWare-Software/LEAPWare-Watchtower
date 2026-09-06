@@ -13,7 +13,7 @@
 | [Architecture](architecture.md) | File layout, hook registrations, measured costs, state directory, status line, failure policy |
 | [Testing and CI](testing.md) | **Fourteen files in `tests/`, eleven of which test behaviour** — what each one establishes, the exit-code contract they share, the twenty CI check steps, and what is therefore uncovered |
 | [Portability](portability.md) | The no-local-environment-dependencies mandate, the scan that enforces it, and the allowlist rules |
-| [Output styles](output-styles.md) | **Removed.** A tombstone for the deleted feature, kept because pages still link to it |
+| [Output styles](output-styles.md) | The one style the plugin ships, why it is not forced on anyone, and why a style rather than a hook injection |
 | [Troubleshooting](troubleshooting.md) | Symptom-first index |
 
 Project-level files live at the repo root: [README](../README.md),

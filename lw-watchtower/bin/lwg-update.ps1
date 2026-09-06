@@ -35,8 +35,11 @@
                               nothing on this machine compares them, and a pull
                               silently leaves the live one stale.
     commands/                 a new slash command appears only in a new session.
-                              output-styles/ was named here too until that
-                              directory was deleted; there is no style to report.
+    output-styles/            same, and for the same measured reason: the plugin
+                              style list is built once per process and memoised,
+                              so a changed style is not re-read until the next
+                              session. This line was removed while the directory
+                              was deleted and returned with it on 6 Sept 2026.
 
   Exit codes:
 
@@ -629,9 +632,22 @@ try {
         foreach ($c in $Files) {
             if ($c -like ($script:PathPrefix + 'commands/*')) { $n += "new or changed slash command ($c) - it appears in the next session, not this one"; break }
         }
-        # THE output-styles/ BRANCH WENT WITH THE DIRECTORY. It could not fire on
-        # any tree this command can be run against, and a branch that cannot fire
-        # reads to the next maintainer as a covered case.
+        # THE output-styles/ BRANCH WENT WITH THE DIRECTORY and CAME BACK WITH
+        # IT on 6 September 2026 (#316). While the directory did not exist the
+        # branch could not fire on any tree this command can be run against, and
+        # a branch that cannot fire reads to the next maintainer as a covered
+        # case - which is why it was deleted rather than left. The directory
+        # ships one style again, so the branch is live again.
+        #
+        # WHY "NEXT SESSION" IS THE RIGHT NOTE, MEASURED RATHER THAN ASSUMED.
+        # The plugin style list in the 2.1.263 bundle is built inside a
+        # `t.outputStyles ??= (async () => { ... })()` memo - once per process,
+        # cached on the session object. A pulled style file is therefore not
+        # re-read by the running session however the operator switches styles,
+        # which is the same shape as the commands/ line above it.
+        foreach ($c in $Files) {
+            if ($c -like ($script:PathPrefix + 'output-styles/*')) { $n += "new or changed output style ($c) - the plugin style list is built once per session, so it appears in the next session and not this one"; break }
+        }
         # PLAIN, NOT `return , @($n)` - #222. The unary comma wraps
         # UNCONDITIONALLY, so what left this function was a ONE-ELEMENT array
         # holding the whole list, and the caller's own `@(...)` could not undo

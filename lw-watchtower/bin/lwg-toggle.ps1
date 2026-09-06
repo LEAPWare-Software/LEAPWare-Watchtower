@@ -25,7 +25,11 @@
 
   `verbosity` and `plain` went with the whole output-style feature, along with
   commands/verbosity.md, commands/plain.md, the output-styles/ directory and
-  config.json's `output_style` block. They wrote two keys that NOTHING in this
+  config.json's `output_style` block. THE DIRECTORY CAME BACK on 6 September
+  2026 with one plugin-owned style in it (#316); NEITHER FLAG DID, and neither
+  did the config block, for exactly the reason the next paragraph gives - the
+  style is chosen in the /config picker or by the operator's own `outputStyle`
+  key, and a flag here would be a second copy of that value all over again. They wrote two keys that NOTHING in this
   plugin read. The style Claude Code actually applies is the `outputStyle` key
   in a settings file; this plugin never wrote that key and was right not to - a
   settings file is not part of it, and the /config picker already owns that

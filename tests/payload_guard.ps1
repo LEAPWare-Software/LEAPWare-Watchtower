@@ -402,9 +402,16 @@ $Rules = @(
         # because $script:PayloadRel is checked against the manifest before any
         # of this runs - see S8 - so a wrong name aborts loudly instead of
         # switching nine globs off in silence.
+        #
+        # output-styles/ JOINED THEM ON 6 SEPTEMBER 2026 (#316), for the reason
+        # the paragraph above gives about commands/ and agents/ rather than for
+        # a new one: a style is text a model reads and acts on, and it goes into
+        # the MAIN thread's system prompt, which makes it the same surface this
+        # rule was written for.
         scope   = @('lw-watchtower/bin/*', 'lw-watchtower/lib/*', 'lw-watchtower/hooks/*',
                     'lw-watchtower/statusline/*', 'lw-watchtower/context/*',
                     'lw-watchtower/commands/*', 'lw-watchtower/agents/*',
+                    'lw-watchtower/output-styles/*',
                     'lw-watchtower/config.json', 'lw-watchtower/.claude-plugin/*')
     }
     @{
@@ -1186,9 +1193,20 @@ try {
     #     quietly stale the day a seventh role ships - the doctrine this file
     #     already applies to every other enumeration. AN EMPTY SET IS A FAILURE:
     #     zero files linted is a case that asked nothing of anything.
+    # OUTPUT-STYLES IS THE THIRD DIRECTORY, AND ITS FAILURE MODE IS DIFFERENT.
+    # Read out of the 2.1.263 bundle: the plugin style loader wraps the whole
+    # frontmatter parse in a catch that logs "Failed to load output style from
+    # <path>" and returns null, so a malformed style is SKIPPED ENTIRELY rather
+    # than loaded with its fields dropped. Different failure, identical silence
+    # to the operator - the style simply is not in the /config picker, with no
+    # message on any surface they read. The loader also applies NO schema to a
+    # plugin style at all (the strict one runs for user styles only), which is
+    # why every key this repository ships under that directory is checked here
+    # for spelling rather than trusted.
     $fmDirs = @(
-        @{ rel = 'agents';   path = (Join-Path $script:RepoRoot ($script:PayloadRel + '\agents'))   },
-        @{ rel = 'commands'; path = (Join-Path $script:RepoRoot ($script:PayloadRel + '\commands')) }
+        @{ rel = 'agents';        path = (Join-Path $script:RepoRoot ($script:PayloadRel + '\agents'))        },
+        @{ rel = 'commands';      path = (Join-Path $script:RepoRoot ($script:PayloadRel + '\commands'))      },
+        @{ rel = 'output-styles'; path = (Join-Path $script:RepoRoot ($script:PayloadRel + '\output-styles')) }
     )
     $fmFiles   = @()
     $fmMissing = @()
@@ -1277,12 +1295,83 @@ try {
             }
         }
     }
-    Add-Result ("S14 every agents/ and commands/ frontmatter block parses as flat key: value ($($fmFiles.Count) file(s))") `
+    Add-Result ("S14 every agents/, commands/ and output-styles/ frontmatter block parses as flat key: value ($($fmFiles.Count) file(s))") `
         ($fmMissing.Count -eq 0 -and $fmFiles.Count -gt 0 -and $fmBad.Count -eq 0) `
         ($(if ($fmMissing.Count) { "no directory at $($script:PayloadRel)/$($fmMissing -join ', '), so this case did not read what it claims to read. " } else { '' }) +
          $(if ($fmFiles.Count -eq 0) { 'zero .md files were enumerated, so nothing was linted - an empty set is not a pass. ' } else { '' }) +
          $(if ($fmBad.Count) { "$($fmBad.Count) defect(s), each of which loads the file with its fields silently dropped: " + ($fmBad -join ' | ') + '. ' } else { '' }) +
-         "linted $($fmFiles.Count) file(s) under $($script:PayloadRel)/agents/ and $($script:PayloadRel)/commands/")
+         "linted $($fmFiles.Count) file(s) under " + (($fmDirs | ForEach-Object { "$($script:PayloadRel)/$($_.rel)/" }) -join ', '))
+
+    # S15. #316. THE OWNER'S DECISION ABOUT `force-for-plugin`, HELD BY A MACHINE.
+    #
+    #     WHAT SHIPS. `output-styles/` returns to the payload with ONE style.
+    #     The component loader in the 2.1.263 bundle reads
+    #     ["commands","agents","skills","output-styles","themes"], so a style
+    #     under that directory reaches every install with the plugin enabled and
+    #     appears in the /config picker as `<plugin>:<style name>` - here,
+    #     `lw-watchtower:lw-orchestrator`. Nothing selects it for the operator.
+    #
+    #     THE TWO KEYS THIS CASE HOLDS, AND WHY EACH IS A DECISION RATHER THAN A
+    #     PREFERENCE.
+    #
+    #     `keep-coding-instructions: true` MUST BE PRESENT. The binary's own
+    #     describe string: "If true, the default coding instructions stay in the
+    #     system prompt alongside this style." Without it the style REPLACES
+    #     them, and this style is a delegation discipline - four screens of it -
+    #     not a complete set of working instructions. Shipping it absent would
+    #     silently strip a consumer's assistant of its coding instructions on
+    #     the day they picked a style that promised to change how work is
+    #     ROUTED.
+    #
+    #     `force-for-plugin: true` MUST BE ABSENT. It applies the style
+    #     automatically to every install with this plugin enabled, silently
+    #     overriding the consumer's own `outputStyle` - the same objection that
+    #     argued against arming a gate by default - and it is marked `@internal`
+    #     in the binary ("only meaningful for plugin-bundled styles; ignored for
+    #     user styles"), so it can change without notice. It is an OWNER
+    #     decision and was not taken by the lane that shipped this. A line in a
+    #     document saying "we chose not to" is undone by one well-meaning edit;
+    #     this is the same sentence, asserted.
+    #
+    #     WHY THIS IS NOT COVERED BY S14 EVEN THOUGH S14 NOW READS THE SAME
+    #     DIRECTORY. S14 asks whether the block PARSES. This asks what the block
+    #     SAYS. A style with both keys spelled correctly and `force-for-plugin`
+    #     set to true is perfectly well-formed and is exactly the thing that must
+    #     not ship.
+    #
+    #     AND NOTHING ELSE CHECKS EITHER. Read out of the 2.1.263 bundle: the
+    #     strict frontmatter schema for `output-style` is applied to USER styles
+    #     only; the plugin loader reads the fields it knows and validates
+    #     nothing, so a misspelled key on a plugin style is silently ignored with
+    #     no message anywhere. That is the whole reason this case checks the
+    #     spelling this repository ships rather than trusting it.
+    #
+    #     AN EMPTY DIRECTORY IS A FAILURE, AND THAT IS THIS CASE'S RED-FIRST.
+    #     RED AT 29124d8, which is this branch's parent and has no
+    #     output-styles/ directory at all: the case was written and run BEFORE
+    #     the style file existed, failed naming the absent directory, and went
+    #     green when the file landed. The order is the proof and it is on the
+    #     PR. A case that passed over an empty directory would be green on the
+    #     tree where the feature ships nothing at all.
+    $osDir   = Join-Path $script:RepoRoot ($script:PayloadRel + '\output-styles')
+    $osFiles = @()
+    if ([IO.Directory]::Exists($osDir)) { $osFiles = @([IO.Directory]::GetFiles($osDir, '*.md')) }
+    $osNoKeep  = @()
+    $osForced  = @()
+    foreach ($op in $osFiles) {
+        $opName = Split-Path -Leaf $op
+        $opText = ''
+        try { $opText = [IO.File]::ReadAllText($op) } catch { }
+        $opFm = if ($opText -match '(?s)^---\r?\n(.*?)\r?\n---\r?\n') { $Matches[1] } else { '' }
+        if ($opFm -notmatch '(?m)^keep-coding-instructions:\s*true\s*$') { $osNoKeep += $opName }
+        if ($opFm -match  '(?m)^force-for-plugin:\s*true\s*$')           { $osForced += $opName }
+    }
+    Add-Result ("S15 every output-styles/*.md keeps the coding instructions and forces itself on nobody ($($osFiles.Count) file(s))") `
+        ($osFiles.Count -gt 0 -and $osNoKeep.Count -eq 0 -and $osForced.Count -eq 0) `
+        ($(if (-not [IO.Directory]::Exists($osDir)) { "there is no $($script:PayloadRel)/output-styles/ directory, so this case asked nothing of anything - an empty set is not a pass. " } elseif ($osFiles.Count -eq 0) { "$($script:PayloadRel)/output-styles/ holds no *.md, so nothing was checked. " } else { '' }) +
+         $(if ($osNoKeep.Count) { "style(s) without 'keep-coding-instructions: true', which REPLACES the default coding instructions rather than adding to them: $($osNoKeep -join ', '). " } else { '' }) +
+         $(if ($osForced.Count) { "style(s) carrying 'force-for-plugin: true', which applies the style to every install with this plugin enabled and silently overrides the consumer's own outputStyle. That is an OWNER decision and is not taken here: $($osForced -join ', '). " } else { '' }) +
+         "checked $($osFiles.Count) file(s) under $($script:PayloadRel)/output-styles/")
 
     Add-Result 'S9  no out-of-payload record names a file that is now inside the payload' `
         ($recordInPayload.Count -eq 0) `
@@ -1366,7 +1455,8 @@ Write-Output 'Every tracked file was read and no unledger''d disclosure is in th
 Write-Output 'which is the lw-watchtower/ subtree and not the whole repository.'
 Write-Output 'Read that as "these seven shapes are absent", not as "the payload is safe to'
 Write-Output 'publish" - this guard knows the disclosures it was told about and no others.'
-Write-Output 'The sixth is scoped to the payload and is now asked of commands/ and agents/ too,'
+Write-Output 'The sixth is scoped to the payload and is now asked of commands/, agents/ and'
+Write-Output 'output-styles/ too,'
 Write-Output 'which is the surface it was written for. tests/ stays out, stated at the rule.'
 Write-Output 'The seventh is narrower still - agents/ alone - and it is pinned to a CLI build'
 Write-Output 'rather than to a contract: it names four tools that build gates off by default.'
