@@ -1552,5 +1552,7 @@ if ($failed -gt 0) {
 }
 Write-Output 'EXIT: 0 (every case passed - the fast scan answered the global flag in both key'
 Write-Output '         orders, escalated for a per-repo override, failed open with no config,'
-Write-Output '         and agreed with Test-LwgModule on the shipped config)'
+Write-Output '         agreed with Test-LwgModule on the shipped config, and the dispatch record'
+Write-Output '         landed once per dispatch under failure_capture alone, in pure ASCII, with'
+Write-Output '         no cwd and no guessed state directory)'
 exit 0

@@ -227,7 +227,7 @@ the `fast-checks` CI job on every push and every PR:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1       # delegate_gate, 100 cases
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\supervision.ps1         # send_liveness_gate, completion_audit, orphan_watch, 66
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\supervision.ps1         # send_liveness_gate, completion_audit, orphan_watch, 67
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\setup_merge.ps1         # the installer's statusline + hooks merge, 203
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1      # the two turn-end hooks, 133
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\uninstall_footprint.ps1 # the uninstaller's footprint and deletions, 40
@@ -235,7 +235,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\config_behaviour.ps1  
 powershell -NoProfile -ExecutionPolicy Bypass -File tests	oggle_behaviour.ps1    # the toggle's write to the override, 28
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\state_resolution.ps1    # the state-directory resolver, 37
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1    # the doctor's driven checks, 43
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1       # the SubagentStart fast path, 14
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1       # the SubagentStart fast path + the dispatch record, 20
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1       # every tracked file, as shipped payload, 27
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\workflow_guard.ps1      # every workflow file
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\portability_scan.ps1    # every tracked file
