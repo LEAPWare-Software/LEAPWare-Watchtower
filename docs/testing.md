@@ -391,7 +391,9 @@ Five sections:
 
   **This was `mission_drift`'s section and the module is gone.** Its cases went with it, and the
   suite's own header says so rather than leaving the section looking thinner than it was designed.
-  What survives is the plumbing plus the four cases that were always about something else: B22 and
+  What survived that removal was the plumbing plus the four cases that were always about something
+  else — joined since by the timeout tree kill and by the interrupted-work block described below,
+  so this is what the section was reduced to, not what it holds now: B22 and
   B23 on the shared edit-list writer — that the list **rolls** at 256 KB rather than stopping, so a
   file edited after the cap is still recorded, and that one 200 000-character
   `tool_input.file_path` is bounded both where it is written and where it reaches the operator's

@@ -976,9 +976,11 @@ try {
     #
     # IT USED TO BE mission_drift's SECTION and is now the surviving modules'.
     # When that module was removed the cases that drove it went with it; what is
-    # left is the plumbing plus the four cases that were always about something
-    # else - the edit-list writer (B22, B23), context_pressure's refusal (B25)
-    # and git_hygiene's UNKNOWN (B24).
+    # was left was the plumbing plus the four cases that were always about
+    # something else - the edit-list writer (B22, B23), context_pressure's
+    # refusal (B25) and git_hygiene's UNKNOWN (B24) - joined later by the
+    # timeout tree kill (B26) and, on 6 September 2026, by git_hygiene's
+    # coverage class 2 (B27-B37), which is now the largest block in the file.
     Write-Output 'B. stop advisories (child process)'
 
     $bDir = Join-Path $work 'b'
