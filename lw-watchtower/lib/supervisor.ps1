@@ -775,18 +775,109 @@ if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $scri
                 $rec['orphans']     = $orph.Count
                 $rec['orphans_new'] = @($orph | Where-Object { $seen -notcontains ('orphan:' + [string]$_.id) }).Count
             }
+            # =========================================================
+            # THE TRANSITION LADDER - HH layer 2 (#168 slice 1)
+            # =========================================================
+            # THREE OCCUPANCIES, ONE TIER. The 5-hour limit, the 7-day limit and
+            # the context window, read out of signals/ratelimit.json - the file
+            # the STATUS LINE writes on every render, because the status-line
+            # input builder is the only place in the CLI where rate_limits and
+            # context_window are assembled and NO HOOK IS GIVEN EITHER. The
+            # worst of the three sets the tier: amber at 70, red at 85.
+            #
+            # WHY IT IS HERE AND NOT IN lib/stop_advisories.ps1, WHICH IS WHERE
+            # THE MODULE IT REPLACES LIVED. That script's only stdout is a
+            # systemMessage envelope: it reaches the OPERATOR'S SCREEN and not
+            # the model. This issue's contract is that the MODEL is told to stop
+            # starting work, and exit 2 under this registration's asyncRewake is
+            # the only channel in this plugin that reaches it mid-turn. So the
+            # ladder rides the supervisor's Stop branch, under failure_capture's
+            # flag, and the consequence is stated in that registry entry rather
+            # than left to be found: failure_capture off = ladder off.
+            #
+            # NO BLACK TIER IN THIS SLICE. The approved design refuses the turn
+            # end at 92 until a handoff package exists and has been audited. The
+            # package's FIRST required field is the state of every effort in
+            # flight, and nothing in this tree records a dispatch - SubagentStart
+            # writes no record. A gate that blocks on a field structurally empty
+            # is the shape lib/supervisor.ps1 itself already carries a tombstone
+            # for a few hundred lines above: a check that read a roster file
+            # nothing wrote and reported "0 orphans" for its entire life.
+            #
+            # IT IS COMPUTED ABOVE THE nothing-to-say EXIT so all three findings
+            # feed one decision, and it ALERTS BELOW THE LOOP GUARD so a
+            # continuation cannot re-raise it. Every failure inside is swallowed:
+            # a ladder that throws must not cost the failure alert beside it.
+            $ladder      = $null
+            $ladderFires = $false
+            $ladderFile  = ''
+            $ladderRank  = @{ ok = 0; unavailable = 0; amber = 1; red = 2 }
+            $ladderPrev  = 'ok'
+            try {
+                $ladder = Get-LwgLadderTier -Config $script:cfg
+                $ladderFile = 'ladder-' + (Get-LwgSessionKey -SessionId ([string]$payload.session_id)) + '.json'
+                try {
+                    $lState = Read-LwgStateJson -FileName $ladderFile
+                    if (-not [string]::IsNullOrWhiteSpace([string]$lState['level'])) { $ladderPrev = [string]$lState['level'] }
+                } catch { }
+                # A DROP IS RECORDED IMMEDIATELY, A RISE ONLY WHEN IT IS
+                # ANNOUNCED. Recording a drop here is what lets a genuine
+                # recovery - a compaction takes the context window back under 70
+                # - re-arm the ladder, so the next climb is reported instead of
+                # being deduped against a tier that is no longer true. Recording
+                # a RISE here would lose the alert entirely on a turn the loop
+                # guard stands down, which is why that write is below it.
+                if ($ladderRank[[string]$ladder.level] -lt $ladderRank[$ladderPrev]) {
+                    try { Write-LwgStateJson -FileName $ladderFile -Data @{ level = [string]$ladder.level } | Out-Null } catch { }
+                    $ladderPrev = [string]$ladder.level
+                }
+                # FLAT FIELDS, NOT A NESTED OBJECT, and that is a property of the
+                # log rather than a style preference. ConvertTo-SafeField passes
+                # numbers and booleans through and STRINGIFIES everything else -
+                # so a nested hashtable lands in health.jsonl as a JSON string
+                # inside a JSON field, which the status line, which parses this
+                # file on every render, would have to double-decode. The
+                # existing fields beside these (failed_tasks, orphans,
+                # orphans_new) are flat for the same reason.
+                $rec['ladder'] = [string]$ladder.level
+                if (-not [string]::IsNullOrWhiteSpace([string]$ladder.reason))  { $rec['ladder_reason'] = [string]$ladder.reason }
+                if (-not [string]::IsNullOrWhiteSpace([string]$ladder.signal))  { $rec['ladder_signal'] = [string]$ladder.signal }
+                if ($null -ne $ladder.pct)                                      { $rec['ladder_pct']    = [int]$ladder.pct }
+                if ($ladder.age_minutes -ge 0)                                  { $rec['ladder_age_minutes'] = [int]$ladder.age_minutes }
+                # Comma-joined for the same reason: an array is stringified into
+                # a quoted JSON fragment, and this list is read by eye far more
+                # often than by machine.
+                if (@($ladder.unavailable).Count -gt 0)                         { $rec['ladder_unavailable'] = (@($ladder.unavailable) -join ',') }
+                $ladderFires = ([string]$ladder.level -eq 'amber' -or [string]$ladder.level -eq 'red')
+            } catch { $ladder = $null; $ladderFires = $false }
+
             Write-Record (New-Record $rec)
-            if ($bad.Count -eq 0 -and $orph.Count -eq 0) { exit 0 }
+            if ($bad.Count -eq 0 -and $orph.Count -eq 0 -and -not $ladderFires) { exit 0 }
 
             # Loop guards. Without these the same failed task re-alerts every turn.
             if ($payload.stop_hook_active) { exit 0 }
+
+            # THE LADDER ALERTS ON A RISE, NOT AT EVERY TURN END, and its ledger
+            # is its own file rather than alerted.json - that one is a list of
+            # agent and task IDS, and putting a tier word in it would make the
+            # dedupe of a dead agent and the dedupe of a tier share a 200-entry
+            # cap. Written only when the alert is actually emitted, which is why
+            # it sits below the loop guard: a turn that stood down must not
+            # record a rise it never announced, or the rise is lost.
+            if ($ladderFires) {
+                if ($ladderRank[[string]$ladder.level] -le $ladderRank[$ladderPrev]) {
+                    $ladderFires = $false
+                } else {
+                    try { Write-LwgStateJson -FileName $ladderFile -Data @{ level = [string]$ladder.level } | Out-Null } catch { }
+                }
+            }
 
             $bad  = @($bad  | Where-Object { $seen -notcontains [string]$_.id })
             # Orphans share the same dedupe ledger under a namespaced key, so
             # the same dead agent alerts once, not at every turn end for the
             # rest of the session.
             $orph = @($orph | Where-Object { $seen -notcontains ('orphan:' + [string]$_.id) })
-            if ($bad.Count -eq 0 -and $orph.Count -eq 0) { exit 0 }
+            if ($bad.Count -eq 0 -and $orph.Count -eq 0 -and -not $ladderFires) { exit 0 }
 
             try {
                 $updated = @(@($seen) +
@@ -815,6 +906,14 @@ if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $scri
             if ($orph.Count -gt 0) { Write-LwgDeadAgentBlock -List $orph }
             if ($bad.Count -gt 0) {
                 [Console]::Error.WriteLine("Do not close out the turn as successful without addressing these.")
+            }
+            # THE LADDER GOES LAST AND IT IS NEVER DROPPED BECAUSE SOMETHING
+            # ELSE FIRED. One process, one exit code, two findings: a turn that
+            # has both a dead background task and a red rate limit needs the
+            # model to hear both, and suppressing either because the other
+            # spoke is how a supervisor loses the thing it was watching for.
+            if ($ladderFires) {
+                foreach ($line in (Get-LwgLadderText -Tier $ladder)) { [Console]::Error.WriteLine($line) }
             }
             exit 2
         }

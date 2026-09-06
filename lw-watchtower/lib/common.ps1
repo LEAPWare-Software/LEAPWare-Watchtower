@@ -81,17 +81,25 @@
 # to config.json's `modules` keys, EXCEPT for entries that declare a `switch` of
 # their own - drift anywhere else silently mis-reports coverage, and
 # bin/lwg-doctor.ps1's config-registry check enforces both halves.
-# ELEVEN entries, all 'implemented'. Eight are kind 'observe'; delegate_gate,
+# TEN entries, all 'implemented'. Seven are kind 'observe'; delegate_gate,
 # send_liveness_gate and completion_audit are kind 'gate' and are the only
 # things in this plugin that can block anything. All three gates - and
-# orphan_watch, the eighth observer - declare their own `switch` and SHIP OFF.
+# orphan_watch, the seventh observer - declare their own `switch` and SHIP OFF.
+#
+# IT WAS ELEVEN UNTIL 6 SEPTEMBER 2026 (#168). context_pressure was DELETED as a
+# standalone advisory and replaced by the TRANSITION LADDER, which is a layer of
+# failure_capture rather than a module of its own - see that entry's note. The
+# ladder reads the same occupancy the deleted module recomputed, plus the two
+# rate limits, from signals/ratelimit.json, and it reaches the MODEL rather than
+# the operator's screen. That is the whole reason for the move: the advisory
+# handler's only stdout is a systemMessage, which the operator reads and the
+# model does not, and this issue's contract is that the MODEL is told to stop
+# starting work. Do not add context_pressure back; read the ladder's account in
+# lib/supervisor.ps1 first.
 $script:LwgModuleRegistry = [ordered]@{
     failure_capture      = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1 + lib/subagent_start.ps1'
                               events = @('SessionStart', 'PostToolUseFailure', 'SubagentStart', 'SubagentStop', 'Stop', 'StopFailure')
-                              note = 'Six hook events, gated on the flag. FIVE are lib/supervisor.ps1, which exits 2 on a genuine failure to alert the orchestrator. The SIXTH is SubagentStart: lib/subagent_start.ps1 appends the START half of the dispatch record whose STOP half SubagentStop has always written, and that row never exits 2 and can never raise a fault count.' }
-    context_pressure     = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/stop_advisories.ps1'
-                              events = @('Stop')
-                              note = 'context_window is NOT in any hook payload. Occupancy is recomputed from the transcript''s last assistant usage block using the CLI''s own formula. The context window SIZE is not observable, so it is resolved from config/observation and the percentage is suppressed outright when the size is not trustworthy.' }
+                              note = 'Six hook events, gated on the flag. FIVE are lib/supervisor.ps1, which exits 2 on a genuine failure to alert the orchestrator. The SIXTH is SubagentStart: lib/subagent_start.ps1 appends the START half of the dispatch record whose STOP half SubagentStop has always written, and that row never exits 2 and can never raise a fault count. ALSO CARRIES THE TRANSITION LADDER since 6 September 2026 (#168) - the amber/red tiers computed at Stop over signals/ratelimit.json, which the STATUS LINE writes and no hook is given directly. The ladder has no switch of its own, and the consequence is stated rather than left to be found: failure_capture off = ladder off, the same shape orphan_watch already carries. It rides here because exit 2 under this registration''s asyncRewake is the only channel that reaches the model mid-turn; lib/stop_advisories.ps1 emits a systemMessage, which reaches the operator''s screen instead. The tier numbers live in thresholds.ladder.' }
     self_health          = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/session_start.ps1'
                               events = @('SessionStart')
                               note = 'The SessionStart self-check. Switching it off skips every probe, and the session then reports mode "unverified" rather than any word that implies it was validated - an unrun check must never read as a passed one.' }
@@ -3299,151 +3307,209 @@ function Read-LwgAppendedLines {
     return $r
 }
 
-function Get-LwgTranscriptUsage {
+# =====================================================================
+# THE TRANSITION LADDER (#168) - the signal reader and the tier
+# =====================================================================
+# WHAT REPLACED WHAT. Get-LwgTranscriptUsage and Get-LwgContextWindow lived
+# here until 6 September 2026. They existed for one caller, context_pressure,
+# which recomputed context occupancy from the transcript because no hook is
+# given context_window. That module is deleted and so are they: a helper with
+# no caller is dead weight, and Get-LwgContextWindow in particular carried an
+# operator-settable knob (module_config.context_pressure.window_tokens) that
+# nothing would have read - a switch wired to nothing, inside the plugin that
+# exists to catch them. The observation store they maintained,
+# context_windows.json, is no longer written or read either.
+#
+# WHERE THE NUMBER COMES FROM NOW. The STATUS LINE - the one process on the
+# machine that is handed rate_limits and context_window at all - writes
+# signals/ratelimit.json under every discovered data directory on every render
+# (statusline/statusline.ps1, WriteSignal, #163). So the ladder reads a real
+# used_percentage rather than inferring one, and it gets the two RATE LIMITS
+# as well, which the transcript could never have supplied.
+#
+# THE PRICE, STATED. That file is only as fresh as the last render. A turn
+# whose last tool call ran for an hour ends with an hour-old file, and the
+# ladder then reports UNAVAILABLE rather than the hour-old number. That is the
+# deliberate trade: a monitor that fails silent turns "I do not know" into
+# "I am fine", which is the failure this reader exists to refuse.
+
+$script:LwgLadderSchema       = 1
+$script:LwgLadderAmberDefault = 70
+$script:LwgLadderRedDefault   = 85
+# MINUTES. Long enough that an ordinary turn - render, work, turn end - is
+# never called stale; short enough that a session which stopped rendering is
+# not read as calm. It is a threshold and it is configurable, because the right
+# number depends on how long this operator's turns run.
+$script:LwgLadderMaxAgeDefault = 20
+
+# The three signals, in the order a reader should think about them: the two
+# lockouts that end the session outright, then the window that degrades it.
+$script:LwgLadderSignals = @(
+    @{ key = 'five_hour';      label = '5-hour limit' },
+    @{ key = 'seven_day';      label = '7-day limit'  },
+    @{ key = 'context_window'; label = 'context window' }
+)
+
+function Read-LwgRateLimitSignal {
     <#
-      Token occupancy from the most recent assistant turn in a transcript.
+      Read signals/ratelimit.json out of the state directory.
 
-      Returns a hashtable @{ model; input; cache_read; cache_creation; output;
-      total_input } or $null when nothing usable was found. `total_input` is
-      input + cache_creation + cache_read, which is exactly the numerator the
-      CLI uses for context_window.used_percentage (verified against its own
-      helper: used = round(total_input / window * 100), clamped to 0..100).
+      Returns @{ ok = <bool>; reason = <string>; age_minutes = <int>;
+                 values = @{ <key> = @{ pct; resets_at } };
+                 unavailable = @(<key>...) }
 
-      Only the tail is read. This runs on Stop, i.e. at every turn end, and the
-      transcript grows without bound - reading it whole would make the governance
-      layer the slowest thing in the turn.
+      `reason` is set only when ok is $false, and it is one of:
+        absent      no file - the status line has not rendered into this data
+                    directory yet, which is the ordinary state of a fresh install
+        unreadable  present and not parseable as JSON, or missing written_utc
+        schema      a `schema` this reader has no contract for
+        stale       older than the configured budget
+
+      NOTHING IS EVER CARRIED FORWARD. There is no cache and no last-known-good:
+      an unavailable read returns no values at all, so a caller cannot
+      accidentally reuse the previous turn's tier.
     #>
-    # NOT Mandatory, and AllowEmptyString: a hook payload without a
-    # transcript_path is a normal thing (garbage stdin, a synthetic event), and
-    # a Mandatory [string] rejects '' with a binding exception before the body
-    # runs - which would log an AdvisoryError every time instead of quietly
-    # having nothing to say.
-    param(
-        [AllowEmptyString()][AllowNull()][string]$Path,
-        [int]$Bytes = 65536
-    )
+    param($Config, [int]$MaxAgeMinutes = 0)
 
+    $r = @{ ok = $false; reason = 'absent'; age_minutes = -1; values = @{}; unavailable = @() }
+    if ($MaxAgeMinutes -le 0) {
+        $MaxAgeMinutes = [int](Get-LwgThreshold -Config $Config -Group 'ladder' -Key 'max_age_minutes' -Default $script:LwgLadderMaxAgeDefault)
+    }
+
+    $path = $null
+    try { $path = Join-Path (Join-Path (Get-LwgStateDir) 'signals') 'ratelimit.json' } catch { }
+    if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path)) { return $r }
+
+    $o = $null
+    try { $o = (Get-Content -LiteralPath $path -Raw -ErrorAction Stop) | ConvertFrom-Json -ErrorAction Stop } catch { }
+    if ($null -eq $o) { $r.reason = 'unreadable'; return $r }
+
+    # THE SCHEMA IS REFUSED, NOT GUESSED AT. A reader that carries on against an
+    # unknown version is reading fields it has no contract for, and the answer
+    # it produces is indistinguishable from a correct one.
+    $sch = $null
+    try { $sch = [int]$o.schema } catch { }
+    if ($null -eq $sch -or $sch -ne $script:LwgLadderSchema) { $r.reason = 'schema'; return $r }
+
+    # INVARIANT CULTURE AND AN EXPLICIT UTC ASSUMPTION. [datetime]::Parse of a
+    # 'Z' string on Windows PowerShell 5.1 returns Kind=Local having already
+    # converted it, and a machine east of UTC then computes a NEGATIVE age and
+    # calls a stale file fresh. AssumeUniversal|AdjustToUniversal is what makes
+    # this arithmetic true on every machine rather than on this one.
+    $written = $null
     try {
-        if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
-        if (-not (Test-Path -LiteralPath $Path)) { return $null }
-        $size = (Get-Item -LiteralPath $Path -ErrorAction Stop).Length
-
-        # A byte window rather than a line count, so the cost does not grow with
-        # the transcript. 64 KB spans the last assistant turn in normal use; the
-        # widening retry covers the case where one enormous tool result sits
-        # between here and it. Widening only ever happens when the narrow window
-        # found nothing, so the common path stays cheap.
-        foreach ($window in @($Bytes, ($Bytes * 8), ($Bytes * 32))) {
-            $lines = @(Get-LwgTailLines -Path $Path -Bytes $window)
-
-            for ($i = $lines.Count - 1; $i -ge 0; $i--) {
-                $line = $lines[$i]
-                # Cheap reject before the expensive parse - most records are not
-                # assistant turns and JSON parsing dominates the cost here.
-                if ($line -notlike '*"usage"*') { continue }
-                if ($line -notlike '*"assistant"*') { continue }
-
-                $rec = $null
-                try { $rec = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
-                if ($null -eq $rec -or $rec.type -ne 'assistant') { continue }
-                # Sidechain records are a subagent's turns, not the main thread's
-                # context. Counting them would report a worker's occupancy as the
-                # session's.
-                if ($rec.isSidechain -eq $true) { continue }
-                $u = $rec.message.usage
-                if ($null -eq $u) { continue }
-
-                # [int]$null is 0 in PowerShell, so an absent field contributes
-                # nothing rather than throwing.
-                $inp = [int]$u.input_tokens
-                $cr  = [int]$u.cache_read_input_tokens
-                $cc  = [int]$u.cache_creation_input_tokens
-                $out = [int]$u.output_tokens
-
-                return @{
-                    model          = [string]$rec.message.model
-                    input          = $inp
-                    cache_read     = $cr
-                    cache_creation = $cc
-                    output         = $out
-                    total_input    = ($inp + $cc + $cr)
-                }
-            }
-
-            # The window already covered the whole file - widening cannot help.
-            if ($window -ge $size) { break }
-        }
+        $written = [datetime]::Parse([string]$o.written_utc, [Globalization.CultureInfo]::InvariantCulture,
+                       ([Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal))
     } catch { }
-    return $null
+    if ($null -eq $written) { $r.reason = 'unreadable'; return $r }
+
+    # Floor at 0: a writer a few seconds ahead of this clock is not a negative age.
+    $age = [int][Math]::Floor(([datetime]::UtcNow - $written).TotalMinutes)
+    if ($age -lt 0) { $age = 0 }
+    $r.age_minutes = $age
+    if ($age -gt $MaxAgeMinutes) { $r.reason = 'stale'; return $r }
+
+    # A KEY THE WRITER COULD NOT PARSE IS NAMED IN `unparsed` AND ITS BLOCK IS
+    # OMITTED. Reading an omitted block as 0% would report the calmest possible
+    # answer about the one number the writer admits it could not read.
+    $unparsed = @()
+    try { if ($null -ne $o.unparsed) { $unparsed = @($o.unparsed | ForEach-Object { [string]$_ }) } } catch { }
+
+    foreach ($sig in $script:LwgLadderSignals) {
+        $k = $sig.key
+        $blk = $null
+        try { $blk = $o.$k } catch { }
+        $pct = $null
+        if ($null -ne $blk) { try { $pct = [double]$blk.used_percentage } catch { $pct = $null } }
+        $named = @($unparsed | Where-Object { $_ -like ($k + '.*') }).Count -gt 0
+        if ($null -eq $pct -or $named) { $r.unavailable += $k; continue }
+        $entry = @{ pct = $pct; resets_at = '' }
+        try { if ($null -ne $blk.resets_at) { $entry.resets_at = [string]$blk.resets_at } } catch { }
+        $r.values[$k] = $entry
+    }
+
+    $r.ok     = $true
+    $r.reason = ''
+    return $r
 }
 
-# The CLI resolves a context window to exactly one of two values: 200_000, or
-# 1_000_000 for a model tagged [1m] or flagged native-1m for this account. That
-# choice depends on account entitlements the hook cannot see, so it is resolved
-# here from three sources in descending order of trust, and every record says
-# which one was used. A percentage whose denominator is a guess is worse than no
-# percentage at all, so an untrusted denominator suppresses the advisory instead
-# of colouring it.
-$script:LwgContextWindowDefault  = 200000
-$script:LwgContextWindowExtended = 1000000
-
-function Get-LwgContextWindow {
+function Get-LwgLadderTier {
     <#
-      Resolve the context window for a model id.
+      The tier for one turn, over one signal read.
 
-      Returns @{ tokens = <int>; source = 'config'|'1m-tag'|'observed'|'default' }.
+      Returns @{ level = 'ok'|'amber'|'red'|'unavailable'; reason; signal;
+                 label; pct; resets_at; unavailable = @(); age_minutes }
 
-        config    an explicit entry in module_config.context_pressure.window_tokens
-        1m-tag    the model id carries the [1m] suffix, which the CLI itself
-                  reads as one million
-        observed  this model has been seen holding more than 200k tokens on TWO
-                  separate turns, which is proof its window is the larger of the
-                  two - evidence rather than a guess, and deliberately not
-                  settled on one sample. lib/stop_advisories.ps1 parks the first
-                  such reading under a <model>#pending key (:674) that THIS
-                  FUNCTION CANNOT SEE - it looks up the exact model id, so a
-                  pending key is invisible here - and promotes it to the real
-                  entry only when a later turn corroborates it (:670-672). The
-                  promoted entry corrects the assumption UPWARD, once: both
-                  write branches are guarded on the stored figure still being at
-                  or below the 200k default, so nothing rewrites it, nothing
-                  clears it and there is no expiry (:645-647). It is not
-                  self-correcting, and a wrong pin is not recoverable from here -
-                  an explicit window_tokens entry outranks it, and that is the
-                  way back.
-        default   none of the above; 200k, and treated as UNTRUSTED by the caller
+      THE WORST OF THE THREE SETS THE TIER, not the first one read. A ladder
+      that stopped at the first signal over its threshold would report whichever
+      limit happened to be listed first, which is a fact about the file format.
     #>
-    param([string]$Model, $Config, [hashtable]$Observed)
+    param($Config, $Signal)
 
-    $m = [string]$Model
-    if ([string]::IsNullOrWhiteSpace($m)) {
-        return @{ tokens = $script:LwgContextWindowDefault; source = 'default' }
+    if ($null -eq $Signal) { $Signal = Read-LwgRateLimitSignal -Config $Config }
+
+    $t = @{ level = 'unavailable'; reason = [string]$Signal.reason; signal = ''; label = '';
+            pct = $null; resets_at = ''; unavailable = @($Signal.unavailable); age_minutes = [int]$Signal.age_minutes }
+    if (-not $Signal.ok) { return $t }
+
+    # EVERY signal unreadable is not the same state as every signal calm, and
+    # reporting 'ok' for it would be the silent-failure shape one level up.
+    if ($Signal.values.Keys.Count -eq 0) { $t.reason = 'no-signal'; return $t }
+
+    $amber = [double](Get-LwgThreshold -Config $Config -Group 'ladder' -Key 'amber_pct' -Default $script:LwgLadderAmberDefault)
+    $red   = [double](Get-LwgThreshold -Config $Config -Group 'ladder' -Key 'red_pct'   -Default $script:LwgLadderRedDefault)
+
+    $t.level  = 'ok'
+    $t.reason = ''
+    $worst    = -1.0
+    foreach ($sig in $script:LwgLadderSignals) {
+        if (-not $Signal.values.ContainsKey($sig.key)) { continue }
+        $v = [double]$Signal.values[$sig.key].pct
+        if ($v -le $worst) { continue }
+        $worst       = $v
+        $t.signal    = $sig.key
+        $t.label     = $sig.label
+        $t.pct       = $v
+        $t.resets_at = [string]$Signal.values[$sig.key].resets_at
     }
+    if     ($worst -ge $red)   { $t.level = 'red'   }
+    elseif ($worst -ge $amber) { $t.level = 'amber' }
+    return $t
+}
 
-    try {
-        $map = Get-LwgModuleOption -Config $Config -Module 'context_pressure' -Key 'window_tokens' -Default $null
-        if ($null -ne $map) {
-            $v = $map.$m
-            if ($null -ne $v -and ([int]$v) -gt 0) {
-                return @{ tokens = [int]$v; source = 'config' }
-            }
-        }
-    } catch { }
+function Get-LwgLadderText {
+    <#
+      The lines the ladder puts on stderr, which under this registration's
+      asyncRewake is what reaches the MODEL. Built here rather than at the call
+      site so #166's health-and-healing layer 2 cannot word the same tier
+      differently from this one.
 
-    if ($m -match '\[1m\]') {
-        return @{ tokens = $script:LwgContextWindowExtended; source = '1m-tag' }
+      IT NAMES THE SKILL BY ITS SLASH FORM. /lw-watchtower:lw-handoff resolves
+      to skills/lw-handoff/SKILL.md, which ships with the plugin and is
+      discovered in every session on every machine that installed it.
+    #>
+    param($Tier)
+
+    $where = "$([string]$Tier.label) at $([int]$Tier.pct)%"
+    if (-not [string]::IsNullOrWhiteSpace([string]$Tier.resets_at)) {
+        # VERBATIM, and UTC. The file holds what the CLI handed the status line;
+        # converting it here would bake this machine's offset into a value the
+        # model may repeat to somebody else.
+        $where += ", resets at $([string]$Tier.resets_at)"
     }
-
-    try {
-        if ($null -ne $Observed) {
-            $seen = $Observed[$m]
-            if ($null -ne $seen -and ([int]$seen) -gt $script:LwgContextWindowDefault) {
-                return @{ tokens = $script:LwgContextWindowExtended; source = 'observed' }
-            }
-        }
-    } catch { }
-
-    return @{ tokens = $script:LwgContextWindowDefault; source = 'default' }
+    if ([string]$Tier.level -eq 'red') {
+        return @(
+            "LW-WATCHTOWER transition ladder: RED - $where.",
+            'Land the work NOW. Commit and push everything that can be committed, write what cannot',
+            'be finished to the tracker, then run /lw-watchtower:lw-handoff and produce the handoff',
+            'package. Do not start anything new and do not dispatch an agent.'
+        )
+    }
+    return @(
+        "LW-WATCHTOWER transition ladder: AMBER - $where.",
+        'Start no new work and dispatch no new agents - finish what is already running.',
+        'Run /lw-watchtower:lw-handoff now if you would rather land early than land in a hurry.'
+    )
 }
 
 # --- edited-path classification --------------------------------------------

@@ -259,12 +259,20 @@ data work, and the two `Stop` hooks run **in parallel**, so turn end costs the m
 The one avoidable network cost is `git_hygiene`'s `gh` call. Set
 `module_config.git_hygiene.use_gh` to `false` to remove it.
 
-## `context_pressure` shows no percentage
+## The transition ladder says the signal is unavailable
 
-Deliberate. The computed occupancy exceeded the resolved window size, which makes the figure
-arithmetically impossible, so the denominator is wrong. The module suppresses the percentage rather
-than report a false `100% CRITICAL`, and logs `ContextWindowUnknown` naming the model to add to
-`module_config.context_pressure.window_tokens`.
+Deliberate, and it is one of four states rather than a fault. The ladder reads
+`signals/ratelimit.json`, which the **status line** writes on every render, and it reports
+*unavailable* when that file is absent (the status line has not rendered into this data directory
+yet), unreadable, carries a `schema` this build has no contract for, or is older than
+`thresholds.ladder.max_age_minutes`. **It never falls back to the previous turn's tier**: a monitor
+that fails silent turns "I do not know" into "I am fine".
+
+The commonest cause of the stale case is a turn whose last tool call ran longer than the budget, so
+the file is old while nothing is wrong. Raise `thresholds.ladder.max_age_minutes`. If it says
+*absent* on every turn, the status line is not wired up — run `/lw-watchtower:doctor` and read its
+`statusline` row. The state is recorded on every `Stop` record in `health.jsonl` as `ladder` and
+`ladder_reason`.
 
 ---
 

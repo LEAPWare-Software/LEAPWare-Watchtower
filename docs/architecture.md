@@ -52,6 +52,14 @@ lw-watchtower/output-styles/lw-orchestrator.md
                              never tool grants. Not selected for anyone:
                              force-for-plugin is deliberately absent and is an
                              owner decision - see docs/output-styles.md
+lw-watchtower/skills/<name>/SKILL.md
+                             the skills the plugin ships - lw-handoff today.
+                             Discovered from this directory name, like
+                             commands/ and agents/, and for the same reason it
+                             is NOT named in plugin.json. A skill is a
+                             DIRECTORY whose name is the skill name, holding
+                             SKILL.md, and /lw-watchtower:<name> resolves here
+                             exactly as it resolves to a commands/ page
 lw-watchtower/bin/lwg-doctor.ps1
                              ten checks for what is NOT working. Exits 0/1/2/3
                              and is meant to be able to exit non-zero
@@ -146,8 +154,13 @@ lw-watchtower/lib/gate_stop.ps1
                              alerting. OFF by default; its switch is
                              supervision.completion_audit
 lw-watchtower/lib/stop_advisories.ps1
-                             context_pressure + docs_coupling + git_hygiene -
-                             one Stop process for all three; warns, never blocks.
+                             docs_coupling + git_hygiene - one Stop process for
+                             both; warns, never blocks. It was three until
+                             6 September 2026, when context_pressure was
+                             deleted and replaced by the transition ladder in
+                             lib/supervisor.ps1 - a systemMessage reaches the
+                             operator and not the model, and the ladder has to
+                             reach the model.
                              The ONLY file here that
                              spawns a subprocess, and the bounded-process helper
                              lives here rather than in common.ps1 so that the
@@ -181,7 +194,7 @@ tests/gate_delegate.ps1      100 cases against lib/gate_delegate.ps1, each run
                              through a real pipe into a real child process. One
                              of TWELVE behavioural suites, and the only one that
                              covers a PreToolUse gate - see docs/testing.md
-tests/stop_behaviour.ps1     133 cases against the Stop-hook handlers:
+tests/stop_behaviour.ps1     144 cases against the Stop-hook handlers:
                              helpers in process, lib/stop_advisories.ps1 and
                              lib/supervisor.ps1 in real child processes. The
                              suite that reaches the most OBSERVING modules
@@ -230,7 +243,7 @@ tests/subagent_scan.ps1      20 cases piping payloads into lib/subagent_start.ps
                              The only coverage context_injection has. It asserts
                              on answers, not on the milliseconds the fast path
                              exists to save
-tests/payload_guard.ps1      27 cases over every file git ls-files reports under
+tests/payload_guard.ps1      28 cases over every file git ls-files reports under
                              lw-watchtower/, which is the whole shipped payload
                              because marketplace.json declares
                              "source": "./lw-watchtower". The only
@@ -417,10 +430,13 @@ Where it came from, and what was measured rather than assumed:
 
 - **`git status` now overlaps the other modules.** Read the count off the registry rather than off
   this sentence: `$LwgModuleRegistry` names `lib/stop_advisories.ps1` as the `impl` of exactly
-  `context_pressure`, `docs_coupling` and `git_hygiene`, and those are the file's only three
-  `Test-LwgModule` calls. One of the three, `git_hygiene`, **is** the git call being overlapped, so
-  the child is launched before the **two** in-process modules that can cover it and collected after
-  them. Instrumented on this repo: git itself runs **93 ms**, about **400 ms** of other module work
+  `docs_coupling` and `git_hygiene`, and those are the file's only two `Test-LwgModule` calls.
+  One of the two, `git_hygiene`, **is** the git call being overlapped, so the child is launched
+  before the **one** in-process module left that can cover it and collected after it.
+  **The overlap is therefore smaller than the figures below**, which were taken when four modules
+  sat between the launch and the collection point and were not re-measured when
+  `context_pressure` was deleted on 6 September 2026. They are left as the numbers that were
+  taken rather than rescaled to a count nobody measured. Instrumented on this repo: git itself runs **93 ms**, about **400 ms** of other module work
   covers it, and the collection point waits **26 ms** instead of the **140 ms** it blocked for
   before. **That 400 ms was measured when four modules, not two, sat between the launch and the
   collection point** — see [Advisories](modules.md#advisories) for the two removals that took this
@@ -434,8 +450,9 @@ Where it came from, and what was measured rather than assumed:
 - **The script exits before touching the state dir** when every `Stop` module is off.
 - **The edit list is read and classified once.** It was shared between `docs_coupling` and
   `mission_drift` until the second was removed; one read for one answer is what is left of that.
-- **`context_windows.json` is no longer rewritten every turn.** Once the stored figure exceeds the
-  200 k default the larger window is already proven and a bigger number proves nothing further.
+- **`context_windows.json` is no longer written at all.** It was `context_pressure`'s observation
+  store, and that module was deleted on 6 September 2026. Nothing in the plugin writes it, reads it
+  or removes it, so a machine that ran an earlier version still has the file; it is inert.
 
 ### What is left, and why it cannot be cut much further
 
@@ -778,11 +795,12 @@ cannot write to both.
 | `advisory-<sessionkey>.json` | `lib/stop_advisories.ps1` | per session; "what have I already said" |
 | `edits-<sessionkey>.txt` | `lib/post_edit.ps1` | per session; capped at 256 KB |
 | `rule_stats.json` | **nothing, since 30 July 2026** — written by the Stop trip sweep | **cross-session**; per-rule false-positive counts. Historical; left in place |
-| `context_windows.json` | `context_pressure` | cross-session; observed window sizes |
+| `context_windows.json` | **nothing, since 6 September 2026** — written by `context_pressure` | cross-session; observed window sizes. Historical: the module was deleted with #168 and nothing writes, reads or removes this file. A machine that ran an earlier version still carries it |
+| `ladder-<sessionkey>.json` | `lib/supervisor.ps1` | per session; the highest transition-ladder tier already announced, so amber is reported on the rise and not at every turn end. A drop is recorded immediately so a genuine recovery re-arms the ladder |
 | `selfcheck.probe` | `lib/session_start.ps1` | cross-session; **29 bytes forever**. It is `self_health`'s state-writable probe, written with `-Replace` rather than appended, so every `SessionStart` — start, resume, clear and compact — overwrites the one line rather than adding to it. Nothing reads it. Absent entirely when `self_health` is off, which is what [configuration.md](configuration.md) means by "no probe runs" |
 | `alerted.json` | `lib/supervisor.ps1` | cross-session, **not** per session, and this is the row most likely to be misread: it is one flat list in the state directory, shared by every session that ever wrote there. It is the alert-dedupe set — failed background-task ids bare, orphaned agent ids under an `orphan:` prefix — so one dead task alerts once instead of at every turn end. Capped at its last 200 entries; both the `Stop` and `SubagentStop` branches write it |
 | `config.override.json` | `bin/lwg-config.ps1` and `bin/lwg-toggle.ps1` — **a command, never a hook** | cross-session; the operator's own settings, and the only place they live. `Get-LwgConfig` merges it over the shipped `config.json`, so every hook reads it — and `lib/gate_delegate.ps1` reads it itself, first, on the fast path above the `common.ps1` dot-source, because a scan of `config.json` alone would prove a switch off from a default the operator has overridden. **It is the one row here whose deletion changes behaviour rather than losing a record** — deleting it reverts every setting the operator made, an armed gate included, and nothing reports the loss: `/lw-watchtower:doctor` against a state directory with no override prints `override: none - these are the shipped defaults` and the `delegate_gate` row as `OFF - it refuses nothing`, exactly as on a machine that was never configured. Driven against a throwaway state directory with the shipped `config.json` byte-identical throughout: `{"interaction":{"delegate":true}}` in this file took a main-thread `Bash` call from exit 0 to exit 2 with the `permissionDecision:"deny"` envelope; deleting the file and changing nothing else took the identical payload back to exit 0 |
-| `signals/ratelimit.json` | the **status line**, not a hook | cross-session; overwritten every render. The only on-disk copy of `rate_limits` and `context_window` — see [The signal bridge](#the-signal-bridge) |
+| `signals/ratelimit.json` | written by the **status line**, not a hook; **read** by `lib/supervisor.ps1`'s transition ladder | cross-session; overwritten every render. The only on-disk copy of `rate_limits` and `context_window` — see [The signal bridge](#the-signal-bridge) |
 
 `trips-<sessionkey>.json` had a row here — the per-session trip ledger, and the **state**
 behind the status line's `GM` segment. Both gates were removed on 30 July 2026 so nothing could write
@@ -1048,9 +1066,8 @@ This is why the banner read `8/11` and not `10/11` for as long as `ratelimit_esc
 removed outright and the banner counts only what is built — the reason they cannot be built was moved to
 [Attempted and blocked](modules.md#attempted-and-blocked-ratelimit_escalation-and-cost_tracking)
 rather than deleted with them, because the record is the part that stops someone re-attempting them.
-The same rule governs the numbers a module produces: `context_pressure` suppresses its percentage
-outright rather than
-divide by a denominator it does not trust, `git_hygiene` reports UNKNOWN rather than clean when git
+The same rule governs the numbers a module produces: the transition ladder reports *unavailable*
+rather than reuse a `signals/ratelimit.json` older than its budget, `git_hygiene` reports UNKNOWN rather than clean when git
 does not answer, and `orphan_watch` is registered as `observe` rather than inflate the gate count
 with something that alerts and cannot block. `verification_gate` was the long-standing example of
 that last rule — a module with the word *gate* in its name, registered `observe` and never counted
@@ -1088,7 +1105,7 @@ the model-visible context as built-but-off rather than left unaccounted for. So 
 the banner reads
 
 ```
-LW-WATCHTOWER v0.4.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.4.0 · 6/10 modules enabled (4 off) · 0 gates · observe-only
 ```
 
 and the `(4 off)` is those four being accounted for rather than dropped from the count. This

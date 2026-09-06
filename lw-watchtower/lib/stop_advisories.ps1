@@ -1,18 +1,23 @@
 #requires -version 5
 <#
-  LW-WATCHTOWER advisory handler - context_pressure, docs_coupling and
-  git_hygiene, on the Stop event.
+  LW-WATCHTOWER advisory handler - docs_coupling and git_hygiene, on the Stop
+  event.
+
+  IT WAS THREE MODULES UNTIL 6 SEPTEMBER 2026. context_pressure was deleted
+  here and replaced by the transition ladder in lib/supervisor.ps1 - see the
+  tombstone where its block stood, which states why a systemMessage was the
+  wrong channel for what that module was for.
 
   Invoked from hooks/hooks.json in exec form:
       command: "powershell"
       args:    ["-NoProfile","-ExecutionPolicy","Bypass","-File",
                 "${CLAUDE_PLUGIN_ROOT}/lib/stop_advisories.ps1"]
 
-  WHY ONE SCRIPT FOR THREE MODULES
+  WHY ONE SCRIPT FOR TWO MODULES
   Stop fires at the end of every single turn, and each registered hook is a
   separate PowerShell process - roughly 285 ms of interpreter startup that buys
   nothing. Three hooks would put most of a second on every turn end. So the
-  three modules share one process and each gates itself independently: switching
+  two modules share one process and each gates itself independently: switching
   one off leaves the others running, and switching all of them off makes this
   script exit before it resolves a repo or touches the state dir.
 
@@ -598,7 +603,6 @@ try {
     # Resolved once, up front, so the flags can decide what work happens at all
     # rather than each block re-asking. With every one of them off this script
     # exits without resolving a repo, reading the state dir or spawning anything.
-    $onContext = Test-LwgModule -Name 'context_pressure'  -Config $cfg -Repo $repo
     $onDocs    = Test-LwgModule -Name 'docs_coupling'     -Config $cfg -Repo $repo
     $onGit     = Test-LwgModule -Name 'git_hygiene'       -Config $cfg -Repo $repo
     # A fourth flag, $onTrips, sat here. It was a Test-Path for this session's
@@ -608,7 +612,7 @@ try {
     # close. The ledger files were removed later the same day and lib/trips.ps1
     # with them, so the Test-Path can no longer be true for anything and the file
     # it decided whether to dot-source no longer exists.
-    if (-not ($onContext -or $onDocs -or $onGit)) { exit 0 }
+    if (-not ($onDocs -or $onGit)) { exit 0 }
 
     $sessionId = [string]$payload.session_id
     $sessKey   = Get-LwgSessionKey -SessionId $sessionId
@@ -651,203 +655,38 @@ try {
     }
 
     # =====================================================================
-    # context_pressure
+    # context_pressure - DELETED 6 SEPTEMBER 2026 (#168)
     # =====================================================================
-    # DATA SOURCE, stated plainly: `context_window` is NOT in any hook payload.
-    # In claude-code 2.1.220 the hook input is
-    #   {session_id, transcript_path, cwd, prompt_id?, permission_mode?,
-    #    agent_id?, agent_type?, effort?}
-    # plus per-event fields, and context_window/cost/rate_limits are assembled
-    # in exactly one place - the status-line input builder. What every hook does
-    # get is transcript_path, and the transcript's assistant records carry the
-    # `message.usage` block the CLI itself divides by. So occupancy here is
-    # recomputed from real numbers with the CLI's own formula, not read from a
-    # field that does not exist.
-    if ($onContext) {
-        try {
-            $usage = Get-LwgTranscriptUsage -Path ([string]$payload.transcript_path)
-            if ($null -ne $usage) {
-
-                # The window SIZE is the one number that genuinely is not
-                # observable - it depends on account entitlements the hook
-                # cannot see. Observation narrows it: the CLI only ever picks
-                # 200k or 1M, so a model seen holding more than 200k tokens is
-                # PROOF of the larger window. That proof is persisted and reused.
-                $obsFile = 'context_windows.json'
-                $obs     = Read-LwgStateJson -FileName $obsFile
-                $model   = [string]$usage.model
-
-                # --- RESOLVE FIRST, RECORD AFTER --------------------------
-                # THE ORDER IS THE WHOLE FIX. This block used to write the
-                # turn's own total_input into the observation store and then
-                # hand that same in-memory hashtable to Get-LwgContextWindow,
-                # which read it back, concluded the window must be 1M, and
-                # returned a denominator large enough that the occupancy was no
-                # longer impossible. So the trust check three lines below could
-                # not fire for any reading between 200k and 1M: the inference
-                # had already absorbed exactly the readings the refusal exists
-                # to catch. Resolving against the store AS IT IS ON DISK
-                # restores it, and is a re-ordering rather than new logic.
-                $win    = Get-LwgContextWindow -Model $model -Config $cfg -Observed $obs
-                $winTok = [int]$win.tokens
-                $src    = [string]$win.source
-
-                # An occupancy above the window is arithmetically impossible, so
-                # it is proof the denominator is wrong rather than proof of
-                # pressure. Reporting 100% CRITICAL here would be exactly the
-                # fabricated-number failure this plugin exists to prevent.
-                $trusted = $true
-                if ($usage.total_input -gt $winTok) { $trusted = $false }
-                if ($winTok -le 0) { $trusted = $false }
-
-                # --- ONE SAMPLE IS NOT PROOF; TWO ARE ---------------------
-                # THE STORE STILL HAS TO LEARN, or a model on a real 1M window
-                # would report UNKNOWN for ever and the module would be silent
-                # through the range it exists to cover. What changed is what
-                # counts as proof. An occupancy above the assumed window is
-                # ambiguous by construction - it is either a bigger window or a
-                # wrong numerator (a mis-summed usage block, records spanning a
-                # compaction, two models' figures landing under one key) - and
-                # the old code resolved that ambiguity in favour of the window
-                # on a SINGLE reading, permanently, with no expiry and no way to
-                # clear it. A 260 000 mis-read then pinned the denominator to 1M
-                # and a real 150k/200k turn - 75%, the warn threshold - rendered
-                # as 15%, level ok, silently.
-                #
-                # So a first such reading is stored as PENDING and changes
-                # nothing; a second, on a later turn, promotes it to the proven
-                # entry Get-LwgContextWindow reads. Two independent turns above
-                # 200k is near-certain on a genuine 1M session, because
-                # occupancy grows, and is much harder to produce by accident.
-                # The cost is honest and is stated: the first one or two turns
-                # of such a session report the window as UNKNOWN and print no
-                # percentage, and the ContextWindowUnknown record below is what
-                # tells the operator the window_tokens knob exists - which on
-                # the old code they were never shown, because the branch that
-                # names it could not be reached.
-                #
-                # THE PENDING KEY IS A SEPARATE KEY IN THE SAME FILE, spelled
-                # '<model>#pending'. Get-LwgContextWindow indexes the store by
-                # the exact model id, so a key that is not one is invisible to
-                # it - which is what keeps $obs[$model] meaning strictly "this
-                # window is proven" for a function this change does not own.
-                #
-                # WHAT THIS DOES NOT DO: it does not give a wrong pinned entry a
-                # way out. Once promoted, an entry above the default is never
-                # rewritten and nothing in the plugin clears it - see the note
-                # in docs/modules.md. Corroboration makes a wrong pin much less
-                # likely; it does not make it recoverable.
-                if (-not [string]::IsNullOrWhiteSpace($model)) {
-                    $prevObs = 0
-                    if ($null -ne $obs[$model]) { try { $prevObs = [int]$obs[$model] } catch { $prevObs = 0 } }
-
-                    if ($trusted -and $prevObs -le $script:LwgContextWindowDefault -and
-                        $usage.total_input -gt $prevObs -and
-                        $usage.total_input -gt $script:LwgContextWindowDefault) {
-                        # Accepted reading above the default: only reachable when
-                        # the window was already known from config or the [1m]
-                        # tag, so there is nothing left to infer - but keeping
-                        # the lower bound current costs one write and makes the
-                        # store agree with what was seen.
-                        $obs[$model] = $usage.total_input
-                        Write-LwgStateJson -FileName $obsFile -Data $obs | Out-Null
-                    }
-                    elseif (-not $trusted -and $prevObs -le $script:LwgContextWindowDefault -and
-                            $usage.total_input -gt $script:LwgContextWindowDefault -and
-                            $usage.total_input -le $script:LwgContextWindowExtended) {
-                        $pendKey = $model + '#pending'
-                        $pend = 0
-                        if ($null -ne $obs[$pendKey]) { try { $pend = [int]$obs[$pendKey] } catch { $pend = 0 } }
-                        if ($pend -gt $script:LwgContextWindowDefault) {
-                            $obs[$model] = $(if ($pend -gt $usage.total_input) { $pend } else { $usage.total_input })
-                            $obs.Remove($pendKey)
-                        } else {
-                            $obs[$pendKey] = $usage.total_input
-                        }
-                        Write-LwgStateJson -FileName $obsFile -Data $obs | Out-Null
-                    }
-                }
-
-                if (-not $trusted) {
-                    if ($state['ctx_untrusted'] -ne $model) {
-                        $state['ctx_untrusted'] = $model
-                        $stateDirty = $true
-                        Write-LwgEvent -Event 'ContextWindowUnknown' -Payload $payload -Extra @{
-                            module       = 'context_pressure'
-                            model        = $model
-                            total_input  = $usage.total_input
-                            assumed      = $winTok
-                            window_source = $src
-                            detail       = 'occupancy exceeds the assumed window; no percentage reported. Set module_config.context_pressure.window_tokens for this model.'
-                        } | Out-Null
-                    }
-                } else {
-                    $warnPct = [double](Get-LwgThreshold -Config $cfg -Group 'context' -Key 'warn_pct'     -Default 75)
-                    $critPct = [double](Get-LwgThreshold -Config $cfg -Group 'context' -Key 'critical_pct' -Default 90)
-
-                    # The CLI's own arithmetic: round(total_input / window * 100),
-                    # clamped to 0..100.
-                    $pct = [Math]::Round(($usage.total_input / [double]$winTok) * 100)
-                    if ($pct -lt 0)   { $pct = 0 }
-                    if ($pct -gt 100) { $pct = 100 }
-
-                    $level = 'ok'
-                    if     ($pct -ge $critPct) { $level = 'critical' }
-                    elseif ($pct -ge $warnPct) { $level = 'warn' }
-
-                    $rank  = @{ ok = 0; warn = 1; critical = 2 }
-                    $was   = [string]$state['ctx_level']
-                    if ([string]::IsNullOrWhiteSpace($was)) { $was = 'ok' }
-
-                    if ($level -ne $was) {
-                        $state['ctx_level'] = $level
-                        $stateDirty = $true
-                        Write-LwgEvent -Event 'ContextPressure' -Payload $payload -Extra @{
-                            module        = 'context_pressure'
-                            level         = $level
-                            previous      = $was
-                            used_pct      = $pct
-                            total_input   = $usage.total_input
-                            output_tokens = $usage.output
-                            window_tokens = $winTok
-                            window_source = $src
-                            model         = $model
-                        } | Out-Null
-                    }
-
-                    # Advisory only when the level RISES. The status line already
-                    # renders context pressure continuously and in colour; a
-                    # systemMessage repeating it at every turn end would be noise
-                    # that trains the reader to ignore the channel.
-                    if ($rank[$level] -gt $rank[$was]) {
-                        # THE DENOMINATOR'S PROVENANCE IS PART OF THE NUMBER.
-                        # 'default' printed as ", window assumed" and everything
-                        # else printed as nothing, so an INFERRED window - one
-                        # this code concluded from an earlier turn's occupancy,
-                        # not one anybody configured - read exactly like a known
-                        # one. The distinction between a known window and an
-                        # inferred one is the distinction this module exists to
-                        # preserve. 'config' and '1m-tag' stay bare: those are
-                        # stated by the operator and by the model id itself.
-                        $assumed = switch ($src) {
-                            'default'  { ', window assumed' }
-                            'observed' { ', window inferred from earlier turns' }
-                            default    { '' }
-                        }
-                        $where   = "$(Format-Tokens $usage.total_input)/$(Format-Tokens $winTok)$assumed"
-                        if ($level -eq 'critical') {
-                            Add-Advisory "LW-WATCHTOWER context $pct% CRITICAL ($where) - compact now or hand off to a fresh session; work after this point risks a lossy compaction."
-                        } else {
-                            Add-Advisory "LW-WATCHTOWER context $pct% ($where) - plan for compaction; land or hand off the current thread of work."
-                        }
-                    }
-                }
-            }
-        } catch {
-            try { Write-LwgEvent -Event 'AdvisoryError' -Payload $payload -Extra @{
-                module = 'context_pressure'; error = $_.Exception.Message } | Out-Null } catch { }
-        }
-    }
+    # ONE HUNDRED AND NINETY-FOUR LINES STOOD HERE. They recomputed context
+    # occupancy from the transcript's last assistant usage block, because
+    # context_window is in no hook payload, and raised a systemMessage advisory
+    # when the level rose past 75 or 90.
+    #
+    # WHY IT WENT, and it is not because the arithmetic was wrong - it was
+    # right, and it was carefully guarded against an untrustworthy denominator.
+    # It went because of WHO IT REACHED. This script's only stdout is the
+    # systemMessage envelope from Write-LwgAdvisory, and its registration in
+    # hooks/hooks.json carries no asyncRewake, so what it emits appears on the
+    # OPERATOR'S SCREEN. The failure this advisory existed for is a session
+    # walking into a wall with unlanded work, and fixing that means telling the
+    # MODEL to stop starting things - which needs exit 2 under asyncRewake, the
+    # one channel that reaches it mid-turn, and which this script cannot use
+    # without also destroying the two advisories below (the CLI ignores stdout
+    # on exit 2).
+    #
+    # WHAT REPLACED IT: the TRANSITION LADDER in lib/supervisor.ps1's Stop
+    # branch, over signals/ratelimit.json - the file the STATUS LINE writes on
+    # every render. It reads a real context_window.used_percentage rather than
+    # inferring one, and it reads the 5-hour and 7-day limits too, which no
+    # transcript could ever have supplied. Get-LwgTranscriptUsage,
+    # Get-LwgContextWindow, the context_windows.json observation store and
+    # module_config.context_pressure went with it: helpers with no caller, and
+    # an operator-settable knob nothing would have read.
+    #
+    # THE REGISTRY MOVED WITH IT - eleven entries to ten, eight observers to
+    # seven - and the ladder deliberately did NOT take a registry entry of its
+    # own. It is a layer of failure_capture, whose flag it rides. See that
+    # entry's note in lib/common.ps1.
 
     # =====================================================================
     # docs_coupling  (ADVISORY)

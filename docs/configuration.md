@@ -153,36 +153,36 @@ The numbers the pressure monitors compare against.
 | --- | --- | --- |
 | `ratelimit.warn_pct` | 88 | the **status line** — prints `approaching limit` |
 | `ratelimit.land_all_pct` | 92 | the **status line** — prints `land all work` |
-| `context.warn_pct` | 75 | `context_pressure` |
-| `context.critical_pct` | 90 | `context_pressure` |
+| `context.warn_pct` | 75 | the **status line** — the `ctx` advisory on row 2 |
+| `context.critical_pct` | 90 | the **status line** — the `ctx` advisory on row 2 |
+| `ladder.amber_pct` | 70 | the **transition ladder** in `lib/supervisor.ps1` |
+| `ladder.red_pct` | 85 | the **transition ladder** |
+| `ladder.max_age_minutes` | 20 | the **transition ladder** — the staleness budget on `signals/ratelimit.json` |
 
 The rate-limit pair is consumed by the status line, **not by a module**: `ratelimit_escalation`
 does not exist and cannot, for the reason given in
 [Attempted and blocked](modules.md#attempted-and-blocked-ratelimit_escalation-and-cost_tracking).
+The `context` pair was consumed by `context_pressure` as well until 6 September 2026; that module
+is deleted and the status line is now its only reader.
+
+**The `ladder` group is deliberately earlier than the other two, and they are not the same knob.**
+Writing and auditing a handoff costs tokens and has to finish before the wall, so the ladder warns
+at 70 and 85 while the status line's own row-2 advisory still uses 88/92 and 75/90. Moving one
+does not move the other. `max_age_minutes` is the staleness budget: a `signals/ratelimit.json`
+older than it makes the ladder report *unavailable*, and the previous turn's tier is never reused.
+A turn whose last tool call ran longer than the budget therefore ends with the ladder saying it
+does not know, which is the intended answer rather than a fault — raise the number if your turns
+routinely run longer than twenty minutes.
 
 ## `module_config` — per-module tuning
 
 Every key in it is optional; the code carries the same defaults, so deleting the block changes
 nothing.
 
-### `context_pressure`
-
-| Key | Default | Effect |
-| --- | --- | --- |
-| `window_tokens` | `{}` — **empty, deliberately** | Model id → context window size, in tokens. An entry here is the highest-trust source and removes all guessing for that model. |
-
-**An entry wins outright, so leave it empty unless you are stating a fact about your own account.**
-It beats the `[1m]` tag, it beats a window *proven* by observation, and it beats the 200 000
-default — which is correct for an operator who knows their entitlement, and wrong for a value
-shipped to every reader, because the window size depends on **account entitlement** and no single
-number is true for everyone. It shipped as `{ "claude-opus-5": 1000000 }`, which on a 200 k-entitled
-account made `context_pressure` report occupancy at one fifth of the truth and stay silent straight
-through a compaction — the hardcoded entry suppressing the very fallbacks that would have
-self-corrected it.
-
-Empty, the chain in [Modules](modules.md#context_pressure) runs instead: `[1m]` tag, else a window
-proven by having been seen holding more than 200 000 tokens, else 200 000 assumed with the advisory
-saying so. An absent block and an empty one are read identically, so deleting it changes nothing.
+A `context_pressure` block stood here, carrying `window_tokens`. **Both went on 6 September 2026**
+with the module: the transition ladder reads a real `context_window.used_percentage` out of
+`signals/ratelimit.json` instead of inferring a denominator, so there is no window size left to
+state. An entry left behind in an override file is read by nothing.
 
 ### `git_hygiene`
 

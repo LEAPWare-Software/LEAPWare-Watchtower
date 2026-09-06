@@ -911,6 +911,41 @@ try {
         $names = @($cmds.BaseName)
         $problems = @()
 
+        # A SECOND COMPONENT TYPE RESOLVES /${p}:<name>, AND IT IS NOT A
+        # commands\ PAGE (#168).
+        #
+        # Skills are slash-invocable - the schema carries `user-invocable` and
+        # `disable-model-invocation` - so skills\<n>\SKILL.md IS the backing
+        # file for /${p}:<n>, exactly as commands\<n>.md is for a command. Until
+        # this block existed, a SKILL.md documenting itself the way it is
+        # actually invoked turned this check red with a row whose text was a
+        # false statement about the defect: "commands\lw-handoff.md does not
+        # exist" describes a missing file, when what is really there is a page
+        # that resolves fine through the other half of the surface.
+        #
+        # WHAT THIS CHECK IS FOR is the sentence that decides the fix: THE
+        # REFERENCE RESOLVES. It never asked "is there a command page", it asked
+        # "does /${p}:<something> printed in a shipped file reach anything". It
+        # now reaches two kinds of thing, so both are collected. The alternative
+        # - forbid the slash spelling inside a skill page - is cheaper and makes
+        # every skill page lie about how it is invoked.
+        #
+        # ENUMERATED FROM DISK, one directory deep, because that is the layout
+        # the CLI scans: a skill is a DIRECTORY whose name is the skill name,
+        # holding SKILL.md. A skills\ directory with no SKILL.md in it is not a
+        # skill and contributes no name, which is correct rather than lenient -
+        # /${p}:<that> would reach nothing.
+        $skillDir   = Join-Path $pluginRoot 'skills'
+        $skillNames = @()
+        if (Test-Path -LiteralPath $skillDir) {
+            foreach ($d in @(Get-ChildItem -LiteralPath $skillDir -Directory -ErrorAction SilentlyContinue)) {
+                if (Test-Path -LiteralPath (Join-Path $d.FullName 'SKILL.md') -PathType Leaf) {
+                    $skillNames += $d.Name
+                    $names      += $d.Name
+                }
+            }
+        }
+
         # a. declared, and backed by a real script.
         #
         # Read the script out of the command body rather than assuming
@@ -1080,14 +1115,21 @@ try {
 
         foreach ($n in @($refs.Keys | Sort-Object)) {
             if ($names -contains $n) { continue }
-            $problems += "/${p}:$n is referenced in $($refs[$n] -join ', ') but commands\$n.md does not exist"
+            # THE ROW NAMES BOTH PLACES THE REFERENCE COULD HAVE RESOLVED.
+            # Naming only commands\ was accurate while that was the only
+            # component type; now it would send a reader to add a command page
+            # for something that wanted to be a skill.
+            $problems += "/${p}:$n is referenced in $($refs[$n] -join ', ') but neither commands\$n.md nor skills\$n\SKILL.md exists"
         }
 
         if ($problems.Count -gt 0) {
             Add-Row -Id 'commands' -Status 'FAIL' -Detail (($problems -join '; ') + " [enumerated $enum, $scanned file(s) scanned]")
             return
         }
-        Add-Row -Id 'commands' -Status 'PASS' -Detail "$($cmds.Count) command(s), each with its backing script: $(($names | ForEach-Object { "/${p}:$_" }) -join ', '); $($refs.Count) distinct command(s) referenced across $scanned file(s) scanned from $enum, all declared"
+        $skillPart = if ($skillNames.Count -gt 0) {
+            " plus $($skillNames.Count) skill(s), each with a SKILL.md: $(($skillNames | ForEach-Object { "/${p}:$_" }) -join ', ');"
+        } else { ';' }
+        Add-Row -Id 'commands' -Status 'PASS' -Detail "$($cmds.Count) command(s), each with its backing script: $(($cmds.BaseName | ForEach-Object { "/${p}:$_" }) -join ', ')$skillPart $($refs.Count) distinct reference(s) across $scanned file(s) scanned from $enum, all resolving to a command page or a SKILL.md"
     }
 
     # ---------------------------------------------------------------------
@@ -1315,7 +1357,7 @@ Write-Output ("RESULT: {0} passed, {1} warning(s), {2} failure(s), {3} informati
 #
 # The "one to three cases on at most two properties" clause for the other four
 # is NOT re-derived here and is not presented as though it were: it is
-# docs\testing.md's per-module count (context_pressure 2, docs_coupling 2,
+# docs\testing.md's per-module count (docs_coupling 2,
 # log_rotation 3, git_hygiene 1), and this line and that page state the same
 # thing. Counting cases BY SUBJECT means parsing assertions to decide what they
 # are about, which tests\doc_claims.ps1 declines to invent in passing for the
@@ -1340,11 +1382,11 @@ Write-Output ''
 Write-Output "NOT checked here: whether the advisories actually fire, and whether Claude Code has"
 Write-Output "this plugin ENABLED in the current session - a hook can be perfectly configured and"
 Write-Output "still be switched off. EVERY ONE of the EIGHT observing modules - failure_capture,"
-Write-Output "context_pressure, docs_coupling, git_hygiene and log_rotation"
+Write-Output "docs_coupling, git_hygiene and log_rotation"
 Write-Output "(tests\stop_behaviour.ps1), orphan_watch (tests\supervision.ps1), context_injection"
 Write-Output "(tests\subagent_scan.ps1) and self_health (tests\state_resolution.ps1 sections B, C"
 Write-Output "and F, written against its self-check) - is exercised by a suite CI runs on every"
-Write-Output "push and every PR, though for four of those eight - context_pressure, docs_coupling,"
+Write-Output "push and every PR, though for three of those seven - docs_coupling,"
 Write-Output "git_hygiene and log_rotation - that is one to three cases on at most two properties"
 Write-Output "and not end to end. Neither fact is established by this command: no test is run"
 Write-Output "here, and a green run above says nothing about whether any advisory would fire."

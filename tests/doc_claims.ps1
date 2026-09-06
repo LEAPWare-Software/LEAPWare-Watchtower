@@ -1508,7 +1508,7 @@ Test-Claim -Rule 'module-total' -Expected $moduleTotal `
 # CHANGED, because the reason is a hole in this guard rather than a typo. The
 # subset is not a count of modules, it is a count of modules NOTHING EXERCISES,
 # and it went from seven to three the day tests\stop_behaviour.ps1 gained cases
-# for context_pressure, docs_coupling, git_hygiene and log_rotation. TEN
+# for docs_coupling, git_hygiene and log_rotation. TEN
 # tracked files went on saying seven - nine of them pages or scripts, plus the
 # example in this very comment, and one of the nine is a line bin\lwg-doctor.ps1
 # PRINTS to the operator - and every suite here stayed green, because no rule

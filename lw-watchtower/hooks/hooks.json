@@ -194,8 +194,8 @@
             ],
             "timeout": 20,
             "asyncRewake": true,
-            "rewakeMessage": "Health supervisor detected background task failure:",
-            "rewakeSummary": "Background task failed"
+            "rewakeMessage": "LW-WATCHTOWER health supervisor:",
+            "rewakeSummary": "Health supervisor alert"
           }
         ]
       },
