@@ -1,6 +1,6 @@
 ---
 name: lw-explorer
-description: "Read-only search and reconnaissance. Use to locate code, map a subsystem, or answer where-is-X and how-does-Y-work across many files."
+description: "Use to FIND things and to work out how something fits together when the answer is spread across many files: where is X defined, what calls Y, does Z exist anywhere, map this directory, how does this subsystem work. Read-only by construction, so it is the safe first dispatch on unfamiliar code. NOT for changing anything, and NOT for verifying a claim - it reports what it found and leaves the verdict to a verifying role."
 model: sonnet
 effort: medium
 disallowedTools: Edit, Write, NotebookEdit

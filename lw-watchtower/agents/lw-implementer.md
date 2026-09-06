@@ -1,6 +1,6 @@
 ---
 name: lw-implementer
-description: "Writes and modifies code. Use for multi-file implementation, refactors, bug fixes, and anything requiring real changes to the working tree."
+description: "Use to WRITE OR CHANGE CODE where the change needs judgement: implementing a feature across several files, a refactor, a bug fix, wiring something new into an existing design. Has full tool access and modifies the working tree. NOT for a mechanical one-answer edit, which is cheaper at the scribe tier, and never for checking its own work, which is a verifying role's job."
 model: opus
 effort: high
 ---

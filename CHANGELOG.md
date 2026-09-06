@@ -23,6 +23,45 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 `main` must never declare a version a tag has already published (the rule `[0.4.0]` added). Entries
 land here as they merge.
 
+### Changed
+
+- **`agents/lw-orchestrator.md` is now a real orchestrator system prompt (2026-09-06, #316).** When
+  the main thread runs this role — `"agent": "lw-watchtower:lw-orchestrator"` in the operator's own
+  `settings.json`, or `claude --agent` for one session — the file **replaces** Claude Code's system
+  prompt rather than adding to it, so the body has to stand alone and it did not. It now carries the
+  mission it was written for: delegate anything that reads more than a file or two, never pull a
+  worker's tool output into the main thread, prefer background dispatch and keep talking to the
+  operator, restate the whole context in every dispatch because a worker cannot see the conversation,
+  and treat a worker's report as a claim to be checked with `Read`/`Grep`/`Glob` rather than as a
+  fact. A routing table names the five sibling roles. **The `tools` list is unchanged.**
+- **The five sibling roles' `description` fields are rewritten as delegation triggers.** That text is
+  what the harness matches on when it auto-selects a subagent, so each now says when to dispatch it
+  **and what not to dispatch it for**. `lw-healer`'s described who dispatched it rather than when.
+
+### Added
+
+- **`tests/payload_guard.ps1` case S13** — the orchestrator role grants itself no tool that edits or
+  executes. `Bash`, `PowerShell`, `Edit`, `Write` or `NotebookEdit` on that one frontmatter line would
+  silently end the delegation discipline the whole body is written around, while the body went on
+  asserting it. Red-first was **planted, not historical**, and that is stated at the case.
+- **`tests/payload_guard.ps1` case S14** — a frontmatter linter over all twelve `agents/*.md` and
+  `commands/*.md` pages: no tab, no duplicate key, balanced quotes, no colon-space in an unquoted
+  value, no reserved character opening one, `name` equal to the filename stem. This is the guard
+  `docs/roles.md` had been pointing at `claude plugin validate --strict` for, which does not do it.
+
+### Fixed
+
+- **`docs/roles.md`'s frontmatter section was recommending a check against a failure it does not
+  catch (2026-09-06, #316).** The page named an unquoted `description` containing a colon-space as
+  the commonest cause of silent frontmatter loss, told the reader to run
+  `claude plugin validate --strict`, and called a green run *"real evidence that these files parse"*.
+  Re-probed on CLI 2.1.263 over fifteen planted malformations: the validator passes the colon-space
+  case, a tab, a duplicate key, a wrong-typed `tools:`, a reserved character, a `name` that does not
+  match the filename, and unrecognised keys — and the agent is never rejected in any of them. The
+  section now states what the validator does and does not catch, corrects the negative-control
+  transcript it quoted (that output comes from an unbalanced quote, and a passing run on this build
+  prints no per-agent line at all), and points at case S14 instead.
+
 ## [0.4.0] — 2026-09-04
 
 **Until the day this tag was cut, the manifests declared `0.4.0` and no tag carried it.** That gap
