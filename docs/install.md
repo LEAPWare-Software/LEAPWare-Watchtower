@@ -7,7 +7,7 @@ LW-WATCHTOWER is a Claude Code plugin. It is **Windows-only** and runs under **W
 | Requirement | Why |
 | --- | --- |
 | Windows | Every path this plugin classifies is an NTFS path, including 8.3 short names, and the status line and installer are written against Windows profile layout. |
-| Windows PowerShell 5.1 (`powershell.exe`) | All thirteen registrations in [`hooks/hooks.json`](../lw-watchtower/hooks/hooks.json) name the binary `powershell`, so **the constraint is the registration, not a 5.1 language feature**. Every tracked script declares `#requires -version 5`, which PowerShell 7 satisfies — running one under `pwsh` by hand is not refused by the interpreter, and one was checked and produced byte-identical output. That is one script, not a claim about all twenty-one. The hooks will still invoke `powershell`, and on a machine where that name does not resolve none of them runs — loudly, and on every event. See [What a non-Windows install actually does](#what-a-non-windows-install-actually-does). |
+| Windows PowerShell 5.1 (`powershell.exe`) | All thirteen registrations in [`hooks/hooks.json`](../lw-watchtower/hooks/hooks.json) name the binary `powershell`, so **the constraint is the registration, not a 5.1 language feature**. Every tracked script declares `#requires -version 5`, which PowerShell 7 satisfies — running one under `pwsh` by hand is not refused by the interpreter, and one was checked and produced byte-identical output. That is one script, not a claim about all twenty-three. The hooks will still invoke `powershell`, and on a machine where that name does not resolve none of them runs — loudly, and on every event. See [What a non-Windows install actually does](#what-a-non-windows-install-actually-does). |
 | Claude Code | The hook events used here (`SubagentStart`, `PostToolUseFailure`, `StopFailure`) were read out of the 2.1.220 binary. Older builds may not carry all of them. |
 | `git` on `PATH` | Optional. Only `git_hygiene` shells out, and only at turn end inside a repo. Without it that module reports `UNKNOWN`, never "clean". |
 | `gh` on `PATH` | Optional. **One** thing uses it: `git_hygiene`'s open-PR check at turn end. `module_config.git_hygiene.use_gh: false` switches it off, and with it off that check reports that it did not run rather than reporting clean. The three evidence probes that also used `gh` went on 2 September 2026 with the `checklist` and `sitrep` commands — **and with them went the only outbound traffic this plugin generated that was not about your own tree**, two rows that queried the maintainer's own repository with your token. |
@@ -23,7 +23,7 @@ inferred.** macOS was not tested; the mechanism is `PATH` resolution of `powersh
 expected to behave the same, and this page does not claim more than that.
 
 **Nothing refuses the install.** `/plugin marketplace add` and `/plugin install` both succeed,
-`claude plugin list` reports `Status: ✔ enabled`, `claude plugin validate` passes, and all six
+`claude plugin list` reports `Status: ✔ enabled`, `claude plugin validate` passes, and all seven
 commands and six agents load and are listed. No compatibility warning is shown at any point,
 because Claude Code has no manifest field for one — the `WINDOWS ONLY` that opens both manifests
 is description text and nothing reads it.

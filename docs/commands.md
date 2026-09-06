@@ -1,6 +1,6 @@
 # Commands
 
-Six slash commands. Claude Code namespaces a plugin's commands with the plugin name and the
+Seven slash commands. Claude Code namespaces a plugin's commands with the plugin name and the
 prefix **cannot be suppressed**, so they are `/lw-watchtower:…` and nothing shorter.
 
 **There were twelve.** Every deleted command below is written **without a leading slash**, because
@@ -36,7 +36,7 @@ that it exists is not a feature.
 **Four were deleted on 30 July 2026, and every deletion was deliberate.**
 
 - `lw-watchtower:verify` ran the gate regression suite and went with the destructive command gate that
-  suite mostly covered. **No command tests behaviour.** 11 suites test behaviour and only two of
+  suite mostly covered. **No command tests behaviour.** 12 suites test behaviour and only two of
   them cover a gate — see [Testing](testing.md).
 - `lw-watchtower:tripped` listed open gate trips and went with the trip ledger it read: both gates were
   already gone, so no trip could be recorded, and the ledger files it read were then backed up and
@@ -62,6 +62,15 @@ Read and print; it changes nothing. There is one, and it absorbed the other on
 | Command | Backed by | What it does | Exits non-zero |
 | --- | --- | --- | --- |
 | [`/lw-watchtower:doctor`](#lw-watchtowerdoctor) | [`bin/lwg-doctor.ps1`](../lw-watchtower/bin/lwg-doctor.ps1) | 10 checks aimed at what is **not** working. | **yes — that is the point** |
+
+## Report on your own sessions
+
+Reads the Claude Code transcripts already on disk. It writes nothing at all - no state file, no
+index cache, no ledger, and nothing in your repository.
+
+| Command | Backed by | What it does | Exits non-zero |
+| --- | --- | --- | --- |
+| [`/lw-watchtower:metrics`](#lw-watchtowermetrics) | [`bin/lwg-metrics.ps1`](../lw-watchtower/bin/lwg-metrics.ps1) | Token spend by model and by category, the main-thread / subagent split, and whether any work was delegated at all. | **only when it could not look** |
 
 ## Lifecycle
 
@@ -172,7 +181,7 @@ ships switched off, so on a default install nothing here blocks anything. The sc
 blind spots on every run, including the green ones.
 
 **No command tests behaviour.** The one that did — `lw-watchtower:verify`, over a 233-case suite — was
-removed with the destructive command gate. 11 behavioural test files survive it —
+removed with the destructive command gate. 12 behavioural test files survive it —
 [`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) for `delegate_gate`,
 [`tests/supervision.ps1`](../tests/supervision.ps1) for the other two gates and `orphan_watch`, and
 nine more covering the installer's `statusline` and hooks merge, the turn-end hooks, the
@@ -183,6 +192,36 @@ of them.** So a green doctor is the only automated statement any *command* here 
 plugin, and it is a statement about wiring alone. Do not fill that gap with an inference.
 
 ---
+
+## `/lw-watchtower:metrics`
+
+`bin/lwg-metrics.ps1`. Flags: `-All` reports across every project on this machine instead of the
+one you are in; `-Json` prints the same figures as one object, with the exact integers rather than
+the scaled columns.
+
+**Two exit codes and they are not the usual pair.** `0` a report was produced - and an empty
+corpus is still a report, because "I looked and there was nothing" is a measurement. `3` no report
+could be produced: the configuration root would not resolve, or the transcript directory is not
+there. Nothing was measured, so nothing it printed is a measurement.
+
+It reads Claude Code's own transcripts and this plugin's `health.jsonl`. **It writes nothing**,
+makes no network call, and never mentions money.
+
+**Most of its columns say `NOT DETERMINED`, and that is the design.** This is the first slice of
+the metrics work: the transcript indexer and the scoreboard, and nothing else. There is no hook, no
+usage-meter history, no review-round capture, no landing detection and no keep-or-revert decision
+rule, and each of those columns names the requirement it is waiting on. A scoreboard that invents a
+number is worse than one that says it cannot tell.
+
+**The number to be careful with is the composite.** It is `input + cache read + cache creation +
+output`, and on a real session the cache read is two or three orders of magnitude larger than
+everything else - so the composite quoted alone is a cache-read figure wearing a different label.
+The report always prints the four categories beside it. It also prints the subagent share of the
+composite AND of output, because those two answer different questions and diverge widely.
+
+Every figure is **per session**, never per landing, and every token total is a **floor**: usage on
+another device, in a browser session, or through the advisor tool is in nobody's transcript here.
+Full sources, fields and limits: [Metrics](metrics.md).
 
 ## `/lw-watchtower:setup`
 

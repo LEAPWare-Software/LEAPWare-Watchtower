@@ -158,6 +158,40 @@ land here as they merge.
 - **`tests/supervision.ps1` 66 → 67 cases** — E15, labelled a **pin** rather than a regression case
   because it is green by construction: a `SubagentStart` row neither rescues an orphan nor creates
   one, because the reconciliation filters on `SubagentStop` alone.
+- **`/lw-watchtower:metrics` — the plugin can now measure whether it saves anyone anything
+  (2026-09-06, #165, first slice).** The owner asked what they gain from routing work to subagents
+  and the honest answer was that nobody had measured it. `bin/lwg-metrics.ps1` indexes the Claude
+  Code transcripts already on disk and prints a scoreboard: token spend by model and by the four
+  usage categories, the main-thread against subagent split on both composite and output, per-session
+  cohorts assigned from the dominant main-thread model, and **whether any work was delegated at
+  all** — the measurement the whole responsiveness design assumes and nothing had ever checked.
+  `lib/metrics.ps1` holds the pure functions so they are testable without a live session.
+  **Usage is summed once per `message.id`.** The CLI writes one API response as several assistant
+  lines, each repeating the identical usage object; measured over the local corpus on the day this
+  landed, 36,649 assistant lines carrying usage resolved to 19,483 distinct requests, so a per-line
+  sum overstates by roughly twice. Every accumulator is `[long]`: that same corpus carries
+  4,479,419,249 cache-read tokens, past `[int]::MaxValue`.
+  **This is R2 of #165 and nothing else** — no hook, no `modules` flag, no ledger file, no
+  `METRICS.md`, no meter history, no landing detection, no decision rule and no dollar figure
+  anywhere. The registry still holds eleven entries and `hooks/hooks.json` still holds thirteen
+  registrations over eight events. **Every column with no source prints `NOT DETERMINED`** with the
+  requirement it is waiting on, because a scoreboard that invents a number is worse than one that
+  says it cannot tell. **It writes nothing at all**, makes no network call, and prints no filesystem
+  path — the transcript directory names are working directories with their separators replaced and
+  carry the operator's account name, so the report names the variable that resolved the root and
+  never its value.
+- **`docs/metrics.md`** — the data sources behind that command, field by field, including the ones
+  the specification names that no file on this machine carries: no `Agent` result here has status
+  `completed`, so the transcript sums have no second opinion to be cross-checked against; no
+  `teammate_spawned` result and no `agent-<name>-<hex>` transcript exists here; `toolUseResult.agentType`
+  and `input.name` are absent; and `.meta.json` omits `model` on 39 of 243 dispatches, which is the
+  inherit case and is reported as absent rather than defaulted.
+- **`tests/metrics_behaviour.ps1`, 23 cases** — the transcript indexer and the scoreboard, in real
+  child processes against a hand-built fixture corpus under a scratch `CLAUDE_CONFIG_DIR`. **It is
+  the first new file under `tests/` since the no-new-file rule**, allowed by owner ruling F5 of
+  6 September 2026, which covers this file and one other and is the only waiver in the release. With
+  it, `tests/` holds fifteen files and twelve of them test behaviour, CI runs 21 check steps, and
+  every count-bearing sentence in the tree is restated in the same commit.
 - **`tests/payload_guard.ps1` case S13** — the orchestrator role grants itself no tool that edits or
   executes. `Bash`, `PowerShell`, `Edit`, `Write` or `NotebookEdit` on that one frontmatter line would
   silently end the delegation discipline the whole body is written around, while the body went on

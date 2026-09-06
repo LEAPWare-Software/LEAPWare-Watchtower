@@ -410,7 +410,7 @@ on `SubagentStop` alone.
 
 ## What no test covers
 
-**Eleven suites in this repository establish a behaviour of this plugin, and between them they reach
+**Twelve suites in this repository establish a behaviour of this plugin, and between them they reach
 all three gates, three writers, one deleter, the session-start hook, two of the doctor's ten checks,
 one hook's fast path, the shipped payload, and all eight observing modules.**
 
@@ -572,7 +572,7 @@ for still renders that row `DONE`. See [Branch protection](testing.md#branch-pro
   registration and not the language level. Every tracked script declares `#requires -version 5`,
   which PowerShell 7 satisfies, so running one by hand under `pwsh` is not refused by the interpreter
   and says nothing about whether the hooks will fire. One script was checked under PowerShell 7 and
-  produced byte-identical output; that is one script, not a claim about all twenty-one. There is no
+  produced byte-identical output; that is one script, not a claim about all twenty-three. There is no
   OS matrix in CI and no plan for one.
 - **Hook events were read out of the claude-code 2.1.220 binary.** `SubagentStart`,
   `PostToolUseFailure` and `StopFailure` may not exist on older builds. Every claim in `docs/` about

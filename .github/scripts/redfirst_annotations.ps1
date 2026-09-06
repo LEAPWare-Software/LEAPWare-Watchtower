@@ -93,6 +93,13 @@
   set is a floor, not a ceiling, and the per-suite table is printed so the
   floor is visible rather than summed away.
 
+  RE-MEASURED 2026-09-06, and the paragraph above is left as the record it is:
+  rule 1 now checks FORTY-NINE annotations and rule 2 EIGHTEEN case references
+  over FIFTEEN suites, of which two contribute nothing to either number. The
+  numbers above were true at 4342980 and correcting them would falsify a dated
+  measurement; this line is how the drift is stated instead. Nothing here is
+  derived from either figure - the ledger the run prints is.
+
   EXIT CONTRACT, the same 0/1/2 every guard in this repository uses:
 
       0  every annotation checked has the shape it claims
