@@ -814,8 +814,38 @@ It warns at turn end about:
 | `unpushed` | there are local commits the remote does not have |
 | `default-branch` | those commits are directly on the default branch, with no PR between them and everyone else |
 | `pr-stale` | an open PR exists for the branch and its head is behind your local branch |
+| `rebase` | a **rebase** is in progress and unfinished — either backend, `rebase-merge/` or `rebase-apply/` |
+| `merge` | a **merge** is in progress and uncommitted — `MERGE_HEAD` is still there |
+| `cherry-pick` | a **cherry-pick** is in progress and uncommitted — `CHERRY_PICK_HEAD` is still there |
+| `bisect` | a **bisect** is in progress — `HEAD` is wherever the search left it |
+| `conflict` | one or more paths carry **unresolved conflicts** |
+| `stash` | at least one **stash** is still held |
 | `query-failed` | **git did not answer.** See below — this is the important one. |
 | `gh-unavailable` | the open-PR check did not run |
+
+**The six interrupted-work conditions cost nothing, and five of them answer with no `git` at all.**
+A rebase, a merge, a cherry-pick, a bisect and a stash are each a file or a directory git itself
+creates and removes, so they are read with `Test-Path` and no subprocess — which means they are
+still reported on a machine where git is missing, hanging or refusing, the machine where every
+other condition here can only be **UNKNOWN**. Measured against one real subprocess round trip on the
+same machine in the same run, the whole probe set costs about **1.2 %** of one `git` spawn
+(`tests/stop_behaviour.ps1` case B37); it is a measurement, not an assertion, and it is re-taken on
+every run of that suite. The sixth, `conflict`, has no such file — an unresolved conflict is
+stage-1/2/3 entries in the **index** — so it is read from the `u` lines of the `git status` this
+module was already paying for. Unmerged paths are still counted in `dirty` as they always were;
+what changed is that they are now also named.
+
+**Two git directories, and in a linked worktree they are not the same directory.** `MERGE_HEAD`,
+`CHERRY_PICK_HEAD`, `BISECT_LOG` and the rebase directories belong to the **per-worktree** git dir;
+`refs/` — and therefore the stash — belongs to the **shared** one, reached through `commondir`.
+Both are probed in the right place. **The stash is probed twice**, as `refs/stash` and as
+`logs/refs/stash`, because `git gc` packs `refs/stash` into `packed-refs` and a probe that read only
+the loose ref would report a clean tree on any repository gc had touched since the last stash.
+
+**What this does NOT yet cover, stated so the list above is not read as the whole of it:** every
+*other* worktree, every branch that is not `HEAD`, tags, submodules, LFS, unreachable commits, CI,
+and a half-finished **revert** (`REVERT_HEAD`). Those are #167's coverage classes 1, 3 and 4 and its
+foreign-worktree register, and none of them is built.
 
 **A failed query is not a clean tree.** If `git` is missing, times out, or exits nonzero, this
 module says the tree state is **UNKNOWN** and says so out loud:
@@ -844,6 +874,9 @@ and it stops the moment the query starts answering.
 
 - Outside a git repo it does nothing, and the check for that is a `Test-Path` walk, not a
   subprocess.
+- The six interrupted-work conditions add **no process at all**: five are `Test-Path` probes and the
+  sixth reads lines of the `git status` below that were already being fetched. Measured at about
+  1.2 % of one `git` spawn — see the paragraph above the cost list.
 - The common case is **one** `git status --porcelain=v2 --branch`, which answers dirty, detached,
   ahead and behind together rather than costing four processes.
 - A second `git rev-list --count HEAD --not --remotes` runs only on a branch with **no upstream**,

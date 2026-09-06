@@ -19,8 +19,14 @@ because that file already owned the only harness that runs any of them for real.
 not the same as passing —
 which is the one external binary any suite here depends on besides `powershell` itself; every
 "remote" it builds is a local bare repository under the temp directory and no case reaches a network.
+**One case of the interrupted-work block in the Stop-hook behaviour suite needs `git` as well** —
+B36 builds a real repository with a real conflicted index, because an unresolved conflict lives in
+the index and is not a file whose existence can be tested. Without `git` that case **fails**, with
+the reason on the line; it never skips. Every other case in that block builds a `.git` directory by
+hand and deliberately runs with `git` removed from the child's `PATH`, which is how they prove the
+probes cost no subprocess.
 `tests/stop_behaviour.ps1` runs the two hooks that fire at every turn end —
-`lib/stop_advisories.ps1` and `lib/supervisor.ps1` — with 120 cases, and covers more
+`lib/stop_advisories.ps1` and `lib/supervisor.ps1` — with 133 cases, and covers more
 **observing** modules than anything else here. `tests/uninstall_footprint.ps1` drives `bin/lwg-uninstall.ps1` against
 throwaway data directories and throwaway `settings.json` files with 40 cases, and is the only one
 that covers a **deletion**.
@@ -385,7 +391,9 @@ Five sections:
 
   **This was `mission_drift`'s section and the module is gone.** Its cases went with it, and the
   suite's own header says so rather than leaving the section looking thinner than it was designed.
-  What survives is the plumbing plus the four cases that were always about something else: B22 and
+  What survived that removal was the plumbing plus the four cases that were always about something
+  else — joined since by the timeout tree kill and by the interrupted-work block described below,
+  so this is what the section was reduced to, not what it holds now: B22 and
   B23 on the shared edit-list writer — that the list **rolls** at 256 KB rather than stopping, so a
   file edited after the cap is still recorded, and that one 200 000-character
   `tool_input.file_path` is bounded both where it is written and where it reaches the operator's
@@ -395,6 +403,16 @@ Five sections:
   occupancy above the assumed window and asserts the module **refuses** it — reports no percentage
   and pins nothing — and then that a second, corroborating reading is what promotes it to a learned
   window.
+
+  **B27–B37 are `git_hygiene`'s coverage class 2** (#167), and they are the largest block in the
+  section: a half-finished rebase in each of its two backends, a half-finished merge, cherry-pick
+  and bisect, a forgotten stash both as a loose `refs/stash` and as one `git gc` has packed away, a
+  **linked worktree** whose merge marker and whose stash live in two different git directories, an
+  unresolved conflict named rather than folded into the change count, and the **control** that a
+  repository with none of them reports none of them. B37 is the budget: a difference of medians
+  between the probe set and one real subprocess round trip through the module's own process
+  plumbing, both taken on the same machine in the same run, because the claim being checked is that
+  these probes are free *next to the `git status` this module already pays for*.
 - **C — `failure_capture` and `log_rotation`, end to end.** Registration in `hooks.json` including
   the `asyncRewake` that makes exit 2 an *alert* rather than a *block*; the two shipped-bug
   regressions below; the interrupt that must not alert **and must still be recorded**; that the
@@ -406,10 +424,13 @@ Five sections:
 - **D — log hygiene.** The size, the encoding and the archive set of the files the other three
   sections write. `Invoke-LwgRotate` is called in process against a throwaway state directory; the
   status line is run for real in a child process, because what this section asserts about it is how
-  long it takes. D is the only section that **measures** rather than compares, and its one timing
-  case asserts a *difference* between two medians taken back to back in the same run, never an
-  absolute duration — an absolute threshold is a case that fails on a slow laptop for reasons that
-  have nothing to do with the code.
+  long it takes. D **measures** rather than compares, and since 6 September 2026 it is not the only
+  section that does — B37 measures the interrupted-work probe cost the same way. Both assert a
+  *difference* between two medians taken back to back in the same run, never an absolute duration —
+  an absolute threshold is a case that fails on a slow laptop for reasons that have nothing to do
+  with the code. **D4 skips under `LWG_SUITE_PARALLEL` and B37 does not**, because B37's reference
+  leg is a subprocess: sibling load makes a spawn *slower*, which makes its assertion strictly
+  easier, and a guard load can only help has no reason to skip under it.
 - **E — this suite itself, in process.** One case, and the only one here that asserts on the suite
   rather than on something the suite tests: that the operator's live event log is the same size in
   bytes after the run as it was before it. Section A's in-process calls used to append a record to

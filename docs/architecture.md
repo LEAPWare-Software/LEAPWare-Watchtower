@@ -178,7 +178,7 @@ tests/gate_delegate.ps1      100 cases against lib/gate_delegate.ps1, each run
                              through a real pipe into a real child process. One
                              of ELEVEN behavioural suites, and the only one that
                              covers a PreToolUse gate - see docs/testing.md
-tests/stop_behaviour.ps1     120 cases against the Stop-hook handlers:
+tests/stop_behaviour.ps1     133 cases against the Stop-hook handlers:
                              helpers in process, lib/stop_advisories.ps1 and
                              lib/supervisor.ps1 in real child processes. The
                              suite that reaches the most OBSERVING modules
@@ -459,6 +459,16 @@ That is also the answer to why the advisory modules share one process rather tha
 Inside a repo `git_hygiene` costs ~90 ms on the critical path (was ~140 ms), ~2 ms with the flag off,
 and nothing measurable outside a repo. **That figure is for a branch with an upstream, and it is the
 only configuration it was ever measured in** — see the paragraph below, which is the correction.
+
+**The interrupted-work probes added on 6 September 2026 (#167 coverage class 2) do not move that
+figure and were measured rather than assumed.** Five of the six conditions — a half-finished rebase,
+merge, cherry-pick or bisect, and a forgotten stash — are `Test-Path` calls against the git
+directory and spawn nothing; the sixth, an unresolved conflict, is read from the `u` lines of the
+`git status` already being fetched. Difference of medians against one real subprocess round trip
+through this file's own process plumbing, nine rounds, leg order reversed on alternate rounds, one
+warm-up sweep discarded, both legs on the same machine in the same run: **1.17 ms for the whole
+probe set against 96.85 ms for one `git` spawn — 1.2 %**. The measurement is case B37 of
+`tests/stop_behaviour.ps1` and is re-taken on every run of that suite.
 The worst case remains the `gh` call, ~980 ms of network:
 reachable only with unpushed work on a non-default branch, **at most once per branch head per
 session**, removed entirely by `use_gh: false`, capped at `gh_timeout_ms` (2 500 ms) and killed on
