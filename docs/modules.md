@@ -33,7 +33,6 @@ counted as coverage** — a `true` flag is a forward-declaration, not evidence t
 | `failure_capture` | observe | **implemented** | Record tool, hook and subagent failures so nothing fails silently. |
 | `self_health` | observe | **implemented** | Prove the governance layer itself can still fire. |
 | `log_rotation` | observe | **implemented** | Cap `health.jsonl` and `lw-watchtower.jsonl`. It does **not** bound the state dir: `advisory-<sessionkey>.json` and `edits-<sessionkey>.txt` are one file per session each and nothing sweeps them. |
-| `context_pressure` | observe | **implemented** | Warn before the context window forces a lossy compaction. |
 | `docs_coupling` | observe | **implemented** | Flag source changes shipped without documentation. |
 | `git_hygiene` | observe | **implemented** | Branch, commit and push discipline at turn end. |
 | `context_injection` | observe | **implemented** | Hand every subagent facts that are current at *dispatch* time, because `CLAUDE.md` is snapshotted at session start. |
@@ -42,7 +41,7 @@ counted as coverage** — a `true` flag is a forward-declaration, not evidence t
 | `completion_audit` | **gate** | **implemented** | Refuse a turn end whose final assistant text claims completed work when the turn's **last** tool action was a `SendMessage`: queued for delivery is not delivery. Registered on `Stop` and `SubagentStop`. **Ships switched off**; its switch is `supervision.completion_audit`. |
 | `delegate_gate` | **gate** | **implemented** | Refuse `Edit`/`Write`/`NotebookEdit`/`Bash`/`PowerShell` for calls that did not come from a subagent, so the chat session is reserved for talking to the operator. **Ships OFF** — see [below](#delegate_gate). |
 
-## Caveats on the eight that only observe
+## Caveats on the seven that only observe
 
 Read these before treating any module as coverage. Every module named below **observes**; not one of
 them can stop anything. The three gates are the exception — [`delegate_gate`](#delegate_gate),
@@ -55,9 +54,13 @@ its own section below. All three ship switched off.
 - `log_rotation` runs on **its own flag alone**. The rotation call sits above the
   `failure_capture` flag check in [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1), so switching failure
   capture off stops the writes to `health.jsonl` but never the cap on its size.
-- `context_pressure` does not read a context percentage — no hook is given one. It recomputes
-  occupancy from the transcript, and the window *size* is inferred. See
-  [`context_pressure`](#context_pressure).
+- the **transition ladder** is a layer of `failure_capture`, not a module of its own, so it has no
+  row above and no switch: `failure_capture` off means the ladder is off too. It warns the model at
+  70% and tells it to land the work at 85%, over the worst of the 5-hour limit, the 7-day limit and
+  the context window, read from `signals/ratelimit.json`. It replaced `context_pressure` on
+  6 September 2026 — that module recomputed occupancy from the transcript and *inferred* the
+  window size, and it could only reach the operator's screen. See
+  [The transition ladder](#the-transition-ladder).
 - `docs_coupling` sees **`Write`/`Edit`/`NotebookEdit` only**. A file rewritten by a shell command
   is invisible to it.
 - `git_hygiene` is the **only module that spawns a subprocess**, and it does so on `Stop` only.
@@ -551,7 +554,7 @@ opposite overstatement: it says a probe failed, and none did.
 The banner as shipped, verified by running the hook rather than transcribed from intent:
 
 ```
-LW-WATCHTOWER v0.4.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.4.0 · 6/10 modules enabled (4 off) · 0 gates · observe-only
 ```
 
 Seven of eleven, and **the four that are off are `send_liveness_gate`, `completion_audit`,
@@ -560,13 +563,13 @@ parenthetical is the remainder being accounted for rather than a warning: everyt
 named, so the total always adds up. Setting `self_health: false` as well gives:
 
 ```
-LW-WATCHTOWER v0.4.0 · 6/11 modules enabled (5 off) · 0 gates · unverified (self_health off - nothing was checked)
+LW-WATCHTOWER v0.4.0 · 5/10 modules enabled (5 off) · 0 gates · unverified (self_health off - nothing was checked)
 ```
 
 Run `/lw-watchtower:delegate on` and the same shipped config gives:
 
 ```
-LW-WATCHTOWER v0.4.0 · 8/11 modules enabled (3 off) · 1 gate · partial
+LW-WATCHTOWER v0.4.0 · 7/10 modules enabled (3 off) · 1 gate · partial
 ```
 
 **`partial`, not `enforcing`, and that is the point of this example.** A live gate is what lifts the
@@ -576,7 +579,7 @@ switch in the `supervision` block. Turning all three on as well gives the only c
 which `enforcing` is honest, and it is also the only one with no remainder to account for:
 
 ```
-LW-WATCHTOWER v0.4.0 · 11/11 modules enabled · 3 gates · enforcing
+LW-WATCHTOWER v0.4.0 · 10/10 modules enabled · 3 gates · enforcing
 ```
 
 The count is **enabled**, not observed: it is the modules that are switched on in `config.json`
@@ -638,7 +641,7 @@ object and adds them. **No hook event carries any of them.**
 | `rate_limits.five_hour` / `.seven_day` | status-line input only | **no** |
 | `cost.total_cost_usd` | status-line input only | **no** |
 | `cost.total_lines_added` / `.removed` | status-line input only | no for this field — but see below |
-| `context_window.used_percentage` | status-line input only | no — but see [`context_pressure`](#context_pressure) |
+| `context_window.used_percentage` | status-line input only | no — but the status line writes it to `signals/ratelimit.json`, which the transition ladder reads |
 
 **Exception found 31 July 2026, and why it does not change the verdict.** `PostToolUse` for the
 `Agent` tool specifically carries `tool_response.toolStats` (`linesAdded`, `linesRemoved`,
@@ -678,7 +681,7 @@ this plugin exists to catch, and it has now been shipped here twice.
 
 ## Advisories
 
-Three modules warn without ever blocking — `context_pressure`, `docs_coupling` and `git_hygiene`.
+Two modules warn without ever blocking — `docs_coupling` and `git_hygiene`.
 They run in **one** process on `Stop`
 ([`lib/stop_advisories.ps1`](../lw-watchtower/lib/stop_advisories.ps1)), because each registered hook is a
 separate PowerShell startup and `Stop` fires at every turn end — one hook per advisory would have
@@ -712,62 +715,59 @@ rather than the tree, and silence from that module is documented to mean *git sa
 wrong*. See [`git_hygiene`](#git_hygiene), which states the exemption where it applies, and
 [faq.md](faq.md), which carries the same carve-out.
 
-### `context_pressure`
+### The transition ladder
 
-No hook is given `context_window`. Occupancy is recomputed from the transcript's last main-thread
-assistant record using the CLI's own arithmetic —
-`round((input_tokens + cache_creation_input_tokens + cache_read_input_tokens) / window * 100)` —
-which is real data, not a proxy. Subagent (`isSidechain`) records are skipped, so a worker's
-occupancy is never reported as the session's.
+**Not a module and it has no switch of its own.** It is a layer of `failure_capture`, computed in
+[`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1)'s `Stop` branch, and the consequence is
+stated rather than left to be found: **`failure_capture` off means the ladder is off**. It replaced
+`context_pressure` on 6 September 2026, which is why the registry went from eleven entries to ten
+and the observing count from eight to seven.
 
-The one number that genuinely cannot be observed is the **window size**, which depends on account
-entitlements. The CLI only ever picks 200 000 or 1 000 000, and this module resolves between them
-in descending order of trust, recording which source it used in every log record:
+**Where the numbers come from.** No hook is handed `rate_limits` or `context_window` — they are
+assembled in exactly one place, the status-line input builder. The status line writes them to
+`signals/ratelimit.json` under every discovered data directory on every render, and the ladder reads
+that file. So the occupancy is the CLI's own figure rather than one recomputed from a transcript
+against an inferred denominator, and the two rate limits are available at all, which no transcript
+could have supplied.
 
-| `window_source` | Basis |
-| --- | --- |
-| `config` | an explicit entry in `module_config.context_pressure.window_tokens` |
-| `1m-tag` | the model id carries `[1m]`, which the CLI itself reads as one million |
-| `observed` | this model has been seen holding more than 200 000 tokens on **two separate turns** — proof rather than a guess, and deliberately not settled on one sample. See below for what the second sample costs |
-| `default` | none of the above; 200 000 is **assumed**, and the advisory says `window assumed` |
+**The worst of the three sets the tier**, not the first one read:
 
-If occupancy ever exceeds the resolved window the figure is arithmetically impossible, so the
-denominator is wrong. The module then **suppresses the percentage entirely** and logs
-`ContextWindowUnknown` telling you which model to add to the config. It does not report a false
-`100% CRITICAL`. Fabricating a governance number is worse than declining to produce one.
+| Tier | Default | What the model is told |
+| --- | --- | --- |
+| amber | `thresholds.ladder.amber_pct`, 70 | start no new work, dispatch no new agents, finish what is running |
+| red | `thresholds.ladder.red_pct`, 85 | land the work now — commit, push, write the rest to the tracker, then run `/lw-watchtower:lw-handoff` |
 
-**`observed` takes two samples, not one, and the second one is the difference between a proof and a
-guess.** An occupancy above the assumed window is ambiguous by construction — it is either a bigger
-window or a wrong numerator (a mis-summed usage block, records spanning a compaction, two models'
-figures landing under one key). A single reading used to settle it permanently, which is how one
-260 000 mis-read pinned the denominator at 1 M and rendered a real 150 k of 200 k turn as `15%`,
-level `ok`, silently. So the first reading above 200 000 is stored under a separate
-`<model>#pending` key, which the resolver cannot see and which changes nothing; a second reading, on
-a later turn, promotes it to the entry the resolver reads. **The cost is that the first turn or two
-of such a session report the window as unknown and print no percentage at all** — and that is the
-run that tells you `window_tokens` exists. Driven end to end against a model with no `[1m]` tag and
-no config entry: turn 1 at 260 k left `{"claude-z-1#pending":260000}` and no percentage; turn 2
-promoted it to `{"claude-z-1":260000}` and still printed none, because resolution reads the store as
-it stood on disk *before* that turn's write; a later turn at 950 k rendered
-`context 95% CRITICAL (950k/1.0M, window inferred from earlier turns)` with
-`window_source: observed`.
+There is **no black tier**. The approved design refuses the turn end at 92 until a handoff package
+exists and has been audited, and that package's first required field is the state of every effort in
+flight — which nothing in this tree can produce, because no dispatch is recorded. A gate blocking on
+a field that is structurally empty is the failure this plugin exists to catch, so it is not shipped
+yet.
 
-**A promoted entry is never revised.** Corroboration makes a wrong pin much less likely; it does not
-make one recoverable. Both write branches are guarded on the stored figure still being at or below
-the 200 000 default, so the moment it goes above it nothing rewrites it, nothing clears it and there
-is no expiry — `observed` corrects the assumption *upward*, once, and in no other direction.
-Reproduced: after `{"claude-z-1":260000}` was promoted, a later turn at 950 k resolved against it
-and left it at 260 000. The two ways back are an explicit `window_tokens` entry, which outranks it,
-and deleting `context_windows.json` from the state directory — a missing file reads as an empty
-store, so the ladder starts again from the top.
+**It reaches the model, and that is the whole reason it does not live with the other advisories.**
+[`lib/stop_advisories.ps1`](../lw-watchtower/lib/stop_advisories.ps1)'s only stdout is a
+`systemMessage` envelope, which the **operator** reads and the model does not. Exit 2 under the
+supervisor's `Stop` registration, which carries `asyncRewake`, is the only channel that reaches the
+model mid-turn. The ladder alerts on a **rise** — amber once, then again when it becomes red — and
+records the tier it announced in `ladder-<session>.json`. A drop is recorded immediately, so a
+compaction that takes the context window back under 70 re-arms it.
 
-**Residual risk, stated plainly:** for an unrecognised model whose real window is 1 M, occupancy
-between 150 k and 200 k will read as `75–100%` until **two** turns cross 200 000 and the
-`observed` rule corrects it permanently. Add the model to `window_tokens` to avoid the window
-entirely. `window_tokens` **ships empty**, so this chain runs for every model until you put
-something in it — an explicit entry wins outright and suppresses the three rules below it, which is
-right for an operator stating a fact about their own account and wrong for a value shipped to
-everyone. See [Configuration](configuration.md#context_pressure).
+**Four states are `unavailable`, and none of them is read as calm:** the file is absent (the status
+line has not rendered into this data directory yet), unreadable, carries a `schema` this build has
+no contract for, or is older than `thresholds.ladder.max_age_minutes`. **The previous turn's tier is
+never reused.** A monitor that fails silent turns *I do not know* into *I am fine*, which is exactly
+how a session believed it was at 54% for four hours. The price is stated too: a turn whose last tool
+call ran longer than the budget ends with the ladder saying it does not know, and raising
+`max_age_minutes` is the answer rather than reusing a stale number. A signal the status line itself
+could not parse is named in that file's `unparsed` list and its block is omitted; the ladder treats
+it as unavailable rather than as 0%.
+
+Every `Stop` record in `health.jsonl` carries the verdict as `ladder`, with `ladder_reason`,
+`ladder_signal`, `ladder_pct`, `ladder_age_minutes` and `ladder_unavailable` beside it.
+
+**The tier numbers are deliberately earlier than the status line's own**, `thresholds.ratelimit`
+(88/92) and `thresholds.context` (75/90), and the two sets are not the same knob: writing and
+auditing a handoff costs tokens and has to finish before the wall. Moving one does not move the
+other.
 
 
 ### `docs_coupling`

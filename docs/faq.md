@@ -144,10 +144,10 @@ and the rules it has to follow at
 No. That is the correct shipped state and it is what the banner is for. As shipped it reads:
 
 ```
-LW-WATCHTOWER v0.4.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.4.0 · 6/10 modules enabled (4 off) · 0 gates · observe-only
 ```
 
-- **`7/11`** — eleven modules are built; seven are enabled. The four that are off are
+- **`6/10`** — ten modules are built; six are enabled. The four that are off are
   `send_liveness_gate`, `completion_audit`, `orphan_watch` and `delegate_gate` — all four built, all
   four shipped switched off. The parenthetical is the remainder being accounted for rather than a
   warning: everything not counted is named, so the total always adds up.
@@ -408,10 +408,11 @@ ones:
   wrong warning is still worth reporting, and there is a suite to report it against.
 - **`git_hygiene` says UNKNOWN** — that is not a false positive. It means git was missing, timed out
   or exited nonzero. **Do not read it as a clean tree.** Raise `timeout_ms` or check by hand.
-- **`context_pressure` shows no percentage** — deliberate. The computed occupancy exceeded the
-  resolved window, which makes the figure arithmetically impossible, so the module suppresses it
-  rather than print a false `100% CRITICAL`. Add your model to
-  `module_config.context_pressure.window_tokens`.
+- **the transition ladder says *unavailable*** — deliberate. `signals/ratelimit.json` is absent,
+  unreadable, carries an unknown `schema`, or is older than `thresholds.ladder.max_age_minutes`.
+  **The ladder never falls back to the previous turn's tier**, because a monitor that fails silent
+  turns "I do not know" into "I am fine". See
+  [Troubleshooting](troubleshooting.md#the-transition-ladder-says-the-signal-is-unavailable).
 
 An advisory fires **on a change, not on a state**, so a condition that stays true does not repeat at
 every turn end. If one seems never to fire again, its dedupe position is stored in
@@ -444,9 +445,9 @@ than used silently. `/lw-watchtower:doctor`'s `state-dir` check prints the resol
 whether a write probe succeeded.
 
 What is in there: `lw-watchtower.jsonl` (the append-only event log), `health.jsonl` (failures), and
-per-session `advisory-*.json` and `edits-*.txt` files, plus a cross-session `context_windows.json`
-and `signals/ratelimit.json` — the last written by the **status line** rather than by a hook, because
-it is the only process the CLI hands rate-limit data to. Both `.jsonl` files roll at 5 MB carrying
+per-session `advisory-*.json` and `ladder-*.json` and `edits-*.txt` files, plus a cross-session
+`signals/ratelimit.json` — written by the **status line** rather than by a hook, because
+it is the only process the CLI hands rate-limit data to, and read by the transition ladder. Both `.jsonl` files roll at 5 MB carrying
 their last 500 records forward. Full table: [State directory](architecture.md#state-directory).
 
 **Two install routes mean two data directories, and state written under one is invisible to a session

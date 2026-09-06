@@ -1231,6 +1231,45 @@ try {
          "started-and-stopped one to raise nothing (exit 0, silent); got $($r15a.code)/'$($r15a.err)' and " +
          "$($r15b.code)/'$($r15b.err)'. supervisor.ps1:403 filters on SubagentStop alone and the start row is inert.")
 
+    # E17/E18 - THE TRANSITION LADDER HONOURS THE SAME LOOP GUARD (#168).
+    #
+    # Every Stop hook in this plugin stands down when stop_hook_active is true,
+    # because the CLI sets it on the continuation a blocking or alerting Stop
+    # hook caused. A new exit-2 path that does NOT honour it re-alerts on its
+    # own continuation, and on that one's continuation, for as long as the
+    # signal stays above the threshold - which for a rate limit is hours. The
+    # ladder is the first exit-2 path added to this branch since the guard was
+    # written, so the contract is asserted for it here rather than assumed from
+    # the fact that the guard is a few lines above.
+    #
+    # THE PAIR IS THE CASE. E17 alone is satisfiable by a ladder that never
+    # fires at all, which is exactly the failure the guard would be hiding. E16
+    # runs the identical fixture with the flag off and requires the alert, so
+    # a silent ladder fails one of the two whichever way it is broken.
+    $e17 = New-LwgSession -Base $work -Tag 'e17'
+    [void](Write-LwgHealth -RootDir $rootOn -Records @(
+        @{ ts = ([datetime]::UtcNow.AddMinutes(-5)).ToString('o'); event = 'SessionStart'; session = $e17.id }
+    ))
+    $sigDir17 = Join-Path (Join-Path $rootOn 'data') 'signals'
+    [void][IO.Directory]::CreateDirectory($sigDir17)
+    $stamp17 = ([datetime]::UtcNow.AddMinutes(-1)).ToString(
+        "yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+    [IO.File]::WriteAllText((Join-Path $sigDir17 'ratelimit.json'),
+        ('{"schema":1,"written_utc":"' + $stamp17 + '","five_hour":{"used_percentage":93,"resets_at":"2026-09-06T20:00:00Z"}}'),
+        [Text.UTF8Encoding]::new($false))
+
+    $r = Invoke-LwgScript -ScriptPath $SupervisorPath -FakeRoot $rootOn -WorkDir $work -Tag 'e17' `
+             -ScriptArgs '-HookEvent Stop' -Payload (New-LwgStopPayload -Sess $e17 -HookActive $true)
+    Add-Result 'E17 ladder RED under stop_hook_active -> silent exit 0, no re-alert loop' `
+        ($r.code -eq 0 -and [string]::IsNullOrWhiteSpace($r.err)) `
+        "a hook is already holding this turn end open; alerting again from the continuation is the loop every Stop hook here stands down to avoid. got exit $($r.code), stderr: $($r.err)"
+
+    $r = Invoke-LwgScript -ScriptPath $SupervisorPath -FakeRoot $rootOn -WorkDir $work -Tag 'e18' `
+             -ScriptArgs '-HookEvent Stop' -Payload (New-LwgStopPayload -Sess $e17 -HookActive $false)
+    Add-Result 'E18 the identical fixture with the guard clear DOES alert -> exit 2 RED' `
+        ($r.code -eq 2 -and $r.err -like '*RED*' -and $r.err -like '*/lw-watchtower:lw-handoff*') `
+        "E17 must not be satisfiable by a ladder that never fires. got exit $($r.code), stderr: $($r.err)"
+
     # -------------------------------------------------------------------
     # RESULT
     # -------------------------------------------------------------------

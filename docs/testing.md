@@ -26,7 +26,7 @@ the reason on the line; it never skips. Every other case in that block builds a 
 hand and deliberately runs with `git` removed from the child's `PATH`, which is how they prove the
 probes cost no subprocess.
 `tests/stop_behaviour.ps1` runs the two hooks that fire at every turn end —
-`lib/stop_advisories.ps1` and `lib/supervisor.ps1` — with 133 cases, and covers more
+`lib/stop_advisories.ps1` and `lib/supervisor.ps1` — with 144 cases, and covers more
 **observing** modules than anything else here. `tests/uninstall_footprint.ps1` drives `bin/lwg-uninstall.ps1` against
 throwaway data directories and throwaway `settings.json` files with 40 cases, and is the only one
 that covers a **deletion**.
@@ -42,7 +42,7 @@ suites besides the merge suite that cover a **write to a file an operator owns**
 `tests/subagent_scan.ps1` pipes payloads into `lib/subagent_start.ps1` with 20 cases, and is the only
 coverage of any kind that `context_injection` has.
 `tests/payload_guard.ps1` reads every file `git ls-files` reports under `lw-watchtower/` — which is
-the whole shipped payload — with 27 cases, and is the only one that asks what a **stranger
+the whole shipped payload — with 28 cases, and is the only one that asks what a **stranger
 receives**.
 `tests/portability_scan.ps1` scans tracked files for machine-specific strings,
 `tests/workflow_guard.ps1` parses every workflow file and holds it to a set of rules, and
@@ -60,7 +60,7 @@ tracked `config.json` alone, and that no
 tracked file carries a disclosure this repository knows the shape of.**
 
 **Every module name is now reached by at least one suite, and that is a much weaker statement than it
-sounds.** `failure_capture`, `context_pressure`, `docs_coupling`, `git_hygiene` and `log_rotation`
+sounds.** `failure_capture`, `docs_coupling`, `git_hygiene` and `log_rotation`
 are driven by `tests/stop_behaviour.ps1`; `self_health` by `tests/state_resolution.ps1`;
 `context_injection` by `tests/subagent_scan.ps1`, which since 6 September 2026 also reaches
 `failure_capture`'s **dispatch record** — the second module in that one file; `orphan_watch`,
@@ -68,7 +68,7 @@ are driven by `tests/stop_behaviour.ps1`; `self_health` by `tests/state_resoluti
 `completion_audit` by `tests/supervision.ps1`; `delegate_gate` by `tests/gate_delegate.ps1`. Four of
 the observing ones arrived on **3 August 2026** with one to three
 cases each on at most two properties apiece
-(`context_pressure` 2, `docs_coupling` 2, `log_rotation` 3, `git_hygiene` 1), which is enough to say
+(`docs_coupling` 2, `log_rotation` 3, `git_hygiene` 1), which is enough to say
 they are no longer untouched and not enough to say they are tested. Read the list as a map of what is
 touched, not as a coverage claim.
 
@@ -407,10 +407,9 @@ Five sections:
   `tool_input.file_path` is bounded both where it is written and where it reaches the operator's
   `systemMessage`; B24, which drives three turn ends with `git` unresolvable and asserts the
   **UNKNOWN** tree state is reported at every one of them, because `git_hygiene`'s silence is
-  documented to mean *git said there is nothing wrong*; and B25, which feeds `context_pressure` an
-  occupancy above the assumed window and asserts the module **refuses** it — reports no percentage
-  and pins nothing — and then that a second, corroborating reading is what promotes it to a learned
-  window.
+  documented to mean *git said there is nothing wrong*. B25 fed `context_pressure` an occupancy
+  above the assumed window; both its cases were **deleted on 6 September 2026** with the module
+  they were about, and the transition ladder that replaced it is covered in section C instead.
 
   **B27–B37 are `git_hygiene`'s coverage class 2** (#167), and they are the largest block in the
   section: a half-finished rebase in each of its two backends, a half-finished merge, cherry-pick
@@ -1137,7 +1136,7 @@ evidence engine the two reporting commands share* until the same date; `bin/lwg-
 `checklist` and `sitrep` commands were deleted in wave 1 and that clause described nothing.
 
 **So the honest residue is per property, and the map already names the worst of it**: four of the
-observing ones carry one to three cases apiece on at most two properties (`context_pressure` 2,
+observing ones carry one to three cases apiece on at most two properties (
 `docs_coupling` 2, `log_rotation` 3, `git_hygiene` 1), and `context_injection` has exactly one
 property run with its `worker_facts.md` handling untested. No count is written for the properties
 that remain, and that is deliberate: it would mean deciding what counts as a property and then
@@ -1164,7 +1163,7 @@ as coverage:
    judgement is not in the code. `mission_drift` was the standing example — on by default, at every
    turn end, on every install, with a trigger nobody had checked — and it was removed on
    2 September 2026 rather than left there. The distinction survives it and applies to
-   `context_pressure`, `docs_coupling` and `git_hygiene`, all three of which ship on.
+   `docs_coupling` and `git_hygiene`, both of which ship on.
 5. The **SessionStart banner** is asserted by `tests/state_resolution.ps1` section G: that it is
    emitted and non-empty, that it is none of the **three** self-reported failure strings, that its
    counts and mode word are the ones the config implies across five configurations, and that a
@@ -1247,7 +1246,7 @@ Rename it only together with the branch-protection setting.
 | Workflow guard | `tests\workflow_guard.ps1` — **the step that guards the file it is written in.** Every file under `.github\workflows\` is parsed and held to the rules in [The workflow guard](#the-workflow-guard). A missing guard file fails the build, since not running is not the same as passing. |
 | Delegate gate suite | `tests\gate_delegate.ps1` — one of the twelve steps that test behaviour, and the only one that tests a **gate**. A missing suite file fails the build, since not running is not the same as passing. An abort (exit 2) is reported as an abort, never as a pass. |
 | Installer merge suite | `tests\setup_merge.ps1` — the only step that tests a **write to settings.json**. It drives `bin\lwg-setup.ps1` against throwaway settings files under the temp directory. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
-| Stop-hook behaviour suite | `tests\stop_behaviour.ps1` — the step that reaches **five of the eight observing modules**, more than anything else here. It runs `lib\stop_advisories.ps1` and `lib\supervisor.ps1` in real child processes against throwaway plugin roots under the temp directory. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
+| Stop-hook behaviour suite | `tests\stop_behaviour.ps1` — the step that reaches **four of the seven observing modules**, more than anything else here. It runs `lib\stop_advisories.ps1` and `lib\supervisor.ps1` in real child processes against throwaway plugin roots under the temp directory. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Uninstaller footprint suite | `tests\uninstall_footprint.ps1` — the only step that tests a **deletion**. It drives `bin\lwg-uninstall.ps1` against throwaway data directories under the temp directory, with `$env:USERPROFILE` and `$env:CLAUDE_PLUGIN_DATA` redirected around every call, and asserts on the filesystem as well as on the report. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Doctor behaviour suite | `tests\doctor_behaviour.ps1` — the step that runs the component whose job is to notice a switch wired to nothing. It copies the plugin tree to a scratch directory and drives the copy's own `bin\lwg-doctor.ps1` against seeded configs and seeded `settings.json` files, on **two of its ten checks and no others**. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Toggle write-path suite | `tests\toggle_behaviour.ps1` — one of the steps that test a **write to a file an operator owns**. It drives `bin\lwg-toggle.ps1` against a byte copy of `bin\` and `lib\` under a scratch plugin root with the config seeded per case, and closes with an invariant that the plugin root's tracked `config.json` was not moved by a byte. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |

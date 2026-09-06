@@ -7,11 +7,11 @@
 name, said here because the name this replaced (`LW-GMHH`, until 3 August 2026) was an initialism
 whose last two letters were never expanded anywhere in the tree, including in its own manifest
 description. **A watchtower is not a wall**, and the word was chosen over a candidate that implied
-protection for exactly that reason: eight of the eleven modules below can block nothing at all, and
+protection for exactly that reason: seven of the ten modules below can block nothing at all, and
 every one of the three that can ships switched off.
 
 LW-WATCHTOWER is a Claude Code plugin that applies one governance layer to every session, in every repo,
-without per-project setup. Eight of its eleven modules **observe** and warn and can block nothing. The
+without per-project setup. Seven of its ten modules **observe** and warn and can block nothing. The
 other three — `delegate_gate`, `send_liveness_gate` and `completion_audit` — are the only things here
 that can refuse anything, and all three ship **switched off**. Two further modules were specified,
 found to be impossible — the data they need reaches no
@@ -81,7 +81,7 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   to delegate rather than to read and edit itself. It is a request too, it is not selected for you,
   and it is [documented as a request](docs/output-styles.md). Anyone describing a style as enforcing
   is repeating this project's founding defect.
-- **All eleven declared modules are built. Seven are enabled; `orphan_watch` and the three gates are not.**
+- **All ten declared modules are built. Six are enabled; `orphan_watch` and the three gates are not.**
   `ratelimit_escalation` and `cost_tracking`
   were declared and are *blocked*, not merely unwritten: the data they need reaches no hook, and no
   further work on this plugin will change that, so on 30 July 2026 the placeholders were removed and
@@ -89,8 +89,8 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   [Attempted and blocked](docs/modules.md#attempted-and-blocked-ratelimit_escalation-and-cost_tracking).
 - **Twelve suites test behaviour, and a green run of all of them is a narrower claim than the
   totals suggest.** `tests/gate_delegate.ps1` runs 100 cases against `delegate_gate`;
-  `tests/supervision.ps1` runs 67 against `send_liveness_gate`, `completion_audit` and
-  `orphan_watch`; `tests/stop_behaviour.ps1` runs 133 against the two turn-end hooks and the
+  `tests/supervision.ps1` runs 69 against `send_liveness_gate`, `completion_audit` and
+  `orphan_watch`; `tests/stop_behaviour.ps1` runs 144 against the two turn-end hooks and the
   advisory modules behind them; `tests/setup_merge.ps1` runs 203 against the installer's `statusline`
   and `hooks` merge and against the reporting surfaces that have no suite of their own;
   `tests/uninstall_footprint.ps1` runs 40 against the uninstaller's footprint, attribution and
@@ -98,7 +98,7 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   against the two commands that write `config.override.json`; `tests/state_resolution.ps1` runs 37
   against the state-directory resolver; `tests/doctor_behaviour.ps1` runs 43 against the doctor's
   driven checks; `tests/subagent_scan.ps1` runs 20 against the `SubagentStart` fast path — the only
-  coverage `context_injection` has — and `tests/payload_guard.ps1` runs 27 against what the shipped
+  coverage `context_injection` has — and `tests/payload_guard.ps1` runs 28 against what the shipped
   payload discloses. They all go through a real pipe or a real child process. **Per-module coverage
   is much thinner than the case totals**: several observing modules are reached by one to three cases
   each, on at most two properties apiece, and `context_injection`'s `worker_facts.md` handling has no
@@ -263,7 +263,7 @@ installed it from the marketplace and reported back, and not before.
 Start a new session. You should see:
 
 ```
-LW-WATCHTOWER v0.4.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.4.0 · 6/10 modules enabled (4 off) · 0 gates · observe-only
 ```
 
 The four that are off are `send_liveness_gate`, `completion_audit`, `orphan_watch` and
@@ -315,7 +315,6 @@ block anything.
 | `failure_capture` | observe | implemented — records tool, hook and subagent failures |
 | `self_health` | observe | implemented — proves the governance layer itself can still fire |
 | `log_rotation` | observe | implemented — caps `health.jsonl` and `lw-watchtower.jsonl`; the per-session files are **not** swept |
-| `context_pressure` | observe | implemented — warns before a lossy compaction |
 | `docs_coupling` | observe | implemented — flags source changes shipped without docs |
 | `git_hygiene` | observe | implemented — branch, commit and push discipline at turn end |
 | `context_injection` | observe | implemented — hands every subagent facts current at *dispatch* time |

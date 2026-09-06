@@ -407,11 +407,15 @@ $Rules = @(
         # the paragraph above gives about commands/ and agents/ rather than for
         # a new one: a style is text a model reads and acts on, and it goes into
         # the MAIN thread's system prompt, which makes it the same surface this
-        # rule was written for.
+        # rule was written for. skills/ JOINED THEM THE SAME DAY (#168), in the
+        # commit that created the directory, on the identical argument: a
+        # SKILL.md is text a model reads and acts on, and S16 asserts that one
+        # rather than leaving it to the scope string being read.
         scope   = @('lw-watchtower/bin/*', 'lw-watchtower/lib/*', 'lw-watchtower/hooks/*',
                     'lw-watchtower/statusline/*', 'lw-watchtower/context/*',
                     'lw-watchtower/commands/*', 'lw-watchtower/agents/*',
                     'lw-watchtower/output-styles/*',
+                    'lw-watchtower/skills/*',
                     'lw-watchtower/config.json', 'lw-watchtower/.claude-plugin/*')
     }
     @{
@@ -1214,6 +1218,23 @@ try {
         if ([IO.Directory]::Exists($d.path)) { $fmFiles += @([IO.Directory]::GetFiles($d.path, '*.md')) }
         else { $fmMissing += $d.rel }
     }
+    # skills/ JOINED THIS CASE ON 6 SEPTEMBER 2026 (#168), and it is enumerated
+    # one directory deeper because that is the layout: skills\<name>\SKILL.md,
+    # not skills\<name>.md. The failure this case exists for is identical there
+    # - a malformed block loads the file with every field silently dropped, and
+    # `description` is the field a skill is SELECTED on, so losing it makes the
+    # skill invisible to the model that should have started it while the page
+    # still reads correctly to a human. The `name`-matches-the-stem assertion
+    # below is deliberately NOT extended to it: a skill's identity is its
+    # DIRECTORY name, which is a different contract from the role one, and
+    # asserting the role rule here would be a guard going red on a correct file.
+    $skillsRoot = Join-Path $script:RepoRoot ($script:PayloadRel + '\skills')
+    if ([IO.Directory]::Exists($skillsRoot)) {
+        foreach ($sd in @([IO.Directory]::GetDirectories($skillsRoot))) {
+            $sm = Join-Path $sd 'SKILL.md'
+            if ([IO.File]::Exists($sm)) { $fmFiles += $sm }
+        }
+    } else { $fmMissing += 'skills' }
     # THE KEY SET IS NOT ASSERTED. docs/roles.md:53-61 tables seven keys, and a
     # subset check over them would be red the day the CLI adds an eighth - a
     # guard that goes red on a correct file teaches the next contributor to
@@ -1295,12 +1316,12 @@ try {
             }
         }
     }
-    Add-Result ("S14 every agents/, commands/ and output-styles/ frontmatter block parses as flat key: value ($($fmFiles.Count) file(s))") `
+    Add-Result ("S14 every agents/, commands/, output-styles/ and skills/ frontmatter block parses as flat key: value ($($fmFiles.Count) file(s))") `
         ($fmMissing.Count -eq 0 -and $fmFiles.Count -gt 0 -and $fmBad.Count -eq 0) `
         ($(if ($fmMissing.Count) { "no directory at $($script:PayloadRel)/$($fmMissing -join ', '), so this case did not read what it claims to read. " } else { '' }) +
          $(if ($fmFiles.Count -eq 0) { 'zero .md files were enumerated, so nothing was linted - an empty set is not a pass. ' } else { '' }) +
          $(if ($fmBad.Count) { "$($fmBad.Count) defect(s), each of which loads the file with its fields silently dropped: " + ($fmBad -join ' | ') + '. ' } else { '' }) +
-         "linted $($fmFiles.Count) file(s) under " + (($fmDirs | ForEach-Object { "$($script:PayloadRel)/$($_.rel)/" }) -join ', '))
+         "linted $($fmFiles.Count) file(s) under " + ((($fmDirs | ForEach-Object { "$($script:PayloadRel)/$($_.rel)/" }) + @("$($script:PayloadRel)/skills/*/SKILL.md")) -join ', '))
 
     # S15. #316. THE OWNER'S DECISION ABOUT `force-for-plugin`, HELD BY A MACHINE.
     #
@@ -1372,6 +1393,57 @@ try {
          $(if ($osNoKeep.Count) { "style(s) without 'keep-coding-instructions: true', which REPLACES the default coding instructions rather than adding to them: $($osNoKeep -join ', '). " } else { '' }) +
          $(if ($osForced.Count) { "style(s) carrying 'force-for-plugin: true', which applies the style to every install with this plugin enabled and silently overrides the consumer's own outputStyle. That is an OWNER decision and is not taken here: $($osForced -join ', '). " } else { '' }) +
          "checked $($osFiles.Count) file(s) under $($script:PayloadRel)/output-styles/")
+
+    # S16. #168. THE SKILLS DIRECTORY IS TRACKED, AND RULE 6 IS ASKED OF IT.
+    #
+    #     TWO PROPERTIES, ONE CASE, BECAUSE EITHER ONE ALONE IS A GREEN LINE
+    #     OVER NOTHING.
+    #
+    #     (a) TRACKED. Every enumeration in this file starts at `git ls-files`
+    #     (:670, :672) and so does tests/portability_scan.ps1 (:845),
+    #     tests/doc_claims.ps1 (:566) and lw-watchtower/bin/lwg-doctor.ps1
+    #     (:997). An UNTRACKED skills/ is invisible to all four: each prints a
+    #     green line over files none of them opened, which is the
+    #     "reports healthy while doing nothing" shape S6 and S7 exist to refuse.
+    #     A skill is shipped payload - a stranger receives it and a model reads
+    #     it and acts on it - so it is not optional that the guards can see it.
+    #
+    #     (b) IN RULE 6'S SCOPE. `deleted-script` is scoped, and its own `why`
+    #     for covering commands/ and agents/ - "a model reads these files and
+    #     acts on them, which makes them the higher-risk half of the payload" -
+    #     is true of a SKILL.md word for word. A skill page naming a script this
+    #     branch deleted is the same defect on the same surface.
+    #
+    #     WHY NOT RULE 7 AS WELL, since that one is also scoped and also about
+    #     what a model is told it may do. Because rule 7 is anchored to
+    #     `^\s*tools:\s` and a SKILL.md HAS NO `tools:` KEY - the skill schema
+    #     uses `allowed-tools` / `disallowed-tools`. Adding skills/ to rule 7's
+    #     scope would satisfy S7's "was applied to at least one file" boolean
+    #     while the needle could never match: a switch wired to nothing, inside
+    #     the guard that exists to catch switches wired to nothing. The
+    #     skills-shaped analogue of rule 7 is a different needle and belongs to
+    #     whoever writes it. Rule 7's scope is deliberately unchanged.
+    #
+    #     ENUMERATED FROM THE INDEX, not from a hardcoded name. A second skill
+    #     landing beside lw-handoff is asked the same question with no edit
+    #     here, and a skills/ directory that empties out fails rather than
+    #     quietly asserting nothing.
+    $skillsPrefix = $script:PayloadRel + '/skills/'
+    $skillFiles   = @($payloadList | Where-Object { $_ -like ($skillsPrefix + '*') })
+    $rule6        = @($Rules | Where-Object { $_.id -eq 'deleted-script' })[0]
+    $skillsOut    = @()
+    if ($null -eq $rule6) {
+        $skillsOut += "the rule 'deleted-script' is not in the rule table at all, so its scope could not be read"
+    } else {
+        foreach ($sf in $skillFiles) {
+            if (-not (Test-RuleInScope -Rule $rule6 -Rel $sf)) { $skillsOut += $sf }
+        }
+    }
+    Add-Result ("S16 skills/ is tracked and rule 6 is asked of every file in it ($($skillFiles.Count) file(s))") `
+        ($skillFiles.Count -gt 0 -and $skillsOut.Count -eq 0) `
+        ($(if ($skillFiles.Count -eq 0) { "git ls-files -- $($script:PayloadRel)/ lists NOTHING under skills/. Either the directory does not exist yet, or it exists on disk and was never `git add`ed - and an untracked payload directory is scanned by no guard in this repository and by no check in bin/lwg-doctor.ps1, all four of which enumerate the index. " } else { '' }) +
+         $(if ($skillsOut.Count) { "$($skillsOut.Count) tracked skill file(s) are OUTSIDE rule 6 (deleted-script)'s scope, so a skill page naming a deleted script is never asked about: " + ($skillsOut -join ', ') + ". Add '$($script:PayloadRel)/skills/*' to that rule's scope. " } else { '' }) +
+         "read $($skillFiles.Count) tracked file(s) under $($script:PayloadRel)/skills/")
 
     Add-Result 'S9  no out-of-payload record names a file that is now inside the payload' `
         ($recordInPayload.Count -eq 0) `

@@ -23,7 +23,149 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 `main` must never declare a version a tag has already published (the rule `[0.4.0]` added). Entries
 land here as they merge.
 
+### Changed
+
+- **`context_pressure` is deleted and the transition ladder replaces it (2026-09-06, #168, slice 1).**
+  The module recomputed context occupancy from the transcript against a window size it had to infer,
+  and it raised a `systemMessage` — which reaches the **operator's screen** and not the model. The
+  failure it existed for is a session walking into a context or rate-limit wall with unlanded work,
+  and fixing that means telling the **model** to stop starting things. So the ladder lives in
+  `lib/supervisor.ps1`'s `Stop` branch, where exit 2 under that registration's `asyncRewake` is the
+  one channel that reaches the model mid-turn, and it reads the CLI's own figures out of
+  `signals/ratelimit.json` — the file the status line writes on every render (#163) — taking the
+  worst of the 5-hour limit, the 7-day limit and the context window. **Amber at 70, red at 85**
+  (`thresholds.ladder`), deliberately earlier than the status line's own 88/92 and 75/90, because
+  writing a handoff costs tokens and has to finish before the wall. The status line's numbers were
+  **not** moved: that would change what the operator sees on a path no case measures.
+  **There is no black tier**, and that is not caution — it would refuse a turn end until a handoff
+  package exists whose first required field, the state of every effort in flight, is structurally
+  empty until a dispatch record exists.
+- **The ladder has no switch of its own.** It is a layer of `failure_capture` and rides that flag;
+  `failure_capture` off means the ladder is off, stated in the registry entry the same way
+  `orphan_watch` states its coupling. **Registry 11 entries → 10, observing modules 8 → 7**, and the
+  `SessionStart` banner moved with them: `7/11 modules enabled (4 off)` → `6/10 modules enabled
+  (4 off)`. Counts derived, not transcribed —
+  `(Get-Content lw-watchtower/lib/common.ps1 | Select-String '^\s{4}\w+\s+= @\{ kind').Count`
+  and `tests/doc_claims.ps1`, which reads them off the tree and fails the build on a stale one.
+- **`module_config.context_pressure`, `context_windows.json`, `Get-LwgContextWindow` and
+  `Get-LwgTranscriptUsage` went with it.** Two helpers with no caller left, an observation store
+  nothing writes or reads, and an operator-settable `window_tokens` knob nothing would have read — a
+  switch wired to nothing, inside the plugin that exists to catch them. A machine that ran an earlier
+  version still carries `context_windows.json`; it is inert and nothing removes it.
+- **The `Stop` registration's `rewakeMessage` stops naming a background task.** `asyncRewake` injects
+  that string ahead of the hook's stderr and `rewakeSummary` into the operator's task list, so it is
+  the **first sentence** the model and the operator read. That branch can now raise a failed
+  background task, an orphaned agent **or** a ladder tier, and a session at 90% of its 5-hour limit
+  with nothing failed was being told *"Health supervisor detected background task failure:"*. It is
+  now `"LW-WATCHTOWER health supervisor:"` / `"Health supervisor alert"`. The `PostToolUseFailure`
+  and `SubagentStop` headers are unchanged — each of those raises one thing and says so. Hook
+  identity in `bin/lwg-setup.ps1` is the **matcher plus the script paths**, deliberately not the
+  serialised group, so this cannot produce a second registration. Pinned by a new
+  `tests/stop_behaviour.ps1` C0 case, asserted as an **absence** rather than a fixed string: the
+  header must not name one of the three findings as though it were the whole of them. Red before the
+  fix. **Registrations stay at 13.**
+- **`thresholds.context` (75/90) is now read by the status line alone.** It was shared with
+  `context_pressure`. `thresholds.ratelimit` is unchanged.
+- **`agents/lw-orchestrator.md` is now a real orchestrator system prompt (2026-09-06, #316).** When
+  the main thread runs this role — `"agent": "lw-watchtower:lw-orchestrator"` in the operator's own
+  `settings.json`, or `claude --agent` for one session — the file **replaces** Claude Code's system
+  prompt rather than adding to it, so the body has to stand alone and it did not. It now carries the
+  mission it was written for: delegate anything that reads more than a file or two, never pull a
+  worker's tool output into the main thread, prefer background dispatch and keep talking to the
+  operator, restate the whole context in every dispatch because a worker cannot see the conversation,
+  and treat a worker's report as a claim to be checked with `Read`/`Grep`/`Glob` rather than as a
+  fact. A routing table names the five sibling roles. **The `tools` list is unchanged.**
+- **The five sibling roles' `description` fields are rewritten as delegation triggers.** That text is
+  what the harness matches on when it auto-selects a subagent, so each now says when to dispatch it
+  **and what not to dispatch it for**. `lw-healer`'s described who dispatched it rather than when.
+
 ### Added
+
+
+- **One output style, and `output-styles/` returns to the payload (2026-09-06, #316).**
+  `output-styles/lw-orchestrator.md` asks the main thread to talk to the operator and send the
+  reading, editing and building to subagents. The component loader's own directory list, read out of
+  the 2.1.263 binary, is `["commands","agents","skills","output-styles","themes"]`, so it reaches
+  every install with the plugin enabled and appears in the `/config` picker as
+  `lw-watchtower:lw-orchestrator`. **It is not selected for anyone.**
+  **`force-for-plugin: true` is deliberately absent and is an owner decision, not a default** — it
+  silently overrides the consumer's own `outputStyle`, the same objection that argued against arming
+  a gate by default, and it is marked `@internal` in the binary. `keep-coding-instructions: true` is
+  set, so the style sits beside the default coding instructions rather than replacing them. Both keys
+  are held by a new `payload_guard` case rather than by a sentence.
+  **This is not a reversal of the 2 September deletion below.** That deletion had two reasons — two
+  commands that recorded a preference nothing applied, and a plugin that cannot audit compliance —
+  and **neither says the mechanism fails to steer**. The first was about a *command*; the second is a
+  limit on verification, not on instruction. Neither command came back, and no `config.json` key
+  did either: the style is chosen in the picker or in the operator's own settings, which is where
+  that value has always lived. **Why a style rather than re-spending the `SessionStart`
+  `additionalContext` budget:** under compaction the system prompt and the output style are
+  unchanged, while hook-added context is summarised away, so an injected policy evaporates exactly
+  when a long session needs it. Documented in `docs/output-styles.md`, which stops being a tombstone.
+- **`tests/payload_guard.ps1` case S15** — every `output-styles/*.md` carries
+  `keep-coding-instructions: true` and does **not** carry `force-for-plugin: true`, failing on an
+  absent or empty directory rather than passing over one. Proven RED before the style file existed.
+  Case **S14** now lints `output-styles/` alongside `agents/` and `commands/`, and
+  `tests/gate_delegate.ps1`'s payload sweep gets `output-styles` back in `$nPayloadDirs`, which it
+  lost when the directory was deleted — coverage restored, not a new assertion.
+- **`bin/lwg-setup.ps1` offers the delegation step as Q5** and writes neither key. It prints both
+  `{"outputStyle": "lw-watchtower:lw-orchestrator"}` (a request; the thread keeps every tool) and
+  `{"agent": "lw-watchtower:lw-orchestrator"}` (the real restriction; the role replaces the system
+  prompt), and says they are different keys rather than alternatives.
+- **`lw-watchtower/skills/` and the plugin's first skill, `lw-handoff` (2026-09-06, #168).** A
+  runbook the operator can start by name and the model is told to run at the ladder's red tier: stop
+  taking on work, land what can be landed, write a four-part handoff package, record it on the issue
+  the work belongs to, and say what happened. It is **original work written for this plugin**;
+  nothing in it is copied or adapted from any other party's handoff skill. The page states plainly
+  that the package's first field — work in flight — is written from the model's own knowledge of the
+  turn, because nothing in this product records a dispatch. **The payload goes to 37 tracked files**
+  — `git ls-files -- lw-watchtower/ | Measure-Object -Line` — 35 at `5d52516`, 36 once #316's
+  `output-styles/lw-orchestrator.md` landed under this lane during the rebase, 37 with this page. The directory is
+  **default-scanned**, so no `skills` key was added to `plugin.json` — naming a path there replaces
+  the default scan rather than adding to it. House style for a skill's frontmatter is kebab-case
+  `allowed-tools` / `disallowed-tools`, the CLI's own documented form; `lw-handoff` declares neither,
+  because a tool allowlist no lane here can exercise is a claim rather than a control.
+- **`tests/stop_behaviour.ps1` C11-C14, ten cases on the ladder** — the three tiers over a file the
+  status line could have written, that the **worst** of the three signals sets the tier rather than
+  the first one read, the four `unavailable` states (absent, stale, unknown `schema`, a signal named
+  in the writer's own `unparsed` list), rise-only dedupe, and that a failed background task and a red
+  tier both reach the model in one exit 2. **C12b is the case this slice refused to defer:** a
+  `ratelimit.json` older than its budget reports *unavailable* and never reuses the previous turn's
+  tier, because a monitor that fails silent turns *I do not know* into *I am fine*. All ten were red
+  against `5d52516` before the change. **B25's two cases were deleted** with the module they were
+  about, and #167 slice 1's B27-B37 landed under this lane during the rebase. Section D gained **D5**, the Stop-path budget, by section D's own difference-of-medians method: five runs with the ladder computing a red tier and announcing it against five with the thresholds pushed to 101 so it computes the identical tier and finds nothing to say, both arms' exit codes asserted so the delta cannot be a difference between two things nobody named, and the interpreter floor reported beside them. Measured on one machine: floor **334 ms**, quiet **788 ms**, announcing **787 ms**, **delta −1 ms**. **133 cases → 144** (the ladder's ten, D5's two, the rewake-header case, minus B25's two).
+- **`tests/supervision.ps1` E15/E16** — the ladder honours the `stop_hook_active` loop guard, and the
+  identical fixture with the guard clear still alerts, so E15 cannot be satisfied by a ladder that
+  never fires. **66 cases → 68.**
+- **`tests/payload_guard.ps1` case S16** — `lw-watchtower/skills/` is tracked, and rule 6
+  (`deleted-script`) is asked of every file in it. Both halves matter: all four checkers in this
+  repository enumerate the **git index**, so an untracked payload directory is scanned by none of
+  them and each prints a green line over files nothing opened. Rule 6's scope gained
+  `lw-watchtower/skills/*` in the same commit. **Rule 7 (`gated-tool`) was deliberately NOT widened:**
+  it is anchored to `^\s*tools:\s` and a `SKILL.md` has no `tools:` key, so adding skills to its
+  scope would satisfy the per-rule "was applied to something" assertion while the needle could never
+  match — a switch wired to nothing, inside the guard that catches switches wired to nothing.
+  **27 cases → 28**, and the case is numbered S16 because #316's output-styles S15 landed under this
+  lane during the rebase.
+- **`tests/payload_guard.ps1` case S14 now lints `skills/*/SKILL.md` too.** Proved to have bite by
+  planting an unquoted colon-space `when_to_use` in the shipped page and watching the case name both
+  defects. `tests/portability_scan.ps1` gained **no** `skills/` glob: its one scoped rule is
+  `claude-home-composition`, whose own text scopes it to *"the shipped executable payload… a
+  resolution done by RUNNING CODE"*, and a `SKILL.md` is documentation.
+- **`bin/lwg-doctor.ps1`'s `commands` check now resolves `/lw-watchtower:<n>` to
+  `skills/<n>/SKILL.md` as well as to `commands/<n>.md`.** Skills are slash-invocable, so a
+  `SKILL.md` documenting itself the way it is actually invoked turned the doctor red with a row whose
+  text was a false statement about the defect — *"`commands\lw-handoff.md` does not exist"* — and the
+  doctor is the acceptance gate for the merge. The check's purpose is that **the reference resolves**,
+  and it now resolves to a second component type. Captured red before the fix.
+- **`tests/payload_guard.ps1` case S13** — the orchestrator role grants itself no tool that edits or
+  executes. `Bash`, `PowerShell`, `Edit`, `Write` or `NotebookEdit` on that one frontmatter line would
+  silently end the delegation discipline the whole body is written around, while the body went on
+  asserting it. Red-first was **planted, not historical**, and that is stated at the case.
+- **`tests/payload_guard.ps1` case S14** — a frontmatter linter over all twelve `agents/*.md` and
+  `commands/*.md` pages: no tab, no duplicate key, balanced quotes, no colon-space in an unquoted
+  value, no reserved character opening one, `name` equal to the filename stem. This is the guard
+  `docs/roles.md` had been pointing at `claude plugin validate --strict` for, which does not do it.
 
 - **`git_hygiene` now sees interrupted work — #167 coverage class 2, the first slice of five
   (2026-09-06, #167).** The module warned about uncommitted changes, a detached `HEAD`, unpushed

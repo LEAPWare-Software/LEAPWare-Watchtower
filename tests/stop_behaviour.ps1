@@ -323,7 +323,7 @@ function Write-LwgFixtureConfig {
     param([string]$Dir, [hashtable]$Modules)
 
     $mods = [ordered]@{}
-    foreach ($k in @('failure_capture', 'context_pressure', 'self_health',
+    foreach ($k in @('failure_capture', 'self_health',
                      'log_rotation', 'docs_coupling', 'git_hygiene', 'context_injection')) {
         $mods[$k] = $(if ($null -ne $Modules -and $Modules.ContainsKey($k)) { [bool]$Modules[$k] } else { $false })
     }
@@ -976,11 +976,12 @@ try {
     #
     # IT USED TO BE mission_drift's SECTION and is now the surviving modules'.
     # When that module was removed the cases that drove it went with it; what is
-    # was left was the plumbing plus the four cases that were always about
-    # something else - the edit-list writer (B22, B23), context_pressure's
-    # refusal (B25) and git_hygiene's UNKNOWN (B24) - joined later by the
-    # timeout tree kill (B26) and, on 6 September 2026, by git_hygiene's
-    # coverage class 2 (B27-B37), which is now the largest block in the file.
+    # was left was the plumbing plus the three cases that were always about
+    # something else - the edit-list writer (B22, B23) and git_hygiene's
+    # UNKNOWN (B24) - joined later by the timeout tree kill (B26) and, on
+    # 6 September 2026, by git_hygiene's coverage class 2 (B27-B37), which is
+    # now the largest block in the file. B25 was context_pressure's refusal and
+    # went with that module the same day; see the tombstone where it stood.
     Write-Output 'B. stop advisories (child process)'
 
     $bDir = Join-Path $work 'b'
@@ -1273,58 +1274,17 @@ try {
         (($b9After.Count -eq $b9Before.Count) -and $b9Before.Count -eq 1) `
         ("the guard is the FIRST statement in the try, so a continuation must cost nothing at all - not a state file, not an advisory record, not a context-window observation. Before: [" + ($b9Before -join ', ') + "] After: [" + ($b9After -join ', ') + "]")
 
-    # --- B25: an impossible occupancy is REFUSED, not absorbed --------------
-    # context_pressure carries an explicit refusal: an occupancy above the
-    # assumed window is arithmetically impossible, so it is proof the
-    # DENOMINATOR is wrong rather than proof of pressure, and the module reports
-    # nothing rather than a fabricated percentage. Three lines earlier the same
-    # block used to write that occupancy into the observation store and then
-    # hand the SAME in-memory hashtable to Get-LwgContextWindow, which read it
-    # back, concluded the window must be 1M and returned a denominator large
-    # enough that the occupancy was no longer impossible. The refusal could not
-    # fire for any reading between 200k and 1M - which is every reading it
-    # exists to catch.
-    #
-    # WHAT THAT COST: one mis-summed 260 000 pinned the model to a 1M window
-    # permanently, with no expiry and no way to clear it, and a real 150k/200k
-    # turn - 75%, the warn threshold - then rendered as 15%, level ok, silently.
-    #
-    # TWO TURNS, BECAUSE ONE SAMPLE NO LONGER PINS. Turn 1 must refuse and
-    # record the reading as PENDING; turn 2 corroborates and promotes it, which
-    # is what keeps a genuine 1M session able to learn its own window. The
-    # store's shape is asserted directly because it is the thing that outlives
-    # the session.
-    #
-    # BASELINE: red against the working tree before this fix, and against
-    # fd8d023 and cc44c99, where the observation write precedes the resolve.
-    $b25 = New-LwgStopCase -Name 'b25' -Modules @{ context_pressure = $true }
-    $b25model = 'lwg-fixture-model-200k'
-    $b25rec = ([ordered]@{
-        type    = 'assistant'
-        message = [ordered]@{ model = $b25model; usage = [ordered]@{
-            input_tokens = 260000; cache_read_input_tokens = 0
-            cache_creation_input_tokens = 0; output_tokens = 10 } }
-    } | ConvertTo-Json -Depth 8 -Compress)
-    [IO.File]::AppendAllText($b25.tx, ($b25rec + "`n"), [Text.UTF8Encoding]::new($false))
-
-    $rb25a = Invoke-LwgStop -Case $b25 -Tag 'b25-run1'
-    $b25obsPath = Join-Path $b25.data 'context_windows.json'
-    $b25obs1 = ''
-    try { $b25obs1 = [IO.File]::ReadAllText($b25obsPath) } catch { }
-    $b25msg1 = ''
-    try { $b25msg1 = [string](($rb25a.out | ConvertFrom-Json).systemMessage) } catch { }
-
-    Add-Result 'B25: an occupancy above the assumed window reports no percentage and pins nothing' `
-        ($rb25a.code -eq 0 -and $b25msg1 -notlike '*LW-WATCHTOWER context*' -and
-         $b25obs1 -like '*#pending*' -and $b25obs1 -notlike ('*"' + $b25model + '":*')) `
-        ("REGRESSION: the observation was written before the window was resolved and from the same hashtable, so the impossible-occupancy check could not fire below 1M and one wrong reading pinned the denominator for ever. exit $($rb25a.code), message [$b25msg1], context_windows.json [$b25obs1]")
-
-    $rb25b = Invoke-LwgStop -Case $b25 -Tag 'b25-run2'
-    $b25obs2 = ''
-    try { $b25obs2 = [IO.File]::ReadAllText($b25obsPath) } catch { }
-    Add-Result 'B25: a SECOND reading corroborates it and the window is then learned' `
-        ($rb25b.code -eq 0 -and $b25obs2 -like ('*"' + $b25model + '":*') -and $b25obs2 -notlike '*#pending*') `
-        ("CANNOT GO RED against the pre-fix tree - it is the anti-vacuity guard for the row above. A 'fix' that simply never recorded an observation would satisfy that row and leave a genuine 1M session reporting UNKNOWN for ever, which is the opposite failure. exit $($rb25b.code), context_windows.json [$b25obs2]")
+    # --- B25: DELETED 6 SEPTEMBER 2026 (#168) -------------------------------
+    # TWO CASES STOOD HERE and their subject no longer exists. They pinned
+    # context_pressure's impossible-occupancy refusal and the two-turn
+    # corroboration that let a genuine 1M window be learned - both properties
+    # of an inferred denominator, and the module doing the inferring is gone.
+    # The transition ladder that replaced it reads a real
+    # context_window.used_percentage out of signals/ratelimit.json, so there is
+    # no denominator to get wrong and nothing for these cases to assert. They
+    # are DELETED rather than retargeted: a case rewritten to keep a number in
+    # a tally is a case that has stopped being about anything. The ladder's own
+    # cases are C11-C14 in section C, where the code it exercises now lives.
 
     # --- B24: git_hygiene's UNKNOWN is not deduped into silence -------------
     # WHAT IT PINS. git_hygiene's documented contract is that silence means "git
@@ -1976,6 +1936,33 @@ try {
             "this script exits 2 on $ev to alert the orchestrator. Without asyncRewake, exit 2 BLOCKS instead of alerting"
     }
 
+    # THE REWAKE HEADER IS PART OF THE ALERT, and on Stop it now sits in front
+    # of THREE different findings. asyncRewake injects rewakeMessage ahead of
+    # this script's stderr and rewakeSummary into the operator's task list, so
+    # that text is the FIRST SENTENCE the model and the operator read. Until
+    # 6 September 2026 it was "Health supervisor detected background task
+    # failure:" on an event that can now raise a failed background task, an
+    # orphaned agent, or a transition-ladder tier - so a session at 90% of its
+    # 5-hour limit with nothing failed at all was told a background task had
+    # failed, in a header it could not see was generic. A wrong first sentence
+    # on the one channel that reaches the model is a wrong answer, not a
+    # cosmetic one.
+    #
+    # ASSERTED AS AN ABSENCE, not as a fixed string. Pinning the exact wording
+    # would go red on a rewrite that is still true; what must never come back is
+    # a header that names ONE of the three findings as though it were the whole
+    # of them. The two other supervisor registrations are deliberately NOT
+    # asked: PostToolUseFailure raises exactly one thing and says so, and
+    # SubagentStop raises the orphan reconciliation alone.
+    $stopSup = @(@($hooks.hooks.Stop) | Where-Object { ($_ | ConvertTo-Json -Depth 8 -Compress) -like '*supervisor.ps1*' })[0]
+    $stopMsg = [string]$stopSup.hooks[0].rewakeMessage
+    $stopSum = [string]$stopSup.hooks[0].rewakeSummary
+    Add-Result 'C0 registration: the Stop rewake header claims none of its three findings as the only one' `
+        (-not [string]::IsNullOrWhiteSpace($stopMsg) -and -not [string]::IsNullOrWhiteSpace($stopSum) -and
+         $stopMsg -notmatch '(?i)background task|subagent dispatch|orphan' -and
+         $stopSum -notmatch '(?i)background task|subagent dispatch|orphan') `
+        ("the Stop branch alerts on a failed background task, an orphaned agent OR a transition-ladder tier, and this header is the first sentence in front of whichever one fired. got rewakeMessage [$stopMsg], rewakeSummary [$stopSum]")
+
     $advEntry = @(@($hooks.hooks.Stop) | Where-Object { ($_ | ConvertTo-Json -Depth 8 -Compress) -like '*stop_advisories.ps1*' })
     Add-Result 'C0 registration: stop_advisories is a second Stop entry with no asyncRewake' `
         ($advEntry.Count -eq 1 -and (($advEntry[0] | ConvertTo-Json -Depth 8 -Compress) -notlike '*asyncRewake*')) `
@@ -2126,6 +2113,197 @@ try {
     Add-Result 'C4: the record is still written under the loop guard' `
         ([IO.File]::Exists($c4.health)) `
         'the loop guard suppresses the ALERT, not the log - a turn that is not recorded is a turn nothing can be reconstructed from'
+
+    # =====================================================================
+    # C11-C15: THE TRANSITION LADDER (#168 slice 1)
+    # =====================================================================
+    # WHAT IT IS. Three occupancies - the 5-hour limit, the 7-day limit and the
+    # context window - read from signals/ratelimit.json, which the STATUS LINE
+    # writes on every render (statusline/statusline.ps1's WriteSignal, #163).
+    # The worst of the three sets a tier: amber at 70, red at 85. Amber tells
+    # the model to start nothing new; red tells it to land the work and run the
+    # handoff skill. It rides in the supervisor's Stop branch because exit 2
+    # under this registration's asyncRewake is THE ONLY CHANNEL THAT REACHES
+    # THE MODEL mid-turn - lib/stop_advisories.ps1's systemMessage reaches the
+    # operator's screen and not the model, which is why context_pressure, the
+    # advisory this ladder replaces, could never do what this issue asks.
+    #
+    # NO BLACK TIER IN THIS SLICE, deliberately, and it is not caution. The
+    # black tier refuses a turn end until a handoff package exists, and that
+    # package's first required field is the state of every effort in flight -
+    # which is structurally empty until a dispatch record exists. A gate that
+    # blocks on a field nothing can fill is the exact defect this repository
+    # keeps closing.
+    #
+    # THE STALE CASE IS HERE RATHER THAN DEFERRED, and C12b is the one that
+    # matters: a monitor that fails silent converts "I don't know" into "I'm
+    # fine". A ratelimit.json older than the budget reports UNAVAILABLE and
+    # must not reuse the tier the previous turn computed.
+    function Write-LwgSignalFile {
+        <#
+          A signals/ratelimit.json under a case's data dir. Built as TEXT, not
+          through ConvertTo-Json, so a case can hand the reader exactly what it
+          means to - "the key is absent", "the key is present and 0" and "the
+          key is named in unparsed" are three different inputs and the first two
+          are the pair a silent-failure bug lives between.
+        #>
+        param(
+            $Case,
+            [string]$WrittenUtc,
+            [int]$Schema = 1,
+            $FiveHourPct = $null,
+            [string]$FiveHourResetsAt = '',
+            $SevenDayPct = $null,
+            $ContextPct  = $null,
+            [string[]]$Unparsed = @()
+        )
+        $parts = @(('"schema":' + $Schema), ('"written_utc":"' + $WrittenUtc + '"'))
+        if ($null -ne $FiveHourPct) {
+            $b = '"used_percentage":' + $FiveHourPct
+            if (-not [string]::IsNullOrWhiteSpace($FiveHourResetsAt)) { $b += ',"resets_at":"' + $FiveHourResetsAt + '"' }
+            $parts += ('"five_hour":{' + $b + '}')
+        }
+        if ($null -ne $SevenDayPct) { $parts += ('"seven_day":{"used_percentage":' + $SevenDayPct + '}') }
+        if ($null -ne $ContextPct)  { $parts += ('"context_window":{"used_percentage":' + $ContextPct + '}') }
+        if ($Unparsed.Count -gt 0)  { $parts += ('"unparsed":[' + (($Unparsed | ForEach-Object { '"' + $_ + '"' }) -join ',') + ']') }
+        $dir = Join-Path $Case.data 'signals'
+        [void][IO.Directory]::CreateDirectory($dir)
+        [IO.File]::WriteAllText((Join-Path $dir 'ratelimit.json'), ('{' + ($parts -join ',') + '}'),
+                                [Text.UTF8Encoding]::new($false))
+    }
+    function Get-LwgUtcStamp {
+        param([int]$MinutesAgo = 0)
+        return ([datetime]::UtcNow.AddMinutes(-1 * $MinutesAgo)).ToString(
+            "yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+    }
+    function Get-LwgLadderField {
+        <#
+          The ladder fields off the LAST health.jsonl record, gathered back into
+          one object. Read back rather than inferred from the exit code, because
+          "the ladder decided nothing fires" and "the ladder never ran" are the
+          same exit code and are not the same state - which is the whole of C12b.
+
+          THEY ARE FLAT IN THE RECORD, and this reader is the only place that
+          re-nests them: ConvertTo-SafeField stringifies any non-scalar field, so
+          a nested object would reach the log as JSON inside JSON and the status
+          line, which parses this file on every render, would have to
+          double-decode it.
+        #>
+        param($Case)
+        $last = $null
+        try {
+            foreach ($ln in [IO.File]::ReadAllLines($Case.health)) {
+                if ([string]::IsNullOrWhiteSpace($ln)) { continue }
+                try { $o = $ln | ConvertFrom-Json } catch { continue }
+                if ($null -eq $o.ladder) { continue }
+                $u = @()
+                if (-not [string]::IsNullOrWhiteSpace([string]$o.ladder_unavailable)) {
+                    $u = @(([string]$o.ladder_unavailable) -split ',')
+                }
+                $last = [pscustomobject]@{
+                    level       = [string]$o.ladder
+                    reason      = [string]$o.ladder_reason
+                    signal      = [string]$o.ladder_signal
+                    pct         = $o.ladder_pct
+                    age_minutes = $o.ladder_age_minutes
+                    unavailable = $u
+                }
+            }
+        } catch { }
+        return $last
+    }
+
+    # --- C11: the three tiers, over a file the status line could have written
+    $c11 = New-LwgSupervisorCase -Name 'c11' -Modules @{ failure_capture = $true; log_rotation = $false }
+    Write-LwgSignalFile -Case $c11 -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -FiveHourPct 12 -SevenDayPct 40 -ContextPct 55
+    $rc11a = Invoke-LwgSupervisor -Case $c11 -Event 'Stop' -Tag 'c11-ok' -Payload (New-LwgStopPayload -Case $c11 -FailedIds @())
+    $l11a  = Get-LwgLadderField -Case $c11
+    Add-Result 'C11: every signal under 70 ends the turn silently and records level ok' `
+        ($rc11a.code -eq 0 -and [string]::IsNullOrWhiteSpace($rc11a.err) -and $null -ne $l11a -and [string]$l11a.level -eq 'ok') `
+        ("a ladder that alerts below its own amber threshold is noise that trains the reader to ignore the channel. got exit $($rc11a.code), stderr [$($rc11a.err)], ladder [" + ($l11a | ConvertTo-Json -Compress) + ']')
+
+    $c11b = New-LwgSupervisorCase -Name 'c11b' -Modules @{ failure_capture = $true; log_rotation = $false }
+    Write-LwgSignalFile -Case $c11b -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -FiveHourPct 12 -SevenDayPct 40 -ContextPct 72
+    $rc11b = Invoke-LwgSupervisor -Case $c11b -Event 'Stop' -Tag 'c11b-amber' -Payload (New-LwgStopPayload -Case $c11b -FailedIds @())
+    $l11b  = Get-LwgLadderField -Case $c11b
+    Add-Result 'C11b: 72% context is AMBER - exit 2, and the text says start nothing new' `
+        ($rc11b.code -eq 2 -and $rc11b.err -like '*AMBER*' -and $rc11b.err -like '*context*' -and
+         $rc11b.err -like '*72*' -and $rc11b.err -match '(?i)start no new work' -and
+         $null -ne $l11b -and [string]$l11b.level -eq 'amber') `
+        ("exit 2 under this registration's asyncRewake is what reaches the MODEL; a systemMessage reaches the operator's screen instead. got exit $($rc11b.code), stderr [$($rc11b.err)], ladder [" + ($l11b | ConvertTo-Json -Compress) + ']')
+
+    $c11c = New-LwgSupervisorCase -Name 'c11c' -Modules @{ failure_capture = $true; log_rotation = $false }
+    Write-LwgSignalFile -Case $c11c -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -FiveHourPct 90 `
+        -FiveHourResetsAt '2026-09-06T20:00:00Z' -SevenDayPct 40 -ContextPct 55
+    $rc11c = Invoke-LwgSupervisor -Case $c11c -Event 'Stop' -Tag 'c11c-red' -Payload (New-LwgStopPayload -Case $c11c -FailedIds @())
+    $l11c  = Get-LwgLadderField -Case $c11c
+    Add-Result 'C11c: 90% on the 5-hour limit is RED - the text names the skill and the reset time' `
+        ($rc11c.code -eq 2 -and $rc11c.err -like '*RED*' -and $rc11c.err -like '*5-hour*' -and
+         $rc11c.err -like '*/lw-watchtower:lw-handoff*' -and $rc11c.err -like '*2026-09-06T20:00:00Z*' -and
+         $null -ne $l11c -and [string]$l11c.level -eq 'red') `
+        ("red is the tier that tells the model to land the work, so it has to name what to run and when the lockout lifts. resets_at is passed through VERBATIM - the file holds UTC and converting it here would bake this machine's offset into a value another process reads. got exit $($rc11c.code), stderr [$($rc11c.err)], ladder [" + ($l11c | ConvertTo-Json -Compress) + ']')
+
+    Add-Result 'C11c: the worst of the three signals sets the tier, not the first one read' `
+        ($null -ne $l11c -and [string]$l11c.signal -eq 'five_hour') `
+        ("five_hour was 90 while context was 55 and seven_day 40. A ladder reading them in file order and stopping at the first would report context. got signal [$(if ($null -ne $l11c) { [string]$l11c.signal } else { '<no ladder field>' })]")
+
+    # --- C12: unavailable, and the four shapes of it ----------------------
+    $c12 = New-LwgSupervisorCase -Name 'c12' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $rc12 = Invoke-LwgSupervisor -Case $c12 -Event 'Stop' -Tag 'c12-absent' -Payload (New-LwgStopPayload -Case $c12 -FailedIds @())
+    $l12  = Get-LwgLadderField -Case $c12
+    Add-Result 'C12: no signal file at all is UNAVAILABLE, exit 0, and says why' `
+        ($rc12.code -eq 0 -and $null -ne $l12 -and [string]$l12.level -eq 'unavailable' -and [string]$l12.reason -eq 'absent') `
+        ("before the status line has ever rendered there is no file, and that is not an emergency and not a clean bill of health either. got exit $($rc12.code), ladder [" + ($l12 | ConvertTo-Json -Compress) + ']')
+
+    $c12b = New-LwgSupervisorCase -Name 'c12b' -Modules @{ failure_capture = $true; log_rotation = $false }
+    Write-LwgSignalFile -Case $c12b -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -FiveHourPct 90 -SevenDayPct 40 -ContextPct 55
+    $rc12b1 = Invoke-LwgSupervisor -Case $c12b -Event 'Stop' -Tag 'c12b-red' -Payload (New-LwgStopPayload -Case $c12b -FailedIds @())
+    # The same file, now older than any sane budget. Nothing else changes.
+    Write-LwgSignalFile -Case $c12b -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 600) -FiveHourPct 90 -SevenDayPct 40 -ContextPct 55
+    $rc12b2 = Invoke-LwgSupervisor -Case $c12b -Event 'Stop' -Tag 'c12b-stale' -Payload (New-LwgStopPayload -Case $c12b -FailedIds @())
+    $l12b   = Get-LwgLadderField -Case $c12b
+    Add-Result 'C12b: a STALE file reports unavailable and does NOT reuse the last tier' `
+        ($rc12b1.code -eq 2 -and $rc12b2.code -eq 0 -and
+         $null -ne $l12b -and [string]$l12b.level -eq 'unavailable' -and [string]$l12b.reason -eq 'stale') `
+        ("THE CASE THIS SLICE EXISTS NOT TO DEFER. A monitor that fails silent converts 'I do not know' into 'I am fine', and a session believed it was at 54% for four hours on exactly that. Turn 1 was red on a fresh file (exit $($rc12b1.code)); turn 2 read the same numbers 600 minutes old and must report unavailable rather than red and rather than ok. got exit $($rc12b2.code), ladder [" + ($l12b | ConvertTo-Json -Compress) + ']')
+
+    $c12c = New-LwgSupervisorCase -Name 'c12c' -Modules @{ failure_capture = $true; log_rotation = $false }
+    Write-LwgSignalFile -Case $c12c -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -Schema 99 -FiveHourPct 90
+    $rc12c = Invoke-LwgSupervisor -Case $c12c -Event 'Stop' -Tag 'c12c-schema' -Payload (New-LwgStopPayload -Case $c12c -FailedIds @())
+    $l12c  = Get-LwgLadderField -Case $c12c
+    Add-Result 'C12c: an unknown schema is refused rather than read hopefully' `
+        ($rc12c.code -eq 0 -and $null -ne $l12c -and [string]$l12c.level -eq 'unavailable' -and [string]$l12c.reason -eq 'schema') `
+        ("schema 1 is the shape statusline.ps1 writes today. A reader that guesses at schema 99 is reading fields it has no contract for. got exit $($rc12c.code), ladder [" + ($l12c | ConvertTo-Json -Compress) + ']')
+
+    $c12d = New-LwgSupervisorCase -Name 'c12d' -Modules @{ failure_capture = $true; log_rotation = $false }
+    Write-LwgSignalFile -Case $c12d -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -SevenDayPct 40 -Unparsed @('five_hour.used_percentage', 'context_window.used_percentage')
+    $rc12d = Invoke-LwgSupervisor -Case $c12d -Event 'Stop' -Tag 'c12d-unparsed' -Payload (New-LwgStopPayload -Case $c12d -FailedIds @())
+    $l12d  = Get-LwgLadderField -Case $c12d
+    Add-Result 'C12d: a signal the writer could not parse is absent, never 0' `
+        ($rc12d.code -eq 0 -and $null -ne $l12d -and [string]$l12d.level -eq 'ok' -and
+         (@($l12d.unavailable) -contains 'five_hour') -and (@($l12d.unavailable) -contains 'context_window')) `
+        ("statusline.ps1 names a value it could not read in the unparsed list and OMITS the block. Reading the missing block as 0% would report the calmest possible answer about the thing it knows least. got exit $($rc12d.code), ladder [" + ($l12d | ConvertTo-Json -Compress) + ']')
+
+    # --- C13: the ladder alerts on a RISE, not at every turn end ----------
+    $c13 = New-LwgSupervisorCase -Name 'c13' -Modules @{ failure_capture = $true; log_rotation = $false }
+    Write-LwgSignalFile -Case $c13 -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -ContextPct 72
+    $rc13a = Invoke-LwgSupervisor -Case $c13 -Event 'Stop' -Tag 'c13-amber1' -Payload (New-LwgStopPayload -Case $c13 -FailedIds @())
+    Write-LwgSignalFile -Case $c13 -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -ContextPct 74
+    $rc13b = Invoke-LwgSupervisor -Case $c13 -Event 'Stop' -Tag 'c13-amber2' -Payload (New-LwgStopPayload -Case $c13 -FailedIds @())
+    Write-LwgSignalFile -Case $c13 -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -ContextPct 88
+    $rc13c = Invoke-LwgSupervisor -Case $c13 -Event 'Stop' -Tag 'c13-red' -Payload (New-LwgStopPayload -Case $c13 -FailedIds @())
+    Add-Result 'C13: amber fires once, and a rise to red fires again' `
+        ($rc13a.code -eq 2 -and $rc13b.code -eq 0 -and $rc13c.code -eq 2 -and $rc13c.err -like '*RED*') `
+        ("a ladder repeating amber at every turn end is a channel the reader learns to skip, and one that stays quiet through a rise to red has failed at its only job. got exits $($rc13a.code)/$($rc13b.code)/$($rc13c.code), third stderr [$($rc13c.err)]")
+
+    # --- C14: the ladder is not the failure alert -------------------------
+    $c14 = New-LwgSupervisorCase -Name 'c14' -Modules @{ failure_capture = $true; log_rotation = $false }
+    Write-LwgSignalFile -Case $c14 -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -ContextPct 90
+    $rc14 = Invoke-LwgSupervisor -Case $c14 -Event 'Stop' -Tag 'c14-both' `
+                -Payload (New-LwgStopPayload -Case $c14 -FailedIds @('task-one'))
+    Add-Result 'C14: a failed task and a red tier both reach the model in one exit 2' `
+        ($rc14.code -eq 2 -and $rc14.err -like '*failed state*' -and $rc14.err -like '*RED*') `
+        ("one process, one exit code, two findings - dropping either because the other fired is how a supervisor loses the thing it was watching for. got exit $($rc14.code), stderr [$($rc14.err)]")
 
     # --- C6: PostToolUseFailure ------------------------------------------
     function New-LwgToolFailurePayload {
@@ -2708,6 +2886,114 @@ try {
     Add-Result 'D4: and it SAYS the log held something it could not read' `
         ($m4b.render -match 'HH[0-9]*!' -and $m4a.render -notmatch 'HH[0-9]*!') `
         ("a skipped record could have been a fault, and a fault dropped on the floor renders green - the one failure mode this indicator must never have. The trailing '!' is what keeps the skip visible. poisoned render: [" + (($m4b.render -replace "$([char]27)\[[0-9]+m", '').Trim()) + '], clean render: [' + (($m4a.render -replace "$([char]27)\[[0-9]+m", '').Trim()) + ']')
+
+    # --- D5: the transition ladder's cost on the Stop path (#168) ---------
+    # THE SAME METHOD AS D4 AND DELIBERATELY NOT A NEW ONE: two medians taken
+    # back to back in the same run on the same machine, and a DIFFERENCE
+    # asserted, never an absolute duration. An absolute threshold is a case that
+    # fails on a slow laptop and passes on a fast one for reasons that have
+    # nothing to do with the code.
+    #
+    # WHAT THE TWO ARMS ARE. Both run the real supervisor on the real Stop path
+    # against the same fresh signals/ratelimit.json, so both pay the file read,
+    # the JSON parse, the timestamp arithmetic and the tier comparison - the
+    # whole of the ladder's own work. They differ in ONE thing: the FIRES arm
+    # crosses the red threshold and therefore also reads and writes the ladder
+    # state file and formats and writes four lines to stderr; the QUIET arm has
+    # thresholds pushed to 101, so it computes the identical tier and finds
+    # nothing to say.
+    #
+    # THAT PAIRING IS THE POINT. It is not "ladder on versus ladder off", which
+    # would have measured the file read and told nobody anything about the
+    # branch an operator actually pays for at a wall. It is the cost of ACTING
+    # on the tier, over the cost of computing it, on a hook that runs at every
+    # turn end.
+    #
+    # THE FLOOR IS REPORTED BESIDE THEM rather than subtracted from anything.
+    # Both arms are a whole PowerShell 5.1 child process, most of which is
+    # interpreter start-up; a reader who is not shown the floor cannot tell a
+    # 30 ms difference from a 30 ms module.
+    function Measure-LwgLadderStop {
+        param([string]$Name, [hashtable]$Thresholds, [int]$Runs = 5)
+        $c = New-LwgSupervisorCase -Name $Name -Modules @{ failure_capture = $true; log_rotation = $false }
+        if ($null -ne $Thresholds) {
+            # The fixture config is rewritten with a thresholds block. Written
+            # through ConvertTo-Json for the same reason Write-LwgFixtureConfig
+            # is: a fixture malformed by a quoting mistake here is read as
+            # "config unreadable", which Get-LwgConfig FAILS OPEN on, and the arm
+            # would then measure the defaults rather than what it named.
+            $cfgPath = Join-Path $c.root 'config.json'
+            $cfg = [IO.File]::ReadAllText($cfgPath) | ConvertFrom-Json
+            $cfg | Add-Member -NotePropertyName 'thresholds' -NotePropertyValue ([pscustomobject]@{
+                ladder = [pscustomobject]$Thresholds }) -Force
+            [IO.File]::WriteAllText($cfgPath, ($cfg | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))
+        }
+        Write-LwgSignalFile -Case $c -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) `
+            -FiveHourPct 93 -FiveHourResetsAt '2026-09-06T20:00:00Z' -SevenDayPct 44 -ContextPct 61
+        $times = @()
+        $codes = @()
+        for ($i = 0; $i -lt $Runs; $i++) {
+            # A fresh session id per run: the ladder alerts on a RISE, so the
+            # second run of the FIRES arm would otherwise be deduped into
+            # silence and the arm would stop measuring what it claims to.
+            $pl = (New-LwgStopPayload -Case $c -FailedIds @()) -replace
+                  ('"session_id":"' + [regex]::Escape($c.session) + '"'), ('"session_id":"' + $c.session + '-' + $i + '"')
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            $r  = Invoke-LwgSupervisor -Case $c -Event 'Stop' -Tag ($Name + '-' + $i) -Payload $pl
+            $sw.Stop()
+            $times += [int]$sw.Elapsed.TotalMilliseconds
+            $codes += $r.code
+        }
+        $sorted = @($times | Sort-Object)
+        return @{ median = $sorted[[int][Math]::Floor($sorted.Count / 2)]; times = $times; codes = $codes }
+    }
+
+    # The interpreter floor, measured the same way: a child that starts
+    # PowerShell and does nothing else.
+    $d5floorTimes = @()
+    for ($i = 0; $i -lt 5; $i++) {
+        $d5sw = [Diagnostics.Stopwatch]::StartNew()
+        & $env:ComSpec /c 'powershell -NoProfile -ExecutionPolicy Bypass -Command exit' | Out-Null
+        $d5sw.Stop()
+        $d5floorTimes += [int]$d5sw.Elapsed.TotalMilliseconds
+    }
+    $d5floorSorted = @($d5floorTimes | Sort-Object)
+    $d5floor = $d5floorSorted[[int][Math]::Floor($d5floorSorted.Count / 2)]
+
+    $m5quiet = Measure-LwgLadderStop -Name 'd5-quiet' -Thresholds @{ amber_pct = 101; red_pct = 101 }
+    $m5fires = Measure-LwgLadderStop -Name 'd5-fires' -Thresholds $null
+    $d5delta = $m5fires.median - $m5quiet.median
+
+    $d5Parallel = -not [string]::IsNullOrWhiteSpace($env:LWG_SUITE_PARALLEL)
+    $d5detail = ("floor (powershell -NoProfile -Command exit) median $d5floor ms [$(@($d5floorTimes) -join ',')]; " +
+                 "ladder computed, nothing to say: median $($m5quiet.median) ms [$(@($m5quiet.times) -join ',')], exits [$(@($m5quiet.codes) -join ',')]; " +
+                 "ladder RED and announcing: median $($m5fires.median) ms [$(@($m5fires.times) -join ',')], exits [$(@($m5fires.codes) -join ',')]; " +
+                 "delta $d5delta ms")
+
+    # THE ARMS ARE ASSERTED TO HAVE DONE DIFFERENT THINGS BEFORE THE CLOCK IS
+    # READ. Two arms that both exited 0 would produce a delta near zero and a
+    # green line that measured nothing, which is the vacuity this file refuses
+    # everywhere else. This half does not depend on a clock, so it runs under
+    # the parallel runner too.
+    Add-Result 'D5: the budget arms really are quiet and firing' `
+        ((@($m5quiet.codes | Where-Object { $_ -ne 0 }).Count -eq 0) -and
+         (@($m5fires.codes | Where-Object { $_ -ne 2 }).Count -eq 0)) `
+        ("the quiet arm must exit 0 on every run and the firing arm must exit 2 on every run, or the delta below is a difference between two things nobody named. $d5detail")
+
+    if ($d5Parallel) {
+        Write-Output '  D5 timing  SKIPPED under the parallel runner - a difference between two medians taken beside twelve other suites measures the runner, not the ladder (#250)'
+        Add-Result 'D5: announcing a red tier costs the Stop path almost nothing' $true `
+            ("SKIPPED: LWG_SUITE_PARALLEL is set, so this run is one of the thirteen sibling suites tests\doc_claims.ps1 starts at once, and a wall-clock difference taken while twelve of them spawn a process per case measures the runner. Nothing is widened and nothing is retried - run this suite on its own, which its own CI step and every local run do, and the case is enforced exactly as written. The arms-differ case above it is NOT skipped: it asserts on exit codes rather than on a clock. Same treatment as D4 and for the same reason. $d5detail")
+    } else {
+        # 2000 ms, the same shape of allowance as D4's 5000: enormous beside the
+        # tens of milliseconds the branch actually costs, and tight enough to
+        # catch a ladder that had started doing real work - a second file read
+        # per turn, a transcript parse, a subprocess - on the one hook that runs
+        # at every single turn end.
+        Add-Result 'D5: announcing a red tier costs the Stop path almost nothing' `
+            ($d5delta -lt 2000) `
+            ("the ladder rides a hook that runs at EVERY turn end, so the branch an operator hits at a wall has to be cheap. Both arms compute the identical tier; only the firing arm reads and writes the ladder state file and writes to stderr. $d5detail")
+    }
 
     # =====================================================================
     # SECTION E - THIS SUITE ITSELF

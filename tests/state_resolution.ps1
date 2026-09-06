@@ -1054,7 +1054,7 @@ function Test-E4-NoRegistryNoteContradictsTheRegistrysOwnGateCount {
 # was given. A fixture that inherited anything would make those numbers a
 # statement about config.json instead of about the ladder.
 #
-# THE COUNTS ARE CONCRETE - 7/11, 11/11, 0 gates, 3 gates - and not recomputed
+# THE COUNTS ARE CONCRETE - 6/10, 10/10, 0 gates, 3 gates - and not recomputed
 # from the registry inside the case. Deriving them here would mean the case and
 # the code under test share a mistake; a registry change that moves them is
 # meant to bring this file with it, and that is the test working rather than
@@ -1271,11 +1271,11 @@ function Test-F5-TheShippedConfigIsObserveOnly {
       The word the shipped plugin actually reports, and the one an operator sees
       most: seven of eleven modules run, no gate is armed, so nothing can block
       anything. '(4 off)' is asserted with it because the parenthetical is what
-      stops 7/11 being read as coverage - the four are built and switched off,
+      stops 6/10 being read as coverage - the four are built and switched off,
       not unwritten.
     #>
-    Invoke-ModeCase -Name 'f5' -CaseName 'F5 the shipped config.json reports mode observe-only, 7/11 modules and 0 gates' `
-        -ConfigJson '' -Mode 'observe-only' -Counts '7/11 modules' -Gates '0 gates' -Split '(4 off)'
+    Invoke-ModeCase -Name 'f5' -CaseName 'F5 the shipped config.json reports mode observe-only, 6/10 modules and 0 gates' `
+        -ConfigJson '' -Mode 'observe-only' -Counts '6/10 modules' -Gates '0 gates' -Split '(4 off)'
 }
 
 function Test-F6-SelfHealthOffIsUnverified {
@@ -1290,7 +1290,6 @@ function Test-F6-SelfHealthOffIsUnverified {
   "version": "0.4.0",
   "modules": {
     "failure_capture": true,
-    "context_pressure": true,
     "self_health": false,
     "log_rotation": true,
     "docs_coupling": true,
@@ -1305,7 +1304,7 @@ function Test-F6-SelfHealthOffIsUnverified {
 }
 '@
     Invoke-ModeCase -Name 'f6' -CaseName 'F6 self_health off reports mode unverified, never a word that implies a check passed' `
-        -ConfigJson $cfg -Mode 'unverified' -Counts '6/11 modules' -Gates '0 gates' -Split '(5 off)'
+        -ConfigJson $cfg -Mode 'unverified' -Counts '5/10 modules' -Gates '0 gates' -Split '(5 off)'
 }
 
 function Test-F7-OneLiveGateIsPartial {
@@ -1324,7 +1323,6 @@ function Test-F7-OneLiveGateIsPartial {
   "version": "0.4.0",
   "modules": {
     "failure_capture": true,
-    "context_pressure": true,
     "self_health": true,
     "log_rotation": true,
     "docs_coupling": true,
@@ -1340,7 +1338,7 @@ function Test-F7-OneLiveGateIsPartial {
 }
 '@
     Invoke-ModeCase -Name 'f7' -CaseName 'F7 one live gate with modules still off reports mode partial and 1 gate' `
-        -ConfigJson $cfg -Mode 'partial' -Counts '8/11 modules' -Gates '1 gate' -Split '(3 off)'
+        -ConfigJson $cfg -Mode 'partial' -Counts '7/10 modules' -Gates '1 gate' -Split '(3 off)'
 }
 
 function Test-F8-EverythingOnIsEnforcing {
@@ -1366,7 +1364,6 @@ function Test-F8-EverythingOnIsEnforcing {
   "version": "0.4.0",
   "modules": {
     "failure_capture": true,
-    "context_pressure": true,
     "self_health": true,
     "log_rotation": true,
     "docs_coupling": true,
@@ -1396,7 +1393,7 @@ function Test-F8-EverythingOnIsEnforcing {
     $problems = @()
     if ([string]$c.record.mode -ne 'enforcing') { $problems += "the ledger record says mode '$($c.record.mode)', expected 'enforcing'. failures: [$($c.record.failures -join '; ')]" }
     if (-not (Test-BannerMode $banner 'enforcing')) { $problems += "the BANNER does not end on 'enforcing': [$banner]" }
-    if ($banner -notmatch '11/11 modules') { $problems += "the banner does not say '11/11 modules': [$banner]" }
+    if ($banner -notmatch '10/10 modules') { $problems += "the banner does not say '10/10 modules': [$banner]" }
     if ($banner -notmatch '3 gates')              { $problems += "the banner does not say '3 gates': [$banner]" }
     if ($banner -match '\d+/\d+ modules \w+\s*\(') { $problems += "the banner prints a parenthetical on a config with nothing planned and nothing off: [$banner]" }
     $f = Get-BannerFailure $banner
@@ -1419,7 +1416,6 @@ function Test-F9-NothingRunningIsInert {
   "version": "0.4.0",
   "modules": {
     "failure_capture": false,
-    "context_pressure": false,
     "self_health": false,
     "log_rotation": false,
     "docs_coupling": false,
@@ -1433,8 +1429,8 @@ function Test-F9-NothingRunningIsInert {
   }
 }
 '@
-    Invoke-ModeCase -Name 'f9' -CaseName 'F9 nothing enabled at all reports mode inert, 0/11 modules and 0 gates' `
-        -ConfigJson $cfg -Mode 'inert' -Counts '0/11 modules' -Gates '0 gates' -Split '(11 off)'
+    Invoke-ModeCase -Name 'f9' -CaseName 'F9 nothing enabled at all reports mode inert, 0/10 modules and 0 gates' `
+        -ConfigJson $cfg -Mode 'inert' -Counts '0/10 modules' -Gates '0 gates' -Split '(10 off)'
 }
 
 # =========================================================================
@@ -1505,7 +1501,7 @@ function Test-G2-TheBannerNumbersAreTheOnesTheConfigImplies {
       this line goes on counting the module, so the word claimed an observation
       the plugin has never had, in the one line every session reads.
 
-      The other five mode cases assert the FRACTION and not the noun - '7/11
+      The other five mode cases assert the FRACTION and not the noun - '6/10
       modules' - deliberately. They are coverage and are green at that commit,
       and folding the wording defect into all six would have made five green
       cases look like five red ones and lost which change did what.
@@ -1517,7 +1513,7 @@ function Test-G2-TheBannerNumbersAreTheOnesTheConfigImplies {
     $c = Invoke-SessionStartCase -Name 'g2'
     $banner = [string]$c.envelope.systemMessage
     $problems = @()
-    foreach ($want in @('7/11 modules enabled', '(4 off)', '0 gates', 'observe-only')) {
+    foreach ($want in @('6/10 modules enabled', '(4 off)', '0 gates', 'observe-only')) {
         if ($banner -notmatch [regex]::Escape($want)) { $problems += "the banner does not say '$want'" }
     }
     if ($banner -match 'modules active') {
@@ -1586,10 +1582,10 @@ function Test-G5-AdditionalContextDescribesWhatIsRunning {
     $c = Invoke-SessionStartCase -Name 'g5'
     $ctx = [string]$c.envelope.hookSpecificOutput.additionalContext
     $problems = @()
-    foreach ($want in @('mode observe-only', 'Running (7/11)', 'No gate is live')) {
+    foreach ($want in @('mode observe-only', 'Running (6/10)', 'No gate is live')) {
         if ($ctx -notmatch [regex]::Escape($want)) { $problems += "additionalContext does not say '$want'" }
     }
-    foreach ($m in @('failure_capture', 'context_pressure', 'self_health', 'log_rotation', 'docs_coupling', 'git_hygiene', 'context_injection')) {
+    foreach ($m in @('failure_capture', 'self_health', 'log_rotation', 'docs_coupling', 'git_hygiene', 'context_injection')) {
         if ($ctx -notmatch [regex]::Escape($m)) { $problems += "additionalContext does not name the active module '$m'" }
     }
     foreach ($m in @('send_liveness_gate', 'completion_audit', 'orphan_watch', 'delegate_gate')) {
@@ -1612,7 +1608,6 @@ function Test-G6-AdditionalContextNamesALiveGate {
   "version": "0.4.0",
   "modules": {
     "failure_capture": true,
-    "context_pressure": true,
     "self_health": true,
     "log_rotation": true,
     "docs_coupling": true,
@@ -1650,7 +1645,6 @@ function Test-G7-AdditionalContextSaysTheSelfCheckDidNotRun {
   "version": "0.4.0",
   "modules": {
     "failure_capture": true,
-    "context_pressure": true,
     "self_health": false,
     "log_rotation": true,
     "docs_coupling": true,
