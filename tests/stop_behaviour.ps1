@@ -2120,7 +2120,7 @@ try {
     # WHAT IT IS. Three occupancies - the 5-hour limit, the 7-day limit and the
     # context window - read from signals/ratelimit.json, which the STATUS LINE
     # writes on every render (statusline/statusline.ps1's WriteSignal, #163).
-    # The worst of the three sets a tier: amber at 70, red at 85. Amber tells
+    # The worst of the three sets a tier: amber from 70, red from 85. Amber tells
     # the model to start nothing new; red tells it to land the work and run the
     # handoff skill. It rides in the supervisor's Stop branch because exit 2
     # under this registration's asyncRewake is THE ONLY CHANNEL THAT REACHES
