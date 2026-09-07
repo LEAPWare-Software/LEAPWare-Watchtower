@@ -107,6 +107,55 @@
   does not exist.
 
   ---------------------------------------------------------------------------
+  EVERY READ HERE SPECIFIES -Encoding UTF8, AND THAT IS NOT A TIDY-UP - #241
+  ---------------------------------------------------------------------------
+  Windows PowerShell 5.1 - the runtime this repository pins and the one CI
+  uses - decodes a file with NO BOM using the system ANSI code page, not UTF-8.
+  Every tracked page here is BOM-less UTF-8, so a bare Get-Content handed this
+  guard a mis-decoded copy of all 105 of them: the three bytes E2 80 94, which
+  are an em dash, arrived as the three cp1252 characters `a-circumflex, euro,
+  right-double-quote`. Measured at 010a550: that mojibake appeared in the
+  excerpt lines of a full run, and 60 of the 105 tracked text files carry at
+  least one non-ASCII character.
+
+  NO VERDICT MOVED WHEN THIS WAS FIXED, AND THAT IS THE POINT RATHER THAN AN
+  EXCUSE. Every rule in this file at the time keyed on ASCII - a quantity, a
+  rule name, a path, a marker - so a mangled em dash changed no answer, and the
+  run before and after this change both report the same 200 of 200. What the
+  bare read cost was not a wrong answer today; it was the ABILITY TO WRITE A
+  RULE TOMORROW. A pattern keyed on a curly quote, a non-breaking space, an
+  accented name or an em dash matched nothing against the mis-decoded copy -
+  and a pattern that matches nothing is reported dead by the liveness contract
+  at the foot of this file, which exits 2 and establishes NOTHING about the
+  documentation. The failure mode looked exactly like a bad regex.
+
+  THAT IS NOT HYPOTHETICAL, AND THE WORKED EXAMPLE IS THE RULE THIS FILE IS
+  ABOUT TO BE OWED. #312 closed on a waived case with two guard rules owed to
+  #195, the first of which resolves a `CHANGELOG.md#...` fragment in a tracked
+  page against a heading that exists. Deriving GitHub's slug is the whole of
+  that rule, and the heading it must derive from carries a U+2014 EM DASH
+  between its two fields - measured with `od -c` while #312 was closed. The
+  slugger drops the dash and maps the two flanking spaces to the double hyphen
+  in `040--2026-09-04`, which is the anchor four tracked pages actually use.
+
+  Under the ANSI misread the dash arrives as THREE characters and the first of
+  them is a LETTER, so the same derivation yields `040-<a-circumflex>-2026-09-04`
+  and every one of those four correct anchors is reported broken. Measured at
+  010a550 with both readings side by side. THAT RULE IS NOT IN THIS FILE YET -
+  it lands with #195, and this is why #241 is fixed FIRST rather than after: a
+  rule keyed on a non-ASCII character cannot be written correctly until the
+  reader under it is correct.
+
+  ALL FOURTEEN READS CARRY IT, not only the two file-set loops the issue named.
+  The other twelve read ci.yml, lib/common.ps1, both manifests, config.json,
+  hooks.json, the PowerShell literals and the statusline - every one of them a
+  tracked, BOM-less, UTF-8 file with the same defect. Fixing the two the issue
+  measured and leaving twelve would leave the trap set for the next rule that
+  reaches for one of them. The one tracked file that DOES carry a BOM,
+  lw-watchtower/bin/lwg-doctor.ps1, decodes identically either way - the BOM is
+  consumed as a preamble in both readings - so nothing about it moved.
+
+  ---------------------------------------------------------------------------
   EVERY PATTERN HAS TO FIRE, AND SEVEN OF THIRTY-SEVEN DID NOT
   ---------------------------------------------------------------------------
   The paragraph above says this guard reads "the PHRASINGS THIS TREE ACTUALLY
@@ -627,7 +676,7 @@ if (@(Compare-Object -ReferenceObject $expectedIds -DifferenceObject ($qIds | So
 # named steps, and keep the ones that carry a `run:` block.
 $ciPath = Join-Path $script:RepoRoot '.github\workflows\ci.yml'
 if (-not (Test-Path -LiteralPath $ciPath -PathType Leaf)) { Abort "missing $ciPath" }
-$ciText = Get-Content -Raw -LiteralPath $ciPath
+$ciText = Get-Content -Raw -Encoding UTF8 -LiteralPath $ciPath
 $stepHeads = @([regex]::Matches($ciText, '(?m)^\s+-\s+name:\s*\S'))
 if ($stepHeads.Count -eq 0) { Abort 'ci.yml declares no named steps - the parse is broken.' }
 $ciSteps = 0
@@ -644,7 +693,7 @@ if ($ciSteps -eq 0) { Abort 'no named step in ci.yml carries a run: block - the 
 # library to count a hashtable runs its whole prologue for one number.
 $commonPath = Join-Path $script:PayloadRoot 'lib\common.ps1'
 if (-not (Test-Path -LiteralPath $commonPath -PathType Leaf)) { Abort "missing $commonPath" }
-$commonText = Get-Content -Raw -LiteralPath $commonPath
+$commonText = Get-Content -Raw -Encoding UTF8 -LiteralPath $commonPath
 $regMatch = [regex]::Match($commonText,
     '(?s)\$script:LwgModuleRegistry\s*=\s*\[ordered\]@\{(.+?)(?m:^\})')
 if (-not $regMatch.Success) { Abort 'could not locate $LwgModuleRegistry in lib/common.ps1.' }
@@ -712,7 +761,7 @@ $versionSites = @()
 $pluginRel   = "$($script:PayloadRel)/.claude-plugin/plugin.json"
 $pluginPath  = Join-Path $script:PayloadRoot '.claude-plugin\plugin.json'
 if (-not (Test-Path -LiteralPath $pluginPath -PathType Leaf)) { Abort "missing $pluginPath" }
-$pluginLines = @(Get-Content -LiteralPath $pluginPath)
+$pluginLines = @(Get-Content -Encoding UTF8 -LiteralPath $pluginPath)
 try { $pluginJson = ($pluginLines -join "`n") | ConvertFrom-Json }
 catch { Abort "$pluginRel did not parse, so the declared version was never read: $($_.Exception.Message)" }
 if ([string]::IsNullOrWhiteSpace([string]$pluginJson.version)) { Abort "$pluginRel declares no version." }
@@ -723,7 +772,7 @@ $versionSites += [pscustomobject]@{
 $mktRel   = '.claude-plugin/marketplace.json'
 $mktPath  = Join-Path $script:RepoRoot '.claude-plugin\marketplace.json'
 if (-not (Test-Path -LiteralPath $mktPath -PathType Leaf)) { Abort "missing $mktPath" }
-$mktLines = @(Get-Content -LiteralPath $mktPath)
+$mktLines = @(Get-Content -Encoding UTF8 -LiteralPath $mktPath)
 try { $mktJson = ($mktLines -join "`n") | ConvertFrom-Json }
 catch { Abort "$mktRel did not parse, so the declared version was never read: $($_.Exception.Message)" }
 # Matched by NAME rather than by taking [0]: this marketplace hosts one plugin
@@ -755,7 +804,7 @@ if ($declaredSource -ne ('./' + $script:PayloadRel)) {
 $cfgRel   = "$($script:PayloadRel)/config.json"
 $cfgPath  = Join-Path $script:PayloadRoot 'config.json'
 if (-not (Test-Path -LiteralPath $cfgPath -PathType Leaf)) { Abort "missing $cfgPath" }
-$cfgLines = @(Get-Content -LiteralPath $cfgPath)
+$cfgLines = @(Get-Content -Encoding UTF8 -LiteralPath $cfgPath)
 try { $cfgJson = ($cfgLines -join "`n") | ConvertFrom-Json }
 catch { Abort "$cfgRel did not parse, so the declared version was never read: $($_.Exception.Message)" }
 if ([string]::IsNullOrWhiteSpace([string]$cfgJson.version)) { Abort "$cfgRel declares no version." }
@@ -774,7 +823,7 @@ $verLiterals = @(
 foreach ($lit in $verLiterals) {
     $litPath = Join-Path $script:PayloadRoot $lit.Path
     if (-not (Test-Path -LiteralPath $litPath -PathType Leaf)) { Abort "missing $litPath" }
-    $litLines = @(Get-Content -LiteralPath $litPath)
+    $litLines = @(Get-Content -Encoding UTF8 -LiteralPath $litPath)
     $litMatch = [regex]::Match(($litLines -join "`n"), $lit.Pattern)
     if (-not $litMatch.Success) {
         Abort ("no version literal matched in {0}, so that declaration was never read. If it moved, this pattern has to move with it." -f $lit.Rel)
@@ -1086,7 +1135,7 @@ $skippedWhole = @()
 foreach ($rel in $proseFiles) {
     $full = Join-Path $script:RepoRoot ($rel -replace '/', '\')
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
-    $lines = @(Get-Content -LiteralPath $full)
+    $lines = @(Get-Content -Encoding UTF8 -LiteralPath $full)
     $text  = ($lines -join "`n")
     if ($text -match '<!--[^>]*doc-claims:ignore-file') { $skippedWhole += $rel; continue }
     $flat  = Get-ContinuationMasked -Lines $lines
@@ -1683,7 +1732,7 @@ foreach ($site in $versionSites) {
             Rule = 'version-declarations-agree'; File = $site.Rel; Line = $site.Line
             Said = $site.Value; Expected = $versionRef.Value
             Source = ("the version declared in {0}" -f $versionRef.Rel)
-            Excerpt = (Get-Excerpt ([pscustomobject]@{ Lines = @(Get-Content -LiteralPath (Join-Path $script:RepoRoot ($site.Rel -replace '/', '\'))) }) $site.Line)
+            Excerpt = (Get-Excerpt ([pscustomobject]@{ Lines = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $script:RepoRoot ($site.Rel -replace '/', '\'))) }) $site.Line)
         }
         Say ("  [FAIL] {0,-26} {1}:{2}  says {3}, tree says {4}" -f 'version-declarations-agree', $site.Rel, $site.Line, $site.Value, $versionRef.Value)
     }
@@ -2099,7 +2148,7 @@ foreach ($rel in $cmdPages) {
     if (-not (Test-Path -LiteralPath $scriptAbs -PathType Leaf)) {
         Abort ("{0} names {1}, which is not in the tree, so its exit-code account was checked against nothing." -f $rel, $scriptRel)
     }
-    $stext = (Get-Content -LiteralPath $scriptAbs) -join "`n"
+    $stext = (Get-Content -Encoding UTF8 -LiteralPath $scriptAbs) -join "`n"
     $canProduce = New-Object System.Collections.Generic.HashSet[int]
     foreach ($m in [regex]::Matches($stext, '(?m)^[^#\r\n]*?(?<![\w-])exit\s+(\d+)\b'))          { $null = $canProduce.Add([int]$m.Groups[1].Value) }
     foreach ($m in [regex]::Matches($stext, '(?m)^[^#\r\n]*?\$script:Exit\s*=\s*(\d+)\b'))       { $null = $canProduce.Add([int]$m.Groups[1].Value) }
@@ -2112,7 +2161,7 @@ foreach ($rel in $cmdPages) {
     }
     $undoc = @($canProduce | Where-Object { -not $documented.Contains($_) } | Sort-Object)
     $unreal = @($documented | Where-Object { -not $canProduce.Contains($_) } | Sort-Object)
-    $scriptLn = Get-LineOf @(Get-Content -LiteralPath $scriptAbs) '(?m)^[^#\r\n]*?(?<![\w-])exit\s+\d+\b'
+    $scriptLn = Get-LineOf @(Get-Content -Encoding UTF8 -LiteralPath $scriptAbs) '(?m)^[^#\r\n]*?(?<![\w-])exit\s+\d+\b'
     if ($undoc.Count -eq 0 -and $unreal.Count -eq 0) {
         Add-LongPass -Rule 'command-exit-codes' -File $rel -Line 0 `
             -Said ("accounts for exactly {0}, the codes {1} can produce" -f (($canProduce | Sort-Object) -join '/'), $scriptRel)
@@ -2359,7 +2408,7 @@ $wideSkipped = @()
 foreach ($rel in $wideFiles) {
     $full = Join-Path $script:RepoRoot ($rel -replace '/', '\')
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
-    $lines = @(Get-Content -LiteralPath $full)
+    $lines = @(Get-Content -Encoding UTF8 -LiteralPath $full)
     $text  = ($lines -join "`n")
     # The SAME two markers the quantity rules honour, and for the same reason:
     # CHANGELOG.md is a record end to end, and a line that quotes what an
@@ -2433,7 +2482,7 @@ $slFull = Join-Path $script:RepoRoot ($slRel -replace '/', '\')
 if (-not (Test-Path -LiteralPath $slFull -PathType Leaf)) {
     Abort "$slRel is missing, so whether the GM segment still exists could not be derived and no surface was held to its absence."
 }
-$slText = ((Get-Content -LiteralPath $slFull) -join "`n")
+$slText = ((Get-Content -Encoding UTF8 -LiteralPath $slFull) -join "`n")
 $gmDefined = ($slText -match '(?m)^\s*function\s+Gm(?:Seg|State|Trips)\b')
 $gmEmitted = ($slText -match '(?m)^\s*\$out\s*\+=\s*Gm(?:Seg|State)\b')
 if ($gmDefined -or $gmEmitted) {
@@ -2829,7 +2878,7 @@ $hooksFull = Join-Path $script:RepoRoot ($hooksRel -replace '/', '\')
 if (-not (Test-Path -LiteralPath $hooksFull -PathType Leaf)) {
     Abort "$hooksRel is missing, so the platform requirement could not be derived."
 }
-$hooksText = (Get-Content -LiteralPath $hooksFull -Raw)
+$hooksText = (Get-Content -Encoding UTF8 -LiteralPath $hooksFull -Raw)
 $cmdAll = @([regex]::Matches($hooksText, '"command"\s*:\s*"([^"]+)"') | ForEach-Object { $_.Groups[1].Value })
 if ($cmdAll.Count -eq 0) {
     Abort "$hooksRel declares no hook command, so the platform requirement could not be derived."
@@ -2884,7 +2933,7 @@ $reqMax = 0
 foreach ($rel in @($tracked | Where-Object { $_ -match ('^' + [regex]::Escape($script:PayloadRel) + '/(bin|lib|statusline)/.+\.ps1$') })) {
     $full = Join-Path $script:RepoRoot ($rel -replace '/', '\')
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
-    foreach ($rm in [regex]::Matches(((Get-Content -LiteralPath $full -TotalCount 5) -join "`n"), '(?im)^#requires\s+-version\s+(\d+(?:\.\d+)?)')) {
+    foreach ($rm in [regex]::Matches(((Get-Content -Encoding UTF8 -LiteralPath $full -TotalCount 5) -join "`n"), '(?im)^#requires\s+-version\s+(\d+(?:\.\d+)?)')) {
         $v = [double]$rm.Groups[1].Value
         if ($v -gt $reqMax) { $reqMax = $v }
     }
