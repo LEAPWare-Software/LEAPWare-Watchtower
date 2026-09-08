@@ -51,7 +51,7 @@ check the contents of tracked files and assert nothing about this plugin's behav
 
 So the coverage statement is narrow and exact: **the only behaviour any test in this repository
 establishes is that the three gates refuse what they declare, that the installer's merge
-preserves what it was not asked to touch, that all eight observing modules behave as
+preserves what it was not asked to touch, that all seven observing modules behave as
 documented in the cases written for them, that the uninstaller's state-data footprint
 names what it deletes and refuses to call a no-op deletion a success,
 that two of the doctor's ten checks ask the question
@@ -1327,7 +1327,7 @@ it even that with a `403`; the manifest and its evidence engine were deleted in 
 correctly worded page and a correctly configured `main` are two separate claims and only the first of
 them is checked here.
 
-**There is no status badge in the README**, deliberately: a green badge covering three gates and all eight
+**There is no status badge in the README**, deliberately: a green badge covering three gates and all seven
 observing modules would read as far broader assurance than it is, which would be the
 exact overstatement this project exists to avoid. A second reason — that a badge would not render for
 most viewers of a repository they cannot read — stood until the visibility flip on **2026-08-28** and

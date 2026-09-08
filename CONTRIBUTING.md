@@ -876,6 +876,39 @@ call GitHub, because no suite here uses the network or a credential, so it canno
 label on this table still exists on the repository. Keeping the table true is a `gh label list` away
 and is a person's job.
 
+### Which surfaces raise a false claim to `sev:medium`
+
+A false sentence is not equally serious everywhere, and the bar has to say where. **A false claim on
+a consumer-facing surface is `sev:medium`.** A false sentence in a code comment, a test docstring or
+a `config.json` `$comment` is `sev:low` and is recorded as a comment on
+[#195](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/issues/195) rather than as a new
+issue.
+
+**The consumer-facing surfaces are stated as a boundary, not as a list**, because a list is how this
+rule went stale once already:
+
+- `README.md`, `SECURITY.md` and `CONTRIBUTING.md` at the repository root
+- everything under **`docs/`** — GitHub Pages serves that directory to the open web
+- **every page the plugin ships**: `lw-watchtower/README.md` and every `.md` under
+  `lw-watchtower/agents/`, `lw-watchtower/commands/`, `lw-watchtower/context/`,
+  `lw-watchtower/output-styles/` and `lw-watchtower/skills/`
+
+**Why the payload half is spelled out, and why `tests/doc_claims.ps1` holds this paragraph to the
+tree.** The rule was first proposed on #195 as *"only `README.md`, `docs/` and `commands/` carry
+`sev:medium` for a false claim"* — and it was written when `commands/` was the only directory of
+pages the plugin shipped. Four more have been added since, `skills/` as recently as 2026-09-06. So a
+false, **model-facing** sentence in `lw-watchtower/skills/` — which is what
+[#332](https://github.com/LEAPWare-Software/LEAPWare-Watchtower/issues/332) is — falls outside the
+proposed rule's own text entirely. It was in fact triaged `sev:medium`, correctly and against the
+practice rather than against the rule, which is the point: the rule as written would have argued for
+`low`, and the only thing standing between it and a wrong triage was a reader who ignored it.
+
+**A model-facing page is not a lesser surface than an operator-facing one.** A page the plugin feeds
+to a subagent is acted on without anybody reading it, so a false claim there is *less* likely to be
+caught than the same sentence in `README.md`, not more. The directories above are derived from the
+tree by `doc_claims`, so adding a sixth kind of shipped page fails the build until this paragraph
+names it.
+
 ## Licence
 
 By contributing you agree that your contributions are licensed under

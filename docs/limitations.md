@@ -411,7 +411,7 @@ on `SubagentStop` alone.
 
 **Twelve suites in this repository establish a behaviour of this plugin, and between them they reach
 all three gates, three writers, one deleter, the session-start hook, two of the doctor's ten checks,
-one hook's fast path, the shipped payload, and all eight observing modules.**
+one hook's fast path, the shipped payload, and all seven observing modules.**
 
 | Suite | What it establishes |
 | --- | --- |

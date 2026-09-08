@@ -47,10 +47,10 @@ If you are here to find out what this plugin **cannot** do, the consolidated ans
 
 ## What does this actually do?
 
-It runs 11 governance modules over every Claude Code session on the machine, in every repo, with no
-per-project setup. **Eight of them observe** — they record, count or warn — and **three are gates that
+It runs 10 governance modules over every Claude Code session on the machine, in every repo, with no
+per-project setup. **Seven of them observe** — they record, count or warn — and **three are gates that
 can refuse or hold an action: `delegate_gate`, `send_liveness_gate` and `completion_audit`. All three
-ship switched off**, and so does the eighth observing module, `orphan_watch`.
+ship switched off**, and so does the seventh observing module, `orphan_watch`.
 
 Concretely, as shipped:
 

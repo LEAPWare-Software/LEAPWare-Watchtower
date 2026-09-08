@@ -81,10 +81,18 @@
 # to config.json's `modules` keys, EXCEPT for entries that declare a `switch` of
 # their own - drift anywhere else silently mis-reports coverage, and
 # bin/lwg-doctor.ps1's config-registry check enforces both halves.
-# TEN entries, all 'implemented'. Seven are kind 'observe'; delegate_gate,
-# send_liveness_gate and completion_audit are kind 'gate' and are the only
-# things in this plugin that can block anything. All three gates - and
-# orphan_watch, the seventh observer - declare their own `switch` and SHIP OFF.
+# Every entry is 'implemented'. delegate_gate, send_liveness_gate and
+# completion_audit are kind 'gate' and are the only things in this plugin that
+# can block anything; every other entry is kind 'observe'. Each of those gates,
+# and orphan_watch, declares its own `switch` and SHIPS OFF.
+#
+# HOW MANY THERE ARE OF EACH IS NOT WRITTEN HERE, AND THAT IS #195. The list is
+# the next thing in this file - a reader counts it, and every consumer derives
+# it: the SessionStart banner from this hashtable, docs/modules.md from the same
+# place, and tests/doc_claims.ps1 holds that page to it. A number copied into
+# this comment is a second copy sitting six lines above its own source, and it
+# is the copy that goes stale, because nothing reads a comment. It said ELEVEN
+# here until #168 and the sweep that corrected it had to find this line by hand.
 #
 # IT WAS ELEVEN UNTIL 6 SEPTEMBER 2026 (#168). context_pressure was DELETED as a
 # standalone advisory and replaced by the TRANSITION LADDER, which is a layer of
