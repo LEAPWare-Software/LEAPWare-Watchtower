@@ -236,9 +236,12 @@ land here as they merge.
   **ONE BEHAVIOUR CHANGED AND IT IS NOT A RENAME: the orphan reconciliation now ships ON.**
   `orphan_watch` shipped `false`; `effort_ledger` ships `true`, because it is the ledger every other
   reader depends on and a ledger shipping off would leave `send_liveness_gate` unable to tell a
-  finished agent from a dead one on every install. **This consequence was not in front of the
-  owner** — ruling H2 costed a breaking rename and not a new default — so it is stated here rather
-  than absorbed. It arms no gate and blocks nothing: the reconciliation's only channel is `exit 2`
+  finished agent from a dead one on every install. **This consequence was not in the cost the owner
+  approved** — ruling H2 costed a breaking rename and not a new default — so it was put to them
+  separately rather than absorbed, and **ruled on 2026-09-08 (ruling J1, #147): ship it on, and say
+  so here.** The CTO recommendation was to defer the merge to `v0.6.0` on the grounds that two
+  modules with different correct defaults should not share one flag; the owner overruled it, and the
+  reasoning on both sides is on #147 rather than only the outcome. It arms no gate and blocks nothing: the reconciliation's only channel is `exit 2`
   under an `asyncRewake` registration, which alerts and cannot refuse.
   **THE HEALING CEILING IS UNCHANGED AND IS PART OF THE SPECIFICATION.** This plugin dispatches
   nothing and no hook here can call a tool. On a dead agent it **instructs** one bounded retry,
