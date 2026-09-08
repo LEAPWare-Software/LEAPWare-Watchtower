@@ -1,7 +1,11 @@
 #requires -version 5
 <#
   LW-WATCHTOWER supervision regression suite - send_liveness_gate, completion_audit
-  and orphan_watch.
+  and the ORPHAN RECONCILIATION, which was orphan_watch until 8 September 2026
+  (#166) and is now the fourth thing effort_ledger carries. The reconciliation's
+  cases moved here INTACT under the new flag; the one case whose SUBJECT was the
+  second flag itself could not, and E5 says so in its own header rather than
+  being called unchanged.
 
       powershell -NoProfile -ExecutionPolicy Bypass -File tests\supervision.ps1
       powershell -NoProfile -ExecutionPolicy Bypass -File tests\supervision.ps1 -Verbose
@@ -89,7 +93,7 @@ function Add-Result {
 function New-LwgSupRoot {
     <#
       A throwaway plugin root holding the repository's own config.json with the
-      three supervision switches set to $On. Every replacement is asserted to
+      two supervision switches set to $On. Every replacement is asserted to
       have matched exactly once: the GLOBAL keys are the only place the literal
       `"<key>": false` occurs (the per-repo block spells them `: true`), and a
       config in which that stops being so must abort the suite rather than
@@ -103,7 +107,7 @@ function New-LwgSupRoot {
 
     $raw = [IO.File]::ReadAllText($CfgPath)
     if ($On) {
-        foreach ($k in @('send_liveness', 'completion_audit', 'orphan_watch')) {
+        foreach ($k in @('send_liveness', 'completion_audit')) {
             $from = ('"{0}": false' -f $k)
             $n = ([regex]::Matches($raw, [regex]::Escape($from))).Count
             if ($n -ne 1) {
@@ -112,6 +116,40 @@ function New-LwgSupRoot {
             $raw = $raw.Replace($from, ('"{0}": true' -f $k))
         }
     }
+    [IO.File]::WriteAllText((Join-Path $dir 'config.json'), $raw, [Text.UTF8Encoding]::new($false))
+    return $dir
+}
+
+function New-LwgLedgerOffRoot {
+    <#
+      A throwaway plugin root with modules.effort_ledger switched OFF, and it
+      exists because THE MERGE (#166, 8 September 2026) MOVED WHERE "OFF" LIVES.
+
+      New-LwgSupRoot -On $false used to be the off-fixture for the orphan
+      reconciliation, because supervision.orphan_watch was one of the three keys
+      it flipped. That key is gone: the reconciliation now rides
+      modules.effort_ledger, which the shipped config.json sets TRUE, so
+      -On $false is an ON fixture for this module and E5 built against it would
+      have been a false pass - asserting silence from a run that alerts.
+
+      The replacement is asserted to have matched exactly once for the same
+      reason the sibling above gives: a config in which the literal has moved
+      must abort the suite rather than quietly build a silence case against a
+      module that is running.
+    #>
+    param([string]$Base)
+
+    $dir = Join-Path $Base 'root-ledger-off'
+    [void][IO.Directory]::CreateDirectory($dir)
+    [void][IO.Directory]::CreateDirectory((Join-Path $dir 'data'))
+
+    $raw  = [IO.File]::ReadAllText($CfgPath)
+    $from = '"effort_ledger": true'
+    $n = ([regex]::Matches($raw, [regex]::Escape($from))).Count
+    if ($n -ne 1) {
+        throw "config.json holds $n occurrence(s) of '$from', expected exactly 1 - the ledger-off fixture cannot be built, and building it wrong would make E5 assert silence from a module that is running"
+    }
+    $raw = $raw.Replace($from, '"effort_ledger": false')
     [IO.File]::WriteAllText((Join-Path $dir 'config.json'), $raw, [Text.UTF8Encoding]::new($false))
     return $dir
 }
@@ -417,6 +455,7 @@ try {
 
     $rootOn  = New-LwgSupRoot -Base $work -On $true
     $rootOff = New-LwgSupRoot -Base $work -On $false
+    $rootLedgerOff = New-LwgLedgerOffRoot -Base $work
 
     $hooks = ([IO.File]::ReadAllText($HooksPath) | ConvertFrom-Json)
 
@@ -480,10 +519,15 @@ try {
     # -------------------------------------------------------------------
     . $CommonPath
 
+    # TWO ROWS, NOT THREE, SINCE 8 SEPTEMBER 2026 (#166). orphan_watch was the
+    # third and it was the ONLY kind = 'observe' entry that ever declared a
+    # `switch`; it merged into effort_ledger, whose flag is a plain `modules`
+    # key. So this loop now asserts exactly what the `switch` field was built
+    # for - entries a corrupt config must not be able to arm, which is to say
+    # gates - and B-merged below asserts the thing that replaced the third row.
     foreach ($row in @(
         @{ n = 'send_liveness_gate'; kind = 'gate';    key = 'send_liveness' },
-        @{ n = 'completion_audit';   kind = 'gate';    key = 'completion_audit' },
-        @{ n = 'orphan_watch';       kind = 'observe'; key = 'orphan_watch' }
+        @{ n = 'completion_audit';   kind = 'gate';    key = 'completion_audit' }
     )) {
         $entry = $null
         try { $entry = $script:LwgModuleRegistry[$row.n] } catch { }
@@ -506,17 +550,53 @@ try {
 
     # A per-repo override must arm them through the same resolution the gates
     # use - fabricated config, fabricated slug, nothing from this machine.
-    $ovCfg = ('{"modules":{"failure_capture":true},' +
-              '"supervision":{"send_liveness":false,"completion_audit":false,"orphan_watch":false},' +
-              '"repos":{"LWG-Test/FakeRepo":{"supervision":{"send_liveness":true,"completion_audit":true,"orphan_watch":true}}}}')
+    $ovCfg = ('{"modules":{"effort_ledger":true},' +
+              '"supervision":{"send_liveness":false,"completion_audit":false},' +
+              '"repos":{"LWG-Test/FakeRepo":{"supervision":{"send_liveness":true,"completion_audit":true}}}}')
     $ovObj = $ovCfg | ConvertFrom-Json
     $okOv = $true
-    foreach ($n in @('send_liveness_gate', 'completion_audit', 'orphan_watch')) {
+    foreach ($n in @('send_liveness_gate', 'completion_audit')) {
         if (-not (Test-LwgModule -Name $n -Config $ovObj -Repo 'LWG-Test/FakeRepo')) { $okOv = $false }
         if (Test-LwgModule -Name $n -Config $ovObj -Repo 'Other/Repo')              { $okOv = $false }
     }
-    Add-Result 'B per-repo override arms all three for its repo and no other' $okOv `
+    Add-Result 'B per-repo override arms both gates for its repo and no other' $okOv `
         'repos[slug].supervision.<key> must override the global false for that slug only'
+
+    # THE THIRD ROW OF THE LOOP ABOVE, REPLACED RATHER THAN DROPPED (#166,
+    # 8 September 2026). orphan_watch is gone and the reconciliation rides
+    # effort_ledger, so what has to be asserted here is no longer "declares its
+    # own switch and ships off" - it is the opposite shape, and it is the shape
+    # the whole merge argues for: ONE flag, a plain `modules` key, no `switch` of
+    # its own, shipping ON.
+    #
+    # THE SHIPS-ON ASSERTION IS DELIBERATE AND IT IS NOT A SHIPPED-ARMED GATE.
+    # The sibling rows above assert their modules ship OFF because they can
+    # BLOCK; this one observes and refuses nothing, and its records are what the
+    # two gates above abstain for the want of. A ledger that shipped off would
+    # leave send_liveness_gate unable to tell a finished agent from a dead one on
+    # every install, which is what section C's abstain cases measure.
+    $ledgerEntry = $null
+    try { $ledgerEntry = $script:LwgModuleRegistry['effort_ledger'] } catch { }
+    $okLedger = ($null -ne $ledgerEntry -and
+                 [string]$ledgerEntry.kind -eq 'observe' -and
+                 $null -eq $ledgerEntry.switch -and
+                 (Test-LwgModule -Name 'effort_ledger' -Config (Get-LwgConfig -Path $CfgPath) -Repo ''))
+    Add-Result 'B-merged registry: effort_ledger is kind observe, declares NO switch, and the shipped config has it ON (#166)' $okLedger `
+        ("the merged entry is missing or the wrong shape - kind '$($ledgerEntry.kind)', switch '$(if ($ledgerEntry -and $ledgerEntry.switch) { 'declared' } else { 'none' })'. " +
+         "ONE SWITCH is the point of the merge: a `switch`-backed entry has no `modules` key, so the doctor's parity rule would stop holding config.json to this name, " +
+         "and a ledger shipping OFF would make every send_liveness_gate verdict an abstain on every install.")
+
+    # AND NEITHER OLD NAME SURVIVES. Asserted here as well as in
+    # tests\state_resolution.ps1 section K, because the two suites fail for
+    # different reasons: that one reads the registry through a child probe, this
+    # one has it dot-sourced and can ask Test-LwgModule directly - so a name left
+    # in the table with no config key behind it shows up as a resolution here.
+    $ghosts = @()
+    foreach ($g in @('failure_capture', 'orphan_watch')) {
+        if ($script:LwgModuleRegistry.Contains($g)) { $ghosts += $g }
+    }
+    Add-Result 'B-merged registry: neither failure_capture nor orphan_watch is still an entry (#166)' ($ghosts.Count -eq 0) `
+        "the registry still holds: $($ghosts -join ', '). The merge REPLACES both names; either one left beside effort_ledger is two flags over one data source again, which is the trap #166 exists to close."
 
     # -------------------------------------------------------------------
     # C. send_liveness_gate BEHAVIOUR.
@@ -962,7 +1042,9 @@ try {
     Add-Result 'D17 Stop MODE still selects transcript_path, not agent_transcript_path -> PASS' $v.ok $v.why
 
     # -------------------------------------------------------------------
-    # E. orphan_watch BEHAVIOUR (through the real supervisor).
+    # E. THE ORPHAN RECONCILIATION (through the real supervisor). It was
+    # orphan_watch until #166 merged it into effort_ledger; every case below runs
+    # unchanged under the new flag except E5, which says why in its own header.
     # -------------------------------------------------------------------
     # E1 - the four-orphans case in miniature: spawned, never stopped, silent.
     $e1 = New-LwgSession -Base $work -Tag 'e1'
@@ -1013,21 +1095,45 @@ try {
         ($r.code -eq 0 -and [string]::IsNullOrWhiteSpace($r.err)) `
         "expected exit 0 in silence; got exit $($r.code), stderr: $($r.err)"
 
-    # E5 - shipped default: with orphan_watch off the orphan raises nothing,
-    # and the Stop record must NOT carry an "orphans" field - a zero stamped by
-    # a run that never looked is the false green this plugin exists to refuse.
+    # E5 - THE ONE CASE IN THIS SECTION WHOSE SUBJECT MOVED, and it is rewritten
+    # rather than described as intact.
+    #
+    # IT USED TO ASSERT: with supervision.orphan_watch off - the SHIPPED default
+    # - a stale orphan raises nothing AND the Stop record carries no "orphans"
+    # field, because a zero stamped by a run that never looked is the false green
+    # this plugin exists to refuse.
+    #
+    # BOTH HALVES OF THAT FIXTURE ARE GONE. There is no supervision.orphan_watch
+    # to switch off, and the reconciliation now ships ON, so the shipped default
+    # is a run that DOES look - which is a real behaviour change and is stated in
+    # the CHANGELOG upgrade note, not smuggled through this case. Left pointed at
+    # $rootOff it would have asserted silence from a module that alerts: a false
+    # pass, and the exact reason New-LwgLedgerOffRoot exists.
+    #
+    # WHAT IT ASSERTS NOW, and the invariant it carries forward is the SAME one:
+    # with modules.effort_ledger off the supervisor exits at its module gate, so
+    # there is no alert AND NO RECORD AT ALL. "No orphans field stamped by a run
+    # that never looked" therefore holds more strongly than before - it is
+    # unreachable rather than guarded - and the assertion is on the whole file
+    # being empty of Stop records rather than on one absent field.
     $e5 = New-LwgSession -Base $work -Tag 'e5'
     [void](Add-LwgAgent -Sess $e5 -AgentId 'a9999999999999999' -AgeMinutes 40)
-    [void](Write-LwgHealth -RootDir $rootOff -Records @(
+    [void](Write-LwgHealth -RootDir $rootLedgerOff -Records @(
         @{ ts = '2026-08-01T12:00:00.0000000Z'; event = 'SessionStart'; session = $e5.id }
     ))
-    $r = Invoke-LwgScript -ScriptPath $SupervisorPath -FakeRoot $rootOff -WorkDir $work -Tag 'e5' `
+    $hBefore = ''
+    try { $hBefore = [IO.File]::ReadAllText((Join-Path (Join-Path $rootLedgerOff 'data') 'health.jsonl')) } catch { }
+    $r = Invoke-LwgScript -ScriptPath $SupervisorPath -FakeRoot $rootLedgerOff -WorkDir $work -Tag 'e5' `
              -ScriptArgs '-HookEvent Stop' -Payload (New-LwgStopPayload -Sess $e5 -HookActive $false)
     $hOff = ''
-    try { $hOff = [IO.File]::ReadAllText((Join-Path (Join-Path $rootOff 'data') 'health.jsonl')) } catch { }
-    Add-Result 'E5 switch off (shipped default): orphan raises nothing and no "orphans" field is stamped' `
-        ($r.code -eq 0 -and [string]::IsNullOrWhiteSpace($r.err) -and $hOff -notlike '*"orphans"*') `
-        "expected silent exit 0 and no orphans field in the Stop record; got exit $($r.code), stderr: $($r.err), health tail: $hOff"
+    try { $hOff = [IO.File]::ReadAllText((Join-Path (Join-Path $rootLedgerOff 'data') 'health.jsonl')) } catch { }
+    # THREE CLAIMS: silent exit 0, no "orphans" field, and - the half that is new
+    # - the ledger wrote NOTHING, asserted by the file being byte-for-byte what
+    # the fixture seeded. A supervisor that had appended a Stop record with the
+    # field merely omitted would pass the first two and fail this.
+    Add-Result 'E5 modules.effort_ledger OFF: the orphan raises nothing, no "orphans" field, and NO record is written at all (#166)' `
+        ($r.code -eq 0 -and [string]::IsNullOrWhiteSpace($r.err) -and $hOff -notlike '*"orphans"*' -and $hOff -ceq $hBefore) `
+        "expected silent exit 0, no orphans field, and health.jsonl unchanged from the seeded fixture; got exit $($r.code), stderr: $($r.err), health before: [$hBefore], health after: [$hOff]"
 
     # E6 - the recorder's silence proves nothing: an empty health.jsonl yields
     # no orphan verdict, however stale the transcript.

@@ -6,7 +6,7 @@
                         as hookSpecificOutput.additionalContext. This file's
                         original and principal job, and everything below about
                         cost was written for it.
-    failure_capture     appends ONE line to health.jsonl per dispatch: the START
+    effort_ledger     appends ONE line to health.jsonl per dispatch: the START
                         half of the dispatch record whose STOP half
                         lib/supervisor.ps1:825-830 has always written. It is an
                         ADDITION to that module, not a module of its own - no
@@ -100,7 +100,7 @@
   in four places. The reasoning was sound: a log write here meant dot-sourcing
   common.ps1 and a ConvertTo-Json warm-up per worker. What changed is that this
   write does neither. THE LONG FORM - why the row exists, what it unblocks, what
-  it costs the readers - is in docs/modules.md under failure_capture, because
+  it costs the readers - is in docs/modules.md under effort_ledger, because
   prose in THIS file is not free: see the measurement below.
 
   ONE LINE, appended to health.jsonl in the state directory:
@@ -115,7 +115,7 @@
   readers sort on ts. The STOP half has always been written at
   supervisor.ps1:825-830; this is the START half.
 
-  IT STAYS ON THE FAST PATH. The flag is failure_capture, read from the
+  IT STAYS ON THE FAST PATH. The flag is effort_ledger, read from the
   `modules` span this file has ALREADY extracted for its own module - an IndexOf
   walk over a substring, not a second scan; the override and both `repos` spans
   are asked for that name the same way, so the two flags escalate under one
@@ -136,7 +136,7 @@
   here that could carry free text needs redaction this path cannot afford, and
   that is where this decision is re-argued rather than extended.
 
-  IT IS GATED ON A MODULE THIS FILE IS NOT. failure_capture off means no row;
+  IT IS GATED ON A MODULE THIS FILE IS NOT. effort_ledger off means no row;
   context_injection off does NOT - the write sits ABOVE this file's own early
   exit. tests/subagent_scan.ps1 has a case for each direction.
 
@@ -217,11 +217,20 @@ $ErrorActionPreference = 'Stop'
 $LwgModuleName = 'context_injection'
 
 # THE SECOND MODULE IN THIS FILE - see THE DISPATCH RECORD in the header. The
-# row is an addition to failure_capture and gated on its flag alone.
-$LwgLedgerModule = 'failure_capture'
+# row is an addition to effort_ledger and gated on its flag alone.
+#
+# THE NAME CHANGED ON 8 SEPTEMBER 2026 (#166) and this literal is the only
+# place in this file that carries it: it was failure_capture, which merged with
+# orphan_watch into effort_ledger. The raw-text scan below reads modules.<this
+# string> out of config.json, so a stale spelling here would silently report the
+# ledger as ON for every operator - Get-LwgJsonBool returns $null for an absent
+# key and $ledger fails OPEN. There is no test that can catch that by reading
+# this file; tests/subagent_scan.ps1 catches it by switching the real key off
+# and asserting no row is written.
+$LwgLedgerModule = 'effort_ledger'
 
 # Where the row goes. ALREADY rotated from supervisor.ps1:645, above the
-# failure_capture gate, so the 5 MB / 500-line discipline covers this writer for
+# effort_ledger gate, so the 5 MB / 500-line discipline covers this writer for
 # free and nothing is wired here for it.
 $LwgLedgerLog = 'health.jsonl'
 
@@ -745,7 +754,7 @@ try {
     #    off because it could not read its own settings is the failure mode.
     #
     #    TWO FLAGS, NOT ONE. $enabled is context_injection; $ledger is
-    #    failure_capture, which gates the row alone. Each span is extracted ONCE
+    #    effort_ledger, which gates the row alone. Each span is extracted ONCE
     #    and both names read out of the same substring. Both fail OPEN.
     $enabled  = $true
     $ledger   = $true
@@ -767,7 +776,7 @@ try {
         # A per-repo override anywhere under `repos` means the fast scan cannot
         # answer the question - only the slug can. Escalate rather than guess.
         #
-        # ASKED FOR BOTH NAMES: answering failure_capture's per-repo override
+        # ASKED FOR BOTH NAMES: answering effort_ledger's per-repo override
         # with the global value would write start rows in a repo whose stop rows
         # are switched off. One IndexOf over a span already extracted.
         $repoSpan = Get-LwgJsonObjectSpan -Text $rawCfg -Key 'repos'
@@ -936,10 +945,10 @@ try {
         }
     }
 
-    # 3. THE DISPATCH RECORD - failure_capture's start row. See the header.
+    # 3. THE DISPATCH RECORD - effort_ledger's start row. See the header.
     #
     #    ABOVE THIS FILE'S OWN EARLY EXIT, deliberately: the row belongs to
-    #    failure_capture, and switching context_injection off must not switch
+    #    effort_ledger, and switching context_injection off must not switch
     #    off a module the operator never touched.
     #
     #    ITS OWN try, so a ledger that cannot write costs the row and never the
@@ -1000,7 +1009,7 @@ try {
 
     # 4. context_injection off means SILENT. No envelope, no state written -
     #    and, since 6 September 2026, no bearing on the record above, which is
-    #    failure_capture's and was already written.
+    #    effort_ledger's and was already written.
     if (-not $enabled) { exit 0 }
 
     $facts = Get-LwgWorkerFacts -Path @($factsPath, $factsLocal)

@@ -50,7 +50,7 @@ rule and why each part of it is that way round.
 
 ```jsonc
 "modules": {
-  "failure_capture": true,
+  "effort_ledger": true,
   "docs_coupling": true,
   "context_injection": true,
   "stack_mode": false,
@@ -70,11 +70,18 @@ reasoning was kept in full at
 [Attempted and blocked](modules.md#attempted-and-blocked-ratelimit_escalation-and-cost_tracking).
 See [Modules](modules.md).
 
-**Four more modules are switched from outside this block**, each on a key of its own:
+**Three more modules are switched from outside this block**, each on a key of its own:
 `send_liveness_gate` on `supervision.send_liveness`, `completion_audit` on
-`supervision.completion_audit`, `orphan_watch` on `supervision.orphan_watch`, and `delegate_gate` on
-`interaction.delegate`. All four ship `false`. The reason they are not here is polarity, and it is
-given under [`interaction`](#interaction--the-one-gate-switch).
+`supervision.completion_audit`, and `delegate_gate` on `interaction.delegate`. All three ship
+`false`, and all three are **gates** — which is what that arrangement is for, since
+`Get-LwgConfig` fails open and a corrupt config must never arm something that can refuse a call.
+The reason they are not here is polarity, and it is given under
+[`interaction`](#interaction--the-one-gate-switch).
+
+**It was four until 8 September 2026 (#166).** `orphan_watch` was the fourth and the only
+non-gate among them; it merged into `effort_ledger`, whose flag **is** a key in this block, and
+`supervision.orphan_watch` no longer exists. Setting it does nothing and is reported by nothing —
+see the [CHANGELOG](../CHANGELOG.md) upgrade note.
 
 There is no `secret_scan` key any more, and **no gate key in this block at all**. `destructive_gate`
 and `secret_scan` were removed on 30 July 2026 by explicit owner decision and their flags went with

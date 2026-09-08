@@ -690,8 +690,12 @@ try {
     #
     # THE REGISTRY MOVED WITH IT - eleven entries to ten, eight observers to
     # seven - and the ladder deliberately did NOT take a registry entry of its
-    # own. It is a layer of failure_capture, whose flag it rides. See that
-    # entry's note in lib/common.ps1.
+    # own. It is a layer of effort_ledger, whose flag it rides. See that
+    # entry's note in lib/common.ps1. THE REGISTRY MOVED AGAIN ON 8 SEPTEMBER
+    # 2026 (#166) - ten entries to ten and seven observers to seven, because #166
+    # took TWO out and put ONE in while #179 had put stack_mode in between - so
+    # the arithmetic above describes the #168 move and not today's totals. Read
+    # them off $LwgModuleRegistry, never off this comment.
 
     # =====================================================================
     # docs_coupling  (ADVISORY)

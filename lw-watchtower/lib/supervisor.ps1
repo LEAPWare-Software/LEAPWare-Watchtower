@@ -1,12 +1,12 @@
 #requires -version 5
 <#
-  LW-WATCHTOWER failure_capture module - Claude Code hook handler.
+  LW-WATCHTOWER effort_ledger module - Claude Code hook handler.
 
   Absorbed in Phase 2 from ~/.claude/health/supervisor.ps1. The behaviour that
   matters is unchanged and deliberately so: the record schema, the append-retry
   ladder, the exit-2 alerting semantics and the alerted.json dedupe are all
   carried over verbatim. What changed is where it writes (the plugin data dir,
-  via Get-LwgStateDir) and that it now gates on the failure_capture flag.
+  via Get-LwgStateDir) and that it now gates on the effort_ledger flag.
 
   Invoked from hooks/hooks.json in exec form:
       command: "powershell"
@@ -18,12 +18,12 @@
   live session (that exit-2 path is the ONLY way to alert the orchestrator).
 
   THIS FILE IS NO LONGER THE ONLY WRITER OF health.jsonl, AND SINCE 6 SEPTEMBER 2026
-  IT IS NO LONGER THE WHOLE OF failure_capture. The module declares SIX hook events
+  IT IS NO LONGER THE WHOLE OF effort_ledger. The module declares SIX hook events
   in $LwgModuleRegistry; five of them are handled here. The sixth is SubagentStart,
   where lib/subagent_start.ps1 appends the START half of the dispatch record whose
   STOP half this file has always written at the SubagentStop arm below. That row uses
   New-Record's own envelope so every reader of this file's output parses it unchanged,
-  it is gated on the same failure_capture flag, and it NEVER exits 2 - a dispatch
+  it is gated on the same effort_ledger flag, and it NEVER exits 2 - a dispatch
   starting is not a failure. Nothing about this file's behaviour changed for it.
 
   Exit codes:  0 = healthy / nothing to report     2 = alert the orchestrator
@@ -55,7 +55,7 @@ $ErrorActionPreference = 'Stop'
 # $ErrorActionPreference = 'Stop' a terminating error in any of them left
 # PowerShell to print a raw error record to stderr and exit 1 - the two things
 # the header says cannot happen. The blast radius is per-event and none of it is
-# cosmetic: this handler is registered on five of failure_capture's six events -
+# cosmetic: this handler is registered on five of effort_ledger's six events -
 # the sixth, SubagentStart, is lib/subagent_start.ps1's and never reaches here -
 # exit 2 is its DESIGNED
 # alerting channel on Stop and PostToolUseFailure, so exit 1 was a third,
@@ -184,7 +184,7 @@ function Write-Record($obj) {
         $safe = [ordered]@{}
         foreach ($k in @($obj.Keys)) { $safe[$k] = ConvertTo-SafeField $obj[$k] }
         # Rotation is NOT done here. It used to be, and that quietly made
-        # log_rotation a sub-feature of failure_capture - see the block below.
+        # log_rotation a sub-feature of effort_ledger - see the block below.
         # Add-LwgLine carries the original 5-attempt 20/40/60/80/100 ms retry -
         # concurrent hooks race on this file and must not throw.
         Add-LwgLine -FileName $LogName -Line ($safe | ConvertTo-Json -Depth 6 -Compress) | Out-Null
@@ -227,7 +227,7 @@ function Get-FailedTasks {
     return $bad
 }
 
-# --- orphaned subagents (orphan_watch, OFF by default) ----------------------
+# --- orphaned subagents (effort_ledger, ON by default since #166) -----------
 # Get-FailedTasks above is BLIND to a subagent killed mid-flight: it counts
 # only `failed`/`killed` entries in $payload.background_tasks, and a killed
 # subagent appears in that list not at all. Measured on 1 August 2026: a
@@ -243,10 +243,15 @@ function Get-FailedTasks {
 #     above the 10-minute Bash ceiling so one long tool call is not "silent")
 #     is an ORPHAN.
 #
-# It sits BELOW the failure_capture gate on purpose, and the coupling is
-# correct rather than convenient: SubagentStop records are what failure_capture
+# It sits BELOW the effort_ledger gate on purpose, and the coupling is
+# correct rather than convenient: SubagentStop records are what effort_ledger
 # WRITES, and reconciling transcripts against records nothing was writing would
-# call every finished agent an orphan. The same reasoning bounds the verdict at
+# call every finished agent an orphan. SINCE 8 SEPTEMBER 2026 (#166) IT IS THE
+# SAME FLAG rather than a second one below the first: this reconciliation was
+# orphan_watch, with its own switch at supervision.orphan_watch, and an operator
+# could set that true and get nothing because the ledger's flag was false. One
+# flag cannot do that, and the coupling this paragraph argues for is now
+# structural instead of documented. The same reasoning bounds the verdict at
 # runtime: a session with NO health records at all yields no orphans, because
 # the recorder's silence proves nothing.
 
@@ -315,7 +320,15 @@ function Get-LwgFailedTaskIds {
 function Get-OrphanAgents {
     $out = @()
     try {
-        if (-not (Test-LwgModule -Name 'orphan_watch' -Config $script:cfg -Repo $script:repo)) { return $out }
+        # A FLAG READ USED TO SIT HERE and it was REMOVED ON 8 SEPTEMBER 2026
+        # (#166), not weakened. It read supervision.orphan_watch, a SECOND flag
+        # below the module gate at the foot of this file, and its purpose was to
+        # keep the reconciliation from running when the ledger it reconciles
+        # against was switched off. The merge makes that one flag: both call
+        # sites of this function are below that gate, so the read could never
+        # answer anything but true, and a guard that cannot fire is the shape
+        # this file tombstones rather than keeps. THE GUARANTEE IS UNCHANGED and
+        # it is now structural: no path reaches this function with the ledger off.
 
         $sid = [string]$payload.session_id
         $tp  = [string]$payload.transcript_path
@@ -327,7 +340,7 @@ function Get-OrphanAgents {
         if (-not [IO.Directory]::Exists($sub)) { return $out }
 
         $staleMin = 15
-        try { $staleMin = [int](Get-LwgModuleOption -Config $script:cfg -Module 'orphan_watch' -Key 'stale_minutes' -Default 15) } catch { }
+        try { $staleMin = [int](Get-LwgModuleOption -Config $script:cfg -Module 'effort_ledger' -Key 'stale_minutes' -Default 15) } catch { }
         if ($staleMin -lt 1) { $staleMin = 1 }
 
         # THERE IS NO SECOND, SHORTER THRESHOLD, AND THE REASON IS MEASURED.
@@ -604,16 +617,16 @@ $script:cfg  = Get-LwgConfig
 $script:repo = Get-LwgRepo $payload
 
 # --- log_rotation ----------------------------------------------------------
-# ABOVE the failure_capture gate, and that position is the whole point.
+# ABOVE the effort_ledger gate, and that position is the whole point.
 #
 # This call used to live inside Write-Record, which is downstream of the gate
-# below. log_rotation therefore only ever ran when failure_capture was ALSO on:
+# below. log_rotation therefore only ever ran when effort_ledger was ALSO on:
 # switching failure capture off left health.jsonl uncapped, growing without
 # bound, with log_rotation still reporting itself active and nothing saying
 # otherwise. A module that is enabled, implemented and unreachable is the exact
 # defect this plugin exists to catch.
 #
-# The two are now independent in both directions. failure_capture off stops the
+# The two are now independent in both directions. effort_ledger off stops the
 # WRITES to health.jsonl but never the cap on its size; log_rotation off leaves
 # the file to grow, which is what that flag means.
 #
@@ -647,9 +660,16 @@ if (Test-LwgModule -Name 'log_rotation' -Config $script:cfg -Repo $script:repo) 
 }
 
 # --- module gate -----------------------------------------------------------
-# Nothing below this line runs - not even a log write - when failure_capture is
+# Nothing below this line runs - not even a log write - when effort_ledger is
 # switched off for this repo or globally.
-if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $script:repo)) { exit 0 }
+#
+# IT IS ONE GATE OVER FOUR THINGS SINCE 8 SEPTEMBER 2026 (#166): the five hook
+# events handled here, the dispatch record's START half in lib/subagent_start.ps1,
+# the transition ladder in the Stop arm, and the orphan reconciliation that used
+# to carry a second switch of its own. That is the whole of what this flag turns
+# off, it is listed in the registry entry, and no sub-feature below has a flag
+# the operator can arm independently of this line.
+if (-not (Test-LwgModule -Name 'effort_ledger' -Config $script:cfg -Repo $script:repo)) { exit 0 }
 
     switch ($HookEvent) {
 
@@ -735,14 +755,21 @@ if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $scri
             # exist in the inherited log.
             $bad = @(Get-FailedTasks)
 
-            # Orphans are counted only when orphan_watch is on, and the record
-            # field is written only then too: an "orphans":0 stamped by a run
-            # that never looked would be exactly the false green this plugin
-            # exists to refuse. The flag is resolved here AND inside
-            # Get-OrphanAgents; the duplication is a guard, not an accident.
-            $orphOn = Test-LwgModule -Name 'orphan_watch' -Config $script:cfg -Repo $script:repo
-            $orph = @()
-            if ($orphOn) { $orph = @(Get-OrphanAgents) }
+            # ORPHANS ARE COUNTED UNCONDITIONALLY HERE, AND THAT IS THE MERGE
+            # PAYING OFF RATHER THAN A GUARD BEING DROPPED (#166, 8 September
+            # 2026). The rule has not changed: an "orphans":0 stamped by a run
+            # that never looked is exactly the false green this plugin exists to
+            # refuse, so the field must appear only when something looked.
+            #
+            # It used to be kept true by a SECOND flag - supervision.orphan_watch
+            # - read here and again inside Get-OrphanAgents, with a comment
+            # calling the duplication a guard. One flag now gates the whole
+            # module at the foot of this file, so with the ledger off this line
+            # is never reached and NO RECORD IS WRITTEN AT ALL; with it on, the
+            # run always looked. The invariant became unreachable to violate
+            # instead of being asserted twice, which is why two reads and a
+            # conditional came out and nothing replaced them.
+            $orph = @(Get-OrphanAgents)
 
             # THE DEDUPE LEDGER IS READ BEFORE THE RECORD IS WRITTEN, not after.
             # It used to be read below, which meant the record could only ever
@@ -770,11 +797,12 @@ if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $scri
             }
 
             $rec = @{ failed_tasks = $bad.Count }
-            if ($orphOn) {
-                # Standing count = evidence; new count = what the indicator reads.
-                $rec['orphans']     = $orph.Count
-                $rec['orphans_new'] = @($orph | Where-Object { $seen -notcontains ('orphan:' + [string]$_.id) }).Count
-            }
+            # Standing count = evidence; new count = what the indicator reads.
+            # NO LONGER CONDITIONAL - see the Get-OrphanAgents call above. Every
+            # Stop record this file writes now carries both fields, because every
+            # Stop record this file writes is one the reconciliation ran for.
+            $rec['orphans']     = $orph.Count
+            $rec['orphans_new'] = @($orph | Where-Object { $seen -notcontains ('orphan:' + [string]$_.id) }).Count
             # =========================================================
             # THE TRANSITION LADDER - HH layer 2 (#168 slice 1)
             # =========================================================
@@ -791,9 +819,9 @@ if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $scri
             # the model. This issue's contract is that the MODEL is told to stop
             # starting work, and exit 2 under this registration's asyncRewake is
             # the only channel in this plugin that reaches it mid-turn. So the
-            # ladder rides the supervisor's Stop branch, under failure_capture's
+            # ladder rides the supervisor's Stop branch, under effort_ledger's
             # flag, and the consequence is stated in that registry entry rather
-            # than left to be found: failure_capture off = ladder off.
+            # than left to be found: effort_ledger off = ladder off.
             #
             # NO BLACK TIER IN THIS SLICE. The approved design refuses the turn
             # end at 92 until a handoff package exists and has been audited. The
@@ -802,10 +830,10 @@ if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $scri
             # absence of a dispatch record. THAT REASON WAS TRUE WHEN IT WAS
             # WRITTEN AND WAS FALSE WITHIN THE SAME RELEASE (#332):
             # lib/subagent_start.ps1 appends the dispatch record's START half on
-            # every dispatch since 6 September 2026, gated on failure_capture.
+            # every dispatch since 6 September 2026, gated on effort_ledger.
             # THE CONCLUSION SURVIVES ON A DIFFERENT REASON, which is why this
             # is rewritten rather than deleted. No code reads that half - see
-            # docs/modules.md under failure_capture - and a START with no STOP
+            # docs/modules.md under effort_ledger - and a START with no STOP
             # beside it is not a running agent: a hook firing while the CLI
             # exits may never be recorded, rotation drops old rows, and the flag
             # can be off. So the field can now be CROSS-CHECKED and still cannot
@@ -959,7 +987,14 @@ if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $scri
             #
             # This does not replace the Stop check or relax any threshold; it adds
             # a second, denser trigger for the same reconciliation.
-            if (-not (Test-LwgModule -Name 'orphan_watch' -Config $script:cfg -Repo $script:repo)) { exit 0 }
+            #
+            # A SECOND FLAG READ SAT ON THE NEXT LINE and it was REMOVED ON
+            # 8 SEPTEMBER 2026 (#166). It read supervision.orphan_watch, which no
+            # longer exists: the module gate at the foot of this file already
+            # exited before this branch when the ledger is off, so the read could
+            # never answer anything but true. Removing it changed no behaviour and
+            # is recorded rather than done silently, because the line looked like
+            # the thing that kept this denser trigger off by default and was not.
 
             $orph = @(Get-OrphanAgents)
             if ($orph.Count -eq 0) { exit 0 }

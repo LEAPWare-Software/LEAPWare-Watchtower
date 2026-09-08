@@ -1419,7 +1419,7 @@ Write-Output ("RESULT: {0} passed, {1} warning(s), {2} failure(s), {3} informati
 # next person to change what tests\ reaches has to change this by hand, and
 # these are the commands that say whether it needs changing.
 #
-#   the eight observing modules, and the three gates:
+#   the seven observing modules, and the three gates:
 #     $script:LwgModuleRegistry.Keys | ? { $script:LwgModuleRegistry[$_].kind -ne 'gate' }
 #   the suite that reaches self_health, and the sections that do it:
 #     tests\state_resolution.ps1 - B (#60, modules_resolved), C (#106, the
@@ -1462,13 +1462,13 @@ Write-Output ("RESULT: {0} passed, {1} warning(s), {2} failure(s), {3} informati
 Write-Output ''
 Write-Output "NOT checked here: whether the advisories actually fire, and whether Claude Code has"
 Write-Output "this plugin ENABLED in the current session - a hook can be perfectly configured and"
-Write-Output "still be switched off. EVERY ONE of the EIGHT observing modules - failure_capture,"
+Write-Output "still be switched off. EVERY ONE of the SEVEN observing modules - effort_ledger,"
 Write-Output "docs_coupling, git_hygiene and log_rotation"
-Write-Output "(tests\stop_behaviour.ps1), orphan_watch (tests\supervision.ps1), context_injection"
+Write-Output "(tests\stop_behaviour.ps1 and tests\supervision.ps1), context_injection"
 Write-Output "(tests\subagent_scan.ps1), stack_mode (tests\stack_mode.ps1) and self_health"
 Write-Output "(tests\state_resolution.ps1 sections B, C"
 Write-Output "and F, written against its self-check) - is exercised by a suite CI runs on every"
-Write-Output "push and every PR, though for three of those eight - docs_coupling,"
+Write-Output "push and every PR, though for three of those seven - docs_coupling,"
 Write-Output "git_hygiene and log_rotation - that is one to three cases on at most two properties"
 Write-Output "and not end to end. Neither fact is established by this command: no test is run"
 Write-Output "here, and a green run above says nothing about whether any advisory would fire."

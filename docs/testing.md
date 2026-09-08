@@ -6,7 +6,7 @@ Read this before anything else on this page.
 
 `tests/gate_delegate.ps1` exercises `delegate_gate` with 100 cases,
 each run through a real pipe into a real child process. `tests/supervision.ps1` does the same job for
-the other two gates and for `orphan_watch`, against seeded transcripts and seeded health logs, and
+the other two gates and for the orphan reconciliation, against seeded transcripts and seeded health logs, and
 carries the measured failure all three were built from as its anchor cases.
 `tests/setup_merge.ps1` drives
 `bin/lwg-setup.ps1` against throwaway settings files and checks its **merge** on the `statusline`
@@ -34,7 +34,7 @@ that covers a **deletion**.
 `CLAUDE_CONFIG_DIR` precedence, the five self-check probes, every rung of the mode ladder, the banner
 and the model-visible `additionalContext` envelope.
 `tests/doctor_behaviour.ps1` runs `bin/lwg-doctor.ps1` against seeded configs and seeded
-`settings.json` files with 48 cases, on **eight of its ten checks and no others**.
+`settings.json` files with 50 cases, on **eight of its ten checks and no others**.
 `tests/toggle_behaviour.ps1` drives `bin/lwg-toggle.ps1`'s write to the override file with 32 cases,
 and `tests/config_behaviour.ps1` does the same for `bin/lwg-config.ps1`, each closing with an
 invariant that the plugin root's tracked `config.json` was not moved by a byte. They are the only
@@ -54,7 +54,7 @@ check the contents of tracked files and assert nothing about this plugin's behav
 
 So the coverage statement is narrow and exact: **the only behaviour any test in this repository
 establishes is that the three gates refuse what they declare, that the installer's merge
-preserves what it was not asked to touch, that all eight observing modules behave as
+preserves what it was not asked to touch, that all seven observing modules behave as
 documented in the cases written for them, that the uninstaller's state-data footprint
 names what it deletes and refuses to call a no-op deletion a success,
 that two of the doctor's ten checks ask the question
@@ -63,11 +63,11 @@ tracked `config.json` alone, and that no
 tracked file carries a disclosure this repository knows the shape of.**
 
 **Every module name is now reached by at least one suite, and that is a much weaker statement than it
-sounds.** `failure_capture`, `docs_coupling`, `git_hygiene` and `log_rotation`
+sounds.** `effort_ledger`, `docs_coupling`, `git_hygiene` and `log_rotation`
 are driven by `tests/stop_behaviour.ps1`; `self_health` by `tests/state_resolution.ps1`;
 `context_injection` by `tests/subagent_scan.ps1`, which since 6 September 2026 also reaches
-`failure_capture`'s **dispatch record** — the second module in that one file; `orphan_watch`,
-`send_liveness_gate` and
+`effort_ledger`'s **dispatch record** — the second module in that one file; that same module's
+**orphan reconciliation**, `send_liveness_gate` and
 `completion_audit` by `tests/supervision.ps1`; `delegate_gate` by `tests/gate_delegate.ps1`;
 `stack_mode` by `tests/stack_mode.ps1`. Four of
 the observing ones arrived on **3 August 2026** with one to three
@@ -109,7 +109,7 @@ parses, no workflow file reaches a runner GitHub does not host, a secret or a wi
 grant than it needs — and every other YAML
 file under `.github/` at least *parses*, and the guard was shown able to fire on each of its rules
 rather than only shown to say nothing — `delegate_gate` still
-refuses what it declares, the two supervision gates and `orphan_watch` still answer the shapes they
+refuses what it declares, the two supervision gates and the orphan reconciliation still answer the shapes they
 were built from, the installer's merge still preserves unrelated keys and
 rolls back, the two `Stop` hooks still behave as documented, the `SessionStart` hook still reports
 the mode its config implies, the uninstaller still deletes exactly
@@ -429,11 +429,11 @@ Five sections:
   on `main` for the machine it ran on rather than for the code. The replacement was measured on both
   kinds of machine before its bar was set — **11.99 on the dev box, 10.22 on a `windows-latest`
   runner, a spread of 1.17x** against the old comparator's 4.7x on the same pair.
-- **C — `failure_capture` and `log_rotation`, end to end.** Registration in `hooks.json` including
+- **C — `effort_ledger` and `log_rotation`, end to end.** Registration in `hooks.json` including
   the `asyncRewake` that makes exit 2 an *alert* rather than a *block*; the two shipped-bug
   regressions below; the interrupt that must not alert **and must still be recorded**; that the
   dedupe lets an *unseen* dead task through, which is the arm that makes it a dedupe rather than a
-  mute switch; and that rotation runs with `failure_capture` **off**, which is the whole reason its
+  mute switch; and that rotation runs with `effort_ledger` **off**, which is the whole reason its
   call sits above that gate. C10 runs the supervisor against a `common.ps1` that cannot be
   dot-sourced and asserts **exit 0 and empty stderr** — the file's header has promised that since
   Phase 2 and no case had ever run it.
@@ -494,7 +494,7 @@ unchanged to the three advisories that are left.
 ## The supervision suite
 
 `tests/supervision.ps1` covers the two gates and the one observing module that have no other
-coverage: `send_liveness_gate`, `completion_audit` and `orphan_watch`. It is built to the same
+coverage: `send_liveness_gate`, `completion_audit` and `effort_ledger`'s orphan reconciliation. It is built to the same
 contract as the delegate gate suite — every case run through a real pipe into a real child process,
 against a throwaway plugin root and data directory under the temp directory — and it carries the
 same standing caveat at the top rather than in a footnote: **a green run says these cases still
@@ -524,7 +524,7 @@ Four groups:
   hedged sentence passes, a `Read` after the send passes because evidence-gathering followed, a claim
   *before* the send passes, `stop_hook_active` passes because the gate fires at most once per turn
   end, and with the switch at its shipped default the measured pattern passes silently.
-- **E — `orphan_watch`.** The anchor case is the bookkeeping half: a spawned agent with no stop
+- **E — the orphan reconciliation** (`orphan_watch` until #166 merged it into `effort_ledger`)**.** The anchor case is the bookkeeping half: a spawned agent with no stop
   record, which must produce an exit-2 alert naming the agent. Beside it: the same orphan alerts
   **once** through `alerted.json`, an agent that stopped normally and one still running raise
   nothing, a session with no health records reaches no verdict, a transcript older than the health
@@ -787,14 +787,14 @@ Exit codes: `0` every case passed, `1` at least one failed, `2` the suite aborte
 run is an abort, never a pass.
 
 **Six of the twenty cases are not about `context_injection` at all.** On 6 September 2026 a second
-module started writing from this same file — `failure_capture`'s **dispatch record**, one line
+module started writing from this same file — `effort_ledger`'s **dispatch record**, one line
 appended to `health.jsonl` per dispatch — so this suite now covers two modules, and each of the six
 was proved to fail before the fix existed:
 
 | | What it requires |
 | --- | --- |
 | the row lands | four correct fields, `New-Record`'s envelope, and **no `cwd`** |
-| `failure_capture` off | **no row** — *and* `context_injection` still injects, because a bare negative is satisfied by a hook that crashed |
+| `effort_ledger` off | **no row** — *and* `context_injection` still injects, because a bare negative is satisfied by a hook that crashed |
 | `context_injection` off | the row still lands, because it sits above this file's own early exit |
 | garbage stdin | no row, exit 0, and the injection still appears |
 | a non-ASCII `agent_type` | the emitted line is pure ASCII and round-trips through the same escaper the injection uses |
@@ -1146,7 +1146,7 @@ reached by at least one suite**, and that paragraph is explicit that being reach
 tested. Two numbers cannot both be right, and the map is the one derived from the tree.
 
 What the thirteen behavioural suites do cover, read off that map rather than restated from memory: the
-delegate gate's refusals and the two supervision gates', `orphan_watch` beside them in the same
+delegate gate's refusals and the two supervision gates', the orphan reconciliation beside them in the same
 suite, the five advisories the turn-end hooks raise, `self_health`'s self-check, the `SubagentStart`
 fast path's answer to the global `modules` flag, two sections of the installer's merge, one
 command's deletions, two of the doctor's ten checks, the toggle's write to `config.json`, and what
@@ -1267,12 +1267,12 @@ Rename it only together with the branch-protection setting.
 | Workflow guard | `tests\workflow_guard.ps1` — **the step that guards the file it is written in.** Every file under `.github\workflows\` is parsed and held to the rules in [The workflow guard](#the-workflow-guard). A missing guard file fails the build, since not running is not the same as passing. |
 | Delegate gate suite | `tests\gate_delegate.ps1` — one of the thirteen steps that test behaviour, and the only one that tests a **gate**. A missing suite file fails the build, since not running is not the same as passing. An abort (exit 2) is reported as an abort, never as a pass. |
 | Installer merge suite | `tests\setup_merge.ps1` — the only step that tests a **write to settings.json**. It drives `bin\lwg-setup.ps1` against throwaway settings files under the temp directory. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
-| Stop-hook behaviour suite | `tests\stop_behaviour.ps1` — the step that reaches **four of the eight observing modules**, more than anything else here. It runs `lib\stop_advisories.ps1` and `lib\supervisor.ps1` in real child processes against throwaway plugin roots under the temp directory. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
+| Stop-hook behaviour suite | `tests\stop_behaviour.ps1` — the step that reaches **four of the seven observing modules**, more than anything else here. It runs `lib\stop_advisories.ps1` and `lib\supervisor.ps1` in real child processes against throwaway plugin roots under the temp directory. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Uninstaller footprint suite | `tests\uninstall_footprint.ps1` — the only step that tests a **deletion**. It drives `bin\lwg-uninstall.ps1` against throwaway data directories under the temp directory, with `$env:USERPROFILE` and `$env:CLAUDE_PLUGIN_DATA` redirected around every call, and asserts on the filesystem as well as on the report. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Doctor behaviour suite | `tests\doctor_behaviour.ps1` — the step that runs the component whose job is to notice a switch wired to nothing. It copies the plugin tree to a scratch directory and drives the copy's own `bin\lwg-doctor.ps1` against seeded configs and seeded `settings.json` files, on **eight of its ten checks and no others**. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Toggle write-path suite | `tests\toggle_behaviour.ps1` — one of the steps that test a **write to a file an operator owns**. It drives `bin\lwg-toggle.ps1` against a byte copy of `bin\` and `lib\` under a scratch plugin root with the config seeded per case, and closes with an invariant that the plugin root's tracked `config.json` was not moved by a byte. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Config write-path suite | `tests\config_behaviour.ps1` — the same job for `bin\lwg-config.ps1`: the module switchboard's read, validate, write and report path, the `config.override.json` it writes under the state directory, and the same untouched-`config.json` invariant. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
-| Supervision suite | `tests\supervision.ps1` — the step that covers `send_liveness_gate`, `completion_audit` and `orphan_watch`, against seeded transcripts and seeded health logs, each case run through a real pipe into a real child process. Its anchor cases reproduce the measured failure all three were built from. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
+| Supervision suite | `tests\supervision.ps1` — the step that covers `send_liveness_gate`, `completion_audit` and `effort_ledger`'s orphan reconciliation, against seeded transcripts and seeded health logs, each case run through a real pipe into a real child process. Its anchor cases reproduce the measured failure all three were built from. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | State resolution suite | `tests\state_resolution.ps1` — the step that runs the `SessionStart` hook itself: the `CLAUDE_CONFIG_DIR` precedence, the five self-check probes, every rung of the mode ladder, the banner and the model-visible `additionalContext` envelope. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | SubagentStart fast-scan suite | `tests\subagent_scan.ps1` — the only coverage of any kind that `context_injection` has. It pipes payloads into the real `lib\subagent_start.ps1` and holds its raw-text fast path to the **global** `modules` block whatever order the top-level keys appear in. It asserts on answers, not on milliseconds. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Stack mode suite | `tests\stack_mode.ps1` — the only coverage of any kind that `stack_mode` has: the precedence ladder that resolves one working discipline per session, every way of switching it off, the refusal to point a reader at a ruleset the payload does not hold, and the SHIP pointer's statement that its own node scripts are absent. Asserts on answers, not on milliseconds, and starts no live session. |
@@ -1335,7 +1335,7 @@ it even that with a `403`; the manifest and its evidence engine were deleted in 
 correctly worded page and a correctly configured `main` are two separate claims and only the first of
 them is checked here.
 
-**There is no status badge in the README**, deliberately: a green badge covering three gates and all eight
+**There is no status badge in the README**, deliberately: a green badge covering three gates and all seven
 observing modules would read as far broader assurance than it is, which would be the
 exact overstatement this project exists to avoid. A second reason — that a badge would not render for
 most viewers of a repository they cannot read — stood until the visibility flip on **2026-08-28** and

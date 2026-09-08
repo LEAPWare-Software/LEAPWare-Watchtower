@@ -477,7 +477,7 @@ $Rules = @(
     @{
         id      = 'denied-dispatch-record'
         name    = 'a shipped file denying that a dispatch is recorded'
-        why     = 'THE INVERSE OF THE TWO RULES ABOVE IT, and the same defect class: a shipped file asserting that the tree is other than it is. Since 6 September 2026 lw-watchtower/lib/subagent_start.ps1 appends one row per dispatch to health.jsonl carrying "event":"SubagentStart" with the session, the agent id and the agent type, gated on failure_capture, which lw-watchtower/config.json ships true. UNDERSTATING A CAPABILITY IS NOT THE SAFE DIRECTION and that is the whole argument for this rule: the handoff package''s FIRST required field is the state of every effort in flight, so a page telling a model that nothing is recorded is read straight into an empty section, and the model stops looking at the one file that would have populated it. #332.'
+        why     = 'THE INVERSE OF THE TWO RULES ABOVE IT, and the same defect class: a shipped file asserting that the tree is other than it is. Since 6 September 2026 lw-watchtower/lib/subagent_start.ps1 appends one row per dispatch to health.jsonl carrying "event":"SubagentStart" with the session, the agent id and the agent type, gated on effort_ledger, which lw-watchtower/config.json ships true. UNDERSTATING A CAPABILITY IS NOT THE SAFE DIRECTION and that is the whole argument for this rule: the handoff package''s FIRST required field is the state of every effort in flight, so a page telling a model that nothing is recorded is read straight into an empty section, and the model stops looking at the one file that would have populated it. #332.'
         # WHAT THE PATTERN IS ANCHORED ON, MEASURED RATHER THAN GUESSED. Every
         # branch below fired on a real line of this tree before it was written
         # down, and no branch is here as a precaution:
@@ -512,7 +512,7 @@ $Rules = @(
         # DELETE THIS RULE IN THE COMMIT THAT REMOVES THE WRITER, and do not
         # reason from this comment's age - the same standing the `gated-tool`
         # rule above has against a CLI build. The writer is the append in
-        # lw-watchtower\lib\subagent_start.ps1 and the flag is failure_capture.
+        # lw-watchtower\lib\subagent_start.ps1 and the flag is effort_ledger.
         # If that row ever stops being written, the sentences below become true
         # and a rule forbidding a true sentence is worse than no rule at all.
         pattern = '(?i)\bnothing\b[^.!?]{0,60}?\brecords?\s+a\s+dispatch\b' +

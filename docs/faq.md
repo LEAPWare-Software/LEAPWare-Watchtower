@@ -47,10 +47,10 @@ If you are here to find out what this plugin **cannot** do, the consolidated ans
 
 ## What does this actually do?
 
-It runs 11 governance modules over every Claude Code session on the machine, in every repo, with no
-per-project setup. **Eight of them observe** — they record, count or warn — and **three are gates that
+It runs 10 governance modules over every Claude Code session on the machine, in every repo, with no
+per-project setup. **Seven of them observe** — they record, count or warn — and **three are gates that
 can refuse or hold an action: `delegate_gate`, `send_liveness_gate` and `completion_audit`. All three
-ship switched off**, and so does the seventh observing module, `orphan_watch`.
+ship switched off**, and so does one of the seven observers, `stack_mode`.
 
 Concretely, as shipped:
 
@@ -144,11 +144,15 @@ and the rules it has to follow at
 No. That is the correct shipped state and it is what the banner is for. As shipped it reads:
 
 ```
-LW-WATCHTOWER v0.5.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.5.0 · self-check passed, 5 of 5 · 6/10 modules enabled (4 off) · 0 gates · observe-only
 ```
 
-- **`7/11`** — eleven modules are built; seven are enabled. The four that are off are
-  `send_liveness_gate`, `completion_audit`, `orphan_watch` and `delegate_gate` — all four built, all
+- **`self-check passed, 5 of 5`** — HH layer 0, and it is reported **first** because every reading
+  after it is worthless if the plugin itself is not sound. Five probes. A failed one reads
+  `self-check FAILED N of 5` and names **every** failure, not the first; with `self_health` off it
+  reads `self-check DID NOT RUN`, which is neither a pass nor a failure.
+- **`6/10`** — ten modules are built; six are enabled. The four that are off are
+  `stack_mode`, `send_liveness_gate`, `completion_audit` and `delegate_gate` — all four built, all
   four shipped switched off. The parenthetical is the remainder being accounted for rather than a
   warning: everything not counted is named, so the total always adds up.
 - **`0 gates`** — that number counts gates that are **live**, not gates that ship. Three ship.
@@ -472,7 +476,7 @@ Yes. All 15, from the repo root — the same 15 CI runs:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\gate_delegate.ps1        # the delegate gate
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\supervision.ps1          # the other two gates and orphan_watch
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\supervision.ps1          # the other two gates and the orphan reconciliation
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\setup_merge.ps1          # the installer's statusline + hooks merge, and the status line
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1       # the turn-end hooks
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\state_resolution.ps1     # the SessionStart hook and its state-dir resolution

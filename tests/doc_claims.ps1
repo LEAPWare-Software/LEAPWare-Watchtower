@@ -334,7 +334,7 @@
 
     4. A COUNT IN PARENTHESES - OPEN, and found while closing 3.
        .github/PULL_REQUEST_TEMPLATE.md names tests\stop_behaviour.ps1 on line
-       56 and states its count on line 57 as "failure_capture (127)", 48
+       56 and states its count on line 57 as "effort_ledger (127)", 48
        characters past the file name and inside the window. That number read
        126 until it was corrected by hand on 2 August 2026, and it is still
        unread today. Its three siblings in the same HTML comment - (46), (10)

@@ -216,7 +216,7 @@ lw-watchtower/lib/post_edit.ps1
                              the edited-path recorder for docs_coupling -
                              PostToolUse on Write|Edit|NotebookEdit
 lw-watchtower/lib/subagent_start.ps1
-                             context_injection AND failure_capture's dispatch
+                             context_injection AND effort_ledger's dispatch
                              record - SubagentStart, once per dispatch, two flags
                              in one process and neither switches the other.
                              Deliberately dot-sources NOTHING and uses no cmdlet,
@@ -234,10 +234,11 @@ lw-watchtower/lib/stack_mode.ps1
                              silent instead, because the thing it would inject
                              is an assertion about the operator's environment
 lw-watchtower/lib/supervisor.ps1
-                             failure_capture - five of its SIX events (the sixth
+                             effort_ledger - five of its SIX events (the sixth
                              is subagent_start.ps1's, above), the health handler,
-                             orphan_watch below its flag check, and the one place
-                             log_rotation is invoked (above the failure_capture
+                             the orphan reconciliation (the same flag since
+                             #166, not a second one below it), and the one place
+                             log_rotation is invoked (above the effort_ledger
                              gate, so those two are independent)
 lw-watchtower/statusline/statusline.ps1
                              the status-line renderer (HH, ORC and the payload
@@ -253,9 +254,10 @@ tests/stop_behaviour.ps1     144 cases against the Stop-hook handlers:
                              helpers in process, lib/stop_advisories.ps1 and
                              lib/supervisor.ps1 in real child processes. The
                              suite that reaches the most OBSERVING modules
-tests/supervision.ps1        the three supervision modules - send_liveness_gate,
-                             completion_audit and orphan_watch - against seeded
-                             transcripts and seeded health logs
+tests/supervision.ps1        the two supervision gates - send_liveness_gate and
+                             completion_audit - plus effort_ledger's orphan
+                             reconciliation, against seeded transcripts and
+                             seeded health logs
 tests/setup_merge.ps1        203 cases driving bin/lwg-setup.ps1 against throwaway
                              settings files. The only suite that tests a WRITE.
                              The writer properties are established on the
@@ -283,7 +285,7 @@ tests/uninstall_footprint.ps1
                              to this plugin really is this plugin's, and what it
                              refuses to touch it names. The only suite that
                              tests a DELETION
-tests/doctor_behaviour.ps1   48 cases driving bin/lwg-doctor.ps1 from a scratch
+tests/doctor_behaviour.ps1   50 cases driving bin/lwg-doctor.ps1 from a scratch
                              copy of the whole plugin tree, against seeded
                              configs and seeded settings.json files. It drives
                              EIGHT of the doctor's ten checks - every one but
@@ -417,7 +419,7 @@ mangles Windows paths. `${CLAUDE_PLUGIN_ROOT}` is substituted inside the `args` 
 | `PreToolUse` | `SendMessage` | `lib/gate_send.ps1` | 10 s | `send_liveness_gate`. Off unless `supervision.send_liveness` is on |
 | `PostToolUse` | `Write\|Edit\|NotebookEdit` | `lib/post_edit.ps1` | 5 s | records edited paths |
 | `PostToolUseFailure` | `Agent` | `lib/supervisor.ps1 -HookEvent PostToolUseFailure` | 15 s | `asyncRewake` |
-| `SubagentStart` | — | `lib/subagent_start.ps1` | 5 s | `context_injection` injects, and `failure_capture` appends the dispatch record's START half; cannot block |
+| `SubagentStart` | — | `lib/subagent_start.ps1` | 5 s | `context_injection` injects, and `effort_ledger` appends the dispatch record's START half; cannot block |
 | `SubagentStart` | — | `lib/stack_mode.ps1 -HookEvent SubagentStart` | 5 s | `stack_mode` again, per dispatch, because `CLAUDE.md` is snapshotted at parent-session start; cannot block. **Ships switched off**, and this is the registration that makes turning it on cost a whole second interpreter per dispatch — see [Limitations](limitations.md#switching-stack_mode-on-costs-a-whole-second-interpreter-on-every-dispatch) |
 | `SubagentStop` | — | `lib/supervisor.ps1 -HookEvent SubagentStop` | 15 s | `asyncRewake` |
 | `SubagentStop` | — | `lib/gate_stop.ps1 -HookEvent SubagentStop` | 10 s | `completion_audit`, **no** `asyncRewake`, so its exit 2 blocks |
@@ -618,9 +620,9 @@ PowerShell 5.1 charges for. Direct process spawn with stdin redirected — the w
 | `lib/subagent_start.ps1`, flag **on** | **437 ms** | 406 | 542 |
 | `lib/subagent_start.ps1`, flag **off** | 384 ms | 364 | 440 |
 
-Those rows predate the dispatch record. `failure_capture`'s row, added to this same file on
+Those rows predate the dispatch record. `effort_ledger`'s row, added to this same file on
 6 September 2026, costs a further **~18 ms per dispatch** — most of it the interpreter compiling a
-longer file, and therefore charged with `failure_capture` off as well. The measurement and the
+longer file, and therefore charged with `effort_ledger` off as well. The measurement and the
 decision to accept it are in
 [Limitations § The dispatch record](limitations.md#the-dispatch-record-costs-18-ms-and-halves-the-status-lines-fault-history).
 
@@ -647,7 +649,7 @@ site once, not the work, and it is not reducible from this side.
 
 ## Health and healing
 
-`failure_capture` handles **six** hook events and appends one JSONL record per event to
+`effort_ledger` handles **six** hook events and appends one JSONL record per event to
 `health.jsonl` in the state dir. **Five of them are
 [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1); the sixth is
 [`lib/subagent_start.ps1`](../lw-watchtower/lib/subagent_start.ps1)**, which since 6 September 2026
@@ -709,11 +711,11 @@ replacement is in `statusline/statusline.ps1` beside the reader (80 seconds for 
 with the 1 MB window only while every record field stays capped at 200 characters, which
 `lib/supervisor.ps1` does today.
 
-Rotation is gated on `log_rotation` **and nothing else**. The call sits above the `failure_capture`
+Rotation is gated on `log_rotation` **and nothing else**. The call sits above the `effort_ledger`
 gate in `lib/supervisor.ps1`, so the two flags are independent in both directions: failure capture
 off stops the writes but never the cap, and `log_rotation` off leaves the file to grow, which is
 what that flag means. It used to sit *inside* the record writer, downstream of the gate, so
-`failure_capture: false` silently disabled rotation as well and `health.jsonl` grew without bound
+`effort_ledger: false` silently disabled rotation as well and `health.jsonl` grew without bound
 while `log_rotation` still reported itself active — a module that is enabled, implemented and
 unreachable, which is precisely the defect this plugin exists to catch. Cost on the hook path is one
 `Test-Path` plus one length compare, returning immediately while the file is under the cap.
@@ -1112,7 +1114,7 @@ envelope first and its header records that the envelope is redundant here for th
 the rule is *every hook exits 0 except a `PreToolUse` denial*, and the exception is the only
 component in this plugin that can refuse anything.
 
-The other deliberate nonzero exit in the tree is the `failure_capture` supervisor's exit 2, which is
+The other deliberate nonzero exit in the tree is the `effort_ledger` supervisor's exit 2, which is
 an `asyncRewake` alert rather than a refusal — see [Health and healing](#health-and-healing).
 
 ### 2. A self-check asserts behaviour, not presence
@@ -1141,8 +1143,8 @@ removed outright and the banner counts only what is built — the reason they ca
 rather than deleted with them, because the record is the part that stops someone re-attempting them.
 The same rule governs the numbers a module produces: the transition ladder reports *unavailable*
 rather than reuse a `signals/ratelimit.json` older than its budget, `git_hygiene` reports UNKNOWN rather than clean when git
-does not answer, and `orphan_watch` is registered as `observe` rather than inflate the gate count
-with something that alerts and cannot block. `verification_gate` was the long-standing example of
+does not answer, and the orphan reconciliation rides an `observe` entry rather than inflate the gate
+count with something that alerts and cannot block. `verification_gate` was the long-standing example of
 that last rule — a module with the word *gate* in its name, registered `observe` and never counted
 — until it was removed on 2 September 2026.
 
@@ -1164,21 +1166,21 @@ here, found and fixed:
 | `Split-LwgTokens` returned a comma-wrapped array | every token list had `Count` 1, so **no gate rule could ever fire** while the gate reported clean |
 | `Get-LwgRepo` read `payload.workspace.repo` | a field no hook carries, so every per-repo override applied to nothing while appearing to work |
 | `self_health` ran unconditionally | its flag was a switch wired to nothing — inside the module whose job is to catch exactly that |
-| `log_rotation` sat inside the record writer | `failure_capture: false` silently disabled rotation too, while `log_rotation` still reported itself active |
+| `log_rotation` sat inside the record writer | `effort_ledger: false` silently disabled rotation too, while `log_rotation` still reported itself active |
 | `git_hygiene`'s `probe_ms` | overlapping the git call quietly changed what the field measured: a 93 ms call logged as 550 ms |
 | `HH`/`GM` resolved the data dir as `lw-watchtower` | the real dir is `lw-watchtower-skills-dir`, so the indicator read an empty file and rendered **unconditional green** | <!-- doc-claims:ignore — a record of a shipped defect; GM existed then and was deleted on 30 July 2026 -->
 | The suite exited 0 or 1 and nothing else | a run that died on case 3 of 143 was indistinguishable from a clean run |
 | A `-Only` filter matching nothing exited 0 | zero cases ran and it printed "every selected case ran and passed" |
 | The README claimed tests that did not exist | advisory-shape assertions and escaper round-trips were never written |
 
-Four modules are the live application of that rule today: `send_liveness_gate`,
-`completion_audit`, `orphan_watch` and `delegate_gate` are all built, therefore counted as
+Four modules are the live application of that rule today: `stack_mode`, `send_liveness_gate`,
+`completion_audit` and `delegate_gate` are all built, therefore counted as
 implemented, all four ship switched off, therefore not counted as enabled, and all four are named in
 the model-visible context as built-but-off rather than left unaccounted for. So on a default install
 the banner reads
 
 ```
-LW-WATCHTOWER v0.5.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.5.0 · self-check passed, 5 of 5 · 6/10 modules enabled (4 off) · 0 gates · observe-only
 ```
 
 and the `(4 off)` is those four being accounted for rather than dropped from the count. This

@@ -1,8 +1,13 @@
 # Modules
 
-Eleven module names exist. **All eleven are built.** There is no name here with no code behind it.
-**Six ship enabled; five — `stack_mode`, `send_liveness_gate`, `completion_audit`, `orphan_watch` and
+Ten module names exist. **All ten are built.** There is no name here with no code behind it.
+**Six ship enabled; four — `stack_mode`, `send_liveness_gate`, `completion_audit` and
 `delegate_gate` — ship switched off**, and off is where each of them is meant to be.
+
+**It was eleven until 8 September 2026 (#166),** when `failure_capture` and `orphan_watch` merged
+into [`effort_ledger`](#effort_ledger-and-healing) — two entries out, one in. That is a **breaking
+config rename**; the [CHANGELOG](../CHANGELOG.md) carries the upgrade note, because an operator
+upgrading does not read this page.
 
 There were thirteen until 30 July 2026, and that day four went and one arrived, each by an explicit
 owner decision. **Both of the old gates were removed** — `destructive_gate` first, `secret_scan`
@@ -30,19 +35,18 @@ counted as coverage** — a `true` flag is a forward-declaration, not evidence t
 
 | Module | Kind | Status | What it is for |
 | --- | --- | --- | --- |
-| `failure_capture` | observe | **implemented** | Record tool, hook and subagent failures so nothing fails silently. |
+| `effort_ledger` | observe | **implemented** | **One switch over one data source, `health.jsonl`, carrying four things:** record tool, hook and subagent failures so nothing fails silently; append the dispatch record's START half; compute the transition ladder at `Stop`; and reconcile subagent transcripts against their `SubagentStop` records to catch an agent killed mid-flight. Was `failure_capture` + `orphan_watch` until 8 September 2026 (#166). |
 | `self_health` | observe | **implemented** | Prove the governance layer itself can still fire. |
 | `log_rotation` | observe | **implemented** | Cap `health.jsonl` and `lw-watchtower.jsonl`. It does **not** bound the state dir: `advisory-<sessionkey>.json` and `edits-<sessionkey>.txt` are one file per session each and nothing sweeps them. |
 | `docs_coupling` | observe | **implemented** | Flag source changes shipped without documentation. |
 | `git_hygiene` | observe | **implemented** | Branch, commit and push discipline at turn end. |
 | `context_injection` | observe | **implemented** | Hand every subagent facts that are current at *dispatch* time, because `CLAUDE.md` is snapshotted at session start. |
 | `stack_mode` | observe | **implemented** | Resolve **one** working discipline for a session — PROTO or SHIP — and hand the session and every worker in it a **pointer** to the vendored ruleset for it. `SessionStart` and `SubagentStart`. **Ships switched off**, and its flag is the `modules` key `stack_mode`: it has never run in a live session, its two root lists ship empty, and it is a second interpreter on every dispatch. |
-| `orphan_watch` | observe | **implemented** | Reconcile this session's subagent transcripts against its `SubagentStop` records and alert on one that was killed mid-flight, which otherwise produces no record anywhere. **Ships switched off**; its switch is `supervision.orphan_watch`, not a `modules` flag, and it is inert while `failure_capture` is off because those records are what `failure_capture` writes. |
 | `send_liveness_gate` | **gate** | **implemented** | Refuse a `SendMessage` whose recipient it can *prove* is dead mid-flight. `PreToolUse` on `SendMessage`. **Ships switched off**; its switch is `supervision.send_liveness`. It denies on positive evidence of death and abstains — allows, logged — wherever the evidence cannot support a verdict. |
 | `completion_audit` | **gate** | **implemented** | Refuse a turn end whose final assistant text claims completed work when the turn's **last** tool action was a `SendMessage`: queued for delivery is not delivery. Registered on `Stop` and `SubagentStop`. **Ships switched off**; its switch is `supervision.completion_audit`. |
 | `delegate_gate` | **gate** | **implemented** | Refuse `Edit`/`Write`/`NotebookEdit`/`Bash`/`PowerShell` for calls that did not come from a subagent, so the chat session is reserved for talking to the operator. **Ships OFF** — see [below](#delegate_gate). |
 
-## Caveats on the eight that only observe
+## Caveats on the seven that only observe
 
 Read these before treating any module as coverage. Every module named below **observes**; not one of
 them can stop anything. The three gates are the exception — [`delegate_gate`](#delegate_gate),
@@ -53,10 +57,10 @@ its own section below. All three ship switched off.
   all, and the session reports mode `unverified` rather than any word that would imply it was
   validated. See [`self_health`](#self_health).
 - `log_rotation` runs on **its own flag alone**. The rotation call sits above the
-  `failure_capture` flag check in [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1), so switching failure
+  `effort_ledger` flag check in [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1), so switching failure
   capture off stops the writes to `health.jsonl` but never the cap on its size.
-- the **transition ladder** is a layer of `failure_capture`, not a module of its own, so it has no
-  row above and no switch: `failure_capture` off means the ladder is off too. It warns the model at
+- the **transition ladder** is a layer of `effort_ledger`, not a module of its own, so it has no
+  row above and no switch: `effort_ledger` off means the ladder is off too. It warns the model at
   70% and tells it to land the work at 85%, over the worst of the 5-hour limit, the 7-day limit and
   the context window, read from `signals/ratelimit.json`. It replaced `context_pressure` on
   6 September 2026 — that module recomputed occupancy from the transcript and *inferred* the
@@ -67,20 +71,22 @@ its own section below. All three ship switched off.
 - `git_hygiene` is the **only module that spawns a subprocess**, and it does so on `Stop` only.
   Nothing outside a repo, nothing with the flag off. See [Turn-end cost](architecture.md#turn-end-cost).
 - `context_injection` runs once **per subagent dispatch**, and since 6 September 2026 it is **no
-  longer the only module on that event**: `failure_capture` appends the dispatch record's START half
+  longer the only module on that event**: `effort_ledger` appends the dispatch record's START half
   from the same file and the same process, gated on its own flag. Either flag off leaves the other
   working. `context_injection` injects, it never blocks — `SubagentStart` has no blocking channel at
-  all — and neither does the row. See [`failure_capture`](#failure_capture-and-healing).
+  all — and neither does the row. See [`effort_ledger`](#effort_ledger-and-healing).
 - `stack_mode` **ships switched off** - see [`stack_mode`](#stack_mode) for the three reasons and\n  [Limitations](limitations.md#switching-stack_mode-on-costs-a-whole-second-interpreter-on-every-dispatch)\n  for what turning it on costs. It runs on **both** `SessionStart` **and** `SubagentStart`, from one leaf, and resolves
   the mode ONCE per session. It injects a **pointer** to a ruleset, never the ruleset, and never
   verifies that the reader opened the file - so a session in SHIP mode is a session that was told,
   not a session that complied. It is also the **one module here that does not fail open on a
   `config.json` it cannot read**: it goes silent rather than announce a mode it could not resolve.
   See [`stack_mode`](#stack_mode).
-- `orphan_watch` **ships switched off**, and its switch is `supervision.orphan_watch` rather than a
-  `modules` flag. It runs inside [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1) *below*
-  the `failure_capture` flag check, so `failure_capture` off means `orphan_watch` inert whatever its
-  own switch says. See [`orphan_watch`](#orphan_watch).
+- the **orphan reconciliation** is a layer of `effort_ledger`, not a module of its own, so it has no
+  row above and no switch: `effort_ledger` off means the reconciliation is off too. It was
+  `orphan_watch`, with a switch at `supervision.orphan_watch`, until 8 September 2026 (#166) —
+  **that key is gone, and setting it now does nothing and is reported by nothing.** It also **now
+  ships ON**, where `orphan_watch` shipped off, which is a behaviour change and not a rename. See
+  [The orphan reconciliation](#the-orphan-reconciliation---and-it-was-orphan_watch-until-8-september-2026).
 
 ## Gates, and what counts as one
 
@@ -396,7 +402,7 @@ that call, and a threshold under the ceiling would deny sends to agents that are
 
 **A verdict needs the recorder to have been in the room.** *"No `SubagentStop` record"* means
 nothing if nothing was writing them, so a deny additionally requires that `health.jsonl` holds at
-least one record **of any kind** for this session. A session `failure_capture` never saw gets an
+least one record **of any kind** for this session. A session `effort_ledger` never saw gets an
 **abstain** — allowed, and logged as `SendGateAbstain`. A gate must not convict on the silence of a
 witness that was never present.
 
@@ -561,32 +567,33 @@ opposite overstatement: it says a probe failed, and none did.
 The banner as shipped, verified by running the hook rather than transcribed from intent:
 
 ```
-LW-WATCHTOWER v0.5.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.5.0 · self-check passed, 5 of 5 · 6/10 modules enabled (4 off) · 0 gates · observe-only
 ```
 
-Seven of eleven, and **the four that are off are `send_liveness_gate`, `completion_audit`,
-`orphan_watch` and `delegate_gate`** — all four built, all four shipped switched off. The
+Six of ten, and **the four that are off are `send_liveness_gate`, `completion_audit`,
+`stack_mode` and `delegate_gate`** — all four built, all four shipped switched off. The
 parenthetical is the remainder being accounted for rather than a warning: everything not counted is
 named, so the total always adds up. Setting `self_health: false` as well gives:
 
 ```
-LW-WATCHTOWER v0.4.0 · 5/10 modules enabled (5 off) · 0 gates · unverified (self_health off - nothing was checked)
+LW-WATCHTOWER v0.5.0 · self-check DID NOT RUN (self_health off - nothing was checked) · 5/10 modules enabled (5 off) · 0 gates · unverified
 ```
 
 Run `/lw-watchtower:delegate on` and the same shipped config gives:
 
 ```
-LW-WATCHTOWER v0.4.0 · 7/10 modules enabled (3 off) · 1 gate · partial
+LW-WATCHTOWER v0.5.0 · self-check passed, 5 of 5 · 7/10 modules enabled (3 off) · 1 gate · partial
 ```
 
 **`partial`, not `enforcing`, and that is the point of this example.** A live gate is what lifts the
 session out of `observe-only`; `enforcing` additionally requires every implemented module to be on,
-and three are not — `send_liveness_gate`, `completion_audit` and `orphan_watch` each need its own
-switch in the `supervision` block. Turning all three on as well gives the only configuration in
+and three are not — `stack_mode` needs its `modules` flag, and `send_liveness_gate` and
+`completion_audit` each need a switch in the `supervision` block. Turning all three on as well gives
+the only configuration in
 which `enforcing` is honest, and it is also the only one with no remainder to account for:
 
 ```
-LW-WATCHTOWER v0.4.0 · 10/10 modules enabled · 3 gates · enforcing
+LW-WATCHTOWER v0.5.0 · self-check passed, 5 of 5 · 10/10 modules enabled · 3 gates · enforcing
 ```
 
 The count is **enabled**, not observed: it is the modules that are switched on in `config.json`
@@ -724,9 +731,9 @@ wrong*. See [`git_hygiene`](#git_hygiene), which states the exemption where it a
 
 ### The transition ladder
 
-**Not a module and it has no switch of its own.** It is a layer of `failure_capture`, computed in
+**Not a module and it has no switch of its own.** It is a layer of `effort_ledger`, computed in
 [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1)'s `Stop` branch, and the consequence is
-stated rather than left to be found: **`failure_capture` off means the ladder is off**. It replaced
+stated rather than left to be found: **`effort_ledger` off means the ladder is off**. It replaced
 `context_pressure` on 6 September 2026, which is why the registry went from eleven entries to ten
 and the observing count from eight to seven.
 
@@ -1017,9 +1024,9 @@ record moved a file append onto the happy path**: what the record costs is one
 log of the injection itself. The expensive halves — the JSON engine, and a record of what this
 module did — are still off this path.
 
-**This file is no longer one module's.** `failure_capture`'s dispatch record is written from the
+**This file is no longer one module's.** `effort_ledger`'s dispatch record is written from the
 same process, above `context_injection`'s early exit, gated on its own flag. See
-[`failure_capture`](#failure_capture-and-healing) for the row, the redaction limit and the ~18 ms it
+[`effort_ledger`](#effort_ledger-and-healing) for the row, the redaction limit and the ~18 ms it
 costs — of which most is paid whichever way the two flags are set, because it is the interpreter
 compiling a longer file.
 
@@ -1207,7 +1214,32 @@ injected context into a worker is **not measured** by this repository and is not
 
 ---
 
-## `orphan_watch`
+
+---
+
+## `effort_ledger` and healing
+
+See [Health and healing](architecture.md#health-and-healing) for the event table and the exit-2
+alerting path.
+
+### The orphan reconciliation - and it was `orphan_watch` until 8 September 2026
+
+**It is the fourth thing this one flag carries, and it used to be a module of its own** with a
+switch at `supervision.orphan_watch`, kind `observe`, shipping **off**. #166 merged it here on
+8 September 2026 and **nothing it did was removed** - every rule, threshold and measurement below
+runs from the same lines of [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1).
+
+**Why it merged.** It sat *below* this module's flag gate, so an operator could set
+`supervision.orphan_watch` to `true` and get **nothing at all** because `modules.effort_ledger` was
+`false` - two switches over one data source, which is a switch wired to nothing and the founding
+defect this plugin exists to catch. One flag cannot do that.
+
+**And one thing changed, which is not a rename: it now ships ON**, because this module ships on.
+That is a real behaviour change for an operator who never touched either flag, and it is stated in
+the [CHANGELOG](../CHANGELOG.md) upgrade note rather than only here - an operator upgrading does not
+read this page. There is no separate switch to put it back: off means the whole ledger off, which
+stops the health records, the dispatch record and the transition ladder with it.
+
 
 **Reconciles this session's subagent transcripts against its `SubagentStop` records and alerts on an
 agent that died mid-flight. Off by default.** It runs inside
@@ -1215,10 +1247,12 @@ agent that died mid-flight. Off by default.** It runs inside
 **observes** — it raises the supervisor's exit-2 `asyncRewake` alert, which reaches the orchestrator
 mid-turn, and blocks nothing.
 
-**Switch.** `supervision.orphan_watch`, on the registry entry's own `switch` field rather than as a
-`modules` flag.
+**Switch.** `modules.effort_ledger` — this module's flag, and no longer one of its own. It had a
+`switch` at `supervision.orphan_watch` until 8 September 2026; that key is gone, and setting it now
+does nothing at all and is reported by nothing. Its threshold moved with it, to
+`module_config.effort_ledger.stale_minutes`.
 
-**The gap it closes.** `failure_capture`'s failed-task count reads
+**The gap it closes.** `effort_ledger`'s failed-task count reads
 `$payload.background_tasks` and counts only entries the harness marked `failed` or `killed` — and
 **a subagent killed mid-flight appears in that list not at all**. Measured on 1 August 2026: a
 cross-check of 70 subagent transcripts against the health log found **four** transcripts with no
@@ -1253,11 +1287,12 @@ keyed on transcript prose.**
 
 **Where its verdict stops, in three places, and each of them is an abstain rather than a guess:**
 
-- **It sits below the `failure_capture` flag check**, and that coupling is correct rather than
-  convenient: `SubagentStop` records are what `failure_capture` writes, and reconciling transcripts
-  against records nothing was writing would call every finished agent an orphan. **`failure_capture`
-  off means `orphan_watch` inert**, whatever its own switch says, and the doctor's module roster
-  counts it from the registry either way.
+- **It sits below the `effort_ledger` flag check**, and that coupling is correct rather than
+  convenient: `SubagentStop` records are what `effort_ledger` writes, and reconciling transcripts
+  against records nothing was writing would call every finished agent an orphan. **Since the merge
+  that is the SAME flag rather than a second one below the first**, so the coupling is structural
+  instead of documented: with the ledger off this code is never reached and no record is written at
+  all, which is a stronger guarantee than the old two-flag arrangement could give.
 - **A session with no health records at all yields no orphans**, for the same reason: the recorder's
   silence proves nothing.
 - **The evidence horizon.** The health-log reader takes a bounded tail, and rotation keeps only the
@@ -1276,16 +1311,9 @@ carries the **standing** count as an evidence trail beside a separate count of w
 because the status line takes a peak of the recorded counts over the log tail it reads and a standing
 orphan re-reported as new would push that indicator up forever with no way to bring it down.
 
----
-
-## `failure_capture` and healing
-
-See [Health and healing](architecture.md#health-and-healing) for the event table and the exit-2
-alerting path.
-
 ### The dispatch record — the START half, and what it cost to have
 
-`failure_capture` is declared on **six** hook events and implemented in **two** files. Five events
+`effort_ledger` is declared on **six** hook events and implemented in **two** files. Five events
 are [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1). The sixth is `SubagentStart`, where
 [`lib/subagent_start.ps1`](../lw-watchtower/lib/subagent_start.ps1) appends **one line per dispatch**
 to `health.jsonl`:
@@ -1301,8 +1329,8 @@ sort on `ts`. The **STOP** half of this record has always been written on `Subag
 the START half did not exist, so nothing could say when a dispatch began, only when it ended.
 
 **Two modules, one process, two flags, and neither switches the other.** The row is gated on
-`failure_capture` alone and sits *above* `context_injection`'s own early exit: `context_injection`
-off still writes the row, `failure_capture` off writes no row and still injects.
+`effort_ledger` alone and sits *above* `context_injection`'s own early exit: `context_injection`
+off still writes the row, `effort_ledger` off writes no row and still injects.
 `tests/subagent_scan.ps1` has a case for each direction.
 
 **`cwd` is deliberately omitted, and that omission is load-bearing.** `lib/supervisor.ps1` redacts

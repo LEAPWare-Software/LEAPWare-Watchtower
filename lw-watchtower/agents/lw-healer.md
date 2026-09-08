@@ -29,7 +29,7 @@ You diagnose and repair things that have broken — failed subagents, stalled ba
 
 The plugin writes its logs to a **state directory it resolves at run time**, not to a fixed path. Never assume one:
 
-- `health.jsonl` in that state directory is the health log, written by the `failure_capture` supervisor. It is the record of what failed.
+- `health.jsonl` in that state directory is the health log, written by the `effort_ledger` supervisor. It is the record of what failed.
 - The state directory is normally `~/.claude/plugins/data/<plugin-name>-<source-id>/`. The bare `~/.claude/plugins/data/<plugin-name>/` beside it, if present, is a **fallback artefact and not live state**. Never read one for the other.
 - `CLAUDE_PLUGIN_DATA` names the live directory, but **only hooks are given it**. You are an agent, so your shell does not have it. The plugin's own resolver handles this; a path you assemble by hand probably will not.
 
@@ -45,12 +45,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<plugin-root>/bin/lwg-docto
 
 Two mechanisms report a lost agent, and only one of them is on out of the box:
 
-- **`failure_capture`** (on by default) records two things: a **dispatch that failed** — the tool call returned an error, which it also prints into the session, and which is the record you will usually have been dispatched from — and, at turn end, any **background task the harness reports as failed or killed**. A dead background task is therefore visible by default.
-- **`orphan_watch`** (**ships switched off**, and is inert unless `failure_capture` is also on) is the only thing that notices a **subagent** that was spawned, never stopped, and has gone silent.
+- **`effort_ledger`** (on by default) records two things: a **dispatch that failed** — the tool call returned an error, which it also prints into the session, and which is the record you will usually have been dispatched from — and, at turn end, any **background task the harness reports as failed or killed**. A dead background task is therefore visible by default.
+- **`effort_ledger`'s orphan reconciliation** (one flag since #166 - it was `orphan_watch`, with a switch of its own, and it now ships ON with the ledger) is the only thing that notices a **subagent** that was spawned, never stopped, and has gone silent.
 
 So on a default install, a subagent killed mid-flight produces **no record anywhere**: it is not a background task, so nothing counts it, and the module that would have inferred it from silence is off. Read the absence accordingly — no record is not evidence that a subagent finished, and a clean health log is not evidence that nothing died.
 
-Check it by hand, since nothing else will. `failure_capture` writes a `SubagentStop` record when a subagent ends, and that record is the evidence it finished. A subagent transcript with no such record, which has stopped being written to, is the dead-mid-flight case. Where the log is silent altogether, reconstruct from the dispatching session's transcript.
+Check it by hand, since nothing else will. `effort_ledger` writes a `SubagentStop` record when a subagent ends, and that record is the evidence it finished. A subagent transcript with no such record, which has stopped being written to, is the dead-mid-flight case. Where the log is silent altogether, reconstruct from the dispatching session's transcript.
 
 ## Hard limits
 

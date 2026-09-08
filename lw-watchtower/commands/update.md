@@ -88,7 +88,7 @@ Rules for reporting it:
 `/lw-watchtower:doctor` is what this runs afterwards, and it checks wiring only. **Much of what a pull can
 change is covered by no behavioural test.** `tests/` holds 16 files, 13 of them behavioural:
 `gate_delegate.ps1` covers `delegate_gate`, `supervision.ps1` covers the other two gates and
-`orphan_watch`, `setup_merge.ps1` covers the installer's `statusline`
+`effort_ledger`'s orphan reconciliation, `setup_merge.ps1` covers the installer's `statusline`
 merge and what its `hooks` section decides — **and, in sections that are not about the
 installer, the reporting surfaces that survive it: `statusline/statusline.ps1` and this
 command, `bin/lwg-update.ps1`, which nothing exercised in any form before

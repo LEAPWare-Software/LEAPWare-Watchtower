@@ -452,7 +452,7 @@ function Test-AConfigThatDoesNotParseIsSilent {
     $t = New-CaseRoot -Tag 's6'
     $absent  = Invoke-StackMode -Tree $t
     $garbage = Invoke-StackMode -Tree $t -Config 'this file is not json at all'
-    $noMod   = Invoke-StackMode -Tree $t -Config '{ "version": "x", "supervision": { "orphan_watch": false } }'
+    $noMod   = Invoke-StackMode -Tree $t -Config '{ "version": "x", "supervision": { "send_liveness": false } }'
     $noKey   = Invoke-StackMode -Tree $t -Config '{ "modules": { "self_health": true } }'
 
     $ok = $absent.code  -eq 0 -and $absent.out.Length  -eq 0 -and

@@ -1553,7 +1553,7 @@ try {
     # the failure is the gate refusing too little.
     $ovr = [ordered]@{
         version = '0.2.0'
-        modules = [ordered]@{ failure_capture = $true }
+        modules = [ordered]@{ effort_ledger = $true }
         interaction = [ordered]@{ delegate = $false }
         repos = [ordered]@{ $slug = [ordered]@{ interaction = [ordered]@{ delegate = $true } } }
     }
@@ -1610,14 +1610,14 @@ try {
             tag  = 'fast-no-repos'
             name = 'I1  delegate false, no repos member at all -> ALLOW'
             deny = $false
-            json = '{"version":"0.2.0","modules":{"failure_capture":true},"interaction":{"delegate":false}}'
+            json = '{"version":"0.2.0","modules":{"effort_ledger":true},"interaction":{"delegate":false}}'
             why  = 'the shape a config takes when nothing has ever written a per-repo override'
         }
         @{
             tag  = 'fast-repos-comment'
             name = 'I2  delegate false, repos holding only a comment -> ALLOW'
             deny = $false
-            json = '{"version":"0.2.0","modules":{"failure_capture":true},"interaction":{"delegate":false},' +
+            json = '{"version":"0.2.0","modules":{"effort_ledger":true},"interaction":{"delegate":false},' +
                    '"repos":{"$comment":"Per-repo overrides keyed by the owner/name slug of the origin remote."}}'
             why  = 'the shape config.json actually ships in - a repos block with no repo in it'
         }
@@ -1625,7 +1625,7 @@ try {
             tag  = 'fast-comment-trap-off'
             name = 'I3a delegate false under a comment containing \"delegate\": true -> ALLOW'
             deny = $false
-            json = '{"version":"0.2.0","modules":{"failure_capture":true},"interaction":{' + $trapComment +
+            json = '{"version":"0.2.0","modules":{"effort_ledger":true},"interaction":{' + $trapComment +
                    '"delegate":false},"repos":{"$comment":"nothing here"}}'
             why  = 'a reader that searched the text for the flag would find the comment first and read the gate as armed'
         }
@@ -1633,7 +1633,7 @@ try {
             tag  = 'fast-comment-trap-on'
             name = 'I3b delegate true under a comment containing \"delegate\": true -> DENY'
             deny = $true
-            json = '{"version":"0.2.0","modules":{"failure_capture":true},"interaction":{' + $trapComment +
+            json = '{"version":"0.2.0","modules":{"effort_ledger":true},"interaction":{' + $trapComment +
                    '"delegate":true},"repos":{"$comment":"nothing here"}}'
             why  = 'the mirror of I3a, and the one that fails OPEN if the scanner stops at the comment'
         }
@@ -1641,7 +1641,7 @@ try {
             tag  = 'fast-comment-trap-inverted'
             name = 'I3c delegate true under a comment containing \"delegate\": false -> DENY'
             deny = $true
-            json = '{"version":"0.2.0","modules":{"failure_capture":true},"interaction":{' +
+            json = '{"version":"0.2.0","modules":{"effort_ledger":true},"interaction":{' +
                    '"$comment": "Ships off: { \"interaction\": { \"delegate\": false } } is the default.",' +
                    '"delegate":true},"repos":{"$comment":"nothing here"}}'
             # THE ONE THAT CAN GO RED, and it is why it is here. I3a and I3b
@@ -1656,7 +1656,7 @@ try {
             tag  = 'fast-no-interaction'
             name = 'I4  no interaction member at all -> ALLOW'
             deny = $false
-            json = '{"version":"0.2.0","modules":{"failure_capture":true},"repos":{"$comment":"nothing here"}}'
+            json = '{"version":"0.2.0","modules":{"effort_ledger":true},"repos":{"$comment":"nothing here"}}'
             why  = 'an absent switch is the built-in default, which is off'
         }
         # I5 WAS HERE and is deliberately gone rather than merely renumbered.
@@ -1673,7 +1673,7 @@ try {
             tag  = 'fast-nested-decoy'
             name = 'I6  a decoy interaction block nested one level down -> DENY'
             deny = $true
-            json = '{"version":"0.2.0","modules":{"failure_capture":true},' +
+            json = '{"version":"0.2.0","modules":{"effort_ledger":true},' +
                    '"junk":{"interaction":{"delegate":false}},' +
                    '"interaction":{"delegate":true},"repos":{"$comment":"nothing here"}}'
             why  = 'the real top-level switch is ON. A scanner without a depth guard finds the decoy false first, exits 0, and the gate never fires'
@@ -1720,8 +1720,8 @@ try {
     #    other direction: an override that turns the gate OFF over a config.json
     #    that arms it must ALLOW, which no rule reading only config.json can do.
     # -------------------------------------------------------------------
-    $ovBase = '{"version":"0.2.0","modules":{"failure_capture":true},"interaction":{"delegate":false},"repos":{"$comment":"nothing here"}}'
-    $ovOn   = '{"version":"0.2.0","modules":{"failure_capture":true},"interaction":{"delegate":true},"repos":{"$comment":"nothing here"}}'
+    $ovBase = '{"version":"0.2.0","modules":{"effort_ledger":true},"interaction":{"delegate":false},"repos":{"$comment":"nothing here"}}'
+    $ovOn   = '{"version":"0.2.0","modules":{"effort_ledger":true},"interaction":{"delegate":true},"repos":{"$comment":"nothing here"}}'
 
     $overrideCases = @(
         @{
@@ -1855,7 +1855,7 @@ try {
     #    J10 is the only case in this suite that can tell which path answered,
     #    and it can do so only by the clock. See its own comment.
     # -------------------------------------------------------------------
-    $jHead = '{"version":"0.3.0","modules":{"failure_capture":true},'
+    $jHead = '{"version":"0.3.0","modules":{"effort_ledger":true},'
     $jTail = '"repos":{"$comment":"nothing here"}}'
 
     # cwd for the per-repo cases: the fabricated repository from section H,
@@ -1914,7 +1914,7 @@ try {
             tag  = 'name-escaped-irrelevant'
             name = 'J7  an escaped member name that decodes to something else entirely -> ALLOW'
             deny = $false; repo = $false
-            json = '{"\u0076ersion":"0.3.0","modules":{"failure_capture":true},' +
+            json = '{"\u0076ersion":"0.3.0","modules":{"effort_ledger":true},' +
                    '"interaction":{"delegate":false},' + $jTail
             why  = 'the switch really is off. The abstain-on-any-escape rule must make the fast path fall through here and the slow path must then answer correctly - "abstain" is not "throw", and a config with an escaped name that has nothing to do with this gate must not turn a decision into an error'
         }
@@ -2409,7 +2409,7 @@ try {
     #    are here to pin that the fix did not move an answer that was already
     #    correct.
     # -------------------------------------------------------------------
-    $kHead = '{"version":"0.3.0","modules":{"failure_capture":true},'
+    $kHead = '{"version":"0.3.0","modules":{"effort_ledger":true},'
     $kTail = '"repos":{"$comment":"nothing here"}}'
 
     $kCases = @(
@@ -2625,7 +2625,7 @@ try {
     #    that gap and neither case here pretends it did: P2 asserts the NOTE,
     #    and asserts nothing about the verdict.
     # -------------------------------------------------------------------
-    $pHead = '{"version":"0.4.0","modules":{"failure_capture":true},'
+    $pHead = '{"version":"0.4.0","modules":{"effort_ledger":true},'
     $pTail = '"repos":{"$comment":"nothing here"}}'
 
     $rootP1 = New-LwgReportRoot -Base $work -Name 'report-string-true' -Json (
@@ -2987,7 +2987,7 @@ try {
     $qCwd  = 'C:/nowhere/' + $qOdd
     $qSess = 'lwg-test-269'
     $qRoot = New-LwgRawRoot -Base $work -Name 'q-nonascii' -Json (
-        '{"version":"0.3.0","modules":{"failure_capture":true},' +
+        '{"version":"0.3.0","modules":{"effort_ledger":true},' +
         '"interaction":{"delegate":true},' +
         '"repos":{"$comment":"nothing here"}}')
     $qPayload = '{' + (@(

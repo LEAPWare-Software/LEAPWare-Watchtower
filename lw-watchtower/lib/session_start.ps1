@@ -177,6 +177,51 @@ try {
         $selfcheck.ok = ($failures.Count -eq 0)
     }
 
+    # --- HH LAYER 0: HOW MANY PROBES PASSED, DERIVED --------------------------
+    # #166's layer 0 is "is the plugin sound", and its contract is that the
+    # answer is reported FIRST and SEPARATELY, because if it fails every reading
+    # after it is worthless. A banner that leads with a module fraction leads
+    # with the reading that depends on this one.
+    #
+    # FIVE PROBES, AND THE FIVE ARE ENUMERATED HERE RATHER THAN COUNTED FROM
+    # $selfcheck's members. There are SIX booleans in that hashtable and five
+    # probes: probe 4 reads two payload fields, payload_session and payload_cwd,
+    # and it is ONE probe about the payload - so `@($selfcheck.Keys).Count` would
+    # print "5 of 6" for a healthy session and disagree with docs/modules.md's
+    # "Five probes", the file's own numbered comments above, and this suite's
+    # section F, all of which say five. The list is the ordered pairing of each
+    # probe with its verdict, so the numerator moves when a probe fails and the
+    # denominator moves only when a probe is added or removed - which is the
+    # edit that must also renumber the comments above.
+    #
+    # $null-SAFE BY CONSTRUCTION. With self_health off no probe ran, every field
+    # is still absent, and `-eq $true` on $null is $false - so the tally reads
+    # 0 of 5 and the banner does not print it at all, because "0 of 5" and "not
+    # run" are different statements and only one of them is true.
+    #
+    # AN ORDERED DICTIONARY AND NOT AN ARRAY OF PAIRS, and the reason is a
+    # measured defect rather than taste. This was written as
+    #
+    #     $probes = @( @('config parsed', $x), @('flags resolve', $y), ... )
+    #
+    # and PowerShell FLATTENS nested arrays in an array subexpression: the five
+    # pairs became ten elements, $probes.Count returned 10, and the very first
+    # run of the banner printed "self-check passed, 5 of 10" - a self-check
+    # reporting half its probes failed, on a healthy session, in the one line
+    # every session reads. A hashtable cannot flatten, .Count is the number of
+    # probes by construction, and the shape is now unable to express the bug.
+    $probes = [ordered]@{
+        'config parsed'  = ($selfcheck.config_from_file -eq $true)
+        'flags resolve'  = ($selfcheck.modules_resolved -eq $true)
+        'thresholds'     = ($selfcheck.thresholds_live  -eq $true)
+        'payload fields' = (($selfcheck.payload_session -eq $true) -and ($selfcheck.payload_cwd -eq $true))
+        'state writable' = ($selfcheck.state_writable   -eq $true)
+    }
+    $probeTotal  = $probes.Count
+    $probePassed = @($probes.Values | Where-Object { $_ }).Count
+    $selfcheck.probes_passed = $probePassed
+    $selfcheck.probes_of     = $probeTotal
+
     # --- mode ---------------------------------------------------------------
     # The ladder itself lives in common.ps1 (Get-LwgSessionMode) because
     # /lw-watchtower:doctor has to report the same word off the same rules. The mode
@@ -249,12 +294,46 @@ try {
     if ($plannedCount -gt 0) { $splitParts += "$plannedCount planned" }
     if ($offCount -gt 0)     { $splitParts += "$offCount off" }
     $split    = $(if ($splitParts.Count -gt 0) { ' (' + ($splitParts -join ', ') + ')' } else { '' })
-    $banner   = "LW-WATCHTOWER v$version $dot $activeCount/$totalCount modules enabled$split $dot $gateCount $gateWord $dot $mode"
-    # The mode word alone is not enough here. 'unverified' tells a reader that
-    # something is missing but not what, and the one thing they need to know is
-    # that the omission is deliberate rather than a fault.
-    if     (-not $selfHealthOn)      { $banner += " (self_health off - nothing was checked)" }
-    elseif ($failures.Count -gt 0)   { $banner += " (" + ($failures[0]) + ")" }
+
+    # --- HH LAYER 0, AND IT GOES FIRST (#166) --------------------------------
+    # THE SELF-CHECK USED TO BE THE LAST THING ON THIS LINE, in a parenthetical
+    # after the mode word, and #166's layer 0 says it is reported FIRST and
+    # SEPARATELY: "if this fails, every reading above it is worthless". The
+    # module fraction, the gate count and the mode word are all readings that
+    # depend on the plugin being sound, so a banner that opened with them put
+    # the dependent reading in front of the one it depends on.
+    #
+    # THREE STATES AND THEY ARE THREE PHRASES, not one phrase and an absence.
+    # 'DID NOT RUN' is not 'passed' and is not 'failed'; an operator shown a
+    # bare count would read a missing check as a passed one, which is the
+    # assumption this plugin exists to refuse. The word FAILED is present in the
+    # failing case and absent in the passing one, so 'a failed self-check never
+    # renders as healthy' is a property of the text and not of the mode word
+    # alone - Get-LwgSessionMode already says 'degraded', and the two now agree
+    # in one line rather than one of them carrying the whole load.
+    #
+    # EVERY FAILURE IS NAMED, NOT THE FIRST. This read $failures[0] until
+    # 8 September 2026, which meant a session that failed to parse its config
+    # AND could not write its state directory reported one of the two, with no
+    # sign that the list went on - and the probes are independent, so which one
+    # came first was an accident of the order they are written above. A reader
+    # fixing the reported fault and rerunning would have been told about the
+    # next one only then. The full list is short by construction: five probes.
+    $selfSeg = ''
+    if (-not $selfHealthOn) {
+        $selfSeg = "self-check DID NOT RUN (self_health off - nothing was checked)"
+    } elseif ($failures.Count -gt 0) {
+        $selfSeg = "self-check FAILED $probePassed of $probeTotal (" + ($failures -join '; ') + ")"
+    } else {
+        $selfSeg = "self-check passed, $probePassed of $probeTotal"
+    }
+
+    # THE MODE WORD STAYS LAST, and that is load-bearing rather than
+    # conservative: tests/state_resolution.ps1's Test-BannerMode anchors it as
+    # the end of the line, and the whole point of that anchor is to separate
+    # "the banner names the mode" from "the mode word appears somewhere in it",
+    # which a module name or a failure string could otherwise satisfy.
+    $banner   = "LW-WATCHTOWER v$version $dot $selfSeg $dot $activeCount/$totalCount modules enabled$split $dot $gateCount $gateWord $dot $mode"
 
     # additionalContext is model-visible and paid for on every session. It must
     # describe what is running, not what is aspired to - telling the model a
@@ -301,7 +380,7 @@ try {
         if ($rest.Count -eq 1 -and $restCounts[0] -eq $restCount) {
             # ONE BUCKET ACCOUNTS FOR THE WHOLE REMAINDER, so the label's colon
             # form printed the same number twice - "The other 4: 4
-            # (send_liveness_gate, completion_audit, orphan_watch,
+            # (stack_mode, send_liveness_gate, completion_audit,
             # delegate_gate) built but switched OFF in config.json". That is the
             # SHIPPED default configuration, not an edge case, and this string
             # is injected into the model's context on every single session

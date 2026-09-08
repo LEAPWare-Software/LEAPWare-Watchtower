@@ -75,7 +75,7 @@ is in.
 
 > **Read this before you fill the section in.** The plugin cannot hand you a list of the agents
 > that are still running, but it is not silent about dispatches either. Since 6 September 2026
-> `failure_capture` appends one START row per dispatch to `health.jsonl` in the plugin's state
+> `effort_ledger` appends one START row per dispatch to `health.jsonl` in the plugin's state
 > directory:
 >
 > ```json
@@ -91,7 +91,7 @@ is in.
 >   can tell you *an agent of this type was dispatched at this time*, and never what it was doing.
 > - **A missing STOP half is not proof of life.** A hook that fires while the CLI is exiting may
 >   never be recorded at all, the log is rotated so old rows fall off the back of it, and
->   `failure_capture` switched off writes neither half.
+>   `effort_ledger` switched off writes neither half.
 > - **No code reads the START half.** Nothing in this plugin turns those rows into a roster for
 >   you; the reading is yours to do.
 >

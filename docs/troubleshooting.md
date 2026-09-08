@@ -285,7 +285,7 @@ is a sub-second **wiring** check — use it, while being clear that wiring is no
 
 The `permissions.deny` parity test went the same day with `secret_scan`. **16 test files remain**,
 and **13 of them test behaviour**: `tests/gate_delegate.ps1` (the delegate gate),
-`tests/supervision.ps1` (the other two gates and `orphan_watch`), `tests/setup_merge.ps1`
+`tests/supervision.ps1` (the other two gates and the orphan reconciliation), `tests/setup_merge.ps1`
 (the installer's `statusline` merge, what its `hooks` section decides, and the status line itself),
 `tests/stop_behaviour.ps1` (the turn-end hooks),
 `tests/state_resolution.ps1` (the `SessionStart` hook, its probes and its state-directory resolution),

@@ -33,7 +33,7 @@
 #           such a build those registrations are simply inert. The failure mode
 #           of an inert hook is SILENCE, indistinguishable from a session in
 #           which nothing went wrong - while the banner goes on counting
-#           failure_capture and context_injection among the active modules,
+#           effort_ledger and context_injection among the active modules,
 #           because it counts the REGISTRY and not observed behaviour.
 #           THIS IS THE MAP, NOT THE CHECK. The checks that consume it - a
 #           build WARN and a per-event "observed on this machine at least once"
@@ -64,11 +64,17 @@
 #           config.<block>.<key> with a per-repo override at
 #           repos[slug].<block>.<key>. An entry declaring one is EXCLUDED from
 #           the `modules` parity rule below, because by design it has no
-#           `modules` key. FOUR entries use it today - delegate_gate, whose
+#           `modules` key. THREE entries use it today - delegate_gate, whose
 #           switch is interaction.delegate, the key /lw-watchtower:delegate writes,
-#           and the three supervision modules (send_liveness_gate,
-#           completion_audit, orphan_watch), whose switches live in the
-#           `supervision` block and all default OFF.
+#           and the two supervision gates (send_liveness_gate and
+#           completion_audit), whose switches live in the `supervision` block
+#           and both default OFF.
+#           IT WAS FOUR UNTIL 8 SEPTEMBER 2026 (#166). orphan_watch was the
+#           fourth, and it was the only OBSERVE-kind entry ever to declare one.
+#           It is gone because it MERGED into effort_ledger - read that entry's
+#           note - and the merge took its supervision.orphan_watch key with it.
+#           That leaves the set exactly what the field was built for: entries
+#           that must not be armable by a corrupt config, which is to say gates.
 #           WHY IT EXISTS AT ALL: the alternative was a second flag,
 #           modules.delegate_gate, alongside interaction.delegate. Two switches
 #           over one gate means an operator can turn the gate "on" with the
@@ -83,8 +89,9 @@
 # bin/lwg-doctor.ps1's config-registry check enforces both halves.
 # Every entry is 'implemented'. delegate_gate, send_liveness_gate and
 # completion_audit are kind 'gate' and are the only things in this plugin that
-# can block anything; every other entry is kind 'observe'. Each of those gates,
-# and orphan_watch, declares its own `switch` and SHIPS OFF.
+# can block anything; every other entry is kind 'observe'. Each of those gates
+# declares its own `switch` and SHIPS OFF, and since 8 September 2026 (#166)
+# they are the WHOLE of the switch-declaring set - see the `switch` field.
 #
 # HOW MANY THERE ARE OF EACH IS NOT WRITTEN HERE, AND THAT IS #195. The list is
 # the next thing in this file - a reader counts it, and every consumer derives
@@ -94,26 +101,42 @@
 # is the copy that goes stale, because nothing reads a comment. It said ELEVEN
 # here until #168 and the sweep that corrected it had to find this line by hand.
 #
-# IT WAS ELEVEN UNTIL 6 SEPTEMBER 2026 (#168). context_pressure was DELETED as a
-# standalone advisory and replaced by the TRANSITION LADDER, which is a layer of
-# failure_capture rather than a module of its own - see that entry's note. The
-# ladder reads the same occupancy the deleted module recomputed, plus the two
-# rate limits, from signals/ratelimit.json, and it reaches the MODEL rather than
-# the operator's screen. That is the whole reason for the move: the advisory
-# handler's only stdout is a systemMessage, which the operator reads and the
-# model does not, and this issue's contract is that the MODEL is told to stop
-# starting work. Do not add context_pressure back; read the ladder's account in
-# lib/supervisor.ps1 first.
+# THREE NAMES LEFT THIS LIST AND TWO ARRIVED, INSIDE ONE RELEASE, and the moves
+# are recorded here because each one is a name a reader may still be carrying.
+#
+# 6 SEPTEMBER 2026 (#168): context_pressure was DELETED as a standalone advisory
+# and replaced by the TRANSITION LADDER, which is a layer of effort_ledger rather
+# than a module of its own - see that entry's note. The ladder reads the same
+# occupancy the deleted module recomputed, plus the two rate limits, from
+# signals/ratelimit.json, and it reaches the MODEL rather than the operator's
+# screen. That is the whole reason for the move: the advisory handler's only
+# stdout is a systemMessage, which the operator reads and the model does not, and
+# that issue's contract is that the MODEL is told to stop starting work. Do not
+# add context_pressure back; read the ladder's account in lib/supervisor.ps1
+# first.
+#
+# 7 SEPTEMBER 2026 (#179): stack_mode ARRIVED, switched off.
+#
+# 8 SEPTEMBER 2026 (#166): failure_capture and orphan_watch were MERGED into
+# effort_ledger - two entries out, one in. Two flags over one data source was the
+# dependency trap this table's `switch` field exists to argue against: an
+# operator could set supervision.orphan_watch true and have it do nothing at all
+# because modules.failure_capture was false, which is a switch wired to nothing
+# and is the founding defect this plugin exists to catch. BOTH OLD NAMES ARE
+# GONE FROM CONFIG.JSON, which makes this a BREAKING config rename - what happens
+# to an override still naming either one is stated in the CHANGELOG's 0.5.0
+# upgrade note and measured by tests/state_resolution.ps1 section K and
+# tests/doctor_behaviour.ps1. Do not re-add either name.
 $script:LwgModuleRegistry = [ordered]@{
-    failure_capture      = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1 + lib/subagent_start.ps1'
+    effort_ledger        = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1 + lib/subagent_start.ps1'
                               events = @('SessionStart', 'PostToolUseFailure', 'SubagentStart', 'SubagentStop', 'Stop', 'StopFailure')
-                              note = 'Six hook events, gated on the flag. FIVE are lib/supervisor.ps1, which exits 2 on a genuine failure to alert the orchestrator. The SIXTH is SubagentStart: lib/subagent_start.ps1 appends the START half of the dispatch record whose STOP half SubagentStop has always written, and that row never exits 2 and can never raise a fault count. ALSO CARRIES THE TRANSITION LADDER since 6 September 2026 (#168) - the amber/red tiers computed at Stop over signals/ratelimit.json, which the STATUS LINE writes and no hook is given directly. The ladder has no switch of its own, and the consequence is stated rather than left to be found: failure_capture off = ladder off, the same shape orphan_watch already carries. It rides here because exit 2 under this registration''s asyncRewake is the only channel that reaches the model mid-turn; lib/stop_advisories.ps1 emits a systemMessage, which reaches the operator''s screen instead. The tier numbers live in thresholds.ladder.' }
+                              note = 'ONE SWITCH OVER ONE DATA SOURCE - health.jsonl - and it carries FOUR things. Named effort_ledger since 8 September 2026 (#166), when failure_capture and orphan_watch were merged into it; both of those keys are GONE from config.json and an override still naming either is a BREAKING config change, so read the CHANGELOG''s 0.5.0 upgrade note. FIRST, SIX HOOK EVENTS gated on this flag. Five are lib/supervisor.ps1, which exits 2 on a genuine failure to alert the orchestrator. SECOND, the SIXTH event, SubagentStart: lib/subagent_start.ps1 appends the START half of the dispatch record whose STOP half SubagentStop has always written, and that row never exits 2 and can never raise a fault count. THIRD, THE TRANSITION LADDER since 6 September 2026 (#168) - the amber/red tiers computed at Stop over signals/ratelimit.json, which the STATUS LINE writes and no hook is given directly. FOURTH, ORPHAN RECONCILIATION, which was the whole of orphan_watch: at Stop AND at SubagentStop it reconciles the session''s subagent TRANSCRIPTS against its SubagentStop records here, and a transcript with no stop record that has gone unwritten for module_config.effort_ledger.stale_minutes (default 15) is an ORPHAN - an agent killed mid-flight, which produces no record anywhere else. A harness-stated <status>failed</status> task-notification in the parent transcript is a DEATH with no threshold applied at all. Orphan alerts dedupe per agent through alerted.json. NONE OF THE FOUR HAS A SWITCH OF ITS OWN, and the consequence is stated rather than left to be found: effort_ledger off = no records, no dispatch record, ladder off, orphan reconciliation off, and the Stop record carries no `orphans` field because no record is written at all. THAT LAST PROPERTY IS THE MERGE PAYING OFF: the old shape needed a second flag read at three sites to keep an `orphans`:0 stamped by a run that never looked out of the log, and one flag makes that false green unreachable by construction. (The word "gate" is deliberately not used for this flag anywhere in these notes: in this table it means an entry of kind ''gate'', which can refuse a tool call, and this module refuses nothing.) The reconciliation reaches the model through exit 2 under this registration''s asyncRewake, which is the only channel in this plugin that does; lib/stop_advisories.ps1 emits a systemMessage, which reaches the operator''s screen instead. The tier numbers live in thresholds.ladder. AND THE HEALING CEILING IS PART OF THE SPECIFICATION, NOT A CAVEAT ON IT: this plugin dispatches nothing and no hook here can call a tool, so on a dead agent it INSTRUCTS one bounded retry, VERIFIES from the records above, and ESCALATES to the operator. Instruct, verify, escalate is the whole of it, and nothing in this entry should be read as promising more.' }
     self_health          = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/session_start.ps1'
                               events = @('SessionStart')
                               note = 'The SessionStart self-check. Switching it off skips every probe, and the session then reports mode "unverified" rather than any word that implies it was validated - an unrun check must never read as a passed one.' }
     log_rotation         = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/common.ps1 (Invoke-LwgRotate), called from lib/supervisor.ps1'
                               events = @('SessionStart', 'PostToolUseFailure', 'SubagentStop', 'Stop', 'StopFailure')
-                              note = 'Runs on its own flag alone. The call sits ABOVE the failure_capture gate in supervisor.ps1, so switching failure capture off stops the writes to health.jsonl but never the cap on its size. A rotation that cannot complete now writes a RotateFailed event to lw-watchtower.jsonl and leaves every archive generation intact - it used to destroy one and report nothing.' }
+                              note = 'Runs on its own flag alone. The call sits ABOVE the effort_ledger gate in supervisor.ps1, so switching the ledger off stops the writes to health.jsonl but never the cap on its size. A rotation that cannot complete now writes a RotateFailed event to lw-watchtower.jsonl and leaves every archive generation intact - it used to destroy one and report nothing.' }
     docs_coupling        = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/post_edit.ps1, lib/stop_advisories.ps1'
                               events = @('PostToolUse', 'Stop')
                               note = 'PostToolUse records edited paths; Stop compares them. Only files edited THROUGH Edit/Write/NotebookEdit are seen - a file changed by a shell command is invisible.' }
@@ -122,22 +145,36 @@ $script:LwgModuleRegistry = [ordered]@{
                               note = 'ADVISORY on Stop - it warns and never blocks. The only module allowed to spawn a subprocess, and it only does so at turn end, inside a repo, with a hard timeout. A git command that fails or times out is reported as UNKNOWN, never as a clean tree. The open-PR check is the one network call, is skipped unless there is unpushed work on a non-default branch, and is skipped loudly when gh is missing or slow.' }
     context_injection    = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/subagent_start.ps1'
                               events = @('SubagentStart')
-                              note = 'SubagentStart, once per dispatch. Injects context/worker_facts.md as hookSpecificOutput.additionalContext, because CLAUDE.md is snapshotted into a subagent at PARENT-SESSION start and a mid-session edit never reaches a worker dispatched afterwards. The file is read live on every dispatch, so what a worker gets is current by construction. Deliberately does NOT dot-source this file on its fast path: that plus one ConvertFrom-Json measured 634 ms against a 273 ms interpreter floor, on a hook that every worker in every session pays for. SHARES ITS FILE, NOT ITS FLAG: since 6 September 2026 failure_capture writes the dispatch record from the same process, above this module''s early exit, so switching this one off does not stop that row and switching that one off does not stop this injection.' }
+                              note = 'SubagentStart, once per dispatch. Injects context/worker_facts.md as hookSpecificOutput.additionalContext, because CLAUDE.md is snapshotted into a subagent at PARENT-SESSION start and a mid-session edit never reaches a worker dispatched afterwards. The file is read live on every dispatch, so what a worker gets is current by construction. Deliberately does NOT dot-source this file on its fast path: that plus one ConvertFrom-Json measured 634 ms against a 273 ms interpreter floor, on a hook that every worker in every session pays for. SHARES ITS FILE, NOT ITS FLAG: since 6 September 2026 effort_ledger writes the dispatch record from the same process, above this module''s early exit, so switching this one off does not stop that row and switching that one off does not stop this injection.' }
     stack_mode           = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/stack_mode.ps1'
                               events = @('SessionStart', 'SubagentStart')
                               note = 'SHIPS SWITCHED OFF, and its flag is a plain modules key rather than a switch of its own - it is an injector, not a gate, so a corrupt config cannot arm anything by leaving it on. WHY OFF: this tree switches a new module off until it has run against real sessions, the ruling #165 was held to on 7 September 2026, and rule 18 means this one has never run in a live session at all - nothing here has observed the CLI merging what it injects. Two more reasons are specific to it. Its ship_roots and proto_roots both ship EMPTY, so switched on it would resolve to the default and inject a PROTO pointer no operator asked for, which is cost with no function. And it is a SECOND PowerShell process on SubagentStart beside lib/subagent_start.ps1, so a dispatch that pays for both pays a whole ~296 ms interpreter start again - the number and what is NOT measured about it are in docs/limitations.md, stated there rather than absorbed, by the same rule that made slice 0 state its 18 ms. bin/lwg-setup.ps1 OFFERS to turn it on and writes nothing; /lw-watchtower:config is what writes it. ONE WORKING DISCIPLINE PER SESSION - PROTO or SHIP - injected as a POINTER to the ruleset rather than as the ruleset, because a full SKILL.md does not fit inside the ceiling injected context is held to. Registered on BOTH matcher-less events from ONE leaf, and the two are not interchangeable: SessionStart tells the parent, SubagentStart tells every worker per dispatch, because CLAUDE.md is snapshotted at PARENT-SESSION start and a worker dispatched twenty minutes later would otherwise read a mode that has since changed - the same rationale context_injection was built on. The rulesets are context/stack/ponytail.md and context/stack/unlazy.md, which live under context/ and NOT under skills/ by owner ruling: the CLI auto-registers every skills/*/SKILL.md as model-invocable, and this module governs INJECTION, not availability. Nothing else in this tree reads those two files. THE MODE IS RESOLVED ONCE, IN A STATED ORDER - the CLAUDE_STACK_MODE environment variable, then a .stackmode marker in the working directory, then module_config.stack_mode''s ship_roots and proto_roots, then its default, then proto - and one source answering stands the rest down, which is what makes ponytail and unlazy structurally unable to be in force at the same time. IT IS THE ONE MODULE THAT DOES NOT FAIL OPEN ON AN UNREADABLE CONFIG, and that departure is deliberate rather than an oversight: the other observers inject invariant text, while this one injects an ASSERTION ABOUT THE OPERATOR''S ENVIRONMENT, and a mode announced out of a config.json that could not be read is a guess wearing a verdict''s clothes - the shape lib/supervisor.ps1 records this tree shipping once already. So a config.json that is absent, unreadable or holds no root `modules` object produces SILENCE; inside a config that parses that far an absent key still reads as ON, exactly like everything else here. It can never block: it emits no decision, continue or stopReason field at all, and ON EVERY PATH BUT ONE it writes nothing anywhere - no log, no state, no marker of its own. THE EXCEPTION IS THE ERROR PATH, stated rather than glossed: a throw is caught and recorded as a StackModeError row in lw-watchtower.jsonl through Write-LwgEvent, which resolves the state directory through Get-LwgStateDir and therefore CREATES it if absent. That is the same shape lib/subagent_start.ps1 documents for its own catch, it is the only write this module can make, and tests/stack_mode.ps1''s S14 pins the happy path alone - it hands every child an existing state directory, so it cannot see that branch and does not claim to. The SHIP pointer states that unlazy''s scripts, templates and references are NOT in this payload and that no Node runtime ships with it, because the reader is a model that would otherwise try to run them.' }
     send_liveness_gate   = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_send.ps1'
                               events = @('PreToolUse')
                               switch = @{ block = 'supervision'; key = 'send_liveness'; default = $false }
-                              note = 'OFF BY DEFAULT. PreToolUse on SendMessage: when supervision.send_liveness is on it refuses a send whose recipient it can prove is DEAD MID-FLIGHT - a subagent transcript exists for this session, no SubagentStop record was ever written for it, and the transcript has not been written for stale_minutes (default 15). Built from a measured failure: an orchestrator SendMessage was queued to an agent dead for 28m45s, the "Message queued for delivery" ack was read as done, and the user was told work was complete that never happened. The gate DENIES on positive evidence of death and on an unresolvable recipient; it ABSTAINS (allows, logged) where the evidence layer cannot support a verdict - a `name@team` recipient, or a session health.jsonl has never recorded. Its switch is supervision.send_liveness, NOT a `modules` key, for the same reason as delegate_gate: Get-LwgConfig fails OPEN and a corrupt config must not arm a blocking gate. Requires failure_capture to have been writing SubagentStop records; without them a completed agent is indistinguishable from a dead one and the gate abstains rather than guesses.' }
+                              note = 'OFF BY DEFAULT. PreToolUse on SendMessage: when supervision.send_liveness is on it refuses a send whose recipient it can prove is DEAD MID-FLIGHT - a subagent transcript exists for this session, no SubagentStop record was ever written for it, and the transcript has not been written for stale_minutes (default 15). Built from a measured failure: an orchestrator SendMessage was queued to an agent dead for 28m45s, the "Message queued for delivery" ack was read as done, and the user was told work was complete that never happened. The gate DENIES on positive evidence of death and on an unresolvable recipient; it ABSTAINS (allows, logged) where the evidence layer cannot support a verdict - a `name@team` recipient, or a session health.jsonl has never recorded. Its switch is supervision.send_liveness, NOT a `modules` key, for the same reason as delegate_gate: Get-LwgConfig fails OPEN and a corrupt config must not arm a blocking gate. Requires effort_ledger to have been writing SubagentStop records; without them a completed agent is indistinguishable from a dead one and the gate abstains rather than guesses. THAT DEPENDENCY IS ON THE RECORDS AND NOT ON THE FLAG''S NAME, so the 8 September 2026 merge (#166) did not move it: the abstain-vs-deny split is decided by what health.jsonl holds, and tests/supervision.ps1 section C proves it across the rename.' }
     completion_audit     = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_stop.ps1'
                               events = @('Stop', 'SubagentStop')
                               switch = @{ block = 'supervision'; key = 'completion_audit'; default = $false }
                               note = 'OFF BY DEFAULT. A turn-end gate, registered on BOTH Stop and SubagentStop and WITHOUT asyncRewake on either, so its exit 2 BLOCKS the turn end. It sat on Stop ALONE until 11 August 2026, and because subagents and teammates emit SubagentStop and never Stop it fired for no worker at all in that period. The two registrations are NOT interchangeable, which is why the file takes a -HookEvent argument: on SubagentStop the payload''s transcript_path is the PARENT''S transcript and the subagent''s own is agent_transcript_path, so a gate reading the former would block a worker for what the ORCHESTRATOR said - in a delegate pattern the common case, not an edge one, and reproduced as a real exit 2 against the pre-fix code. Subagent mode also LIFTS the sidechain skip, because every record of a real subagent transcript carries isSidechain:true and skipping them would leave the gate armed and auditing nothing, and it uses a local turn-boundary test rather than Get-LwgPromptText, whose sidechain rejection was built for mission_drift - a module since removed - and is correctly KEPT in Stop mode. An absent agent_transcript_path degrades to a silent no-op and NEVER falls back to the parent. When supervision.completion_audit is on it refuses to let a turn end whose final assistant text asserts completed work while the turn''s LAST tool action was SendMessage - queued-for-delivery is not delivery and not completion, and nothing after the send could have established anything. It fires ONCE per turn end: on the continuation stop_hook_active is true and it stands down, per the same loop-guard contract every Stop hook here honours - so it forces one round of verification, it cannot force honesty. The claim detection is a REGEX over prose and is stated as such: past-tense completion verbs, suppressed by hedging vocabulary. It will miss claims phrased outside its list and it can misread quoted text; the enumeration is in the file header and in docs/modules.md.' }
-    orphan_watch         = @{ kind = 'observe'; status = 'implemented'; impl = 'lib/supervisor.ps1'
-                              events = @('Stop', 'SubagentStop')
-                              switch = @{ block = 'supervision'; key = 'orphan_watch'; default = $false }
-                              note = 'OFF BY DEFAULT. At Stop, reconciles the session''s subagent TRANSCRIPTS against its SubagentStop records in health.jsonl: a transcript with no stop record that has not been written for stale_minutes (default 15) is an ORPHAN - an agent killed mid-flight, which produces NO record anywhere (Get-FailedTasks counts only failed/killed BACKGROUND TASKS in the Stop payload, and a killed subagent appears in that list not at all; a cross-check found FOUR orphans against a health log with zero PostToolUseFailure records in 1,175 entries). Alerts through the supervisor''s existing exit-2 asyncRewake path, deduped per agent through alerted.json. RUNS INSIDE lib/supervisor.ps1 BELOW THE failure_capture GATE, and that coupling is correct rather than convenient: SubagentStop records are what failure_capture writes, and reconciling against records nothing was writing would call every finished agent an orphan. failure_capture off = orphan_watch inert, and the doctor''s module roster counts it from the same registry entry either way - that roster is what is left of the status command, which is deleted.' }
+    # orphan_watch WAS HERE, AND IT IS NOT A DELETION - IT IS A MERGE (#166,
+    # 8 September 2026). Its entry declared kind 'observe' with a switch of its
+    # own at supervision.orphan_watch, default OFF, and it is the whole fourth
+    # thing effort_ledger's note now carries. Nothing it did was removed: the
+    # transcript-versus-SubagentStop reconciliation, the FOUR orphans measured
+    # against a health log with zero PostToolUseFailure records in 1,175
+    # entries, the harness-stated <status>failed</status> death signal with no
+    # threshold applied, the alerted.json dedupe and stale_minutes all run
+    # exactly as they did, in the same lines of lib/supervisor.ps1.
+    #
+    # WHAT DID CHANGE, and it is the thing to read before restoring this entry.
+    # It sat BELOW the ledger's flag gate, so the ledger being off already made
+    # it inert - two flags, one of which could silently cancel the other, which
+    # is the switch-wired-to-nothing defect this plugin exists to catch. One
+    # flag cannot do that. The cost is that the reconciliation now ships ON,
+    # where this entry shipped OFF, and that is a real behaviour change for an
+    # operator who never touched either flag rather than a rename: it is stated
+    # in the CHANGELOG's 0.5.0 upgrade note rather than absorbed here.
     delegate_gate        = @{ kind = 'gate'; status = 'implemented'; impl = 'lib/gate_delegate.ps1'
                               events = @('PreToolUse')
                               switch = @{ block = 'interaction'; key = 'delegate'; default = $false }
@@ -958,9 +995,11 @@ function Get-LwgDefaultConfig {
       on. A module that declares its own `switch` is deliberately NOT given a
       flag here - it has no `modules` key by design, and inventing one would put
       a value in the fallback that Test-LwgModule never reads. Its own default
-      lives on the registry entry, and for every entry that has a switch today
-      that default is $false, so an unreadable config leaves the gates and
-      orphan_watch OFF.
+      lives on the registry entry, and every entry that has a switch today is a
+      GATE whose default is $false, so an unreadable config leaves every gate
+      OFF. It read "the gates and orphan_watch" until 8 September 2026 (#166),
+      when that entry merged into effort_ledger and took the last non-gate
+      switch with it - so the two halves of this sentence became one.
       That is the right polarity for a gate and it is not an accident: an
       operator whose config.json will not parse must not suddenly find the main
       thread unable to edit the file they need to fix.
