@@ -1210,6 +1210,59 @@ try {
         "expected the roster's resolved-for-repo line to carry 'override: IGNORED - $ovBroken'. Full output:`n$($rOv.out)"
 
     # -------------------------------------------------------------------
+    # 6d. #166 THE BREAKING RENAME, AND THE ASYMMETRY THE UPGRADE NOTE IS
+    #     WRITTEN FROM. This is the half of that note this suite can measure,
+    #     and the reason the note exists in the CHANGELOG at all.
+    #
+    #     failure_capture and orphan_watch merged into effort_ledger on
+    #     8 September 2026 and BOTH OLD KEYS ARE GONE from config.json. An
+    #     override still naming either one is not rejected:
+    #     Merge-LwgConfigOverride ADDS a member the base does not have, so the
+    #     dead key reaches the effective config, and nothing reads it because
+    #     Test-LwgModule answers from $LwgModuleRegistry.
+    #
+    #     THE TWO KEYS ARE NOT REPORTED THE SAME WAY, and that is the whole
+    #     finding. The `modules` one is caught: this row already enumerates
+    #     that block for names the registry has never heard of and calls them
+    #     "a switch wired to nothing". The `supervision` one is NOT, because
+    #     the row enumerates the `modules` block for strays and has never
+    #     enumerated this one - so the key an operator most needs to hear
+    #     about is the silent one.
+    #
+    #     ASSERTED IN BOTH DIRECTIONS ON PURPOSE. If a later change makes the
+    #     doctor report the supervision stray too, THIS CASE FAILS - and it
+    #     should, because the CHANGELOG then says "reported by nothing" about
+    #     behaviour that has changed. The case names that consequence in its
+    #     own failure text so the next reader knows to move the note rather
+    #     than to loosen the assertion.
+    #
+    #     RED-FIRST at BASELINE ab6318c: both names are live registry entries
+    #     there, so the modules key is a legitimate flag and the row PASSES -
+    #     the first clause below fails outright.
+    # -------------------------------------------------------------------
+    Set-CaseConfig -Mutate $null
+    $tRen = New-HealthyCase -Tag 'cfg-renamed-keys' -RepoStatusLine $PlugStatusLine -LogLeaf $LogLeaf
+    $ovRen = Join-Path $tRen.state 'config.override.json'
+    [IO.File]::WriteAllText($ovRen,
+        '{ "modules": { "failure_capture": false }, "supervision": { "orphan_watch": true } }',
+        (New-Object Text.UTF8Encoding($false)))
+    $rRen   = Invoke-Doctor -ProfileDir $tRen.profile -StateDir $tRen.state
+    $rowRen = Get-DoctorRow -Text $rRen.out -Id 'config-registry'
+
+    Add-Result 'a removed modules key in the override FAILS config-registry, naming it a switch wired to nothing (#166)' `
+        ($rowRen.found -and $rowRen.status -eq 'FAIL' -and
+         $rowRen.detail -match 'failure_capture' -and
+         $rowRen.detail -match '(?i)not in the registry') `
+        ("expected FAIL naming failure_capture as a key the registry no longer holds; got [$($rowRen.status)] $($rowRen.detail). " +
+         "This is the half of the #166 upgrade note an operator can be TOLD about, and the CHANGELOG says so. Full output:`n$($rRen.out)")
+
+    Add-Result 'a removed supervision key in the override is reported by NOTHING - the measured asymmetry (#166)' `
+        ($rRen.out -notmatch 'orphan_watch') `
+        ("the doctor report mentions orphan_watch somewhere: the config-registry row enumerates the ``modules`` block for strays and has never enumerated the ``supervision`` one, " +
+         "so this case pins that the supervision half is SILENT. IF THAT HAS DELIBERATELY CHANGED, the CHANGELOG's 0.5.0 upgrade note says 'reported by nothing' about it and MUST MOVE - " +
+         "do not loosen this assertion to match. Full output:`n$($rRen.out)")
+
+    # -------------------------------------------------------------------
     # 6c-dir. #300. A DIRECTORY AT THE OVERRIDE'S PATH IS AN UNREADABLE
     #     OVERRIDE, NOT AN ABSENT ONE.
     #

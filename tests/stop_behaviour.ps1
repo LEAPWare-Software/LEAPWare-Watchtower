@@ -1,7 +1,7 @@
 #requires -version 5
 <#
   LW-WATCHTOWER Stop-hook behaviour suite - the Stop advisory hook and
-  failure_capture.
+  effort_ledger.
 
       powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1
       powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1 -Verbose
@@ -72,7 +72,7 @@
      about how little the probes cost. #337 replaced that leg with an
      in-process one and the claim is true again.
 
-  C. failure_capture, END TO END, in a child process, the same way -
+  C. effort_ledger, END TO END, in a child process, the same way -
      lib\supervisor.ps1 -HookEvent <Event>.
 
   D. LOG HYGIENE - the size, the encoding and the archive set of the files the
@@ -345,7 +345,7 @@ function Write-LwgFixtureConfig {
     param([string]$Dir, [hashtable]$Modules)
 
     $mods = [ordered]@{}
-    foreach ($k in @('failure_capture', 'self_health',
+    foreach ($k in @('effort_ledger', 'self_health',
                      'log_rotation', 'docs_coupling', 'git_hygiene', 'context_injection')) {
         $mods[$k] = $(if ($null -ne $Modules -and $Modules.ContainsKey($k)) { [bool]$Modules[$k] } else { $false })
     }
@@ -1977,7 +1977,7 @@ try {
         ("#167's triage claims these probes are free next to the git status git_hygiene already pays for, and this is the measurement rather than the assertion. Difference of medians, nine rounds, leg order reversed on alternate rounds, one warm-up sweep discarded, both legs on this machine in this run. THE COMPARATOR IS A FILE CHECK AND NOT A SUBPROCESS BECAUSE A SUBPROCESS MADE THIS VERDICT DEPEND ON THE MACHINE (#337): against one git spawn the same probe set measured 1:82 on a dev box (1.17 ms against 96.85 ms) and 1:17.5 on a GitHub windows-latest runner (2.15 ms against 37.67 ms), which is a 4.7x spread with neither leg regressing, and the twentieth-of-a-spawn bar it used to carry failed on the runner alone. Against its own file checks the same probe set measures 11.99 on that dev box and 10.22 on that runner - a spread of 1.17x rather than 4.7x, which is the whole reason this bar is counted in file checks. $($b37.detail)")
 
     # =====================================================================
-    # SECTION C - failure_capture and log_rotation, END TO END
+    # SECTION C - effort_ledger and log_rotation, END TO END
     # =====================================================================
     Write-Output 'C. supervisor (child process)'
 
@@ -2106,7 +2106,7 @@ try {
     # Get-FailedTasks is the fix, and this is the case that pins it - which is
     # why the record's field is asserted, not just the exit code: without the
     # wrap this run still exits 2, and only the LOG is wrong.
-    $c2 = New-LwgSupervisorCase -Name 'c2' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c2 = New-LwgSupervisorCase -Name 'c2' -Modules @{ effort_ledger = $true; log_rotation = $false }
     $rc2 = Invoke-LwgSupervisor -Case $c2 -Event 'Stop' -Tag 'c2-run1' `
                 -Payload (New-LwgStopPayload -Case $c2 -FailedIds @('task-one'))
     Add-Result 'C2: exactly one failed task alerts (exit 2, reason on stderr)' `
@@ -2159,7 +2159,7 @@ try {
         @{ n = 'multi-array';   raw = '["task-one","task-two"]' }
     )
     foreach ($shape in $c1shapes) {
-        $c1 = New-LwgSupervisorCase -Name ('c1-' + $shape.n) -Modules @{ failure_capture = $true; log_rotation = $false }
+        $c1 = New-LwgSupervisorCase -Name ('c1-' + $shape.n) -Modules @{ effort_ledger = $true; log_rotation = $false }
         [IO.File]::WriteAllText($c1.alerted, $shape.raw, [Text.UTF8Encoding]::new($false))
         $rc1 = Invoke-LwgSupervisor -Case $c1 -Event 'Stop' -Tag 'c1-run1' `
                     -Payload (New-LwgStopPayload -Case $c1 -FailedIds @('task-one'))
@@ -2191,7 +2191,7 @@ try {
     }
 
     # --- C4: the loop guard ----------------------------------------------
-    $c4 = New-LwgSupervisorCase -Name 'c4' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c4 = New-LwgSupervisorCase -Name 'c4' -Modules @{ effort_ledger = $true; log_rotation = $false }
     $rc4 = Invoke-LwgSupervisor -Case $c4 -Event 'Stop' -Tag 'c4-run1' `
                 -Payload (New-LwgStopPayload -Case $c4 -FailedIds @('task-one') -StopHookActive)
     Add-Result 'C4: stop_hook_active suppresses the alert' `
@@ -2301,7 +2301,7 @@ try {
     }
 
     # --- C11: the three tiers, over a file the status line could have written
-    $c11 = New-LwgSupervisorCase -Name 'c11' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c11 = New-LwgSupervisorCase -Name 'c11' -Modules @{ effort_ledger = $true; log_rotation = $false }
     Write-LwgSignalFile -Case $c11 -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -FiveHourPct 12 -SevenDayPct 40 -ContextPct 55
     $rc11a = Invoke-LwgSupervisor -Case $c11 -Event 'Stop' -Tag 'c11-ok' -Payload (New-LwgStopPayload -Case $c11 -FailedIds @())
     $l11a  = Get-LwgLadderField -Case $c11
@@ -2309,7 +2309,7 @@ try {
         ($rc11a.code -eq 0 -and [string]::IsNullOrWhiteSpace($rc11a.err) -and $null -ne $l11a -and [string]$l11a.level -eq 'ok') `
         ("a ladder that alerts below its own amber threshold is noise that trains the reader to ignore the channel. got exit $($rc11a.code), stderr [$($rc11a.err)], ladder [" + ($l11a | ConvertTo-Json -Compress) + ']')
 
-    $c11b = New-LwgSupervisorCase -Name 'c11b' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c11b = New-LwgSupervisorCase -Name 'c11b' -Modules @{ effort_ledger = $true; log_rotation = $false }
     Write-LwgSignalFile -Case $c11b -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -FiveHourPct 12 -SevenDayPct 40 -ContextPct 72
     $rc11b = Invoke-LwgSupervisor -Case $c11b -Event 'Stop' -Tag 'c11b-amber' -Payload (New-LwgStopPayload -Case $c11b -FailedIds @())
     $l11b  = Get-LwgLadderField -Case $c11b
@@ -2319,7 +2319,7 @@ try {
          $null -ne $l11b -and [string]$l11b.level -eq 'amber') `
         ("exit 2 under this registration's asyncRewake is what reaches the MODEL; a systemMessage reaches the operator's screen instead. got exit $($rc11b.code), stderr [$($rc11b.err)], ladder [" + ($l11b | ConvertTo-Json -Compress) + ']')
 
-    $c11c = New-LwgSupervisorCase -Name 'c11c' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c11c = New-LwgSupervisorCase -Name 'c11c' -Modules @{ effort_ledger = $true; log_rotation = $false }
     Write-LwgSignalFile -Case $c11c -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -FiveHourPct 90 `
         -FiveHourResetsAt '2026-09-06T20:00:00Z' -SevenDayPct 40 -ContextPct 55
     $rc11c = Invoke-LwgSupervisor -Case $c11c -Event 'Stop' -Tag 'c11c-red' -Payload (New-LwgStopPayload -Case $c11c -FailedIds @())
@@ -2335,14 +2335,14 @@ try {
         ("five_hour was 90 while context was 55 and seven_day 40. A ladder reading them in file order and stopping at the first would report context. got signal [$(if ($null -ne $l11c) { [string]$l11c.signal } else { '<no ladder field>' })]")
 
     # --- C12: unavailable, and the four shapes of it ----------------------
-    $c12 = New-LwgSupervisorCase -Name 'c12' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c12 = New-LwgSupervisorCase -Name 'c12' -Modules @{ effort_ledger = $true; log_rotation = $false }
     $rc12 = Invoke-LwgSupervisor -Case $c12 -Event 'Stop' -Tag 'c12-absent' -Payload (New-LwgStopPayload -Case $c12 -FailedIds @())
     $l12  = Get-LwgLadderField -Case $c12
     Add-Result 'C12: no signal file at all is UNAVAILABLE, exit 0, and says why' `
         ($rc12.code -eq 0 -and $null -ne $l12 -and [string]$l12.level -eq 'unavailable' -and [string]$l12.reason -eq 'absent') `
         ("before the status line has ever rendered there is no file, and that is not an emergency and not a clean bill of health either. got exit $($rc12.code), ladder [" + ($l12 | ConvertTo-Json -Compress) + ']')
 
-    $c12b = New-LwgSupervisorCase -Name 'c12b' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c12b = New-LwgSupervisorCase -Name 'c12b' -Modules @{ effort_ledger = $true; log_rotation = $false }
     Write-LwgSignalFile -Case $c12b -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -FiveHourPct 90 -SevenDayPct 40 -ContextPct 55
     $rc12b1 = Invoke-LwgSupervisor -Case $c12b -Event 'Stop' -Tag 'c12b-red' -Payload (New-LwgStopPayload -Case $c12b -FailedIds @())
     # The same file, now older than any sane budget. Nothing else changes.
@@ -2354,7 +2354,7 @@ try {
          $null -ne $l12b -and [string]$l12b.level -eq 'unavailable' -and [string]$l12b.reason -eq 'stale') `
         ("THE CASE THIS SLICE EXISTS NOT TO DEFER. A monitor that fails silent converts 'I do not know' into 'I am fine', and a session believed it was at 54% for four hours on exactly that. Turn 1 was red on a fresh file (exit $($rc12b1.code)); turn 2 read the same numbers 600 minutes old and must report unavailable rather than red and rather than ok. got exit $($rc12b2.code), ladder [" + ($l12b | ConvertTo-Json -Compress) + ']')
 
-    $c12c = New-LwgSupervisorCase -Name 'c12c' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c12c = New-LwgSupervisorCase -Name 'c12c' -Modules @{ effort_ledger = $true; log_rotation = $false }
     Write-LwgSignalFile -Case $c12c -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -Schema 99 -FiveHourPct 90
     $rc12c = Invoke-LwgSupervisor -Case $c12c -Event 'Stop' -Tag 'c12c-schema' -Payload (New-LwgStopPayload -Case $c12c -FailedIds @())
     $l12c  = Get-LwgLadderField -Case $c12c
@@ -2362,7 +2362,7 @@ try {
         ($rc12c.code -eq 0 -and $null -ne $l12c -and [string]$l12c.level -eq 'unavailable' -and [string]$l12c.reason -eq 'schema') `
         ("schema 1 is the shape statusline.ps1 writes today. A reader that guesses at schema 99 is reading fields it has no contract for. got exit $($rc12c.code), ladder [" + ($l12c | ConvertTo-Json -Compress) + ']')
 
-    $c12d = New-LwgSupervisorCase -Name 'c12d' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c12d = New-LwgSupervisorCase -Name 'c12d' -Modules @{ effort_ledger = $true; log_rotation = $false }
     Write-LwgSignalFile -Case $c12d -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -SevenDayPct 40 -Unparsed @('five_hour.used_percentage', 'context_window.used_percentage')
     $rc12d = Invoke-LwgSupervisor -Case $c12d -Event 'Stop' -Tag 'c12d-unparsed' -Payload (New-LwgStopPayload -Case $c12d -FailedIds @())
     $l12d  = Get-LwgLadderField -Case $c12d
@@ -2372,7 +2372,7 @@ try {
         ("statusline.ps1 names a value it could not read in the unparsed list and OMITS the block. Reading the missing block as 0% would report the calmest possible answer about the thing it knows least. got exit $($rc12d.code), ladder [" + ($l12d | ConvertTo-Json -Compress) + ']')
 
     # --- C13: the ladder alerts on a RISE, not at every turn end ----------
-    $c13 = New-LwgSupervisorCase -Name 'c13' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c13 = New-LwgSupervisorCase -Name 'c13' -Modules @{ effort_ledger = $true; log_rotation = $false }
     Write-LwgSignalFile -Case $c13 -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -ContextPct 72
     $rc13a = Invoke-LwgSupervisor -Case $c13 -Event 'Stop' -Tag 'c13-amber1' -Payload (New-LwgStopPayload -Case $c13 -FailedIds @())
     Write-LwgSignalFile -Case $c13 -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -ContextPct 74
@@ -2384,7 +2384,7 @@ try {
         ("a ladder repeating amber at every turn end is a channel the reader learns to skip, and one that stays quiet through a rise to red has failed at its only job. got exits $($rc13a.code)/$($rc13b.code)/$($rc13c.code), third stderr [$($rc13c.err)]")
 
     # --- C14: the ladder is not the failure alert -------------------------
-    $c14 = New-LwgSupervisorCase -Name 'c14' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c14 = New-LwgSupervisorCase -Name 'c14' -Modules @{ effort_ledger = $true; log_rotation = $false }
     Write-LwgSignalFile -Case $c14 -WrittenUtc (Get-LwgUtcStamp -MinutesAgo 1) -ContextPct 90
     $rc14 = Invoke-LwgSupervisor -Case $c14 -Event 'Stop' -Tag 'c14-both' `
                 -Payload (New-LwgStopPayload -Case $c14 -FailedIds @('task-one'))
@@ -2401,7 +2401,7 @@ try {
                '"tool_input":{"subagent_type":"lwg-fixture-worker","description":"fixture dispatch"}}'
     }
 
-    $c6 = New-LwgSupervisorCase -Name 'c6' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c6 = New-LwgSupervisorCase -Name 'c6' -Modules @{ effort_ledger = $true; log_rotation = $false }
     $rc6a = Invoke-LwgSupervisor -Case $c6 -Event 'PostToolUseFailure' -Tag 'c6-interrupt' `
                 -Payload (New-LwgToolFailurePayload -Case $c6 -Interrupt $true)
     # THE NAME ASSERTS TWO PROPERTIES AND THE CASE TESTED ONE. "logged and NOT
@@ -2482,24 +2482,24 @@ try {
         ($rc6b.err -notlike '*carried no*' -and $rc6b.err -like '*lwg-fixture-worker*') `
         ("C6c and C6d must not be satisfiable by always printing the placeholder. The populated run's stderr was: [" + ($rc6b.err.Trim() -replace "`r?`n", ' | ') + ']')
 
-    # --- C7: failure_capture off -----------------------------------------
-    $c7 = New-LwgSupervisorCase -Name 'c7' -Modules @{ failure_capture = $false; log_rotation = $true }
+    # --- C7: effort_ledger off -----------------------------------------
+    $c7 = New-LwgSupervisorCase -Name 'c7' -Modules @{ effort_ledger = $false; log_rotation = $true }
     $rc7 = Invoke-LwgSupervisor -Case $c7 -Event 'Stop' -Tag 'c7-run1' `
                 -Payload (New-LwgStopPayload -Case $c7 -FailedIds @('task-one'))
-    Add-Result 'C7: with failure_capture off nothing is written and nothing is alerted' `
+    Add-Result 'C7: with effort_ledger off nothing is written and nothing is alerted' `
         ($rc7.code -eq 0 -and [string]::IsNullOrWhiteSpace($rc7.err) -and
          -not [IO.File]::Exists($c7.health) -and -not [IO.File]::Exists($c7.alerted)) `
         "the flag off means zero side effects: no record, no alerted list, exit 0. got exit $($rc7.code), health exists $([IO.File]::Exists($c7.health))"
 
-    # --- C5: log_rotation is independent of failure_capture --------------
-    # The rotation call sits ABOVE the failure_capture gate, and that position is
+    # --- C5: log_rotation is independent of effort_ledger --------------
+    # The rotation call sits ABOVE the effort_ledger gate, and that position is
     # the whole point: it used to live inside Write-Record, downstream of the
     # gate, so switching failure capture off left health.jsonl uncapped and
     # growing without bound while log_rotation still reported itself active. A
     # module that is enabled, implemented and unreachable is the exact defect
     # this plugin exists to catch.
     #
-    # Both halves of this case run with failure_capture OFF, which is what makes
+    # Both halves of this case run with effort_ledger OFF, which is what makes
     # them a test of independence rather than of rotation: nothing appends, so
     # the live file's line count after a rotation is exactly KeepLines.
     function New-LwgOversizedLog {
@@ -2510,21 +2510,21 @@ try {
         [IO.File]::WriteAllText($Path, $sb.ToString(), [Text.UTF8Encoding]::new($false))
     }
 
-    $c5 = New-LwgSupervisorCase -Name 'c5-on' -Modules @{ failure_capture = $false; log_rotation = $true }
+    $c5 = New-LwgSupervisorCase -Name 'c5-on' -Modules @{ effort_ledger = $false; log_rotation = $true }
     New-LwgOversizedLog -Path $c5.health
     $c5before = (Get-Item $c5.health).Length
     $rc5 = Invoke-LwgSupervisor -Case $c5 -Event 'Stop' -Tag 'c5-run1' `
                 -Payload (New-LwgStopPayload -Case $c5 -FailedIds @())
     $c5after  = (Get-Item $c5.health).Length
     $c5lines  = @([IO.File]::ReadAllLines($c5.health)).Count
-    Add-Result 'C5: log_rotation runs with failure_capture OFF' `
+    Add-Result 'C5: log_rotation runs with effort_ledger OFF' `
         ($rc5.code -eq 0 -and [IO.File]::Exists($c5.health + '.1') -and $c5after -lt $c5before) `
         ("the rotation call must sit above the module gate. If it does not, switching failure capture off leaves health.jsonl uncapped while log_rotation reports itself active. before $c5before bytes, after $c5after, archive exists $([IO.File]::Exists($c5.health + '.1'))")
     Add-Result 'C5: the rotated log carries the tail forward and gains no new record' `
         ($c5lines -eq 500) `
-        ("the live file must come back holding exactly KeepLines records - the status line reads it with -Tail 300 and a plain truncate would blank the health indicator - and with failure_capture off nothing may be appended on top. got $c5lines line(s)")
+        ("the live file must come back holding exactly KeepLines records - the status line reads it with -Tail 300 and a plain truncate would blank the health indicator - and with effort_ledger off nothing may be appended on top. got $c5lines line(s)")
 
-    $c5b = New-LwgSupervisorCase -Name 'c5-off' -Modules @{ failure_capture = $false; log_rotation = $false }
+    $c5b = New-LwgSupervisorCase -Name 'c5-off' -Modules @{ effort_ledger = $false; log_rotation = $false }
     New-LwgOversizedLog -Path $c5b.health
     $c5bBefore = (Get-Item $c5b.health).Length
     $rc5b = Invoke-LwgSupervisor -Case $c5b -Event 'Stop' -Tag 'c5b-run1' `
@@ -2547,7 +2547,7 @@ try {
     # the length unbounded would still poison the reader, and a truncation that
     # skipped the credential patterns would still move a secret into the audit
     # trail. Both halves are checked.
-    $c8 = New-LwgSupervisorCase -Name 'c8' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c8 = New-LwgSupervisorCase -Name 'c8' -Modules @{ effort_ledger = $true; log_rotation = $false }
     $c8blob = 'x' * 200000
     # An invented token shape, assembled from pieces so this tracked file never
     # holds a specimen - the same rule lib/common.ps1's pattern list follows.
@@ -2600,7 +2600,7 @@ try {
     # The non-secret half of the field is asserted present in both, because a
     # fix that masked the whole record would pass a leak test and destroy the
     # evidence the record exists for.
-    $c9 = New-LwgSupervisorCase -Name 'c9' -Modules @{ failure_capture = $true; log_rotation = $false }
+    $c9 = New-LwgSupervisorCase -Name 'c9' -Modules @{ effort_ledger = $true; log_rotation = $false }
     # Invented, assembled at runtime, and deliberately NOT one of the five
     # vendor shapes - if it were, the vendor layer would catch it and this case
     # would prove nothing about the generic rule.
@@ -2811,7 +2811,7 @@ try {
     # with `if ($dropped -gt 0) { $keep.Clear() }` inserted before the tail is
     # taken - one oversized record wipes the whole live log - all three D3 rows
     # stayed green, and the status line's health indicator loses its input on a
-    # build that reports failure_capture active.
+    # build that reports effort_ledger active.
     #
     # SO THE CLEAN RECORDS ARE COUNTED. The fixture seeds 40 clean records and
     # one poisoned one; exactly the poisoned one may be dropped. Every "nothing
@@ -3002,7 +3002,7 @@ try {
     # 30 ms difference from a 30 ms module.
     function Measure-LwgLadderStop {
         param([string]$Name, [hashtable]$Thresholds, [int]$Runs = 5)
-        $c = New-LwgSupervisorCase -Name $Name -Modules @{ failure_capture = $true; log_rotation = $false }
+        $c = New-LwgSupervisorCase -Name $Name -Modules @{ effort_ledger = $true; log_rotation = $false }
         if ($null -ne $Thresholds) {
             # The fixture config is rewritten with a thresholds block. Written
             # through ConvertTo-Json for the same reason Write-LwgFixtureConfig

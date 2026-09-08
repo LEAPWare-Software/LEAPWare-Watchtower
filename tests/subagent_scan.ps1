@@ -44,7 +44,7 @@
   #166, tracked on #311
   ---------------------------------------------------------------------------
   lib\subagent_start.ps1 used to write NOTHING on its happy path. It now appends
-  ONE line to health.jsonl per dispatch, gated on the failure_capture flag - the
+  ONE line to health.jsonl per dispatch, gated on the effort_ledger flag - the
   START half of a record whose STOP half lib\supervisor.ps1:825-830 has always
   written. Six cases below are about that row and nothing else:
 
@@ -62,7 +62,7 @@
 
   The claim they defend:
 
-      ONE ROW PER DISPATCH, IN New-Record's ENVELOPE, GATED ON failure_capture
+      ONE ROW PER DISPATCH, IN New-Record's ENVELOPE, GATED ON effort_ledger
       AND NOT ON THIS FILE'S OWN MODULE, WRITTEN TO THE STATE DIRECTORY THE REST
       OF THE PLUGIN RESOLVES AND NEVER TO A GUESS.
 
@@ -468,10 +468,10 @@ function Test-Injected {
 # THE DISPATCH RECORD - helpers (slice 0 of #166, tracked on #311)
 # ---------------------------------------------------------------------------
 
-# The two flags every ledger case sets, spelled once. failure_capture is the
+# The two flags every ledger case sets, spelled once. effort_ledger is the
 # module the ROW is gated on; context_injection is the module this FILE is. They
 # are deliberately independent, and three of the six cases below exist to say so.
-$LedgerModule = 'failure_capture'
+$LedgerModule = 'effort_ledger'
 
 # The fixture payload's fields, invented and distinctive, so finding them in
 # health.jsonl is proof the row came from this dispatch and not from anywhere
@@ -1226,21 +1226,21 @@ function Test-TheDispatchRecordLands {
 
 function Test-FailureCaptureOffWritesNoRowAndStillInjects {
     <#
-      THE ROW IS GATED ON failure_capture, NOT ON THIS FILE'S OWN MODULE.
+      THE ROW IS GATED ON effort_ledger, NOT ON THIS FILE'S OWN MODULE.
 
-      The row is an addition to failure_capture and not a new module - no
+      The row is an addition to effort_ledger and not a new module - no
       registry entry, no `modules` key of its own, no state file, no rotation
       wiring. So the flag that stops lib\supervisor.ps1 writing to health.jsonl
       has to stop this writer too, or an operator who switched failure capture
       off would still be accruing records in the log it names.
 
       NO BARE NEGATIVE. This case runs the SAME fixture twice with ONE BIT
-      changed - the global failure_capture value - and requires a row in the ON
+      changed - the global effort_ledger value - and requires a row in the ON
       run. Without that half, "no row" is satisfied by a hook that crashed, and
       at 97f0697 it is satisfied by a hook that never wrote one.
 
       AND THE INJECTION MUST SURVIVE BOTH. context_injection is true in both
-      runs, so if switching failure_capture off also silenced the injection, the
+      runs, so if switching effort_ledger off also silenced the injection, the
       two modules would have been coupled in the wrong direction by the same
       commit that separated them.
 
@@ -1258,20 +1258,20 @@ function Test-FailureCaptureOffWritesNoRowAndStillInjects {
     $offRows = @(Get-LedgerStartRows -Lines (Get-LedgerLines -Dir $t.data))
 
     $bad = @()
-    if ($on.code  -ne 0) { $bad += "the failure_capture ON run exited $($on.code); this hook must always exit 0" }
-    if ($off.code -ne 0) { $bad += "the failure_capture OFF run exited $($off.code); this hook must always exit 0" }
+    if ($on.code  -ne 0) { $bad += "the effort_ledger ON run exited $($on.code); this hook must always exit 0" }
+    if ($off.code -ne 0) { $bad += "the effort_ledger OFF run exited $($off.code); this hook must always exit 0" }
     if ($onRows.Count -ne 1) {
-        $bad += ("CONTROL FAILED: failure_capture ON wrote $($onRows.Count) rows, expected 1 - so the OFF half " +
+        $bad += ("CONTROL FAILED: effort_ledger ON wrote $($onRows.Count) rows, expected 1 - so the OFF half " +
                  'below establishes nothing. At 97f0697 nothing wrote this file at all')
     }
     if ($offRows.Count -ne $onRows.Count) {
-        $bad += ("failure_capture OFF wrote a row anyway: the log went from $($onRows.Count) to $($offRows.Count) " +
+        $bad += ("effort_ledger OFF wrote a row anyway: the log went from $($onRows.Count) to $($offRows.Count) " +
                  'SubagentStart rows. The dispatch record ships under that flag and must stop when it does')
     }
-    if (-not (Test-Injected $on.out))  { $bad += 'failure_capture ON: nothing was injected, so the fixture is wrong rather than the gate' }
-    if (-not (Test-Injected $off.out)) { $bad += 'failure_capture OFF also silenced the INJECTION - the two modules must not be coupled in that direction' }
+    if (-not (Test-Injected $on.out))  { $bad += 'effort_ledger ON: nothing was injected, so the fixture is wrong rather than the gate' }
+    if (-not (Test-Injected $off.out)) { $bad += 'effort_ledger OFF also silenced the INJECTION - the two modules must not be coupled in that direction' }
 
-    Add-Result -Name 'failure_capture off: no row, and context_injection still injects (#166 slice 0)' `
+    Add-Result -Name 'effort_ledger off: no row, and context_injection still injects (#166 slice 0)' `
                -Ok ($bad.Count -eq 0) `
                -Detail (($bad -join '; ') + " | on exit $($on.code) rows $($onRows.Count) injected $(Test-Injected $on.out); off exit $($off.code) rows $($offRows.Count) injected $(Test-Injected $off.out)")
 }
@@ -1282,7 +1282,7 @@ function Test-ContextInjectionOffStillWritesTheRow {
 
       This file's own early exit is `if (-not $enabled) { exit 0 }`, and until
       slice 0 that exit was the whole of the off path: no envelope, no log line,
-      nothing. The row belongs to failure_capture, so it has to be written
+      nothing. The row belongs to effort_ledger, so it has to be written
       BEFORE that exit or an operator who switched context_injection off would
       silently switch off a module they never touched - which is the class of
       quiet wrongness this plugin exists to remove.
@@ -1306,7 +1306,7 @@ function Test-ContextInjectionOffStillWritesTheRow {
     }
     if ($rows.Count -ne 1) {
         $bad += ("context_injection off suppressed the dispatch record too: expected 1 SubagentStart row, found $($rows.Count). " +
-                 'The row is gated on failure_capture and must be written above this file own early exit')
+                 'The row is gated on effort_ledger and must be written above this file own early exit')
     }
 
     Add-Result -Name 'context_injection off: the dispatch record still lands (#166 slice 0)' `
@@ -1553,6 +1553,6 @@ if ($failed -gt 0) {
 Write-Output 'EXIT: 0 (every case passed - the fast scan answered the global flag in both key'
 Write-Output '         orders, escalated for a per-repo override, failed open with no config,'
 Write-Output '         agreed with Test-LwgModule on the shipped config, and the dispatch record'
-Write-Output '         landed once per dispatch under failure_capture alone, in pure ASCII, with'
+Write-Output '         landed once per dispatch under effort_ledger alone, in pure ASCII, with'
 Write-Output '         no cwd and no guessed state directory)'
 exit 0

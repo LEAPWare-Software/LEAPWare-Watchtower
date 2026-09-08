@@ -211,6 +211,71 @@ land here as they merge.
 
 ### Changed
 
+- **BREAKING — `failure_capture` and `orphan_watch` are one module now, `effort_ledger`
+  (2026-09-08, #166, owner ruling H2 of 2026-09-07).** Two flags over one data source is the
+  dependency trap this plugin exists to catch: an operator could set `supervision.orphan_watch` to
+  `true` and get **nothing at all**, because the reconciliation ran below `modules.failure_capture`'s
+  gate and that flag was `false` — a switch wired to nothing, which is the founding defect. One flag
+  cannot do that. `modules.effort_ledger` now gates all four things the module carries: the **five
+  supervisor hook events**, the **dispatch record's START half** in `lib/subagent_start.ps1` (#311
+  slice 0), the **transition ladder** in the `Stop` arm (#168), and the **orphan reconciliation**
+  that was `orphan_watch`. Nothing the old module did was removed — the transcript-versus-
+  `SubagentStop` reconciliation, the harness-stated `<status>failed</status>` death signal believed
+  with no threshold, the `alerted.json` dedupe and `stale_minutes` all run from the same lines of
+  `lib/supervisor.ps1`.
+  **THE REGISTRY GOES 11 → 10 AND ITS OBSERVING ENTRIES 8 → 7, and the arithmetic put to the owner
+  was WRONG in the safe direction.** The option said `10 → 9` / `7 → 6`. #168 had already spent the
+  `11 → 10` deleting `context_pressure` and #179 slice 2 put it back at 11 before this ran, so it is
+  two entries out and one in **from 11/8**. The ruling stands *a fortiori* — the cost presented was
+  **higher** than the real one and the owner chose to ship anyway — and the number is corrected here
+  rather than quietly. Re-derived from `$LwgModuleRegistry`, never from an issue body.
+  `$LwgSwitchModules` falls **4 → 3** on its own: `orphan_watch` was the only `kind = 'observe'`
+  entry that ever declared a `switch`, so that field now covers exactly what it was built for —
+  entries a corrupt config must not be able to arm, which is to say **gates**. The banner reads
+  `6/10 modules enabled (4 off)`; `modules` keys set true stays at **six**.
+  **ONE BEHAVIOUR CHANGED AND IT IS NOT A RENAME: the orphan reconciliation now ships ON.**
+  `orphan_watch` shipped `false`; `effort_ledger` ships `true`, because it is the ledger every other
+  reader depends on and a ledger shipping off would leave `send_liveness_gate` unable to tell a
+  finished agent from a dead one on every install. **This consequence was not in front of the
+  owner** — ruling H2 costed a breaking rename and not a new default — so it is stated here rather
+  than absorbed. It arms no gate and blocks nothing: the reconciliation's only channel is `exit 2`
+  under an `asyncRewake` registration, which alerts and cannot refuse.
+  **THE HEALING CEILING IS UNCHANGED AND IS PART OF THE SPECIFICATION.** This plugin dispatches
+  nothing and no hook here can call a tool. On a dead agent it **instructs** one bounded retry,
+  **verifies** from the records above, and **escalates** to the operator. Instruct, verify, escalate
+  is the whole of it, and nothing in the merged module's name or note should be read as promising
+  more. `gates_live` stays **0** and nothing here inspects a command, a path or a credential.
+  **Red-first at `BASELINE ab6318c`:** `tests/state_resolution.ps1` gains sections **J** (layer 0)
+  and **K** (this rename), 37 cases → 44, with J1–J4 and K1–K3 all failing at that commit;
+  `tests/supervision.ps1` 67 → 69. `orphan_watch`'s behaviour cases moved **intact** under the new
+  flag, and the one case that could not is called out below rather than described as unchanged.
+
+- **UPGRADE NOTE — what happens to a `config.override.json` that still names either old key, and it
+  is not symmetric (2026-09-08, #166).** Both keys are **gone from `config.json`**. Neither is
+  rejected, and neither takes effect. `Merge-LwgConfigOverride` **adds** a member the base does not
+  have rather than discarding it, so a dead key reaches the effective config intact; nothing then
+  reads it, because `Test-LwgModule` answers from `$LwgModuleRegistry` and the name is no longer in
+  it. `Get-LwgUnresolvedFlags` walks that same registry, so **`self_health`'s probe 2 does not fire
+  either** — the session reports `observe-only`, `self-check passed, 5 of 5`, and says nothing at
+  all. **Measured, not assumed:**
+
+  | what your override says | at session start | in `/lw-watchtower:doctor` |
+  | --- | --- | --- |
+  | `modules.failure_capture` | silently ignored | **`config-registry` FAILS**, naming it: *"in config.json but not in the registry (a switch wired to nothing)"* |
+  | `supervision.orphan_watch` | silently ignored | **nothing** — that row enumerates the `modules` block for strays and has never enumerated the `supervision` one |
+  | `module_config.orphan_watch.stale_minutes` | silently ignored; the reconciliation runs on the built-in **15** | nothing |
+
+  **So the `supervision` half is the one that can cost you something, and it is the reason this note
+  exists rather than only a line in `docs/modules.md`.** An operator who had `orphan_watch` on keeps
+  the behaviour (it is on for everyone now) but loses their tuning back to 15 minutes with no
+  report; an operator who had it **off** — the shipped default, so anyone who never touched it —
+  **gets it on, and there is no separate switch to put it back**: off means the whole ledger off,
+  which stops the health records, the dispatch record and the ladder with it.
+  **WHAT TO DO:** rename `modules.failure_capture` → `modules.effort_ledger` and
+  `module_config.orphan_watch` → `module_config.effort_ledger`, and **delete**
+  `supervision.orphan_watch`. Then run `/lw-watchtower:doctor` — it is what reports the first of
+  those and cannot report the last, which is why the deletion is the step to do by hand.
+
 - **`tests/payload_guard.ps1` S14 learned YAML block scalars, and S17 joined it (2026-09-07, #179,
   slice 1). 28 cases → 29.** S14's own header pinned an assumption — *"every frontmatter block in it
   is flat `key: value` … If that ever stops being true, this case starts failing on a legitimate
