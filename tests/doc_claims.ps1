@@ -42,6 +42,9 @@
                            nothing, so it is not one)
     doctor checks          bin\lwg-doctor.ps1 is run and its header parsed
     command count          git ls-files -- commands/*.md, same disk filter
+    setup questions        the Q<n> labels Write-Questions prints in
+                           bin\lwg-setup.ps1, with the numbering asserted to
+                           run 1..N rather than merely counted
     suite output contract  the RESULT: and EXIT: lines each sibling suite
                            prints are read off the run above, not asserted
                            from a list of which suites are supposed to have
@@ -573,6 +576,47 @@ if ($testFiles.Count -eq 0) { Abort 'no tracked files under tests/ are present o
 
 $commandFiles = @($tracked | Where-Object { $_ -match ('^' + [regex]::Escape($script:PayloadRel) + '/commands/.+\.md$') -and (Test-StillOnDisk $_) })
 if ($commandFiles.Count -eq 0) { Abort 'no tracked files under commands/ are present on disk - the enumeration is broken.' }
+
+# --- the questions the installer prints ------------------------------------
+# #313. `commands\setup.md` heads a step with the number of questions the
+# operator is to be asked, and NOTHING held that number to the script that
+# prints them. It read `six` while the script printed four, and by the time the
+# issue was picked up #326 had added a fifth - so the page was wrong, the issue
+# was wrong, and the only correct number was in bin\lwg-setup.ps1 all along.
+# That is this file's whole shape: derive it, do not transcribe it.
+#
+# COUNTED OFF THE LABELS, INSIDE THE ONE FUNCTION THAT PRINTS THEM. Every
+# question is a `Write-Output` whose string opens with two spaces, `Q`, its
+# number and two more spaces - the column layout of the block the command page
+# tells the model to read out. Q3 is written through the format operator
+# (`("  Q3 ..." -f $hookRec)`) because its recommendation depends on what
+# detection found, so the pattern allows the opening parenthesis; anchoring on
+# the bare quote would have counted four and called it derived.
+#
+# WHY THE FUNCTION IS BOUNDED RATHER THAN THE WHOLE FILE SCANNED. The labels
+# are distinctive enough today that the difference is zero, and that is the
+# reason to bound it rather than to leave it: a diff block, a comment recalling
+# an older question, or a second block written for another step would each read
+# as a live question and nothing would say so.
+#
+# THE IDS MUST RUN 1..N WITH NO GAP AND NO REPEAT, and a tree that fails that
+# aborts instead of reporting a count. The block's own prose says two questions
+# were removed and were NOT renumbered away silently, so the numbering is a
+# claim the block makes about itself; a count taken over `Q1, Q2, Q4` would be
+# three, correct as a total and wrong as the thing the page's reader is told.
+$setupPath = Join-Path $script:RepoRoot ($script:PayloadRel + '\bin\lwg-setup.ps1')
+if (-not (Test-Path -LiteralPath $setupPath -PathType Leaf)) { Abort "missing $setupPath" }
+$setupText = Get-Content -Raw -LiteralPath $setupPath
+$qFunc = [regex]::Match($setupText, '(?ms)^function\s+Write-Questions\s*\{.*?^\}')
+if (-not $qFunc.Success) { Abort 'bin\lwg-setup.ps1 declares no Write-Questions function - the parse is broken.' }
+$qIds = @([regex]::Matches($qFunc.Value, '(?m)^\s*Write-Output\s+\(?["'']\s{2}Q(\d+)\s{2}') |
+         ForEach-Object { [int]$_.Groups[1].Value })
+if ($qIds.Count -eq 0) { Abort 'Write-Questions in bin\lwg-setup.ps1 prints no labelled question - the parse is broken.' }
+$setupQuestions = $qIds.Count
+$expectedIds = 1..$setupQuestions
+if (@(Compare-Object -ReferenceObject $expectedIds -DifferenceObject ($qIds | Sort-Object)).Count -ne 0) {
+    Abort ("Write-Questions labels its questions {0}; that is not 1..{1}, so no single number describes the block" -f (($qIds | Sort-Object) -join ', '), $setupQuestions)
+}
 
 # --- CI check steps --------------------------------------------------------
 # A CHECK STEP is a step that RUNS something. `- name: Check out` uses an
@@ -1490,6 +1534,25 @@ Test-Claim -Rule 'command-count' -Expected $commandFiles.Count `
     -Source 'git ls-files -- commands/*.md, present on disk' -Patterns @(
     '(?i)all\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+(?:slash\s+)?commands\b',
     '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+slash\s+commands\b'
+)
+
+# --- how many questions the installer puts to the operator -----------------
+# ONE PATTERN, AND THAT IS DELIBERATE. There is exactly one site in the tree -
+# `commands\setup.md`'s step heading - and a second shape written now would be a
+# pattern with nothing to read, which this file ABORTS on rather than tolerates.
+# Add a shape when a sentence exists for it, not before.
+#
+# THE CAPTURE IS THE NUMBER-WORD ALTERNATION rather than `[a-z]+`, for the
+# reason $script:NumWordPat was built: "Ask the operator the questions" is a
+# legitimate sentence and a loose capture would read `operator`, decline it, and
+# put a line in the report about prose that is doing nothing wrong.
+#
+# RED-FIRST, and it is a pair rather than an assertion: at BASELINE 010a550 the
+# heading read `six` against a script that prints five, this rule FAILED naming
+# lw-watchtower/commands/setup.md, and with the heading corrected it passes.
+Test-Claim -Rule 'setup-question-count' -Expected $setupQuestions `
+    -Source 'the Q-labelled questions Write-Questions prints in bin\lwg-setup.ps1' -Patterns @(
+    ('(?i)\bask\s+the\s+(?:\*\*)?(' + $script:NumWordPat + ')(?:\*\*)?\s+questions?\b')
 )
 
 # --- how many modules there are, and how many only observe ----------------

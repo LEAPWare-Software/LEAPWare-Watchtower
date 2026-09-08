@@ -73,14 +73,33 @@ Write it to a file the next session can find, and say where. Four sections, all 
 Every effort that is running or unfinished, one line each: what it is, where it is, what state it
 is in.
 
-> **Read this before you fill the section in.** The plugin cannot tell you what agents are
-> running. Nothing records a dispatch - `SubagentStart` writes no record and only `SubagentStop`
-> is logged - so a running agent is invisible to every part of this product. An empty in-flight
-> section means *nothing was observable*, never *nothing is running*.
+> **Read this before you fill the section in.** The plugin cannot hand you a list of the agents
+> that are still running, but it is not silent about dispatches either. Since 6 September 2026
+> `failure_capture` appends one START row per dispatch to `health.jsonl` in the plugin's state
+> directory:
 >
-> So this section is **written from your own knowledge of this turn**, not read off a file. If
-> you dispatched an agent and never saw it return, that is a line here. If you do not know
-> whether something is still running, that is a line here too, said as unknown.
+> ```json
+> {"ts":"<ISO-8601>","event":"SubagentStart","session":"...","agent_id":"...","agent_type":"..."}
+> ```
+>
+> The STOP half is written on `SubagentStop` against the same `agent_id`, so a START with no STOP
+> beside it is a dispatch this machine never saw return. **That is a lead, not an answer**, and
+> three limits say why:
+>
+> - **The row carries no `cwd`, no prompt and no task text.** `cwd` is left out on purpose -
+>   redacting it would cost the regex engine on a hook that runs on every dispatch - so the record
+>   can tell you *an agent of this type was dispatched at this time*, and never what it was doing.
+> - **A missing STOP half is not proof of life.** A hook that fires while the CLI is exiting may
+>   never be recorded at all, the log is rotated so old rows fall off the back of it, and
+>   `failure_capture` switched off writes neither half.
+> - **No code reads the START half.** Nothing in this plugin turns those rows into a roster for
+>   you; the reading is yours to do.
+>
+> So this section is still **written from your own knowledge of this turn**, with `health.jsonl` as
+> a cross-check rather than as the source. If you dispatched an agent and never saw it return, that
+> is a line here. If you do not know whether something is still running, that is a line here too,
+> said as unknown. An empty in-flight section means *nothing was observable*, never *nothing is
+> running*.
 
 ### 2. The commit and branch every note describes
 

@@ -1167,10 +1167,13 @@ row its leg should.
 dispatch-heavy session — is in
 [Limitations § The dispatch record](limitations.md#the-dispatch-record-costs-18-ms-and-halves-the-status-lines-fault-history).
 
-**Nothing reads the START half yet, by design.** It is written first so that the four things that
+**No code reads the START half yet, by design.** It is written first so that the four things that
 want it — `#168`'s black tier, `#165`'s cost field, `#316` layer 4, and the daemon — are not each
 shipping a reader ahead of its writer. `supervisor.ps1:656` is this repository's standing record of
-what that looks like when it goes the other way round.
+what that looks like when it goes the other way round. **A model is a different matter and the
+distinction is deliberate:** `skills/lw-handoff/SKILL.md` names this row as a *cross-check* for its
+work-in-flight section, and says in the same breath what the row cannot settle — an unpaired START
+is not a running agent.
 
 **Nothing else moved.** No registry `modules` key, no state file, no rotation wiring, no
 `hooks/hooks.json` edit, no new hook process — the `SubagentStart` registration that

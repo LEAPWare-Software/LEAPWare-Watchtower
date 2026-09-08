@@ -424,6 +424,38 @@ land here as they merge.
   section now states what the validator does and does not catch, corrects the negative-control
   transcript it quoted (that output comes from an unbalanced quote, and a passing run on this build
   prints no per-agent line at all), and points at case S14 instead.
+- **The shipped handoff skill was telling the model the plugin cannot see a dispatch, eighty minutes
+  after the commit that made it see one (2026-09-07, #332).** `skills/lw-handoff/SKILL.md` said that
+  nothing records a dispatch and that a running agent is invisible to every part of this product —
+  inherited verbatim from an issue body quoting a script that is no longer in the tree, and false on
+  this tree since `6409658`, where `lib/subagent_start.ps1` appends the dispatch record's START half
+  to `health.jsonl` on every dispatch under `failure_capture`, which `config.json` ships `true`.
+  `lib/supervisor.ps1` carried the same denial as the standing reason the ladder has no black tier.
+  Both are rewritten to what is actually there: the row carries `ts`, `session`, `agent_id` and
+  `agent_type`, deliberately **no `cwd`**, no prompt and no task text, and a START with no STOP
+  beside it is a lead rather than a running agent — a hook firing while the CLI exits may never be
+  recorded, rotation drops old rows, and the flag can be off. **No code reads the START half**, so
+  the black tier's conclusion survives on a different reason and the handoff section is still written
+  from the model's own knowledge, with `health.jsonl` as a cross-check. **Understating a capability
+  is the same defect class as overstating one**, which is why this closes as a defect and not as a
+  wording preference.
+- **`commands/setup.md` promised a number of questions the installer does not ask (2026-09-07,
+  #313).** The step heading read *"Ask the six questions"*. `Write-Questions` in `bin/lwg-setup.ps1`
+  prints **five** — `Q1` advisories, `Q2` status line, `Q3` hook mode, `Q4` helper roles and the `Q5`
+  delegation offer #326 added — and the issue that filed this measured four, because it was written
+  before that fifth landed. The heading is corrected from the script rather than from the issue.
+
+- **`tests/payload_guard.ps1` gains a detection rule, `denied-dispatch-record` (#332).** The
+  inverse of `deleted-script` and `gated-tool`: a shipped file *denying* a capability this tree has,
+  where those two catch a shipped file promising one it does not. Red-first at `010a550` on three
+  lines across two payload files, green with them corrected. **Case count 28 → 29**, restated in the
+  five pages that carry it — the fifth, `docs/testing.md:45`, was found by `doc_claims` and not by
+  the sweep that found the other four.
+- **`tests/doc_claims.ps1` gains `setup-question-count` (#313).** The expected number is derived by
+  parsing `Write-Questions` out of `bin/lwg-setup.ps1` and counting its `Q<n>` labels, with an abort
+  if they do not run `1..N` — the block's own prose promises that removed questions are not
+  renumbered away silently, so the numbering is a claim it makes about itself. Red-first at `010a550`
+  against the `six` in the heading above.
 
 ## [0.4.0] — 2026-09-04
 
