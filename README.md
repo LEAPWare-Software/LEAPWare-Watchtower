@@ -454,7 +454,7 @@ for the same reason. The one requirable string is the surviving job's display na
 that page is held to the string by the documentation-claim guard, which derives it from `ci.yml`, and
 this page is not.
 
-There is no status badge here, deliberately: a green badge covering three gates and eight observing
+There is no status badge here, deliberately: a green badge covering three gates and seven observing
 modules would read as far broader assurance than it is. A second reason stood here until
 **2026-08-28** — that a badge would not render for most viewers of a repository they cannot read —
 and it went with the visibility flip on that date. It is recorded rather than quietly dropped,

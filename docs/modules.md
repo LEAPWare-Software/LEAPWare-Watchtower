@@ -1,7 +1,7 @@
 # Modules
 
-Eleven module names exist. **All eleven are built.** There is no name here with no code behind it.
-**Seven ship enabled; four — `send_liveness_gate`, `completion_audit`, `orphan_watch` and
+Ten module names exist. **All ten are built.** There is no name here with no code behind it.
+**Six ship enabled; four — `send_liveness_gate`, `completion_audit`, `orphan_watch` and
 `delegate_gate` — ship switched off**, and off is where each of them is meant to be.
 
 There were thirteen until 30 July 2026, and that day four went and one arrived, each by an explicit

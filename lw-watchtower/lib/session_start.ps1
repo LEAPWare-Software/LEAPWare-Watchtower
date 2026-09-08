@@ -346,9 +346,12 @@ try {
     # Only when it is NOT Windows. On the supported platform this costs the
     # model nothing, and on any other one it is the single most important fact
     # about the session: hooks/hooks.json invokes `powershell` by that name in
-    # all thirteen registrations, so nothing above is running at all and every
-    # count on this line is a statement about a registry rather than about a
-    # machine. Saying it here is not a substitute for the doctor row that
+    # every one of its registrations, so nothing above is running at all and
+    # every count on this line is a statement about a registry rather than about
+    # a machine. HOW MANY REGISTRATIONS THERE ARE IS NOT STATED HERE (#195):
+    # this file does not own hooks/hooks.json, the number moves whenever a hook
+    # is added, and a comment in a file that does not own the fact is the copy
+    # that goes stale. What matters here is that they ALL invoke it by name. Saying it here is not a substitute for the doctor row that
     # belongs in bin/lwg-doctor.ps1; it is what can be said from this file.
     if (-not $plat.supported) {
         $context += " PLATFORM UNSUPPORTED (os '$($plat.os)'): every hook registration invokes Windows PowerShell by name, so none of the above can fire and the counts describe what is DECLARED only."

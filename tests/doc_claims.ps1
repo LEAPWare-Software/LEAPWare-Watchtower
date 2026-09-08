@@ -107,6 +107,55 @@
   does not exist.
 
   ---------------------------------------------------------------------------
+  EVERY READ HERE SPECIFIES -Encoding UTF8, AND THAT IS NOT A TIDY-UP - #241
+  ---------------------------------------------------------------------------
+  Windows PowerShell 5.1 - the runtime this repository pins and the one CI
+  uses - decodes a file with NO BOM using the system ANSI code page, not UTF-8.
+  Every tracked page here is BOM-less UTF-8, so a bare Get-Content handed this
+  guard a mis-decoded copy of all 105 of them: the three bytes E2 80 94, which
+  are an em dash, arrived as the three cp1252 characters `a-circumflex, euro,
+  right-double-quote`. Measured at 010a550: that mojibake appeared in the
+  excerpt lines of a full run, and 60 of the 105 tracked text files carry at
+  least one non-ASCII character.
+
+  NO VERDICT MOVED WHEN THIS WAS FIXED, AND THAT IS THE POINT RATHER THAN AN
+  EXCUSE. Every rule in this file at the time keyed on ASCII - a quantity, a
+  rule name, a path, a marker - so a mangled em dash changed no answer, and the
+  run before and after this change both report the same 200 of 200. What the
+  bare read cost was not a wrong answer today; it was the ABILITY TO WRITE A
+  RULE TOMORROW. A pattern keyed on a curly quote, a non-breaking space, an
+  accented name or an em dash matched nothing against the mis-decoded copy -
+  and a pattern that matches nothing is reported dead by the liveness contract
+  at the foot of this file, which exits 2 and establishes NOTHING about the
+  documentation. The failure mode looked exactly like a bad regex.
+
+  THAT IS NOT HYPOTHETICAL, AND THE WORKED EXAMPLE IS THE RULE THIS FILE IS
+  ABOUT TO BE OWED. #312 closed on a waived case with two guard rules owed to
+  #195, the first of which resolves a `CHANGELOG.md#...` fragment in a tracked
+  page against a heading that exists. Deriving GitHub's slug is the whole of
+  that rule, and the heading it must derive from carries a U+2014 EM DASH
+  between its two fields - measured with `od -c` while #312 was closed. The
+  slugger drops the dash and maps the two flanking spaces to the double hyphen
+  in `040--2026-09-04`, which is the anchor four tracked pages actually use.
+
+  Under the ANSI misread the dash arrives as THREE characters and the first of
+  them is a LETTER, so the same derivation yields `040-<a-circumflex>-2026-09-04`
+  and every one of those four correct anchors is reported broken. Measured at
+  010a550 with both readings side by side. THAT RULE IS NOT IN THIS FILE YET -
+  it lands with #195, and this is why #241 is fixed FIRST rather than after: a
+  rule keyed on a non-ASCII character cannot be written correctly until the
+  reader under it is correct.
+
+  ALL FOURTEEN READS CARRY IT, not only the two file-set loops the issue named.
+  The other twelve read ci.yml, lib/common.ps1, both manifests, config.json,
+  hooks.json, the PowerShell literals and the statusline - every one of them a
+  tracked, BOM-less, UTF-8 file with the same defect. Fixing the two the issue
+  measured and leaving twelve would leave the trap set for the next rule that
+  reaches for one of them. The one tracked file that DOES carry a BOM,
+  lw-watchtower/bin/lwg-doctor.ps1, decodes identically either way - the BOM is
+  consumed as a preamble in both readings - so nothing about it moved.
+
+  ---------------------------------------------------------------------------
   EVERY PATTERN HAS TO FIRE, AND SEVEN OF THIRTY-SEVEN DID NOT
   ---------------------------------------------------------------------------
   The paragraph above says this guard reads "the PHRASINGS THIS TREE ACTUALLY
@@ -627,7 +676,7 @@ if (@(Compare-Object -ReferenceObject $expectedIds -DifferenceObject ($qIds | So
 # named steps, and keep the ones that carry a `run:` block.
 $ciPath = Join-Path $script:RepoRoot '.github\workflows\ci.yml'
 if (-not (Test-Path -LiteralPath $ciPath -PathType Leaf)) { Abort "missing $ciPath" }
-$ciText = Get-Content -Raw -LiteralPath $ciPath
+$ciText = Get-Content -Raw -Encoding UTF8 -LiteralPath $ciPath
 $stepHeads = @([regex]::Matches($ciText, '(?m)^\s+-\s+name:\s*\S'))
 if ($stepHeads.Count -eq 0) { Abort 'ci.yml declares no named steps - the parse is broken.' }
 $ciSteps = 0
@@ -644,7 +693,7 @@ if ($ciSteps -eq 0) { Abort 'no named step in ci.yml carries a run: block - the 
 # library to count a hashtable runs its whole prologue for one number.
 $commonPath = Join-Path $script:PayloadRoot 'lib\common.ps1'
 if (-not (Test-Path -LiteralPath $commonPath -PathType Leaf)) { Abort "missing $commonPath" }
-$commonText = Get-Content -Raw -LiteralPath $commonPath
+$commonText = Get-Content -Raw -Encoding UTF8 -LiteralPath $commonPath
 $regMatch = [regex]::Match($commonText,
     '(?s)\$script:LwgModuleRegistry\s*=\s*\[ordered\]@\{(.+?)(?m:^\})')
 if (-not $regMatch.Success) { Abort 'could not locate $LwgModuleRegistry in lib/common.ps1.' }
@@ -712,7 +761,7 @@ $versionSites = @()
 $pluginRel   = "$($script:PayloadRel)/.claude-plugin/plugin.json"
 $pluginPath  = Join-Path $script:PayloadRoot '.claude-plugin\plugin.json'
 if (-not (Test-Path -LiteralPath $pluginPath -PathType Leaf)) { Abort "missing $pluginPath" }
-$pluginLines = @(Get-Content -LiteralPath $pluginPath)
+$pluginLines = @(Get-Content -Encoding UTF8 -LiteralPath $pluginPath)
 try { $pluginJson = ($pluginLines -join "`n") | ConvertFrom-Json }
 catch { Abort "$pluginRel did not parse, so the declared version was never read: $($_.Exception.Message)" }
 if ([string]::IsNullOrWhiteSpace([string]$pluginJson.version)) { Abort "$pluginRel declares no version." }
@@ -723,7 +772,7 @@ $versionSites += [pscustomobject]@{
 $mktRel   = '.claude-plugin/marketplace.json'
 $mktPath  = Join-Path $script:RepoRoot '.claude-plugin\marketplace.json'
 if (-not (Test-Path -LiteralPath $mktPath -PathType Leaf)) { Abort "missing $mktPath" }
-$mktLines = @(Get-Content -LiteralPath $mktPath)
+$mktLines = @(Get-Content -Encoding UTF8 -LiteralPath $mktPath)
 try { $mktJson = ($mktLines -join "`n") | ConvertFrom-Json }
 catch { Abort "$mktRel did not parse, so the declared version was never read: $($_.Exception.Message)" }
 # Matched by NAME rather than by taking [0]: this marketplace hosts one plugin
@@ -755,13 +804,31 @@ if ($declaredSource -ne ('./' + $script:PayloadRel)) {
 $cfgRel   = "$($script:PayloadRel)/config.json"
 $cfgPath  = Join-Path $script:PayloadRoot 'config.json'
 if (-not (Test-Path -LiteralPath $cfgPath -PathType Leaf)) { Abort "missing $cfgPath" }
-$cfgLines = @(Get-Content -LiteralPath $cfgPath)
+$cfgLines = @(Get-Content -Encoding UTF8 -LiteralPath $cfgPath)
 try { $cfgJson = ($cfgLines -join "`n") | ConvertFrom-Json }
 catch { Abort "$cfgRel did not parse, so the declared version was never read: $($_.Exception.Message)" }
 if ([string]::IsNullOrWhiteSpace([string]$cfgJson.version)) { Abort "$cfgRel declares no version." }
 $versionSites += [pscustomobject]@{
     Rel = $cfgRel; Line = (Get-LineOf $cfgLines '"version"\s*:'); Value = [string]$cfgJson.version
 }
+
+# --- how many modules SHIP ENABLED - #195 ----------------------------------
+# A fourth module quantity, and the one the tree states most often without any
+# rule reading it. It is NOT the registry total and it is not derivable from
+# the registry alone: four entries ship built and switched OFF, and each of
+# those four declares its own switch OUTSIDE the `modules` block (delegate_gate
+# on interaction.delegate, the three supervision modules in their own block),
+# for the reason config.json's own comment gives - Get-LwgConfig fails OPEN, so
+# a corrupt config must never arm a blocking gate.
+#
+# So "ships enabled" is exactly "a key in the `modules` block set true", which
+# is one hop from the shipped file and needs no list here. Counted off the
+# PARSED object rather than by regex over the text, because the block is JSON
+# and this file has already parsed it for the version.
+if ($null -eq $cfgJson.modules) { Abort "$cfgRel declares no modules block, so the enabled count was never derived." }
+$moduleEnabled = @($cfgJson.modules.PSObject.Properties |
+    Where-Object { $_.Name -notmatch '^\$' -and $_.Value -eq $true }).Count
+if ($moduleEnabled -eq 0) { Abort "$cfgRel's modules block has no key set true - the parse is broken, not the config." }
 
 # The two PowerShell literals are read by regex because there is nothing to
 # parse - they are assignments, and dot-sourcing either file to learn one
@@ -774,7 +841,7 @@ $verLiterals = @(
 foreach ($lit in $verLiterals) {
     $litPath = Join-Path $script:PayloadRoot $lit.Path
     if (-not (Test-Path -LiteralPath $litPath -PathType Leaf)) { Abort "missing $litPath" }
-    $litLines = @(Get-Content -LiteralPath $litPath)
+    $litLines = @(Get-Content -Encoding UTF8 -LiteralPath $litPath)
     $litMatch = [regex]::Match(($litLines -join "`n"), $lit.Pattern)
     if (-not $litMatch.Success) {
         Abort ("no version literal matched in {0}, so that declaration was never read. If it moved, this pattern has to move with it." -f $lit.Rel)
@@ -1086,7 +1153,7 @@ $skippedWhole = @()
 foreach ($rel in $proseFiles) {
     $full = Join-Path $script:RepoRoot ($rel -replace '/', '\')
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
-    $lines = @(Get-Content -LiteralPath $full)
+    $lines = @(Get-Content -Encoding UTF8 -LiteralPath $full)
     $text  = ($lines -join "`n")
     if ($text -match '<!--[^>]*doc-claims:ignore-file') { $skippedWhole += $rel; continue }
     $flat  = Get-ContinuationMasked -Lines $lines
@@ -1559,7 +1626,37 @@ Test-Claim -Rule 'setup-question-count' -Expected $setupQuestions `
 Test-Claim -Rule 'module-total' -Expected $moduleTotal `
     -Source '$LwgModuleRegistry in lib/common.ps1' -Patterns @(
     '(?i)all\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+declared\s+modules',
-    '(?i)of\s+(?:its|the)\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules\b'
+    '(?i)of\s+(?:its|the)\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules\b',
+    # THE THREE SHAPES ADDED FOR #195, AND EACH WAS RED WHEN IT WAS ADDED.
+    # #168 took the registry from eleven to ten at 010a550 and swept every
+    # phrasing the two branches above read - README.md's "All ten declared
+    # modules", the manifests, the issue templates. It could not sweep what
+    # nothing reads, and three sentences stating the TOTAL in shapes no branch
+    # here matched were left saying eleven for the eighty minutes between #330
+    # merging and this being measured:
+    #
+    #   docs/modules.md:3  "Eleven module names exist. All eleven are built."
+    #   docs/faq.md:50     "It runs 11 governance modules"
+    #
+    # THE CANONICAL PAGE WAS THE ONE THAT WENT STALE, which is the whole of
+    # #195's argument in one observation. README.md and docs/faq.md:150 were
+    # correct on the same tree because THEIR phrasing is read here; the page
+    # this release makes canonical for module counts was wrong in its opening
+    # sentence because its phrasing was not. The guard was deciding which
+    # sentences got fixed.
+    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+module\s+names?\s+exist',
+    '(?i)\ball\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+are\s+built\b',
+    '(?i)\bruns\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+governance\s+modules'
+)
+
+# --- how many modules ship ENABLED - #195 ----------------------------------
+# docs/modules.md:4 said "Seven ship enabled" while the `modules` block held
+# six keys, and no rule in this file could see it. The number moves whenever a
+# module is added to or removed from that block, which this release does twice
+# more, so it gets a rule rather than a sweep.
+Test-Claim -Rule 'modules-shipping-enabled' -Expected $moduleEnabled `
+    -Source 'keys set true in the modules block of config.json' -Patterns @(
+    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+ship\s+enabled\b'
 )
 
 # Only phrasings that assert the TOTAL are read here. "The other three
@@ -1635,7 +1732,25 @@ Test-Claim -Rule 'observing-module-count' -Expected $moduleObserving `
     # the lookbehind this corrects landed in the same wave, so no case written
     # against this defect can go red at a commit where the lookbehind is absent.
     '(?i)(?<!of\s+the\s+)(?<![A-Za-z])(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+modules\s+OBSERVE\b',
-    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+(?:of\s+them\s+|that\s+)?only\s+observe\b'
+    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+(?:of\s+them\s+|that\s+)?only\s+observe\b',
+    # THE `observing modules` SHAPE, ADDED FOR #195 AND RED AT 010a550 IN FOUR
+    # PLACES - README.md:457, docs/limitations.md:414, docs/testing.md:54 and
+    # :1316 all said "eight observing modules" after #168 took observe from
+    # eight to seven. It is the adjectival form of the same claim the branch
+    # above reads as a verb, and nothing here read it.
+    #
+    # `all` OR `and` IN FRONT, WHICH IS NOT DECORATION. `the N observing
+    # modules` is the SUBSET shape - .github/workflows/ci.yml:83 says "the TWO
+    # observing modules no suite in this job reaches at all", which is a true
+    # statement about a subset and would be reported as a stale total by a
+    # branch that read it. This rule's own paragraph above already promises it
+    # does not read subsets. Requiring one of the two connectors the total
+    # shapes actually use is how that promise is kept here, and it is why this
+    # is not written as a lookbehind: the ci.yml sentence wraps across a `#`
+    # continuation, so the word before the quantity is a comment marker rather
+    # than `the` even in the masked text.
+    '(?i)\b(?:all|and)\s+(?:all\s+)?(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+observing\s+modules\b',
+    '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+of\s+them\s+observe\b'
 )
 
 Test-Claim -Rule 'gate-module-count' -Expected $moduleGates `
@@ -1683,7 +1798,7 @@ foreach ($site in $versionSites) {
             Rule = 'version-declarations-agree'; File = $site.Rel; Line = $site.Line
             Said = $site.Value; Expected = $versionRef.Value
             Source = ("the version declared in {0}" -f $versionRef.Rel)
-            Excerpt = (Get-Excerpt ([pscustomobject]@{ Lines = @(Get-Content -LiteralPath (Join-Path $script:RepoRoot ($site.Rel -replace '/', '\'))) }) $site.Line)
+            Excerpt = (Get-Excerpt ([pscustomobject]@{ Lines = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $script:RepoRoot ($site.Rel -replace '/', '\'))) }) $site.Line)
         }
         Say ("  [FAIL] {0,-26} {1}:{2}  says {3}, tree says {4}" -f 'version-declarations-agree', $site.Rel, $site.Line, $site.Value, $versionRef.Value)
     }
@@ -2099,7 +2214,7 @@ foreach ($rel in $cmdPages) {
     if (-not (Test-Path -LiteralPath $scriptAbs -PathType Leaf)) {
         Abort ("{0} names {1}, which is not in the tree, so its exit-code account was checked against nothing." -f $rel, $scriptRel)
     }
-    $stext = (Get-Content -LiteralPath $scriptAbs) -join "`n"
+    $stext = (Get-Content -Encoding UTF8 -LiteralPath $scriptAbs) -join "`n"
     $canProduce = New-Object System.Collections.Generic.HashSet[int]
     foreach ($m in [regex]::Matches($stext, '(?m)^[^#\r\n]*?(?<![\w-])exit\s+(\d+)\b'))          { $null = $canProduce.Add([int]$m.Groups[1].Value) }
     foreach ($m in [regex]::Matches($stext, '(?m)^[^#\r\n]*?\$script:Exit\s*=\s*(\d+)\b'))       { $null = $canProduce.Add([int]$m.Groups[1].Value) }
@@ -2112,7 +2227,7 @@ foreach ($rel in $cmdPages) {
     }
     $undoc = @($canProduce | Where-Object { -not $documented.Contains($_) } | Sort-Object)
     $unreal = @($documented | Where-Object { -not $canProduce.Contains($_) } | Sort-Object)
-    $scriptLn = Get-LineOf @(Get-Content -LiteralPath $scriptAbs) '(?m)^[^#\r\n]*?(?<![\w-])exit\s+\d+\b'
+    $scriptLn = Get-LineOf @(Get-Content -Encoding UTF8 -LiteralPath $scriptAbs) '(?m)^[^#\r\n]*?(?<![\w-])exit\s+\d+\b'
     if ($undoc.Count -eq 0 -and $unreal.Count -eq 0) {
         Add-LongPass -Rule 'command-exit-codes' -File $rel -Line 0 `
             -Said ("accounts for exactly {0}, the codes {1} can produce" -f (($canProduce | Sort-Object) -join '/'), $scriptRel)
@@ -2359,7 +2474,7 @@ $wideSkipped = @()
 foreach ($rel in $wideFiles) {
     $full = Join-Path $script:RepoRoot ($rel -replace '/', '\')
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
-    $lines = @(Get-Content -LiteralPath $full)
+    $lines = @(Get-Content -Encoding UTF8 -LiteralPath $full)
     $text  = ($lines -join "`n")
     # The SAME two markers the quantity rules honour, and for the same reason:
     # CHANGELOG.md is a record end to end, and a line that quotes what an
@@ -2433,7 +2548,7 @@ $slFull = Join-Path $script:RepoRoot ($slRel -replace '/', '\')
 if (-not (Test-Path -LiteralPath $slFull -PathType Leaf)) {
     Abort "$slRel is missing, so whether the GM segment still exists could not be derived and no surface was held to its absence."
 }
-$slText = ((Get-Content -LiteralPath $slFull) -join "`n")
+$slText = ((Get-Content -Encoding UTF8 -LiteralPath $slFull) -join "`n")
 $gmDefined = ($slText -match '(?m)^\s*function\s+Gm(?:Seg|State|Trips)\b')
 $gmEmitted = ($slText -match '(?m)^\s*\$out\s*\+=\s*Gm(?:Seg|State)\b')
 if ($gmDefined -or $gmEmitted) {
@@ -2829,7 +2944,7 @@ $hooksFull = Join-Path $script:RepoRoot ($hooksRel -replace '/', '\')
 if (-not (Test-Path -LiteralPath $hooksFull -PathType Leaf)) {
     Abort "$hooksRel is missing, so the platform requirement could not be derived."
 }
-$hooksText = (Get-Content -LiteralPath $hooksFull -Raw)
+$hooksText = (Get-Content -Encoding UTF8 -LiteralPath $hooksFull -Raw)
 $cmdAll = @([regex]::Matches($hooksText, '"command"\s*:\s*"([^"]+)"') | ForEach-Object { $_.Groups[1].Value })
 if ($cmdAll.Count -eq 0) {
     Abort "$hooksRel declares no hook command, so the platform requirement could not be derived."
@@ -2884,7 +2999,7 @@ $reqMax = 0
 foreach ($rel in @($tracked | Where-Object { $_ -match ('^' + [regex]::Escape($script:PayloadRel) + '/(bin|lib|statusline)/.+\.ps1$') })) {
     $full = Join-Path $script:RepoRoot ($rel -replace '/', '\')
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
-    foreach ($rm in [regex]::Matches(((Get-Content -LiteralPath $full -TotalCount 5) -join "`n"), '(?im)^#requires\s+-version\s+(\d+(?:\.\d+)?)')) {
+    foreach ($rm in [regex]::Matches(((Get-Content -Encoding UTF8 -LiteralPath $full -TotalCount 5) -join "`n"), '(?im)^#requires\s+-version\s+(\d+(?:\.\d+)?)')) {
         $v = [double]$rm.Groups[1].Value
         if ($v -gt $reqMax) { $reqMax = $v }
     }
@@ -3046,6 +3161,266 @@ if ($testFiles.Count -gt 0) {
         Add-LongPass -Rule 'no-page-denies-the-suite' -File '.github/ISSUE_TEMPLATE/config.yml' -Line 0 `
             -Said 'no tracked page denies that a test suite exists'
     }
+}
+
+# --- rule: a $comment string states no count - #195's fourth mechanism ------
+# THE MEASUREMENT THAT ARGUES FOR IT IS THREE LINES LONG. config.json's
+# $default_off_comment counts the `modules` block. That block starts THREE
+# LINES BELOW IT. Nothing derived one from the other, and #179 slice 2 adds a
+# key to it. Measured at 010a550: this guard recognised 200 claims across the
+# tree and NOT ONE came out of a $comment string, while thirty of those strings
+# held 30 KB of prose.
+#
+# WHY A COUNT HERE IS WORSE THAN A COUNT IN A PAGE. config.json is the SHIPPED
+# switchboard - the first file an operator opens to find out what this plugin
+# does, and the file whose own header tells them not to edit it. A stale count
+# there reads as the product describing itself. A page at least has a reader
+# who can check it.
+#
+# THE RULE IS A BOUNDARY, NOT AN ORACLE. It does not ask whether a number is
+# right; deriving every quantity a sentence could stand behind is the whole of
+# this file and it still misses most of them. It asks whether the number is
+# HERE, and the answer is meant to be no - the authority is $LwgModuleRegistry
+# in lib/common.ps1 and the pages that render it, and a $comment's job is to
+# point at one. A pointer cannot go stale. That shape is not invented here:
+# $status's own comment already says "THERE IS ONE AUTHORITATIVE LIST AND IT IS
+# NOT IN THIS FILE".
+#
+# WHAT IT KEYS ON, AND THE GUARD THAT KEEPS IT HONEST. A quantity followed by a
+# counting noun this tree actually uses - not "any digit". A date, an issue
+# number, a version, a byte count and a millisecond measurement are records or
+# measurements, and forbidding those would forbid the file from saying anything
+# true about its own history. `(?<![\d,.])` refuses a match INSIDE a longer
+# number: the first draft read "1,175 entries" as a claim about 175 entries,
+# which is the guard misreading the tree rather than the tree being wrong.
+#
+# HISTORY KEEPS ITS NUMBERS, BY THE MARKER EVERY OTHER RULE HONOURS. Several of
+# these strings record what was REMOVED on a date - 133 of 181 permissions
+# rules on 30 July 2026, the last 48 of them. Those are records; correcting
+# them would be falsifying them, and `<!-- doc-claims:ignore -->` inside the
+# string is how this tree has always said so. An HTML comment is legal inside a
+# JSON string - the header says so, and this is the first rule to rely on it.
+#
+# SCOPED TO $-KEYED STRINGS, this tree's own convention for "prose for a
+# reader, not a value for a machine". Every other JSON string here is data.
+$script:CommentNoun = 'modules?|gates?|suites?|files?|checks?|events?|registrations?|commands?|entries|rules?|cases?|keys?|flags?|hooks?|advisories'
+$script:CommentQty  = '(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|\d+)'
+$script:CommentClaim = "(?i)(?<![\d,.])\b$($script:CommentQty)\s+(?:$($script:CommentNoun))\b"
+
+$commentDocs = @($docs | Where-Object { $_.Rel -match '\.json$' })
+if ($commentDocs.Count -eq 0) {
+    Abort 'no tracked .json file reached the prose set, so the $comment rule was asked of nothing.'
+}
+$commentHits = 0
+$commentStrings = 0
+foreach ($doc in $commentDocs) {
+    for ($i = 0; $i -lt $doc.Lines.Count; $i++) {
+        # A $-keyed string value on one line, which is the shape every comment
+        # in this tree uses; a comment broken across lines would not be JSON.
+        $km = [regex]::Match($doc.Lines[$i], '^\s*"(\$[A-Za-z_][A-Za-z0-9_]*)"\s*:\s*"(.*)"\s*,?\s*$')
+        if (-not $km.Success) { continue }
+        $commentStrings++
+        $ln = $i + 1
+        foreach ($m in [regex]::Matches($km.Groups[2].Value, $script:CommentClaim)) {
+            if (Test-LineExempt $doc $ln) {
+                Add-Decline -Rule 'comment-states-no-count' -Kind 'line-exempt' -File $doc.Rel -Line $ln -Token $m.Value
+                continue
+            }
+            $commentHits++
+            $script:Checked++
+            Add-LongFailure -Rule 'comment-states-no-count' -File $doc.Rel -Line $ln `
+                -Said ("{0} states '{1}'" -f $km.Groups[1].Value, $m.Value) `
+                -Expected 'a pointer to where the count is derived, not a restatement of it' `
+                -Source '$LwgModuleRegistry in lib/common.ps1, and the pages that render it' `
+                -Excerpt ("{0}: ...{1}..." -f $km.Groups[1].Value, $m.Value)
+        }
+    }
+}
+if ($commentStrings -eq 0) {
+    Abort 'no $-keyed comment string was found in any tracked .json - the shape this rule reads has changed, so it checked nothing.'
+}
+if ($commentHits -eq 0) {
+    Add-LongPass -Rule 'comment-states-no-count' -File $cfgRel -Line 0 `
+        -Said ("none of the {0} comment string(s) in tracked JSON restates a count" -f $commentStrings)
+}
+
+# --- rule: a CHANGELOG.md anchor resolves to a heading that exists ----------
+# OWED TO THIS FILE BY #312's CLOSURE, which was allowed to close on a waived
+# case on the express condition that the guard land here rather than be
+# described in a closing comment. #312's second half was four links pointing at
+# CHANGELOG.md#040--unreleased, an anchor that stopped existing the moment the
+# [0.4.0] heading was dated. Each silently landed a reader at the top of the
+# file. Nothing noticed, because a dead FRAGMENT is not a broken link - the
+# file resolves and only the fragment does not, so no link checker would have
+# reported it either.
+#
+# THE SLUG IS DERIVED, NOT TRANSCRIBED, and it was verified against GitHub's
+# own render while #312 was closed: `gh api ... -H "Accept:
+# application/vnd.github.html"` returns id="user-content-040--2026-09-04" for
+# the heading `## [0.4.0] <U+2014> 2026-09-04`. Lowercase, drop everything that
+# is not a letter, a digit, a space or a hyphen, map spaces to hyphens. The em
+# dash vanishing between two spaces is what produces the double hyphen.
+#
+# THIS RULE IS WHY #241 HAD TO LAND FIRST. Under the ANSI misread the em dash
+# arrives as three characters, the first of them a letter, and the derived slug
+# is 040-<a-circumflex>-2026-09-04 - so every one of the four correct anchors
+# in the tree is reported broken. The rule was unwritable until the reader
+# under it was fixed, which is the whole of #241's argument.
+#
+# CHANGELOG.md IS READ DIRECTLY. It carries doc-claims:ignore-file - correctly,
+# it is a record end to end - so it is in neither $docs nor $wide, and the
+# headings have to come from the file itself.
+#
+# ONE LIMIT, NAMED RATHER THAN LEFT TO BE FOUND: GitHub disambiguates repeated
+# identical headings with -1, -2 suffixes. This derives the base slug only, so
+# a link to the second `### Fixed` would be reported as unresolvable. No
+# tracked page links to one, and inventing the disambiguation for a link
+# nothing uses would be guessing at a mechanism rather than reading one.
+$chgRel  = 'CHANGELOG.md'
+$chgFull = Join-Path $script:RepoRoot $chgRel
+if (-not (Test-Path -LiteralPath $chgFull -PathType Leaf)) {
+    Abort "$chgRel is missing, so no CHANGELOG anchor could be resolved against anything."
+}
+$chgSlugs = @{}
+foreach ($hl in (Get-Content -Encoding UTF8 -LiteralPath $chgFull)) {
+    if ($hl -notmatch '^#{1,6}\s+(.+?)\s*$') { continue }
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($ch in $Matches[1].ToLowerInvariant().ToCharArray()) {
+        if ([char]::IsLetterOrDigit($ch) -or $ch -eq ' ' -or $ch -eq '-') { $null = $sb.Append($ch) }
+    }
+    $chgSlugs[($sb.ToString() -replace ' ', '-')] = $true
+}
+if ($chgSlugs.Count -eq 0) {
+    Abort "$chgRel parsed to zero headings, so every anchor below would have been reported broken."
+}
+$anchorSeen = 0
+foreach ($doc in $wide) {
+    foreach ($m in [regex]::Matches($doc.Text, '(?i)CHANGELOG\.md#([A-Za-z0-9_-]+)')) {
+        $ln = Get-LineNumber $doc $m.Index
+        if (Test-LineExempt $doc $ln) {
+            Add-Decline -Rule 'changelog-anchor-resolves' -Kind 'line-exempt' -File $doc.Rel -Line $ln -Token $m.Groups[1].Value
+            continue
+        }
+        $anchorSeen++
+        $script:Checked++
+        $frag = $m.Groups[1].Value.ToLowerInvariant()
+        if ($chgSlugs.ContainsKey($frag)) {
+            $script:Passes++
+            if ($ShowPasses) { Say ("  [ok]   {0,-26} {1}:{2}  #{3} resolves" -f 'changelog-anchor-resolves', $doc.Rel, $ln, $frag) }
+        } else {
+            Add-LongFailure -Rule 'changelog-anchor-resolves' -File $doc.Rel -Line $ln `
+                -Said ("#" + $frag) `
+                -Expected ('a heading that exists in ' + $chgRel) `
+                -Source ("the {0} heading(s) in {1}, slugged as GitHub slugs them" -f $chgSlugs.Count, $chgRel) `
+                -Excerpt (Get-Excerpt $doc $ln)
+        }
+    }
+}
+if ($anchorSeen -eq 0) {
+    Add-LongPass -Rule 'changelog-anchor-resolves' -File $chgRel -Line 0 `
+        -Said 'no tracked page links to a CHANGELOG heading'
+}
+
+# --- rule: no page denies a release tag that exists -------------------------
+# THE SECOND RULE OWED BY #312's CLOSURE. Its first half was four consumer
+# pages stating in the PRESENT TENSE that this repository has no release tag,
+# at a commit where refs/tags/v0.4.0 existed and a stranger's install recorded
+# its SHA. README.md, docs/install.md, docs/faq.md and SECURITY.md all said it;
+# the round-trip lane found it by installing the plugin, not by reading.
+#
+# LOCAL `git tag -l`, NOT `git ls-remote`, AND THE DEVIATION IS DELIBERATE.
+# #312's closing comment offers ls-remote. This file states at its head that
+# there is no retry and will not be one, so a network call in it is a flake
+# waiting to be shipped - the guard would go amber on a proxy hiccup and say
+# the documentation was not established. The local tag list is already this
+# file's source for version-not-a-published-tag, and it already carries the
+# right discipline for an empty answer: an empty `git tag -l` is "I do not
+# know", never "nothing has been tagged". The rule stands down and says so.
+#
+# ONE DIRECTION ONLY. Tags exist, therefore a page may not deny that any tag
+# exists. It does NOT check the converse - that a page claiming a tag is right
+# about which one - because that is version-declarations-agree's job and a
+# CITATION of a tag is correct forever. .github/scripts/version_declarations.ps1
+# draws exactly that line in its own header, and turning a citation into an
+# error is the way this rule would get deleted.
+#
+# PRESENT TENSE ONLY, AND THE LOOKBEHIND IS A MEASURED FALSE POSITIVE RATHER
+# THAN A PRECAUTION. The first draft of this rule fired on
+# .github/scripts/version_declarations.ps1:11, which reads "This file was
+# written while this repository HAD never cut a release from itself" and then
+# says "THAT IS NO LONGER TRUE" in the next sentence. That is a correctly
+# framed record - it is one of the two lines #312 closed on - and a rule that
+# reports it is the guard misreading the tree, which is the defect this file
+# exists to remove rather than to commit. `had` is the past perfect and marks
+# the sentence as history; `has never cut`, the shape at 7952992, is the live
+# claim this rule is for. The other branches are already present-tense-only.
+if (-not $tagsKnown) {
+    Say ''
+    Say 'NOT CHECKED: no-page-denies-the-tag. `git tag -l` returned no tag ref, and'
+    Say '  that is not evidence that nothing has been tagged. No page was held to one.'
+} else {
+    Test-ForbiddenPhrasing -Rule 'no-page-denies-the-tag' `
+        -Pattern '(?i)(?:has|have)\s+no\s+release\s+tag|no\s+release\s+tag\s+(?:yet|at\s+all)|(?<!\bhad\s)never\s+cut\s+a\s+release\s+from\s+itself|(?:is|are)\s+not\s+yet\s+tagged|will\s+be\s+the\s+first\s+tag\s+this\s+repository' `
+        -Expected ("the present-tense fact - git tag -l lists " + $publishedTags.Count + " tag(s): " + ($publishedTags -join ', ')) `
+        -Source 'git tag -l' `
+        -Set $wide
+    if ($script:ForbiddenHits -eq 0) {
+        Add-LongPass -Rule 'no-page-denies-the-tag' -File 'README.md' -Line 0 `
+            -Said ("no tracked page denies the {0} tag(s) git tag -l lists" -f $publishedTags.Count)
+    }
+}
+
+# --- rule: the severity bar names every directory of shipped pages ----------
+# #195's severity rule, WIDENED, and the widening is the point rather than a
+# tidy-up. It was proposed as "only README.md, docs/ and commands/ carry
+# sev:medium for a false claim" and it was written when commands/ was the only
+# directory of pages the plugin shipped. agents/, context/, output-styles/ and
+# skills/ have been added since - skills/ as recently as 010a550 - and a false,
+# MODEL-FACING sentence in skills/ was then triaged `low` against a rule that
+# had never heard of the directory. That is a triage decision taken by a stale
+# sentence instead of by a reader, and it is the second time in two days a rule
+# went stale because a count moved under it.
+#
+# DERIVED, NOT ENUMERATED HERE. The list is every directory under the payload
+# that holds a tracked .md - which is exactly "a page this plugin ships" - so a
+# sixth kind of shipped page fails this build until CONTRIBUTING.md's paragraph
+# names it. A rule carrying its own copy of the list would be the ninth place
+# for it to be wrong, which is the objection this whole file is built on.
+#
+# IT CHECKS THE PARAGRAPH NAMES THEM, NOT THAT THE SEVERITY IS RIGHT. Whether a
+# given sentence is false, and whether a false one deserves medium, is a
+# judgement no pattern can make. What is checkable is whether the bar a
+# triager reads has heard of the surface they are triaging, and that is the
+# half that failed.
+$sevRosterRel = 'CONTRIBUTING.md'
+$sevDoc = $wide | Where-Object { $_.Rel -eq $sevRosterRel } | Select-Object -First 1
+if ($null -eq $sevDoc) {
+    Abort "$sevRosterRel is not in the wide set, so the severity bar was held to nothing."
+}
+$payloadPageDirs = @($tracked |
+    ForEach-Object { if ($_ -match ('^' + [regex]::Escape($script:PayloadRel) + '/([^/]+)/.*\.md$')) { $Matches[1] } } |
+    Sort-Object -Unique)
+if ($payloadPageDirs.Count -eq 0) {
+    Abort "no directory under $($script:PayloadRel)/ holds a tracked .md, so the severity bar was checked against an empty list."
+}
+$sevMissing = @()
+foreach ($d in $payloadPageDirs) {
+    if ($sevDoc.Text -notmatch [regex]::Escape("$($script:PayloadRel)/$d/")) { $sevMissing += $d }
+}
+$script:Checked++
+if ($sevMissing.Count -eq 0) {
+    $script:Passes++
+    if ($ShowPasses) {
+        Say ("  [ok]   {0,-26} {1}  names all {2} shipped page directory(ies): {3}" -f `
+            'severity-bar-names-payload', $sevRosterRel, $payloadPageDirs.Count, ($payloadPageDirs -join ', '))
+    }
+} else {
+    Add-LongFailure -Rule 'severity-bar-names-payload' -File $sevRosterRel `
+        -Line (Get-LineOf $sevDoc.Lines 'Which surfaces raise a false claim') `
+        -Said ('names ' + (($payloadPageDirs | Where-Object { $sevMissing -notcontains $_ }) -join ', ')) `
+        -Expected ('every directory of shipped pages, including ' + ($sevMissing -join ', ')) `
+        -Source ("directories under $($script:PayloadRel)/ holding a tracked .md") `
+        -Excerpt ('a false claim in ' + ($sevMissing -join ', ') + ' would be triaged against a bar that has never heard of it - this is how #332 was mis-triaged as low')
 }
 
 # --- rule: every page the website publishes is indexed by docs/README.md ----
