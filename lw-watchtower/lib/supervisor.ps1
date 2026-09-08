@@ -798,11 +798,22 @@ if (-not (Test-LwgModule -Name 'failure_capture' -Config $script:cfg -Repo $scri
             # NO BLACK TIER IN THIS SLICE. The approved design refuses the turn
             # end at 92 until a handoff package exists and has been audited. The
             # package's FIRST required field is the state of every effort in
-            # flight, and nothing in this tree records a dispatch - SubagentStart
-            # writes no record. A gate that blocks on a field structurally empty
-            # is the shape lib/supervisor.ps1 itself already carries a tombstone
-            # for a few hundred lines above: a check that read a roster file
-            # nothing wrote and reported "0 orphans" for its entire life.
+            # flight, and this comment used to give the reason as the total
+            # absence of a dispatch record. THAT REASON WAS TRUE WHEN IT WAS
+            # WRITTEN AND WAS FALSE WITHIN THE SAME RELEASE (#332):
+            # lib/subagent_start.ps1 appends the dispatch record's START half on
+            # every dispatch since 6 September 2026, gated on failure_capture.
+            # THE CONCLUSION SURVIVES ON A DIFFERENT REASON, which is why this
+            # is rewritten rather than deleted. No code reads that half - see
+            # docs/modules.md under failure_capture - and a START with no STOP
+            # beside it is not a running agent: a hook firing while the CLI
+            # exits may never be recorded, rotation drops old rows, and the flag
+            # can be off. So the field can now be CROSS-CHECKED and still cannot
+            # be POPULATED from this tree, and a gate that blocks on a field
+            # nothing here can fill is the shape lib/supervisor.ps1 itself
+            # already carries a tombstone for a few hundred lines above: a check
+            # that read a roster file nothing wrote and reported "0 orphans" for
+            # its entire life.
             #
             # IT IS COMPUTED ABOVE THE nothing-to-say EXIT so all three findings
             # feed one decision, and it ALERTS BELOW THE LOOP GUARD so a

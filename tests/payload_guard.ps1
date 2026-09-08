@@ -119,6 +119,20 @@
        Anchored to the `tools:` line, so a file may still record which tools it
        removed and why - the same distinction HISTORICAL MENTIONS draws for
        item 6, free here because an allowlist is exactly one line.
+    8. A SHIPPED FILE DENYING A CAPABILITY THIS TREE HAS. The INVERSE of items 6
+       and 7 and the same defect class: a shipped file asserting the tree is
+       other than it is. Items 6 and 7 catch a page promising something absent;
+       this one catches a page denying something present, and understating is
+       not the safe direction - a model reads the denial, stops looking, and
+       writes a handoff without the one field the package exists to carry.
+       Measured 2026-09-07 (#332): the shipped handoff skill told the model that
+       no dispatch is recorded anywhere in this product, eighty minutes after
+       the commit that made every dispatch recorded, and lib\supervisor.ps1
+       carried the same denial as the standing reason for a design decision.
+       Both were inherited verbatim from an issue body quoting a script that is
+       no longer in the tree. THIS PARAGRAPH DESCRIBES THE SENTENCE AND DOES NOT
+       SPELL IT, for the reason item 1 gives: the rules below are inside the
+       exempt region and this header is not. See DETECTION RULES.
 
   HOW IT WORKS
 
@@ -459,6 +473,51 @@ $Rules = @(
         # than silently at every turn. Widening this to commands/ would be a
         # rule asserting something it was not written to assert.
         scope   = @('lw-watchtower/agents/*')
+    }
+    @{
+        id      = 'denied-dispatch-record'
+        name    = 'a shipped file denying that a dispatch is recorded'
+        why     = 'THE INVERSE OF THE TWO RULES ABOVE IT, and the same defect class: a shipped file asserting that the tree is other than it is. Since 6 September 2026 lw-watchtower/lib/subagent_start.ps1 appends one row per dispatch to health.jsonl carrying "event":"SubagentStart" with the session, the agent id and the agent type, gated on failure_capture, which lw-watchtower/config.json ships true. UNDERSTATING A CAPABILITY IS NOT THE SAFE DIRECTION and that is the whole argument for this rule: the handoff package''s FIRST required field is the state of every effort in flight, so a page telling a model that nothing is recorded is read straight into an empty section, and the model stops looking at the one file that would have populated it. #332.'
+        # WHAT THE PATTERN IS ANCHORED ON, MEASURED RATHER THAN GUESSED. Every
+        # branch below fired on a real line of this tree before it was written
+        # down, and no branch is here as a precaution:
+        #
+        #   nothing ... records a dispatch   two sites, one sentence apart in
+        #                                    meaning - skills\lw-handoff\SKILL.md
+        #                                    said it to the MODEL, and
+        #                                    lib\supervisor.ps1 said it as the
+        #                                    standing reason a design tier was
+        #                                    not built.
+        #   SubagentStart ... writes no      the same sentence's second clause,
+        #   record                           which names the hook and is the one
+        #                                    shape a re-introduction is likeliest
+        #                                    to keep.
+        #   a running agent is invisible     the conclusion drawn from the other
+        #                                    two, and the strongest form of the
+        #                                    claim.
+        #
+        # THE GAPS ARE BOUNDED AND STOP AT SENTENCE PUNCTUATION, so a paragraph
+        # that says one thing about a dispatch and something else about a record
+        # two sentences later is not matched. The first branch is deliberately
+        # NOT `nothing.*dispatch`: lib\subagent_start.ps1's own header says the
+        # writer records nothing when the identifying fields are absent, which is
+        # a true statement about one payload shape and must stay sayable.
+        #
+        # RED-FIRST: at BASELINE 010a550 this rule reports THREE hits and this
+        # suite exits 1 - skills\lw-handoff\SKILL.md at two lines and
+        # lib\supervisor.ps1 at one. With the three sentences corrected it
+        # reports none and the suite exits 0. That pair is this rule's evidence,
+        # and it is stated here because a rule added green proves nothing.
+        #
+        # DELETE THIS RULE IN THE COMMIT THAT REMOVES THE WRITER, and do not
+        # reason from this comment's age - the same standing the `gated-tool`
+        # rule above has against a CLI build. The writer is the append in
+        # lw-watchtower\lib\subagent_start.ps1 and the flag is failure_capture.
+        # If that row ever stops being written, the sentences below become true
+        # and a rule forbidding a true sentence is worse than no rule at all.
+        pattern = '(?i)\bnothing\b[^.!?]{0,60}?\brecords?\s+a\s+dispatch\b' +
+                  '|(?i)\bSubagentStart\b[^.!?]{0,60}?\bwrites\s+no\s+record\b' +
+                  '|(?i)\ba\s+running\s+agent\s+is\s+invisible\b'
     }
 )
 # LWG-PAYLOAD-REGION: end
