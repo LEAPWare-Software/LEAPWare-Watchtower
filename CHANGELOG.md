@@ -193,6 +193,36 @@ land here as they merge.
 
 ### Fixed
 
+- **`tests/doc_claims.ps1` now derives how many files it re-runs, because two pages were stating that
+  number and nothing held either of them to it (2026-09-08, #308).** #308 was filed on the theory that
+  a spelled-out `eleven` is invisible to this guard because its patterns are digit-anchored. **They are
+  not** — `$script:Words` and `ConvertTo-Quantity` have read word forms in every rule for as long as
+  either has existed, and `docs/testing.md`'s CI-steps row **was** read on every run, by
+  `behavioural-suite-count`, and passed it. `git log -L1280,1280:docs/testing.md` walks that one word
+  back through **five, nine, ten, eleven, twelve, thirteen**, each step landing in the commit that moved
+  the behavioural count. **The defect was the noun, not the word form.** That sentence describes a
+  RE-RUN and borrowed a different derived quantity's noun phrase to say so, so the guard faithfully held
+  it to a number it was not about — the re-run covers **every tracked file under `tests/` except the
+  guard** and the behavioural suites are only the ones that report a case tally. The new
+  `sibling-rerun-count` rule keys on the **verb**: `re-runs the N …` / `re-run of the N …`, the quantity
+  taken from `$script:NumWordPat` in **digits or words**, followed by a counting noun this tree uses for
+  the things under `tests/`. Measured before it was added, the way row E of that file's header was: over
+  every prose file it reads **exactly two claims and declines nothing**. The loose *"any number near
+  `re-run`"* shape was measured on the same tree and hit **thirty-seven** places: **34** running prose
+  declined as not-a-quantity (*"re-run the command"*, *"re-run against GNU bash"*), **two FALSE
+  FAILURES** against correct sentences — `ci.yml`'s *"re-runs the same eleven in PARALLEL"* and
+  `lw-orchestrator.md`'s *"re-run one tier up"*, each read as a quantity and held to this count — and
+  **one** true stale line. One true catch bought with two false accusations is **row D** of that file's
+  own header table, refused there for the same reason. Both claims were
+  **RED at `ab6318c`** — `docs/testing.md:179` said fourteen (corrected to
+  thirteen by #302, stale again the day the metrics suite landed) and `:1280` said thirteen — with the
+  tree exiting **0** over both, 222 of 222. Now **224 of 224**. Deliberately outside the rule and named
+  rather than swept: `ci.yml`'s *"the eleven sibling invocations cost about 610 s IN SERIES"* counts CI
+  **steps** against a measured wall clock, a **fourth** quantity nothing derives, and `invocations` is
+  not in the noun list. Three numbers now print side by side under `DERIVED FROM THE TREE`, and
+  `docs/testing.md`'s own derivation table gains the third row, because printing only two of them is how
+  this drifted.
+
 - **`tests/stop_behaviour.ps1` B37 stops dividing by a subprocess, because that quotient measured
   the host and not the code (2026-09-07, #337).** The case asserted that `git_hygiene`'s class-2
   interrupted-work probes cost under **a twentieth of one `git` spawn**. That escaped an absolute
