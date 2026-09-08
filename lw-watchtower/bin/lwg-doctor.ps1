@@ -1419,7 +1419,7 @@ Write-Output ("RESULT: {0} passed, {1} warning(s), {2} failure(s), {3} informati
 # next person to change what tests\ reaches has to change this by hand, and
 # these are the commands that say whether it needs changing.
 #
-#   the eight observing modules, and the three gates:
+#   the seven observing modules, and the three gates:
 #     $script:LwgModuleRegistry.Keys | ? { $script:LwgModuleRegistry[$_].kind -ne 'gate' }
 #   the suite that reaches self_health, and the sections that do it:
 #     tests\state_resolution.ps1 - B (#60, modules_resolved), C (#106, the

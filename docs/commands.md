@@ -95,9 +95,9 @@ as a control.
 | --- | --- | --- | --- |
 | `/lw-watchtower:delegate` | off | `interaction.delegate` | **yes** — arms `delegate_gate`, a real `PreToolUse` block |
 
-**The three `supervision.*` switches have no command.** `send_liveness_gate`, `completion_audit` and
-`orphan_watch` are switched by editing `supervision.send_liveness`, `supervision.completion_audit` or
-`supervision.orphan_watch` in `config.override.json` under the state directory —
+**The two `supervision.*` switches have no command.** `send_liveness_gate` and `completion_audit`
+are switched by editing `supervision.send_liveness` or `supervision.completion_audit`
+in `config.override.json` under the state directory —
 `$CLAUDE_PLUGIN_DATA`, or `~/.claude/plugins/data/lw-watchtower*/`. `/lw-watchtower:config` prints
 that file's full path in its `NOT SWITCHABLE HERE` block, and refuses to write those keys itself
 because it only ever writes `modules.<name>`. Two of the three are gates, so arming one is a decision
@@ -183,7 +183,8 @@ blind spots on every run, including the green ones.
 **No command tests behaviour.** The one that did — `lw-watchtower:verify`, over a 233-case suite — was
 removed with the destructive command gate. 13 behavioural test files survive it —
 [`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) for `delegate_gate`,
-[`tests/supervision.ps1`](../tests/supervision.ps1) for the other two gates and `orphan_watch`, and
+[`tests/supervision.ps1`](../tests/supervision.ps1) for the other two gates and the orphan
+reconciliation, and
 nine more covering the installer's `statusline` and hooks merge, the turn-end hooks, the
 `SessionStart` hook and its state-directory resolution, the uninstaller's deletions,
 two of the doctor's 10 checks, the two writers of `config.override.json`, the

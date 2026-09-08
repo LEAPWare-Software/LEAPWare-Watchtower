@@ -77,7 +77,7 @@ Refs #
 
 <!-- THIRTEEN SUITES TEST BEHAVIOUR, each through a real pipe into a real child process:
      gate_delegate covers delegate_gate; supervision covers send_liveness_gate, completion_audit
-     and orphan_watch; setup_merge covers the installer's statusline and hooks merge AND the
+     and the orphan reconciliation; setup_merge covers the installer's statusline and hooks merge AND the
      surviving reporting surfaces; stop_behaviour covers the two turn-end hooks and the advisory
      modules behind them; uninstall_footprint covers the uninstaller's state-data deletions and
      its attribution; config_behaviour and toggle_behaviour cover the two commands that write

@@ -17,7 +17,7 @@ contact_links:
     url: https://github.com/LEAPWare-Software/LEAPWare-Watchtower/tree/main/docs
     about: >-
       Install, configuration, modules, commands, architecture, testing and troubleshooting. Eight of
-      the eleven modules observe and can block nothing; the other three are PreToolUse and Stop gates
+      the ten modules observe and can block nothing; the other three are PreToolUse and Stop gates
       that all ship switched off — read modules.md before filing a report that something was not
       stopped, and read it especially if you armed one of those switches.
   # BOTH NUMBERS BELOW ARE PHRASED IN A SHAPE tests\doc_claims.ps1 READS, and the

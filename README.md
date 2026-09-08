@@ -7,11 +7,11 @@
 name, said here because the name this replaced (`LW-GMHH`, until 3 August 2026) was an initialism
 whose last two letters were never expanded anywhere in the tree, including in its own manifest
 description. **A watchtower is not a wall**, and the word was chosen over a candidate that implied
-protection for exactly that reason: eight of the eleven modules below can block nothing at all, and
+protection for exactly that reason: seven of the ten modules below can block nothing at all, and
 every one of the three that can ships switched off.
 
 LW-WATCHTOWER is a Claude Code plugin that applies one governance layer to every session, in every repo,
-without per-project setup. Eight of its eleven modules **observe** and warn and can block nothing. The
+without per-project setup. Seven of its ten modules **observe** and warn and can block nothing. The
 other three — `delegate_gate`, `send_liveness_gate` and `completion_audit` — are the only things here
 that can refuse anything, and all three ship **switched off**. Two further modules were specified,
 found to be impossible — the data they need reaches no
@@ -81,7 +81,7 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   to delegate rather than to read and edit itself. It is a request too, it is not selected for you,
   and it is [documented as a request](docs/output-styles.md). Anyone describing a style as enforcing
   is repeating this project's founding defect.
-- **All eleven declared modules are built. Six are enabled; `stack_mode`, `orphan_watch` and the three gates are not.**
+- **All ten declared modules are built. Six are enabled; `stack_mode` and the three gates are not.**
   `ratelimit_escalation` and `cost_tracking`
   were declared and are *blocked*, not merely unwritten: the data they need reaches no hook, and no
   further work on this plugin will change that, so on 30 July 2026 the placeholders were removed and
@@ -90,7 +90,7 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
 - **Thirteen suites test behaviour, and a green run of all of them is a narrower claim than the
   totals suggest.** `tests/gate_delegate.ps1` runs 100 cases against `delegate_gate`;
   `tests/supervision.ps1` runs 69 against `send_liveness_gate`, `completion_audit` and
-  `orphan_watch`; `tests/stop_behaviour.ps1` runs 144 against the two turn-end hooks and the
+  `effort_ledger`'s orphan reconciliation; `tests/stop_behaviour.ps1` runs 144 against the two turn-end hooks and the
   advisory modules behind them; `tests/setup_merge.ps1` runs 203 against the installer's `statusline`
   and `hooks` merge and against the reporting surfaces that have no suite of their own;
   `tests/uninstall_footprint.ps1` runs 40 against the uninstaller's footprint, attribution and
@@ -265,10 +265,10 @@ installed it from the marketplace and reported back, and not before.
 Start a new session. You should see:
 
 ```
-LW-WATCHTOWER v0.5.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.5.0 · self-check passed, 5 of 5 · 6/10 modules enabled (4 off) · 0 gates · observe-only
 ```
 
-The four that are off are `send_liveness_gate`, `completion_audit`, `orphan_watch` and
+The four that are off are `stack_mode`, `send_liveness_gate`, `completion_audit` and
 `delegate_gate` — all four built, all four shipped switched off, and off is where they are meant to
 be. The parenthetical accounts for the remainder rather than warning about it: everything not counted
 is named, so the total always adds up.
@@ -314,14 +314,13 @@ block anything.
 
 | Module | Kind | Status |
 | --- | --- | --- |
-| `failure_capture` | observe | implemented — records tool, hook and subagent failures |
+| `effort_ledger` | observe | implemented — one switch over `health.jsonl`, carrying four things: records tool, hook and subagent failures; appends the dispatch record's START half; computes the transition ladder at `Stop`; and reconciles subagent transcripts against their stop records to report an agent spawned, never stopped and gone silent. **That last verdict is inferred from silence, and that inference has been measured calling a live agent dead.** Was `failure_capture` + `orphan_watch` until 8 September 2026 (#166) |
 | `self_health` | observe | implemented — proves the governance layer itself can still fire |
 | `log_rotation` | observe | implemented — caps `health.jsonl` and `lw-watchtower.jsonl`; the per-session files are **not** swept |
 | `docs_coupling` | observe | implemented — flags source changes shipped without docs |
 | `git_hygiene` | observe | implemented — branch, commit and push discipline at turn end |
 | `context_injection` | observe | implemented — hands every subagent facts current at *dispatch* time |
 | `stack_mode` | observe | implemented — resolves one working discipline per session, PROTO or SHIP, and points the session and every worker at the ruleset for it |
-| `orphan_watch` | observe | implemented — reconciles subagent transcripts against their stop records and reports agents that were spawned, never stopped and have gone silent. **Ships OFF. The verdict is inferred from silence, and that inference has been measured calling a live agent dead** |
 | `delegate_gate` | **gate** | implemented — refuses `Edit`/`Write`/`NotebookEdit`/`Bash`/`PowerShell` on the main thread. **Ships OFF.** See [The three gates](#the-three-gates) |
 | `send_liveness_gate` | **gate** | implemented — refuses a `SendMessage` whose recipient it can prove is dead mid-flight; abstains wherever the evidence cannot support a verdict. **Ships OFF** |
 | `completion_audit` | **gate** | implemented — refuses a turn end whose final message claims completed work while the turn's last tool action was a queued `SendMessage`. Fires at most once per turn end, so it forces one round of verification and **cannot force honesty**. **Ships OFF** |
@@ -404,7 +403,7 @@ Exit codes and reporting rules: [Commands](docs/commands.md).
 | [FAQ](docs/faq.md) | The questions a new user and a returning owner actually have, answered from the tree |
 | [Install](docs/install.md) | Requirements, both install routes, the separate status-line install |
 | [Configuration](docs/configuration.md) | `lw-watchtower/config.json` and the override beside it, in full |
-| [Modules](docs/modules.md) | All eleven, with their blind spots, **the three gates**, and the removal of the two that could not be built |
+| [Modules](docs/modules.md) | All ten, with their blind spots, **the three gates**, and the removal of the two that could not be built |
 | [Gates were removed deliberately](docs/gates-removed.md) | The rules a gate has to follow here, **what the trip ledger's removal means a new gate must rebuild**, and what four failed fix attempts taught |
 | [Commands](docs/commands.md) | All seven slash commands, their exit codes, and which preference commands are enforced |
 | [Roles](docs/roles.md) | The six agent roles the plugin ships, and when each is dispatched |
@@ -457,7 +456,7 @@ for the same reason. The one requirable string is the surviving job's display na
 that page is held to the string by the documentation-claim guard, which derives it from `ci.yml`, and
 this page is not.
 
-There is no status badge here, deliberately: a green badge covering three gates and eight observing
+There is no status badge here, deliberately: a green badge covering three gates and seven observing
 modules would read as far broader assurance than it is. A second reason stood here until
 **2026-08-28** — that a badge would not render for most viewers of a repository they cannot read —
 and it went with the visibility flip on that date. It is recorded rather than quietly dropped,

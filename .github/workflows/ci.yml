@@ -1404,7 +1404,7 @@ jobs:
         shell: powershell
         run: |
           # The step that exercises the three completion-integrity modules -
-          # send_liveness_gate, completion_audit and orphan_watch - all of which
+          # send_liveness_gate, completion_audit and the orphan reconciliation - all of which
           # SHIP SWITCHED OFF. Cases here arm them against throwaway fixtures;
           # nothing in this step changes what the tree ships, and the suite
           # asserts that too: three cases read the real config.json and require
