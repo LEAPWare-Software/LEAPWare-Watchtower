@@ -1183,10 +1183,54 @@ try {
     #     would put a Node dependency and an install step into a suite that is
     #     pure PowerShell over a Windows-only payload. What makes a linter
     #     sufficient here is a property of THIS payload rather than of YAML:
-    #     every frontmatter block in it is flat `key: value`, one pair per line,
-    #     no nesting, no block scalars, no lists. If that ever stops being true,
-    #     this case starts failing on a legitimate file and must be rewritten
-    #     rather than loosened. Same standing as rule 7's pinned assumption.
+    #     every frontmatter block in it was flat `key: value`, one pair per
+    #     line, no nesting, no block scalars, no lists.
+    #
+    #     THAT ASSUMPTION STOPPED BEING TRUE ON 7 SEPTEMBER 2026 (#179), AND
+    #     THE PARAGRAPH ABOVE ORDERED WHAT HAPPENED NEXT: "this case starts
+    #     failing on a legitimate file and must be REWRITTEN RATHER THAN
+    #     LOOSENED". `skills/task-observer/SKILL.md` is vendored third-party
+    #     text and opens `description: >` - a FOLDED BLOCK SCALAR whose
+    #     continuation lines are indented. Every one of those lines failed the
+    #     flat-pair test and the `>` failed the reserved-character test:
+    #     SIXTEEN defects on one legitimate, unmodified file.
+    #
+    #     BASELINE 010a550. RED AT 010a550, and the shape of the proof is worth
+    #     stating because it is the reason the file was not touched instead:
+    #     with the six vendored bodies staged and this case unchanged, S14
+    #     reported those sixteen defects and the suite exited 1. Reflowing the
+    #     vendored `description` to one line would have turned it green in one
+    #     edit - and would have bought a permanent "Modified: yes" under
+    #     CC BY 4.0 section 3(a)(1)(B) for that file, and ended byte-identical
+    #     resync with upstream forever, in exchange for a line of YAML the CLI parses
+    #     correctly today. A guard going red on a correct file is the guard's
+    #     defect, not the file's - this suite says so in three other places.
+    #
+    #     WHAT THE REWRITE ADDS, AND WHAT IT DELIBERATELY DOES NOT. When a
+    #     value is EXACTLY a block-scalar indicator - `>`, `>-`, `>+`, `|`,
+    #     `|-`, `|+` - the following whitespace-indented lines are consumed as
+    #     that scalar's BODY: they are not pairs and are not linted as pairs,
+    #     and the colon-space, unbalanced-quote and reserved-character tests
+    #     are skipped for them. Key uniqueness is still enforced, because the
+    #     key itself is still a key. The block ends at the first non-blank line
+    #     that is NOT indented; a BLANK line does not end it, which is correct
+    #     for a folded scalar and is the one place a naive reading gets this
+    #     wrong. An indented body of ZERO lines is still a defect - that is an
+    #     EMPTY field, which is the failure this case exists for, arriving by a
+    #     different door.
+    #
+    #     NOT ADDED: an explicit indentation indicator (`>2`), block scalars
+    #     nested inside a mapping, and lists. None of the three is in this
+    #     payload, `>2` still reads as a reserved-character defect, and
+    #     inventing support for shapes nothing here uses is how a linter
+    #     becomes a bad YAML parser. Same standing as rule 7's pinned
+    #     assumption: if one of them ships, this case goes red on a legitimate
+    #     file and is rewritten again.
+    #
+    #     THE DEFECT MESSAGE NAMES THE DIRECTORY FOR A SKILL, not just the leaf.
+    #     Every skill file in this payload is called SKILL.md - there are FIVE
+    #     of them as of #179 - so "SKILL.md: ..." identified nothing. Roles,
+    #     commands and styles keep the leaf, which is unique for them.
     #
     #     THE COLON-SPACE TEST IS ASKED ONLY OF UNQUOTED VALUES, and that is a
     #     deliberate narrowing: a QUOTED description containing a colon-space is
@@ -1242,7 +1286,10 @@ try {
     # written twice, which is the failure mode with teeth.
     $fmBad = @()
     foreach ($fp in $fmFiles) {
+        # A skill is identified by its DIRECTORY - every one of them is
+        # SKILL.md - so the leaf alone would name four files at once.
         $fpName = Split-Path -Leaf $fp
+        if ($fp -like '*\skills\*') { $fpName = (Split-Path -Leaf (Split-Path -Parent $fp)) + '/' + $fpName }
         $fpText = ''
         try { $fpText = [IO.File]::ReadAllText($fp) } catch { $fmBad += "${fpName}: could not be read"; continue }
         if ($fpText -notmatch '(?s)^---\r?\n(.*?)\r?\n---\r?\n') {
@@ -1255,8 +1302,23 @@ try {
         }
         $fmKeys = @{}
         $fmLineNo = 1
+        # The key whose block scalar is currently open, '' when none, and the
+        # count of body lines it has been given. See BLOCK SCALARS above.
+        $fmScalarKey  = ''
+        $fmScalarBody = 0
         foreach ($fmLine in ($fmBlock -split "`r?`n")) {
+            # A blank line inside a folded scalar is a PARAGRAPH BREAK and does
+            # not close it, so this skip must stay above the block-scalar test
+            # and must not touch $fmScalarKey.
             if ([string]::IsNullOrWhiteSpace($fmLine)) { $fmLineNo++; continue }
+            if ($fmScalarKey -ne '') {
+                if ($fmLine -match '^\s') { $fmScalarBody++; $fmLineNo++; continue }
+                if ($fmScalarBody -eq 0) {
+                    $fmBad += "${fpName}: '$fmScalarKey' opens a block scalar and no indented line follows it, so the field is EMPTY - the same silent drop this case exists for, arriving by a different door"
+                }
+                $fmScalarKey  = ''
+                $fmScalarBody = 0
+            }
             if ($fmLine -notmatch '^([A-Za-z][A-Za-z0-9_-]*):\s+(\S.*)$') {
                 $fmBad += "${fpName}: frontmatter line $fmLineNo is not a flat 'key: value' pair - '$fmLine'"
                 $fmLineNo++
@@ -1268,6 +1330,17 @@ try {
                 $fmBad += "${fpName}: '$fmKey' appears twice. YAML takes the LAST one, so the earlier value is silently discarded - and on a tools list that means the WIDER grant wins"
             }
             $fmKeys[$fmKey] = $true
+            # A value that is EXACTLY a block-scalar indicator opens a block.
+            # The key is recorded above, so uniqueness still holds; the value
+            # tests below are asked of the indicator's BODY by nobody, which is
+            # the point - `IMPORTANT: invoke ...` inside a folded description is
+            # prose, not a nested mapping.
+            if ($fmVal -match '^[>|][+-]?$') {
+                $fmScalarKey  = $fmKey
+                $fmScalarBody = 0
+                $fmLineNo++
+                continue
+            }
             $fmQuoted = $false
             foreach ($q in @('"', "'")) {
                 if ($fmVal.StartsWith($q)) {
@@ -1295,6 +1368,12 @@ try {
             }
             $fmLineNo++
         }
+        # A block scalar left open when the block ENDS is the same empty field
+        # as one closed by a following key, and it is the likelier of the two:
+        # `description: >` as the last line of a frontmatter block.
+        if ($fmScalarKey -ne '' -and $fmScalarBody -eq 0) {
+            $fmBad += "${fpName}: '$fmScalarKey' opens a block scalar at the end of the block and no indented line follows it, so the field is EMPTY"
+        }
         # ROLES ONLY. docs/roles.md:55 - "Must match the filename stem" - and
         # nothing in this repository enforced it before this line. A role whose
         # name disagrees with its filename is dispatched under one spelling and
@@ -1316,7 +1395,7 @@ try {
             }
         }
     }
-    Add-Result ("S14 every agents/, commands/, output-styles/ and skills/ frontmatter block parses as flat key: value ($($fmFiles.Count) file(s))") `
+    Add-Result ("S14 every agents/, commands/, output-styles/ and skills/ frontmatter block parses - flat key: value, or a key opening a block scalar with a body ($($fmFiles.Count) file(s))") `
         ($fmMissing.Count -eq 0 -and $fmFiles.Count -gt 0 -and $fmBad.Count -eq 0) `
         ($(if ($fmMissing.Count) { "no directory at $($script:PayloadRel)/$($fmMissing -join ', '), so this case did not read what it claims to read. " } else { '' }) +
          $(if ($fmFiles.Count -eq 0) { 'zero .md files were enumerated, so nothing was linted - an empty set is not a pass. ' } else { '' }) +
@@ -1444,6 +1523,109 @@ try {
         ($(if ($skillFiles.Count -eq 0) { "git ls-files -- $($script:PayloadRel)/ lists NOTHING under skills/. Either the directory does not exist yet, or it exists on disk and was never `git add`ed - and an untracked payload directory is scanned by no guard in this repository and by no check in bin/lwg-doctor.ps1, all four of which enumerate the index. " } else { '' }) +
          $(if ($skillsOut.Count) { "$($skillsOut.Count) tracked skill file(s) are OUTSIDE rule 6 (deleted-script)'s scope, so a skill page naming a deleted script is never asked about: " + ($skillsOut -join ', ') + ". Add '$($script:PayloadRel)/skills/*' to that rule's scope. " } else { '' }) +
          "read $($skillFiles.Count) tracked file(s) under $($script:PayloadRel)/skills/")
+
+    # S17. #179. EVERY VENDORED FILE IN THE PAYLOAD IS NAMED IN THE NOTICES.
+    #
+    #     WHAT LANDED, AND WHY IT NEEDS A MACHINE. #179 vendored six
+    #     third-party bodies into this payload - four under skills/ and two
+    #     under context/stack/ - taken from FIVE upstream repositories, held by
+    #     FIVE different copyright holders, under THREE licence types: MIT
+    #     (three separate holders), CC BY 4.0, and Apache-2.0. Every one of the
+    #     three conditions redistribution on a notice travelling WITH the copy.
+    #     lw-watchtower/THIRD-PARTY-NOTICES.md is how this
+    #     payload discharges them, and a notices file that nothing checks
+    #     is a notices file that is correct on the day it is written and stale
+    #     on the day the next skill lands. That is not a style complaint: an
+    #     unlisted vendored file is a distribution with the attribution
+    #     stripped off it, which is the one thing every one of those licences
+    #     forbids by name.
+    #
+    #     HOW A VENDORED FILE IS TOLD FROM A HOUSE FILE, AND IT IS DERIVED
+    #     FROM THE TREE RATHER THAN LISTED. Every file this project wrote for
+    #     this plugin carries the house block that opens
+    #     `Shipped by the LW-WATCHTOWER plugin`; #179's own rule is that a
+    #     VENDORED file carries no such block, because inserting one would
+    #     modify a byte-identical copy and put this project's name at the top
+    #     of somebody else's text. So header-absence IS the vendored marker,
+    #     and skills/lw-handoff/ - original work, and stated as such in the
+    #     CHANGELOG rather than in the notices - is excluded by construction
+    #     rather than by name. A hardcoded list here would be the defect this
+    #     whole file exists to prevent.
+    #
+    #     THE MATCH IS THE PAYLOAD-RELATIVE PATH, SPELLED. Not the directory,
+    #     not the skill name: `skills/task-observer/references/signals.md`
+    #     rather than `task-observer`. A prefix rule would be satisfied by a
+    #     sentence mentioning the directory in passing, and seven reference
+    #     files under one skill are seven separate copies of somebody's work.
+    #     The notices file carries the path list in its per-skill blocks, so
+    #     the two agree by construction and drift on either side is red.
+    #
+    #     ENUMERATED FROM THE INDEX, like every other case here - `$payloadList`
+    #     is `git ls-files -- lw-watchtower/`. A vendored file present on disk
+    #     and never `git add`ed is invisible to this case, which is correct:
+    #     it is also invisible to the marketplace copy, so it is not
+    #     distributed and no notice is owed for it. S16 is the case that
+    #     catches an untracked skills/ directory.
+    #
+    #     BASELINE 010a550. RED AT 010a550, and the proof is the honest one
+    #     rather than the convenient one. Written and run with the thirteen
+    #     vendored files staged and no notices file in the tree, this case
+    #     reported "13 vendored of 14 file(s)" and named every one of the
+    #     thirteen as shipped with no attribution beside it; the suite exited
+    #     1. It went green only when lw-watchtower/THIRD-PARTY-NOTICES.md
+    #     landed carrying all thirteen paths. THE ONE FILE IT DID NOT NAME was
+    #     skills/lw-handoff/SKILL.md, which carries the house header - so the
+    #     original/vendored split was measured on that run, not assumed.
+    #
+    #     AN EMPTY VENDORED SET IS A FAILURE, and the reasoning is the same
+    #     "an empty set is not a pass" S14 and S16 both carry. The notices
+    #     file is an obligation CREATED by the vendored files; a run that
+    #     found none checked no obligation and would print a green line over
+    #     nothing. If this payload ever stops vendoring, THIS CASE AND THE
+    #     NOTICES FILE ARE DELETED TOGETHER - that is the correct edit, and it
+    #     is a different act from letting the case quietly assert nothing.
+    $noticesRel   = $script:PayloadRel + '/THIRD-PARTY-NOTICES.md'
+    $vendorRoots  = @(($script:PayloadRel + '/skills/'), ($script:PayloadRel + '/context/stack/'))
+    $noticeCands  = @($payloadList | Where-Object {
+        $cand = $_
+        ($cand -like '*.md') -and (@($vendorRoots | Where-Object { $cand -like ($_ + '*') }).Count -gt 0)
+    })
+    $houseMarker  = 'Shipped by the LW-WATCHTOWER plugin'
+    $vendoredRel  = @()
+    $noticeOut    = @()
+    foreach ($nc in $noticeCands) {
+        $ncPath = Join-Path $script:RepoRoot ($nc -replace '/', '\')
+        if (-not [IO.File]::Exists($ncPath)) { $noticeOut += "$nc is tracked and is not on disk, so this case could not read it"; continue }
+        $ncText = ''
+        try { $ncText = [IO.File]::ReadAllText($ncPath) } catch { $noticeOut += "$nc could not be read"; continue }
+        if ($ncText -notlike ('*' + $houseMarker + '*')) { $vendoredRel += $nc }
+    }
+    $noticesTracked = @($payloadList | Where-Object { $_ -eq $noticesRel }).Count -gt 0
+    $noticesText    = ''
+    if ($noticesTracked) {
+        $noticesPath = Join-Path $script:RepoRoot ($noticesRel -replace '/', '\')
+        if ([IO.File]::Exists($noticesPath)) {
+            try { $noticesText = [IO.File]::ReadAllText($noticesPath) } catch { $noticesText = '' }
+        }
+    }
+    if (-not $noticesTracked) {
+        $noticeOut += "$noticesRel is not tracked under the payload at all. The vendored files below are copied to every consumer with no attribution travelling beside them"
+    } elseif ([string]::IsNullOrWhiteSpace($noticesText)) {
+        $noticeOut += "$noticesRel is tracked and is empty, which discharges nothing"
+    } else {
+        foreach ($vr in $vendoredRel) {
+            $vrPayloadRel = $vr -replace ('^' + [regex]::Escape($script:PayloadRel) + '/'), ''
+            if (($noticesText -notlike ('*' + $vr + '*')) -and ($noticesText -notlike ('*' + $vrPayloadRel + '*'))) {
+                $noticeOut += $vr
+            }
+        }
+    }
+    Add-Result ("S17 every vendored file under skills/ and context/stack/ is named in THIRD-PARTY-NOTICES.md ($($vendoredRel.Count) vendored of $($noticeCands.Count) file(s))") `
+        ($noticeCands.Count -gt 0 -and $vendoredRel.Count -gt 0 -and $noticeOut.Count -eq 0) `
+        ($(if ($noticeCands.Count -eq 0) { "git ls-files -- $($script:PayloadRel)/ lists no .md under skills/ or context/stack/ at all, so this case read nothing. " } else { '' }) +
+         $(if ($noticeCands.Count -gt 0 -and $vendoredRel.Count -eq 0) { "every .md under skills/ and context/stack/ carries the house '$houseMarker' block, so this case found NOTHING vendored and asserted nothing - an empty set is not a pass. If this payload has genuinely stopped vendoring, delete this case and $noticesRel together. " } else { '' }) +
+         $(if ($noticeOut.Count) { "$($noticeOut.Count) vendored file(s) are shipped to every consumer with no entry in $noticesRel, which is a copy distributed without the attribution its licence requires: " + ($noticeOut -join ', ') + ". Add a block naming the path, the upstream URL, the commit, the SPDX id and the licence text - do not delete the file to make this green. " } else { '' }) +
+         "read $($noticeCands.Count) tracked .md under $($script:PayloadRel)/skills/ and $($script:PayloadRel)/context/stack/, of which $($vendoredRel.Count) carry no house header and are therefore vendored")
 
     Add-Result 'S9  no out-of-payload record names a file that is now inside the payload' `
         ($recordInPayload.Count -eq 0) `

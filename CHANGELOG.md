@@ -23,6 +23,39 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 `main` must never declare a version a tag has already published (the rule `[0.4.0]` added). Entries
 land here as they merge.
 
+### Added
+
+- **Six third-party skill bodies are vendored into the payload, with `lw-watchtower/THIRD-PARTY-NOTICES.md`
+  beside them (2026-09-07, #179, slice 1).** Four land as skills — `grill-me`, `grilling`,
+  `task-observer` (with its seven `references/*.md`) and `vibesec` — and two, `ponytail` and
+  `unlazy`, land as `lw-watchtower/context/stack/*.md` instead, because **the CLI auto-registers
+  every `skills/*/SKILL.md` as model-invocable** and those two are meant to be pointed at by a
+  module rather than started by the model on a description match. **Nothing reads `context/stack/`
+  in this release**; the module that will is #179 slice 2, and the two files are inert until it
+  lands. Said here rather than left to be inferred from the absence of a caller.
+  **The payload goes 40 → 54 files** — `git ls-files lw-watchtower/ | wc -l`, before and after.
+  `grilling` was vendored alongside `grill-me` because `grill-me` is a 157-byte stub whose entire
+  body is `Call the Skill tool with "grilling".`; shipping the pointer without its target ships a
+  skill that does nothing. `task-observer`'s reference files came too because its body names them
+  more than thirty times, and reference files are not always-on context, so the runtime token cost
+  of carrying them is zero. **`unlazy` ships `SKILL.md` alone** — its companion scripts are `.mjs`
+  and nothing in this repository depends on Node; its body's `node <skill-dir>/scripts/*.mjs`
+  instructions therefore name files that are not here, which the notices file states outright.
+  **All thirteen files are byte-identical to their upstream blobs**, proven by comparing each git
+  index blob hash with the upstream tree's, which is stronger than a diff — it would catch a line
+  ending rewritten on the way into the index. **`lw-watchtower/skills/lw-handoff/SKILL.md` is
+  original work**, © LEAPWare-HQ under this project's own Apache-2.0, and appears in no notices
+  block — the record #168 already carries, restated here because this is the commit that made the
+  distinction load-bearing. A third-party handoff skill was evaluated for vendoring and is All
+  Rights Reserved; **nothing was taken from it, and it is deliberately not named anywhere in this
+  repository**, because naming a work in a third-party notices file — or in a changelog entry about
+  one — reads as a statement that something came from it.
+  **Refused, and recorded rather than absorbed:** the vendoring plan called for a list of banned
+  and CVE'd packages to be carried in the notices prose. It is not there. `THIRD-PARTY-NOTICES.md`
+  is a legal attribution file shipped to strangers, and naming CVE'd products this payload does not
+  ship is not attribution; the same reasoning that keeps the `lw-handoff` record in this changelog
+  and out of the notices applies to it.
+
 ### Fixed
 
 - **`tests/stop_behaviour.ps1` B37 stops dividing by a subprocess, because that quotient measured
@@ -42,6 +75,24 @@ land here as they merge.
   true again. **144 cases, unchanged.**
 
 ### Changed
+
+- **`tests/payload_guard.ps1` S14 learned YAML block scalars, and S17 joined it (2026-09-07, #179,
+  slice 1). 28 cases → 29.** S14's own header pinned an assumption — *"every frontmatter block in it
+  is flat `key: value` … If that ever stops being true, this case starts failing on a legitimate
+  file and must be rewritten rather than loosened"* — and vendoring `task-observer/SKILL.md`, which
+  opens `description: >`, stopped it being true: **sixteen S14 defects on one unmodified, correct
+  file, red at `010a550`.** The linter was rewritten rather than the vendored file reflowed. A key
+  whose value is exactly `>`, `>-`, `>+`, `|`, `|-` or `|+` now opens a block whose indented lines
+  are its body and are not linted as pairs; a blank line does not close it; **an empty body is still
+  a defect**, because that is the silent field-drop the case exists for. Reflowing one line of
+  vendored YAML instead would have bought a permanent `Modified: yes` under CC BY 4.0 § 3(a)(1) and
+  ended byte-identical resync with upstream. Defect messages now name a skill by its directory, not
+  by the leaf `SKILL.md` that five files now share. **S17** enumerates every tracked `.md` under
+  `skills/` and `context/stack/` from the index, treats absence of the house
+  `Shipped by the LW-WATCHTOWER plugin` header as the mark of a vendored file, and fails when a
+  vendored path is not spelled in `lw-watchtower/THIRD-PARTY-NOTICES.md` — derived from the tree, so
+  a seventh vendored body cannot land without its notice. Red at `010a550` for the reason that
+  matters: the notices file did not exist.
 
 - **`context_pressure` is deleted and the transition ladder replaces it (2026-09-06, #168, slice 1).**
   The module recomputed context occupancy from the transcript against a window size it had to infer,

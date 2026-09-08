@@ -110,11 +110,24 @@ failure it does catch is *"loads with its name taken from the filename and every
 field silently dropped."*
 
 **What actually guards this repository is `tests/payload_guard.ps1` case S14**, which lints every
-`agents/*.md` and `commands/*.md` frontmatter block as flat `key: value` — no tab, no duplicate key,
-balanced quotes, no colon-space in an unquoted value, no reserved character opening one, and `name`
-equal to the filename stem. It is a line linter and not a YAML parser, because Windows PowerShell 5.1
-ships no YAML parser; what makes that sufficient is that every block in this payload is flat, and
-that assumption is stated at the case. `commands/*.md` is in scope for the same reason: a silent
+`agents/*.md`, `commands/*.md`, `output-styles/*.md` and `skills/*/SKILL.md` frontmatter block — no
+tab, no duplicate key, balanced quotes, no colon-space in an unquoted value, no reserved character
+opening one, and, **for roles only**, `name` equal to the filename stem. It is a line linter and not
+a YAML parser, because Windows PowerShell 5.1 ships no YAML parser.
+
+**What made that sufficient was that every block in this payload was flat `key: value`, and on
+7 September 2026 that stopped being true.** #179 vendored a third-party skill whose `description` is
+a folded block scalar (`description: >`), and S14 went red on a correct, unmodified file — sixteen
+defects on one of them. **The case was rewritten rather than the vendored file reflowed**, which is
+what its own header had ordered in advance. A key whose value is exactly `>`, `>-`, `>+`, `|`, `|-`
+or `|+` now opens a block whose indented lines are its body and are not linted as pairs; an empty
+body is still a defect, because that is the silent field-drop the case exists for. **What is still
+not supported, deliberately:** an explicit indentation indicator (`>2`), block scalars nested inside
+a mapping, and lists. None is in this payload, and inventing support for shapes nothing uses is how
+a linter becomes a bad YAML parser. If one of them ships, S14 goes red on a legitimate file and is
+rewritten again — the same standing the flat-only assumption had.
+
+`commands/*.md` is in scope for the same reason: a silent
 parse failure there drops `disallowed-tools: "PowerShell"`, which is the property case S12 exists to
 protect.
 

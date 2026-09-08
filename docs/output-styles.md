@@ -99,7 +99,9 @@ this file is a delegation discipline rather than a complete set of working instr
 does **not** carry `force-for-plugin: true`, and it fails on an empty or absent directory rather than
 passing over one. That is the owner decision above, held by a machine instead of by a sentence. Case
 **S14** additionally lints the block itself — no tab, no duplicate key, balanced quotes, no
-colon-space in an unquoted value — over `agents/`, `commands/` and this directory together.
+colon-space in an unquoted value — over `agents/`, `commands/`, `skills/*/SKILL.md` and this
+directory together. Since 7 September 2026 it also parses YAML block scalars, because a vendored
+skill ships one; see [Roles § frontmatter](roles.md).
 
 **What is not verified anywhere else.** The CLI applies **no schema validation at all** to a
 plugin-shipped style's frontmatter — measured on **2.1.263**: the strict schema runs for *user*
