@@ -66,8 +66,8 @@ tracked file carries a disclosure this repository knows the shape of.**
 sounds.** `effort_ledger`, `docs_coupling`, `git_hygiene` and `log_rotation`
 are driven by `tests/stop_behaviour.ps1`; `self_health` by `tests/state_resolution.ps1`;
 `context_injection` by `tests/subagent_scan.ps1`, which since 6 September 2026 also reaches
-`effort_ledger`'s **dispatch record** — the second module in that one file; `orphan_watch`,
-`send_liveness_gate` and
+`effort_ledger`'s **dispatch record** — the second module in that one file; that same module's
+**orphan reconciliation**, `send_liveness_gate` and
 `completion_audit` by `tests/supervision.ps1`; `delegate_gate` by `tests/gate_delegate.ps1`;
 `stack_mode` by `tests/stack_mode.ps1`. Four of
 the observing ones arrived on **3 August 2026** with one to three

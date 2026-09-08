@@ -247,7 +247,13 @@ land here as they merge.
   more. `gates_live` stays **0** and nothing here inspects a command, a path or a credential.
   **Red-first at `BASELINE ab6318c`:** `tests/state_resolution.ps1` gains sections **J** (layer 0)
   and **K** (this rename), 37 cases → 44, with J1–J4 and K1–K3 all failing at that commit;
-  `tests/supervision.ps1` 67 → 69. `orphan_watch`'s behaviour cases moved **intact** under the new
+  `tests/doctor_behaviour.ps1` 48 → 50, with case 6d red there. **`tests/supervision.ps1` stays at
+  69 and its composition changes**, which is stated rather than rounded to a delta: section B's
+  registry loop goes three rows to two (`orphan_watch` was the third), losing two results, and the
+  `B-merged` pair replaces them. The number that reached this entry from an issue comment was
+  **67**, and it was wrong — `git show ab6318c:docs/limitations.md` says 69 and `doc_claims` was
+  holding that page to it, which is the whole argument for re-deriving rather than quoting.
+  `orphan_watch`'s behaviour cases moved **intact** under the new
   flag, and the one case that could not is called out below rather than described as unchanged.
 
 - **UPGRADE NOTE — what happens to a `config.override.json` that still names either old key, and it
