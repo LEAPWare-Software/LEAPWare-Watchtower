@@ -176,7 +176,7 @@ what it runs rather than in how fast the machine is. **The metrics row is not fr
 all** — it was measured on **6 September 2026**, on a different machine, the day that suite landed,
 and it is in the table so the file is complete rather than because it is comparable.
 
-The documentation-claim guard re-runs the fourteen other files in parallel to read the tallies they print
+The documentation-claim guard re-runs the fifteen other files in parallel to read the tallies they print
 about themselves, so it costs the slowest of them rather than the sum.
 `-SkipSuites` skips that and then **exits 2 rather than 0**, because a run that did not check
 something must not report as one that did. The job's `timeout-minutes` and the `-SuiteTimeoutSec` the
@@ -1092,6 +1092,7 @@ value is derived when it runs:
 | --- | --- |
 | files in `tests/`, slash commands | `git ls-files` |
 | which suites are *behavioural*, and how many cases each runs | every other `tests/*.ps1` is **run**, in parallel; the ones that report an `N of M case(s)` tally are the behavioural suites and `M` is their count. The classification is an observation, not a list. |
+| how many files the guard re-runs | the enumeration that parallel run walked — every tracked `tests/*.ps1` on disk **except the guard itself**. A **third** number, and equal to neither of the two above: #308 was one sentence about the re-run that had always been held to the behavioural count instead, and it stayed green while saying the wrong thing. |
 | CI check steps | the named steps in `ci.yml` that carry a `run:` block. Counting `shell: powershell` was tried first and read the job-level `defaults.run` as a step. |
 | doctor checks | `bin/lwg-doctor.ps1` is run and its `- N checks` header parsed. Its exit code is ignored: how many checks it performs is a different question from whether they passed. |
 | modules declared, and how many only observe | `$LwgModuleRegistry` in `lib/common.ps1`, parsed |
@@ -1277,7 +1278,7 @@ Rename it only together with the branch-protection setting.
 | Stack mode suite | `tests\stack_mode.ps1` — the only coverage of any kind that `stack_mode` has: the precedence ladder that resolves one working discipline per session, every way of switching it off, the refusal to point a reader at a ruleset the payload does not hold, and the SHIP pointer's statement that its own node scripts are absent. Asserts on answers, not on milliseconds, and starts no live session. |
 | Payload disclosure guard | `tests\payload_guard.ps1` — the only step that asks what a **stranger receives**. Every file `git ls-files` reports under `lw-watchtower/` is the shipped payload, because `marketplace.json` declares `"source": "./lw-watchtower"`, and each one is read and matched against the detection rules. A ledger'd hit is printed with its issue number, never folded into a pass. A missing guard file fails the build; an abort (exit 2) is reported as an abort, and a run that could not read every tracked file exits 2 rather than 0. |
 | Portability scan | `tests\portability_scan.ps1` — every tracked file, against the mandate in [Portability](portability.md). A missing scan file fails the build, since not running is not the same as passing. |
-| Documentation claims | `tests\doc_claims.ps1` — **the only step that checks the prose.** Every tracked `.md`, `.json` and `.yml` is held to counts derived from the tree at run time, including a parallel re-run of the thirteen behavioural suites to read the tally each prints about itself. A missing guard file fails the build; an abort (exit 2) is reported as an abort, and so is a run that found no claims at all. |
+| Documentation claims | `tests\doc_claims.ps1` — **the only step that checks the prose.** Every tracked `.md`, `.json` and `.yml` is held to counts derived from the tree at run time, including a parallel re-run of the fifteen other files under `tests/` to read the tally each prints about itself — thirteen behavioural suites reporting a case count, the rest reporting violations. A missing guard file fails the build; an abort (exit 2) is reported as an abort, and so is a run that found no claims at all. |
 | Version declarations | `.github\scripts\version_declarations.ps1` — the five version declaration sites held **to each other** on every push and pull request. **No tag is passed here**: the two tag-shaped rules (the sites equal the tag, and `CHANGELOG.md`'s heading for it is dated) report NOT CHECKED, and `release.yml` is the caller that has a tag to ask them with. An empty `git tag -l` is reported NOT CHECKED rather than clean, so this step cannot go green on the published-tag rule by never seeing a tag. Fixtures first — nine planted trees, one per rule — then the tree; a `1` is a drifted declaration, a `2` is a declaration site that could not be read, which is not the same as the sites agreeing. |
 | Red-first annotations | `.github\scripts\redfirst_annotations.ps1` — the SHAPE of every red-first annotation in `tests\*.ps1`, in fixture mode and against the live tree in one step. See [The red-first annotation guard](#the-red-first-annotation-guard). |
 

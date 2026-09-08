@@ -36,6 +36,12 @@
                            behavioural suites, the ones that report violations
                            are scans. The classification is an observation,
                            not a list.
+    siblings re-run        every tests/*.ps1 except this one, as the parallel
+                           run above enumerated them. A THIRD number, distinct
+                           from both of the two above and equal to neither -
+                           #308 is one sentence about the re-run that was held
+                           to the behavioural count through every correction it
+                           ever got
     per-suite case counts   the M each suite prints about itself
     CI check steps         named steps with a run: block in .github/workflows/ci.yml
                            (`- name: Check out` uses an action and checks
@@ -892,6 +898,13 @@ $doctorChecks = [int]$docMatch.Groups[1].Value
 # Serial would cost the sum of them; this costs the slowest one.
 $suiteTallies = @{}
 $behaviouralCount = $null
+# HOW MANY FILES THIS ONE RE-RUNS - #308. NOT the behavioural-suite count and
+# NOT the tests/ file count, and the whole of #308 is that a sentence about the
+# re-run was held to one of the other two. Every tracked file under tests/
+# except this one is re-run; only some of them report a case tally. Three
+# different true numbers, so the one the re-run sentence means is derived
+# separately rather than borrowed.
+$siblingRerunCount = $null
 $suitesRan = $false
 # Kept so the RESULT:/EXIT: contract rule below can read what each suite
 # actually printed rather than being told which suites are supposed to print
@@ -909,12 +922,13 @@ if (-not $SkipSuites) {
         $toRun += [pscustomobject]@{ Rel = $rel; Full = $full; Base = [IO.Path]::GetFileNameWithoutExtension($full) }
     }
     if ($toRun.Count -eq 0) { Abort 'no sibling suites to run - the enumeration is broken.' }
+    $siblingRerunCount = $toRun.Count
 
     Say ("  running $($toRun.Count) sibling suite(s) in parallel to read their own tallies ...")
     # LWG_SUITE_PARALLEL IS SET FOR THE CHILDREN AND FOR NOTHING ELSE - #250.
     #
     # A case whose verdict is a DURATION cannot be trusted here and must not be
-    # allowed to fail here. Fourteen suites start at once, most of them spawning
+    # allowed to fail here. Every sibling starts at once, most of them spawning
     # a child process per case, and a case that asserts on the clock is then
     # measuring the runner rather than the product. That is not a hypothesis:
     # this guard aborted twice on tests\stop_behaviour.ps1 exiting 1 while the
@@ -993,8 +1007,8 @@ if (-not $SkipSuites) {
     foreach ($r in $results) {
         if ($r.Code -ne 0) {
             $outLines  = @([string]$r.Out -split "`r?`n")
-            # THE SIBLINGS ARE NOT ALL SUITES. Eleven tally CASES and print
-            # `N FAILED:` with a line per failure; the two scans - the
+            # THE SIBLINGS ARE NOT ALL SUITES. Most tally CASES and print
+            # `N FAILED:` with a line per failure; the scans - the
             # portability scan and the workflow guard - tally VIOLATIONS and
             # print `VIOLATIONS - <why> (N):` with a `file:line: token` row per
             # hit. Keying only on the suite vocabulary showed a real portability
@@ -1065,11 +1079,18 @@ Say ''
 Say '  DERIVED FROM THE TREE'
 Say ("    files in tests/                  {0}" -f $testFiles.Count)
 if ($suitesRan) {
+    # PRINTED NEXT TO THE OTHER TWO ON PURPOSE - #308. A reader looking for
+    # "the number the docs should say" has to pick one of the three above, and
+    # no two of them are equal on any tree where a scan exists. Printing only
+    # two of them is how a sentence about the re-run came to be held to the
+    # behavioural count instead - the line above this block is the third.
+    Say ("    siblings this file re-runs       {0}" -f $siblingRerunCount)
     Say ("    behavioural suites               {0}" -f $behaviouralCount)
     foreach ($k in ($suiteTallies.Keys | Sort-Object)) {
         Say ("      tests\{0,-24} {1} case(s)" -f ($k + '.ps1'), $suiteTallies[$k])
     }
 } else {
+    Say  '    siblings this file re-runs       NOT CHECKED (-SkipSuites)'
     Say  '    behavioural suites               NOT CHECKED (-SkipSuites)'
 }
 Say ("    CI check steps                   {0}" -f $ciSteps)
@@ -1325,6 +1346,94 @@ if ($suitesRan) {
         '(?i)([a-z]+|\d+)\s+of\s+its\s+(?:[a-z]+|\d+)\s+check\s+steps\s+test\s+behaviour',
         '(?i)(?:[a-z]+|\d+)\s+of\s+the\s+(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+tests\s+of\s+behaviour',
         '(?i)(?:\*\*)?([a-z]+|\d+)(?:\*\*)?\s+behavioural\s+test\s+files?\s+surviv'
+    )
+}
+
+# --- how many files this one re-runs - #308 --------------------------------
+# THE DEFECT WAS THE NOUN, NOT THE WORD FORM, and #308 was filed on the other
+# theory - that a spelled-out `eleven` was invisible here because the patterns
+# are digit-anchored. They are not: $script:Words and ConvertTo-Quantity have
+# read word forms in every Test-Claim rule since long before that sentence was
+# written, and the rule above HAS been reading docs/testing.md's table row on
+# every run. Measured at ab6318c with -ShowPasses: `behavioural-suite-count
+# docs/testing.md:1280 says 13`, and `git log -L1280,1280:docs/testing.md` walks
+# that one word back through five - nine - ten - eleven - twelve - thirteen,
+# each step in the commit that moved the behavioural count. The guard held it to
+# the tree the whole time. It held it to THE WRONG QUANTITY.
+#
+# WHY, EXACTLY. The sentence describes a RE-RUN and borrowed the noun phrase of
+# a different derived number to say so: "a parallel re-run of the eleven
+# behavioural suites". `behavioural suites` is a real quantity this file derives
+# and eleven was its true value on the day, so the claim passed - while what it
+# asserted about the re-run was already wrong by two. A noun-keyed rule cannot
+# see that; only a rule keyed on the VERB can, because the object of "re-runs"
+# is the re-run count whatever noun follows it.
+#
+# WHAT IT KEYS ON, FOLLOWING comment-states-no-count'S PRECEDENT. A quantity -
+# digits or words, from $script:NumWordPat rather than a loose `[a-z]+`, so
+# running prose is not captured and then declined - followed, after at most the
+# qualifiers this tree actually writes, by a counting noun this tree actually
+# uses for the things under tests/.
+#
+# NOT "ANY NUMBER NEAR THE WORD RE-RUN", AND THE MEASUREMENT IS WHY. That shape
+# was run over every prose file this guard reads at ab6318c. THIRTY-SEVEN hits:
+#   34  running prose, captured and then declined as not-a-quantity - "re-run
+#       the command", "re-run against GNU bash", "re-run a baseline", "Re-runs
+#       the doctor". Thirty-four lines in the report about sentences doing the
+#       right thing is the cost the $script:NumWordPat comment refuses.
+#    2  FALSE FAILURES against correct sentences, which is worse than any
+#       number of declines: ci.yml's "re-runs the same eleven in PARALLEL"
+#       (CI steps, see below) and lw-orchestrator.md's "re-run one tier up"
+#       (a model tier) would each be read as a quantity and held to this count.
+#    1  the one true stale line, docs/testing.md:179.
+# One true catch bought with two false accusations is row D of the header's
+# table, and it was refused there for the same reason it is refused here.
+#
+# WHERE THE LINE IS DRAWN, AND WHAT IS DELIBERATELY LEFT OUTSIDE IT.
+#   - `invocations` is NOT in the noun list, so ci.yml's "The eleven sibling
+#     invocations cost about 610 s IN SERIES as steps 4-14 ... then re-runs the
+#     same eleven in PARALLEL - costing the slowest, 236 s" is not read here.
+#     That paragraph is an arithmetic record of a measured wall clock, and its
+#     eleven counts CI STEPS in series, not files under tests/ - a fourth
+#     quantity, which nothing derives and which correcting in place would
+#     falsify the 610 s it multiplies. Named on #308 and in the PR that lands
+#     this rule rather than swept under it.
+#   - A bare quantity with no noun after it ("re-runs the same eleven") is not
+#     read, same reason.
+#   - History keeps its numbers by the marker every other rule honours:
+#     .github/notes/HANDOFF.md says "All thirteen siblings were re-run for this
+#     pass", which is a record of one pass and is already frozen behind that
+#     page's doc-claims:ignore-file.
+#
+# MEASURED BEFORE IT WAS ADDED, the way row E of the header's table was. Over
+# every prose file in $docs these two shapes read exactly two claims and
+# declined nothing: docs/testing.md:179 and docs/testing.md:1280.
+#
+# BOTH OF THEM WERE RED AT ab6318c, which is this rule's baseline and the whole
+# of its red-first proof - the tree supplied the failing case, so none had to be
+# planted. :179 said fourteen: PR #302 corrected it to thirteen and it went
+# stale again when the metrics suite landed. :1280 said thirteen, which was the
+# behavioural count and not this one. THE TWO WERE INVISIBLE DIFFERENTLY, and
+# the difference is the whole lane: :179 was read by NOTHING, while :1280 was
+# read on every run by the rule above and passed it - `[ok]
+# behavioural-suite-count docs/testing.md:1280 says 13`. One was unguarded; the
+# other was guarded against the wrong number. Either way doc_claims.ps1 exited 0
+# over both - 222 of 222 at that commit, and 224 of 224 with the two sentences
+# corrected in the same change as this rule.
+#
+# AND IT CANNOT GO QUIETLY GREEN. A pattern here that matches nothing is an
+# exit-2 abort at the foot of this file, per the ledger, so if either phrasing
+# is ever reworded away this rule says so instead of passing an empty set.
+# Proved rather than asserted: both phrasings were reworded out of both pages
+# and the run aborted naming sibling-rerun-count #1 and #2.
+if ($suitesRan) {
+    $reRunQty  = "(?:\*\*)?($script:NumWordPat)(?:\*\*)?"
+    $reRunAdj  = '(?:(?:other|sibling|behavioural|remaining|tracked)\s+)*'
+    $reRunNoun = '(?:files?|suites?|siblings?)'
+    Test-Claim -Rule 'sibling-rerun-count' -Expected $siblingRerunCount `
+        -Source 'every tracked tests/*.ps1 on disk except this one, as the parallel run enumerated them' -Patterns @(
+        "(?i)re-runs?\s+(?:the\s+|every\s+)?(?:same\s+)?$reRunQty\s+$reRunAdj$reRunNoun",
+        "(?i)re-run\s+of\s+(?:the\s+)?$reRunQty\s+$reRunAdj$reRunNoun"
     )
 }
 
