@@ -95,8 +95,8 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   and `hooks` merge and against the reporting surfaces that have no suite of their own;
   `tests/uninstall_footprint.ps1` runs 40 against the uninstaller's footprint, attribution and
   state-data deletions; `tests/config_behaviour.ps1` runs 59 and `tests/toggle_behaviour.ps1` runs 32
-  against the two commands that write `config.override.json`; `tests/state_resolution.ps1` runs 37
-  against the state-directory resolver; `tests/doctor_behaviour.ps1` runs 48 against the doctor's
+  against the two commands that write `config.override.json`; `tests/state_resolution.ps1` runs 44
+  against the state-directory resolver; `tests/doctor_behaviour.ps1` runs 50 against the doctor's
   driven checks; `tests/subagent_scan.ps1` runs 20 against the `SubagentStart` fast path — the only
   coverage `context_injection` has; `tests/stack_mode.ps1` runs 15 against the working-discipline
   injector, the only coverage `stack_mode` has, and every one of them a simulation rather than a live

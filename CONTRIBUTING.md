@@ -233,8 +233,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\stop_behaviour.ps1    
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\uninstall_footprint.ps1 # the uninstaller's footprint and deletions, 40
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\config_behaviour.ps1    # the config command's write to the override, 59
 powershell -NoProfile -ExecutionPolicy Bypass -File tests	oggle_behaviour.ps1    # the toggle's write to the override, 28
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\state_resolution.ps1    # the state-directory resolver, 37
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1    # the doctor's driven checks, 48
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\state_resolution.ps1    # the state-directory resolver, 44
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\doctor_behaviour.ps1    # the doctor's driven checks, 50
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\subagent_scan.ps1       # the SubagentStart fast path + the dispatch record, 20
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\payload_guard.ps1       # every tracked file, as shipped payload, 30
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\metrics_behaviour.ps1   # the transcript indexer and the scoreboard, 23

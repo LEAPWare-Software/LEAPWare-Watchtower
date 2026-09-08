@@ -34,7 +34,7 @@ that covers a **deletion**.
 `CLAUDE_CONFIG_DIR` precedence, the five self-check probes, every rung of the mode ladder, the banner
 and the model-visible `additionalContext` envelope.
 `tests/doctor_behaviour.ps1` runs `bin/lwg-doctor.ps1` against seeded configs and seeded
-`settings.json` files with 48 cases, on **eight of its ten checks and no others**.
+`settings.json` files with 50 cases, on **eight of its ten checks and no others**.
 `tests/toggle_behaviour.ps1` drives `bin/lwg-toggle.ps1`'s write to the override file with 32 cases,
 and `tests/config_behaviour.ps1` does the same for `bin/lwg-config.ps1`, each closing with an
 invariant that the plugin root's tracked `config.json` was not moved by a byte. They are the only
@@ -1334,7 +1334,7 @@ it even that with a `403`; the manifest and its evidence engine were deleted in 
 correctly worded page and a correctly configured `main` are two separate claims and only the first of
 them is checked here.
 
-**There is no status badge in the README**, deliberately: a green badge covering three gates and all eight
+**There is no status badge in the README**, deliberately: a green badge covering three gates and all seven
 observing modules would read as far broader assurance than it is, which would be the
 exact overstatement this project exists to avoid. A second reason — that a badge would not render for
 most viewers of a repository they cannot read — stood until the visibility flip on **2026-08-28** and

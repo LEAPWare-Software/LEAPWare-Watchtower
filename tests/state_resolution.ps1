@@ -2009,7 +2009,7 @@ function Test-J2-AFailedSelfCheckNamesEveryFailureAndNeverReadsHealthy {
       until 8 September 2026, and the five probes are INDEPENDENT: which failure
       came first was an accident of the order they are written in the file, so a
       session that failed two probes reported one of them with no sign the list
-      went on. THE FIXTURE DRIVES TWO PROBES RED AT ONCE - a config.json with no
+      went on. THE FIXTURE FAILS TWO PROBES IN ONE RUN - a config.json with no
       thresholds block (probe 3) handed a payload with no session_id and no cwd
       (probe 4) - which is what makes "names every failure" askable at all.
 
