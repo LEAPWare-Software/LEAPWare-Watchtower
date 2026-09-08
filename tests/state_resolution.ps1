@@ -1054,7 +1054,7 @@ function Test-E4-NoRegistryNoteContradictsTheRegistrysOwnGateCount {
 # was given. A fixture that inherited anything would make those numbers a
 # statement about config.json instead of about the ladder.
 #
-# THE COUNTS ARE CONCRETE - 6/11, 11/11, 0 gates, 3 gates - and not recomputed
+# THE COUNTS ARE CONCRETE - 6/10, 10/10, 0 gates, 3 gates - and not recomputed
 # from the registry inside the case. Deriving them here would mean the case and
 # the code under test share a mistake; a registry change that moves them is
 # meant to bring this file with it, and that is the test working rather than
@@ -1269,13 +1269,13 @@ function Test-F4-APayloadMissingSessionAndCwdFailsBothPayloadProbes {
 function Test-F5-TheShippedConfigIsObserveOnly {
     <#
       The word the shipped plugin actually reports, and the one an operator sees
-      most: six of eleven modules run, no gate is armed, so nothing can block
+      most: six of ten modules run, no gate is armed, so nothing can block
       anything. '(5 off)' is asserted with it because the parenthetical is what
-      stops 6/11 being read as coverage - the five are built and switched off,
+      stops 6/10 being read as coverage - the four are built and switched off,
       not unwritten.
     #>
-    Invoke-ModeCase -Name 'f5' -CaseName 'F5 the shipped config.json reports mode observe-only, 6/11 modules and 0 gates' `
-        -ConfigJson '' -Mode 'observe-only' -Counts '6/11 modules' -Gates '0 gates' -Split '(5 off)'
+    Invoke-ModeCase -Name 'f5' -CaseName 'F5 the shipped config.json reports mode observe-only, 6/10 modules and 0 gates' `
+        -ConfigJson '' -Mode 'observe-only' -Counts '6/10 modules' -Gates '0 gates' -Split '(4 off)'
 }
 
 function Test-F6-SelfHealthOffIsUnverified {
@@ -1289,7 +1289,7 @@ function Test-F6-SelfHealthOffIsUnverified {
 {
   "version": "0.4.0",
   "modules": {
-    "failure_capture": true,
+    "effort_ledger": true,
     "self_health": false,
     "log_rotation": true,
     "docs_coupling": true,
@@ -1305,13 +1305,13 @@ function Test-F6-SelfHealthOffIsUnverified {
 }
 '@
     Invoke-ModeCase -Name 'f6' -CaseName 'F6 self_health off reports mode unverified, never a word that implies a check passed' `
-        -ConfigJson $cfg -Mode 'unverified' -Counts '6/11 modules' -Gates '0 gates' -Split '(5 off)'
+        -ConfigJson $cfg -Mode 'unverified' -Counts '6/10 modules' -Gates '0 gates' -Split '(4 off)'
 }
 
 function Test-F7-OneLiveGateIsPartial {
     <#
       interaction.delegate on arms delegate_gate, the one gate an operator can
-      turn on with a shipped command. Eight modules of eleven then run with one
+      turn on with a shipped command. Eight modules of ten then run with one
       gate live, which is 'partial' and not 'enforcing': three implemented
       modules are still switched off and the word has to carry that.
 
@@ -1323,7 +1323,7 @@ function Test-F7-OneLiveGateIsPartial {
 {
   "version": "0.4.0",
   "modules": {
-    "failure_capture": true,
+    "effort_ledger": true,
     "self_health": true,
     "log_rotation": true,
     "docs_coupling": true,
@@ -1340,7 +1340,7 @@ function Test-F7-OneLiveGateIsPartial {
 }
 '@
     Invoke-ModeCase -Name 'f7' -CaseName 'F7 one live gate with modules still off reports mode partial and 1 gate' `
-        -ConfigJson $cfg -Mode 'partial' -Counts '8/11 modules' -Gates '1 gate' -Split '(3 off)'
+        -ConfigJson $cfg -Mode 'partial' -Counts '8/10 modules' -Gates '1 gate' -Split '(2 off)'
 }
 
 function Test-F8-EverythingOnIsEnforcing {
@@ -1365,7 +1365,7 @@ function Test-F8-EverythingOnIsEnforcing {
 {
   "version": "0.4.0",
   "modules": {
-    "failure_capture": true,
+    "effort_ledger": true,
     "self_health": true,
     "log_rotation": true,
     "docs_coupling": true,
@@ -1376,8 +1376,7 @@ function Test-F8-EverythingOnIsEnforcing {
   "interaction": { "delegate": true },
   "supervision": {
     "send_liveness": true,
-    "completion_audit": true,
-    "orphan_watch": true
+    "completion_audit": true
   },
   "repos": {},
   "thresholds": {
@@ -1396,7 +1395,7 @@ function Test-F8-EverythingOnIsEnforcing {
     $problems = @()
     if ([string]$c.record.mode -ne 'enforcing') { $problems += "the ledger record says mode '$($c.record.mode)', expected 'enforcing'. failures: [$($c.record.failures -join '; ')]" }
     if (-not (Test-BannerMode $banner 'enforcing')) { $problems += "the BANNER does not end on 'enforcing': [$banner]" }
-    if ($banner -notmatch '11/11 modules') { $problems += "the banner does not say '11/11 modules': [$banner]" }
+    if ($banner -notmatch '10/10 modules') { $problems += "the banner does not say '10/10 modules': [$banner]" }
     if ($banner -notmatch '3 gates')              { $problems += "the banner does not say '3 gates': [$banner]" }
     if ($banner -match '\d+/\d+ modules \w+\s*\(') { $problems += "the banner prints a parenthetical on a config with nothing planned and nothing off: [$banner]" }
     $f = Get-BannerFailure $banner
@@ -1418,7 +1417,7 @@ function Test-F9-NothingRunningIsInert {
 {
   "version": "0.4.0",
   "modules": {
-    "failure_capture": false,
+    "effort_ledger": false,
     "self_health": false,
     "log_rotation": false,
     "docs_coupling": false,
@@ -1433,8 +1432,8 @@ function Test-F9-NothingRunningIsInert {
   }
 }
 '@
-    Invoke-ModeCase -Name 'f9' -CaseName 'F9 nothing enabled at all reports mode inert, 0/11 modules and 0 gates' `
-        -ConfigJson $cfg -Mode 'inert' -Counts '0/11 modules' -Gates '0 gates' -Split '(11 off)'
+    Invoke-ModeCase -Name 'f9' -CaseName 'F9 nothing enabled at all reports mode inert, 0/10 modules and 0 gates' `
+        -ConfigJson $cfg -Mode 'inert' -Counts '0/10 modules' -Gates '0 gates' -Split '(10 off)'
 }
 
 # =========================================================================
@@ -1505,7 +1504,7 @@ function Test-G2-TheBannerNumbersAreTheOnesTheConfigImplies {
       this line goes on counting the module, so the word claimed an observation
       the plugin has never had, in the one line every session reads.
 
-      The other five mode cases assert the FRACTION and not the noun - '6/11
+      The other five mode cases assert the FRACTION and not the noun - '6/10
       modules' - deliberately. They are coverage and are green at that commit,
       and folding the wording defect into all six would have made five green
       cases look like five red ones and lost which change did what.
@@ -1517,7 +1516,7 @@ function Test-G2-TheBannerNumbersAreTheOnesTheConfigImplies {
     $c = Invoke-SessionStartCase -Name 'g2'
     $banner = [string]$c.envelope.systemMessage
     $problems = @()
-    foreach ($want in @('6/11 modules enabled', '(5 off)', '0 gates', 'observe-only')) {
+    foreach ($want in @('6/10 modules enabled', '(4 off)', '0 gates', 'observe-only')) {
         if ($banner -notmatch [regex]::Escape($want)) { $problems += "the banner does not say '$want'" }
     }
     if ($banner -match 'modules active') {
@@ -1577,7 +1576,7 @@ function Test-G4-TheEnvelopeIsTheSessionStartShape {
 function Test-G5-AdditionalContextDescribesWhatIsRunning {
     <#
       The roster and the gate sentence, on the shipped config. Every active
-      module is named because the sentence claims to name them; the five that
+      module is named because the sentence claims to name them; the four that
       are built and switched off are accounted for because an unexplained gap in
       a coverage report is the same defect as an overstated one; and the gate
       sentence must say no gate is LIVE rather than that none exists, since
@@ -1586,13 +1585,13 @@ function Test-G5-AdditionalContextDescribesWhatIsRunning {
     $c = Invoke-SessionStartCase -Name 'g5'
     $ctx = [string]$c.envelope.hookSpecificOutput.additionalContext
     $problems = @()
-    foreach ($want in @('mode observe-only', 'Running (6/11)', 'No gate is live')) {
+    foreach ($want in @('mode observe-only', 'Running (6/10)', 'No gate is live')) {
         if ($ctx -notmatch [regex]::Escape($want)) { $problems += "additionalContext does not say '$want'" }
     }
-    foreach ($m in @('failure_capture', 'self_health', 'log_rotation', 'docs_coupling', 'git_hygiene', 'context_injection')) {
+    foreach ($m in @('effort_ledger', 'self_health', 'log_rotation', 'docs_coupling', 'git_hygiene', 'context_injection')) {
         if ($ctx -notmatch [regex]::Escape($m)) { $problems += "additionalContext does not name the active module '$m'" }
     }
-    foreach ($m in @('stack_mode', 'send_liveness_gate', 'completion_audit', 'orphan_watch', 'delegate_gate')) {
+    foreach ($m in @('stack_mode', 'send_liveness_gate', 'completion_audit', 'delegate_gate')) {
         if ($ctx -notmatch [regex]::Escape($m)) { $problems += "additionalContext does not account for '$m', which is built and switched OFF - a reader totting up the names comes up short with no account of the remainder" }
     }
     if ($ctx -match 'can BLOCK a tool call') { $problems += 'additionalContext claims a gate can block on a config where none is armed' }
@@ -1611,7 +1610,7 @@ function Test-G6-AdditionalContextNamesALiveGate {
 {
   "version": "0.4.0",
   "modules": {
-    "failure_capture": true,
+    "effort_ledger": true,
     "self_health": true,
     "log_rotation": true,
     "docs_coupling": true,
@@ -1649,7 +1648,7 @@ function Test-G7-AdditionalContextSaysTheSelfCheckDidNotRun {
 {
   "version": "0.4.0",
   "modules": {
-    "failure_capture": true,
+    "effort_ledger": true,
     "self_health": false,
     "log_rotation": true,
     "docs_coupling": true,
@@ -1686,7 +1685,7 @@ function Test-G8-AdditionalContextDoesNotPrintItsRemainderCountTwice {
       modules built and switched off - so the two numbers were the same number
       and the sentence came out
 
-          The other 4: 4 (send_liveness_gate, completion_audit, orphan_watch,
+          The other 4: 4 (stack_mode, send_liveness_gate, completion_audit,
           delegate_gate) built but switched OFF in config.json.
 
       Every fact in it is true, which is why this is the low-severity end of the
@@ -1726,10 +1725,10 @@ function Test-G8-AdditionalContextDoesNotPrintItsRemainderCountTwice {
                       "for the whole remainder on the shipped configuration, so this is what every default install " +
                       "puts in front of the model on every session start.")
     }
-    if ($ctx -notmatch 'The other 5\b') {
-        $problems += "additionalContext does not account for the five remaining modules with the number 5 at all - the count must still be stated, just not twice"
+    if ($ctx -notmatch 'The other 4\b') {
+        $problems += "additionalContext does not account for the four remaining modules with the number 4 at all - the count must still be stated, just not twice"
     }
-    foreach ($mod in @('stack_mode', 'send_liveness_gate', 'completion_audit', 'orphan_watch', 'delegate_gate')) {
+    foreach ($mod in @('stack_mode', 'send_liveness_gate', 'completion_audit', 'delegate_gate')) {
         if ($ctx -notmatch [regex]::Escape($mod)) { $problems += "additionalContext no longer names '$mod' among the modules that are built and switched off" }
     }
     if ($ctx -notmatch 'built but switched OFF in config\.json') {
@@ -1917,6 +1916,419 @@ function Test-I2-TheSameOverrideOverTheShippedConfigDoesArmTheGate {
 }
 
 # =========================================================================
+# SECTION J - #166 HH LAYER 0: the self-check is reported FIRST and SEPARATELY
+#
+# #166's layer 0 is "is the plugin sound", and its contract has three parts:
+# the answer is reported FIRST, it is reported SEPARATELY from the health of the
+# work, and a FAILED self-check never renders as healthy. Until 8 September 2026
+# the banner met none of the three. It opened with the module fraction - the
+# reading that is worthless if layer 0 failed - and put the self-check LAST, in
+# a parenthetical after the mode word, carrying $failures[0] alone.
+#
+# WHAT THIS SECTION IS AND IS NOT. It is layer 0 and nothing else. Layers 1, 2
+# and 3 of that issue's banner design - the stranded-agent list, the occupancy
+# meters, the left-open-from-your-last-session block - are #167's and #168's and
+# no case here asserts anything about them.
+#
+# AND IT IS WHERE #144 NOW LIVES OR DIES. #144 ("the SessionStart banner is
+# asserted by no test") CLOSED on 4 September 2026 against section G, and its
+# closing comment said in terms that "a v0.5.0 redesign moves these assertions,
+# which is the cost of having them". This is that redesign. Section G still
+# asserts the banner it always did; these four cases assert the part of it that
+# is new, so the re-render lands with coverage rather than reopening #144.
+#
+# THE PROBE COUNT IS FIVE AND IT IS ASSERTED AS FIVE. lib\session_start.ps1
+# carries SIX booleans in $selfcheck for five probes - probe 4 reads
+# payload_session and payload_cwd and is one probe about the payload - and the
+# first implementation of the tally counted a nested array that PowerShell had
+# flattened and printed "5 of 10" on a healthy session. J1 and J4 are what
+# stops that class of arithmetic reaching the operator again.
+# =========================================================================
+
+function Test-J1-TheBannerLeadsWithTheSelfCheck {
+    <#
+      LAYER 0 GOES FIRST, and "first" is asserted by POSITION rather than by
+      presence. A banner that mentioned the self-check anywhere would satisfy a
+      substring test while still opening with the reading that depends on it, so
+      this case compares the two INDEXES: the self-check segment must appear
+      before the module fraction.
+
+      RED-FIRST at BASELINE ab6318c, where the banner is
+      "LW-WATCHTOWER v0.5.0 · 6/11 modules enabled (5 off) · 0 gates ·
+      observe-only" - the self-check appears nowhere on a healthy session at
+      all, so both the position test and the "N of 5" test fail outright.
+    #>
+    $c = Invoke-SessionStartCase -Name 'j1'
+    $banner = [string]$c.envelope.systemMessage
+    $problems = @()
+    $iSelf = $banner.IndexOf('self-check', [StringComparison]::OrdinalIgnoreCase)
+    $iMods = $banner.IndexOf('modules enabled', [StringComparison]::OrdinalIgnoreCase)
+    if ($iSelf -lt 0) {
+        $problems += ("the banner does not report the self-check AT ALL on a healthy session. Layer 0 is the " +
+                      "reading every other reading on this line depends on; a session that passed five probes " +
+                      "and a session that ran none would print the same banner.")
+    }
+    if ($iMods -lt 0) {
+        $problems += "the banner no longer prints the module fraction - layer 0 goes BEFORE it, not INSTEAD of it"
+    }
+    if ($iSelf -ge 0 -and $iMods -ge 0 -and $iSelf -gt $iMods) {
+        $problems += ("the banner puts the self-check AFTER the module fraction (self-check at $iSelf, fraction at " +
+                      "$iMods). #166: 'if this fails, every reading above it is worthless, so it is reported first " +
+                      "and separately' - the dependent reading must not come first.")
+    }
+    if ($banner -notmatch 'self-check passed, 5 of 5') {
+        $problems += ("the banner does not say 'self-check passed, 5 of 5'. FIVE is the number of probes " +
+                      "lib\session_start.ps1 numbers in its own comments and docs\modules.md calls 'Five probes'; " +
+                      "the hashtable holds SIX booleans because probe 4 reads two payload fields, and a tally " +
+                      "built from member count rather than from probes prints the wrong denominator.")
+    }
+    # SEPARATELY, and this is the half a merged sentence would fail: the
+    # self-check must not be folded into the module count. If it were, the
+    # fraction and the probe tally would be one number and an operator could not
+    # tell a switched-off module from a failed probe.
+    if ($banner -match '\d+/\d+ modules enabled[^0-9]*5 of 5') {
+        $problems += 'the probe tally is rendered inside the module fraction rather than as its own segment'
+    }
+    if ($c.code -ne 0) { $problems += "the hook exited $($c.code); it must always exit 0. stderr: $($c.err)" }
+    if ($problems.Count -gt 0) { $problems += "banner: [$banner]" }
+    Add-Case 'J1 the banner reports the self-check FIRST and SEPARATELY, as N of 5 (#166 layer 0)' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-J2-AFailedSelfCheckNamesEveryFailureAndNeverReadsHealthy {
+    <#
+      TWO CLAIMS, ONE RUN, and neither is about the mode word.
+
+      FIRST, a failed self-check must not render as healthy. Get-LwgSessionMode
+      already answers 'degraded' and section B pins that; what this asserts is
+      the LAYER 0 SEGMENT - it must carry the word FAILED and must not carry the
+      word 'passed'. An operator reading "self-check passed" beside mode
+      'degraded' is reading a line that disagrees with itself, and the two now
+      come from one branch so they cannot.
+
+      SECOND, EVERY failure is named. The banner carried $failures[0] alone
+      until 8 September 2026, and the five probes are INDEPENDENT: which failure
+      came first was an accident of the order they are written in the file, so a
+      session that failed two probes reported one of them with no sign the list
+      went on. THE FIXTURE DRIVES TWO PROBES RED AT ONCE - a config.json with no
+      thresholds block (probe 3) handed a payload with no session_id and no cwd
+      (probe 4) - which is what makes "names every failure" askable at all.
+
+      RED-FIRST at BASELINE ab6318c on the second claim: the banner there ends
+      "... · degraded (thresholds missing or non-numeric)" and the payload
+      failures are absent from it.
+    #>
+    $cfg = '{ "version": "0.5.0", "modules": { "effort_ledger": true, "self_health": true } }'
+    $c = Invoke-SessionStartCase -Name 'j2' -ConfigJson $cfg -PayloadJson '{"source":"startup"}'
+    $banner = [string]$c.envelope.systemMessage
+    $problems = @()
+    if ($null -eq $c.record) {
+        Add-Case 'J2 a FAILED self-check says FAILED, never passed, and names every failure (#166 layer 0)' $false `
+            "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    $recFailures = @($c.record.failures)
+    if ($recFailures.Count -lt 2) {
+        $problems += ("the FIXTURE did not drive two probes red - the record carries $($recFailures.Count) " +
+                      "failure(s): [$($recFailures -join '; ')]. With fewer than two, 'names every failure' is " +
+                      "not being asked and this case would pass on a banner that still printed only the first.")
+    }
+    if ($banner -notmatch 'FAILED') {
+        $problems += ("the layer 0 segment does not say FAILED. #166: 'a failed self-check never renders as " +
+                      "healthy' - and the mode word alone does not carry that, because a reader looking for the " +
+                      "self-check finds its count and no verdict.")
+    }
+    if ($banner -match 'self-check passed') {
+        $problems += 'the banner says the self-check PASSED on a session in which probes failed'
+    }
+    foreach ($f in $recFailures) {
+        if ($banner -notmatch [regex]::Escape([string]$f)) {
+            $problems += ("the banner omits the failure '$f', which the ledger record carries. It printed " +
+                          "`$failures[0] alone until 8 September 2026, so an operator fixing the reported fault " +
+                          "and rerunning learned of the next one only then.")
+        }
+    }
+    if ($c.code -ne 0) { $problems += "the hook exited $($c.code); it must always exit 0. stderr: $($c.err)" }
+    if ($problems.Count -gt 0) { $problems += "banner: [$banner]`nrecord failures: [$($recFailures -join '; ')]" }
+    Add-Case 'J2 a FAILED self-check says FAILED, never passed, and names every failure (#166 layer 0)' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-J3-SelfHealthOffSaysDidNotRunAndNeitherOfTheOtherTwo {
+    <#
+      THE THIRD STATE, and the one an absence would be read as the first. With
+      self_health off no probe ran, so the layer 0 segment must say DID NOT RUN
+      - not a count, not 'passed', not 'FAILED'. A count of "0 of 5" would be
+      the worst of the three renderings available: it reads as five failures.
+
+      G7 asserts the model-visible additionalContext says this. This asserts the
+      OPERATOR-visible banner does, in the segment that now leads the line, and
+      that it does not smuggle a tally in beside it.
+    #>
+    $cfg = @'
+{
+  "version": "0.5.0",
+  "modules": {
+    "effort_ledger": true,
+    "self_health": false,
+    "log_rotation": true,
+    "docs_coupling": true,
+    "git_hygiene": true,
+    "context_injection": true,
+    "stack_mode": true
+  },
+  "repos": {},
+  "thresholds": {
+    "ratelimit": { "warn_pct": 88, "land_all_pct": 92 },
+    "context":   { "warn_pct": 75, "critical_pct": 90 }
+  }
+}
+'@
+    $c = Invoke-SessionStartCase -Name 'j3' -ConfigJson $cfg
+    $banner = [string]$c.envelope.systemMessage
+    $problems = @()
+    if ($banner -notmatch 'self-check DID NOT RUN') {
+        $problems += "the banner does not say the self-check DID NOT RUN - an unrun check must never be readable as a passed one"
+    }
+    if ($banner -match 'self-check passed')  { $problems += "the banner reports a PASSED self-check for one that never ran" }
+    if ($banner -match 'self-check FAILED')  { $problems += "the banner reports a FAILED self-check for one that never ran - 'did not run' is not 'failed'" }
+    if ($banner -match 'self-check[^0-9]{0,40}\d+ of \d+') {
+        $problems += ("the banner prints a probe TALLY for a self-check that never ran. '0 of 5' is the worst of " +
+                      "the three available renderings: it reads as five probes that failed.")
+    }
+    if ($banner -notmatch 'self_health off') { $problems += "the banner does not say the omission is deliberate rather than a fault" }
+    if (-not (Test-BannerMode $banner 'unverified')) { $problems += "the banner does not still end on the mode word 'unverified'" }
+    if ($problems.Count -gt 0) { $problems += "banner: [$banner]" }
+    Add-Case 'J3 self_health off: the banner says DID NOT RUN, and neither passed nor FAILED (#166 layer 0)' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-J4-TheProbeTallyIsInTheRecordAndAgreesWithTheBanner {
+    <#
+      THE TWO CANNOT BE ALLOWED TO DRIFT, which is the same rule F5 to F9 apply
+      to the mode word: the ledger record and the banner come from one
+      computation, so a case that read only one of them would let the other say
+      anything. probes_passed and probes_of are written to the record for the
+      doctor and for anything that later reads the log, and this asserts the
+      banner is printing THOSE numbers rather than a second opinion.
+
+      IT IS ALSO THE FLATTENING GUARD. The first implementation built the probe
+      list as an array of @(name, bool) pairs; PowerShell flattens nested arrays
+      in an array subexpression, so five pairs became ten elements and
+      probes_of came out 10. Asserting the denominator equals 5 here and in the
+      banner catches that from both directions.
+    #>
+    $c = Invoke-SessionStartCase -Name 'j4'
+    $problems = @()
+    if ($null -eq $c.record) {
+        Add-Case 'J4 the record carries probes_passed/probes_of and the banner prints those same numbers (#166 layer 0)' $false `
+            "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    $sc = $c.record.selfcheck
+    $passed = $sc.probes_passed
+    $of     = $sc.probes_of
+    if ($null -eq $passed -or $null -eq $of) {
+        $problems += ("the record's selfcheck carries no probes_passed/probes_of - the banner's tally is then a " +
+                      "number nothing else can be held to. selfcheck: [$($sc | ConvertTo-Json -Compress)]")
+    } else {
+        if ([int]$of -ne 5) {
+            $problems += ("probes_of is $of, expected 5. There are five probes and SIX booleans in `$selfcheck " +
+                          "(probe 4 reads payload_session and payload_cwd), so a denominator of 6 means the tally " +
+                          "counts members; a denominator of 10 means an array of pairs was flattened.")
+        }
+        if ([int]$passed -ne 5) {
+            $problems += "probes_passed is $passed on the shipped config, expected 5. failures: [$($c.record.failures -join '; ')]"
+        }
+        $banner = [string]$c.envelope.systemMessage
+        if ($banner -notmatch ("self-check passed, " + [regex]::Escape("$passed of $of"))) {
+            $problems += ("the banner does not print the record's own numbers ('$passed of $of'): [$banner]. One " +
+                          "computation, two readers - they must not be able to disagree.")
+        }
+    }
+    Add-Case 'J4 the record carries probes_passed/probes_of and the banner prints those same numbers (#166 layer 0)' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+# =========================================================================
+# SECTION K - #166 THE BREAKING CONFIG RENAME, measured rather than assumed
+#
+# failure_capture and orphan_watch merged into effort_ledger on 8 September
+# 2026, and BOTH OLD KEYS ARE GONE. Owner ruling H2 requires an upgrade note in
+# the CHANGELOG, and a note is only worth writing if it says what actually
+# happens. These cases are that measurement, and what they found is an
+# ASYMMETRY that the note states because nothing else surfaces it:
+#
+#   modules.failure_capture in an override    silently ignored at run time,
+#                                             and REPORTED by the doctor's
+#                                             config-registry row
+#   supervision.orphan_watch in an override   silently ignored at run time,
+#                                             and reported by NOTHING - that
+#                                             row enumerates the `modules`
+#                                             block for strays and has never
+#                                             enumerated this one
+#
+# Merge-LwgConfigOverride ADDS a member the base does not have rather than
+# discarding it, so both keys reach the effective config; Get-LwgUnresolvedFlags
+# walks $script:LwgModules and never sees a name the registry has dropped, so
+# self_health's probe 2 does not fire either. The half the doctor reports is
+# asserted in tests\doctor_behaviour.ps1; the run-time half is here.
+#
+# WHY THIS IS A SECTION AND NOT A LINE IN THE CHANGELOG. "Verify that behaviour,
+# do not assume it" was the instruction, and the assumption a reader would
+# reasonably make - that a config naming a key that no longer exists is
+# rejected, or at least reported - is wrong in one direction and right in the
+# other. That is exactly the kind of fact a note gets wrong when it is written
+# from the code's intent instead of from a run.
+# =========================================================================
+
+function Test-K1-TheRegistryHoldsTheMergedNameAndNeitherOldOne {
+    <#
+      THE SHAPE OF THE MERGE, asserted off the registry itself: effort_ledger
+      exists, is kind 'observe', declares NO `switch` of its own - so its flag
+      is a plain `modules` key, which is what makes it one switch rather than
+      two - and neither old name is still in the table. The count is asserted
+      too, because two entries out and one in is the whole arithmetic ruling H2
+      corrected on the record.
+
+      RED-FIRST at BASELINE ab6318c: eleven entries there, failure_capture and
+      orphan_watch both present, effort_ledger absent.
+    #>
+    $probeRoot = New-PluginTree (Join-Path $script:Work 'k1')
+    $prof = New-Dir (Join-Path $script:Work 'k1-profile')
+    $data = New-Dir (Join-Path $script:Work 'k1-data')
+    $probe = New-Probe -Root $probeRoot -Name 'probe' -Body @"
+    `$m = [ordered]@{}
+    foreach (`$k in `$script:LwgModuleRegistry.Keys) {
+        `$m[`$k] = [ordered]@{
+            kind      = [string]`$script:LwgModuleRegistry[`$k].kind
+            hasSwitch = (`$null -ne `$script:LwgModuleRegistry[`$k].switch)
+        }
+    }
+    `$o['registry'] = `$m
+    `$o['switchModules'] = @(`$script:LwgSwitchModules)
+"@
+    $name = 'K1 the registry holds effort_ledger (observe, no switch) and neither failure_capture nor orphan_watch (#166)'
+    $r = Invoke-Child -ScriptPath $probe -EnvSet @{ USERPROFILE = $prof; CLAUDE_PLUGIN_DATA = $data }
+    $j = Read-Json $r 'the merged-registry probe'
+    if (-not $j.ok) { Add-Case $name $false $j.why; return }
+
+    $names = @($j.obj.registry.PSObject.Properties.Name)
+    $problems = @()
+    if ($names.Count -lt 2) {
+        Add-Case $name $false "the probe returned $($names.Count) entr(ies) - too few to have read the table at all"
+        return
+    }
+    if ($names -contains 'failure_capture') { $problems += "the registry still holds 'failure_capture'; the merge replaces it, it does not sit beside effort_ledger" }
+    if ($names -contains 'orphan_watch')    { $problems += "the registry still holds 'orphan_watch'; the merge absorbs it into effort_ledger" }
+    if ($names -notcontains 'effort_ledger') {
+        $problems += "the registry has no 'effort_ledger' entry: [$($names -join ', ')]"
+    } else {
+        $e = $j.obj.registry.effort_ledger
+        if ([string]$e.kind -ne 'observe') { $problems += "effort_ledger is kind '$($e.kind)', expected 'observe' - it observes and refuses nothing" }
+        if ([bool]$e.hasSwitch) {
+            $problems += ("effort_ledger declares a `switch` of its own. The whole point of the merge is ONE flag, " +
+                          "and a `switch`-backed entry has no `modules` key - so the doctor's parity rule would " +
+                          "stop holding config.json's `modules` block to this name.")
+        }
+    }
+    if ($names.Count -ne 10) {
+        $problems += ("the registry holds $($names.Count) entries, expected 10. Owner ruling H2 corrected the " +
+                      "arithmetic on the record: this merge lands 11 -> 10, not 10 -> 9. Names: [$($names -join ', ')]")
+    }
+    $sw = @($j.obj.switchModules)
+    if ($sw -contains 'orphan_watch') { $problems += "`$LwgSwitchModules still names orphan_watch" }
+    if ($sw.Count -ne 3) {
+        $problems += ("`$LwgSwitchModules holds $($sw.Count) name(s), expected 3 - the three gates and nothing " +
+                      "else, since orphan_watch was the only observe-kind entry ever to declare a switch: " +
+                      "[$($sw -join ', ')]")
+    }
+    Add-Case $name ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-K2-AnOverrideNamingTheRemovedModulesKeyIsSilentlyIgnored {
+    <#
+      THE UPGRADE NOTE'S FIRST HALF, measured. An operator who set
+      modules.failure_capture to FALSE - meaning "stop recording" - and upgrades
+      gets the ledger ON, because no code reads that name any more. This case
+      asserts exactly that, in both directions: the dead key does not switch the
+      merged module off, AND it does not break the session or trip a probe.
+
+      THE FALSE VALUE IS THE ONE THAT MATTERS. An override setting the old name
+      TRUE would be indistinguishable from the shipped default and would prove
+      nothing. Setting it FALSE is the operator whose recorded choice is being
+      silently discarded, which is the fact the note has to state.
+    #>
+    $c = Invoke-SessionStartCase -Name 'k2' `
+             -OverrideJson '{"modules":{"failure_capture":false,"orphan_watch":false}}'
+    $banner = [string]$c.envelope.systemMessage
+    $ctx    = [string]$c.envelope.hookSpecificOutput.additionalContext
+    $problems = @()
+    if ($null -eq $c.record) {
+        Add-Case 'K2 an override naming the removed modules.failure_capture is silently ignored, ledger stays ON (#166)' $false `
+            "no SessionStart record was written. exit $($c.code), stderr: $($c.err)"
+        return
+    }
+    if ($ctx -notmatch 'effort_ledger') {
+        $problems += ("effort_ledger is not among the running modules, so the dead key DID switch something off - " +
+                      "which would make the upgrade note wrong in the safe direction rather than the measured one. " +
+                      "context: [$ctx]")
+    }
+    if ($banner -notmatch '6/10 modules enabled') {
+        $problems += "the banner does not report 6/10; the dead key moved the active count: [$banner]"
+    }
+    if ($banner -notmatch 'self-check passed, 5 of 5') {
+        $problems += ("the self-check did not pass with a dead key in the override. Get-LwgUnresolvedFlags walks " +
+                       "`$script:LwgModules and cannot see a name the registry has dropped, so probe 2 does not " +
+                       "fire - if that changes, the upgrade note's 'silently ignored' becomes wrong. banner: [$banner]")
+    }
+    if ("$($c.record.mode)" -ne 'observe-only') {
+        $problems += "the session reports mode '$($c.record.mode)' rather than observe-only, so the dead key degraded it"
+    }
+    if ($c.code -ne 0) { $problems += "the hook exited $($c.code); it must always exit 0. stderr: $($c.err)" }
+    Add-Case 'K2 an override naming the removed modules.failure_capture is silently ignored, ledger stays ON (#166)' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+function Test-K3-AnOverrideNamingTheRemovedSupervisionKeyIsIgnoredAndUnreported {
+    <#
+      THE UPGRADE NOTE'S SECOND HALF, and the asymmetry it exists to warn about.
+      supervision.orphan_watch reaches the effective config exactly as the dead
+      `modules` key does, and NOTHING at session start mentions it: no failure,
+      no degraded mode, no line in the banner or the model-visible context. The
+      doctor does not report it either - that half is asserted in
+      tests\doctor_behaviour.ps1, because this suite does not run the doctor.
+
+      THE CONTROL IS INSIDE THE CASE. A `supervision` override that STILL WORKS
+      is asserted in the same run - send_liveness true arms the gate - so a
+      Get-LwgConfig that had stopped merging the supervision block at all cannot
+      pass this by ignoring everything in it.
+    #>
+    $c = Invoke-SessionStartCase -Name 'k3' `
+             -OverrideJson '{"supervision":{"orphan_watch":true,"send_liveness":true}}'
+    $banner = [string]$c.envelope.systemMessage
+    $ctx    = [string]$c.envelope.hookSpecificOutput.additionalContext
+    $problems = @()
+    # THE CONTROL FIRST.
+    if ($banner -notmatch '1 gate\b') {
+        $problems += ("the live control failed: supervision.send_liveness true did not arm send_liveness_gate " +
+                      "over the shipped config, so this case establishes nothing about the DEAD key beside it. " +
+                      "banner: [$banner]")
+    }
+    if ($ctx -notmatch 'send_liveness_gate') { $problems += "the context does not name the armed gate, so the control is not established" }
+    # THE DEAD KEY.
+    if ($banner -match 'orphan_watch' -or $ctx -match 'orphan_watch') {
+        $problems += ("something at session start names 'orphan_watch'. It is not a module any more, so naming it " +
+                      "in a coverage line would be counting a name with no code - but if this ever becomes a " +
+                      "deliberate WARNING, the upgrade note's 'reported by nothing' stops being true and must move.")
+    }
+    if ($null -ne $c.record) {
+        $f = @($c.record.failures)
+        foreach ($x in $f) {
+            if ([string]$x -match 'orphan_watch') { $problems += "the self-check reports a failure naming orphan_watch: [$x]" }
+        }
+    }
+    if ($c.code -ne 0) { $problems += "the hook exited $($c.code); it must always exit 0. stderr: $($c.err)" }
+    if ($problems.Count -gt 0) { $problems += "banner: [$banner]" }
+    Add-Case 'K3 an override naming the removed supervision.orphan_watch is ignored and reported by nothing (#166)' ($problems.Count -eq 0) ($problems -join "`n")
+}
+
+# =========================================================================
 
 Say ''
 Say 'LW-WATCHTOWER state-resolution and platform suite'
@@ -1926,6 +2338,7 @@ Say '  F #177 the four unasserted probes and the mode ladder'
 Say '  G #144 the banner   #177 the additionalContext envelope   #266 its remainder count'
 Say '  H #269 the payload is UTF-8 and [Console]::In decoded it at the console''s code page'
 Say '  I #268 a config.json that parses and is not a config cannot arm a gate'
+
 Say ''
 
 try {
@@ -1940,7 +2353,8 @@ try {
     # written and never called is a suite that reports a clean pass over
     # coverage it does not have - the founding defect this repository exists to
     # catch, in its own test harness. Sorting on the name gives A1..A5, B1..B4,
-    # C1, D1..D3, E1..E4, F1..F9, G1..G8, H1, I1..I2, so section order is a property of
+    # C1, D1..D3, E1..E4, F1..F9, G1..G8, H1, I1..I2, J1..J4, K1..K3, so section order
+    # is a property of
     # the naming. IT IS A STRING SORT: F10 would come before F2, so a section stops
     # at nine cases and the next one takes a new letter. That costs nothing
     # except readability of the run, which is the only thing the order decides.

@@ -47,7 +47,7 @@
   THE VERDICT NEEDS THE RECORDER. "No SubagentStop record" only means
   something if the recorder was running, so a DENY additionally requires that
   health.jsonl holds at least one record OF ANY KIND for this session. A
-  session failure_capture never saw gets an ABSTAIN (allow, logged
+  session effort_ledger never saw gets an ABSTAIN (allow, logged
   SendGateAbstain) - a gate must not convict on the silence of a witness that
   was never in the room.
 
