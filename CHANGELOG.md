@@ -23,6 +23,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 `main` must never declare a version a tag has already published (the rule `[0.4.0]` added). Entries
 land here as they merge.
 
+### Fixed
+
+- **`tests/stop_behaviour.ps1` B37 stops dividing by a subprocess, because that quotient measured
+  the host and not the code (2026-09-07, #337).** The case asserted that `git_hygiene`'s class-2
+  interrupted-work probes cost under **a twentieth of one `git` spawn**. That escaped an absolute
+  millisecond threshold and landed on a **ratio that is just as machine-dependent**: process
+  creation and in-process file checks belong to different parts of a host and do not move together.
+  Same content, two machines — **1:82** on a dev box (probes 1.17 ms, spawn 96.85 ms) and **1:17.5**
+  on GitHub `windows-latest` (2.15 ms, 37.67 ms), a **4.7x** spread with **neither leg regressing**.
+  `main` went **red** on the #330 merge sixteen minutes after the identical tree passed on its own
+  branch. The reference leg is now **one `Test-Path` miss** — one of the seven checks the probe set
+  is built from — and the bar is **forty** of them: the same class of work on both legs, so a host
+  charges them alike. Measured on both kinds of machine before the bar was set: **11.99** on the dev
+  box under four concurrent lanes, **10.22** on a hosted runner, a **1.17x** spread. Red-first: one
+  subprocess inside `Get-LwgInterruptedOps` reads **410.67**. The case also **spawns nothing** now,
+  which makes that suite's own header claim — that B36 is its only case needing `git` on `PATH` —
+  true again. **144 cases, unchanged.**
+
 ### Changed
 
 - **`context_pressure` is deleted and the transition ladder replaces it (2026-09-06, #168, slice 1).**

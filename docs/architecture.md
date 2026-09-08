@@ -488,8 +488,14 @@ directory and spawn nothing; the sixth, an unresolved conflict, is read from the
 `git status` already being fetched. Difference of medians against one real subprocess round trip
 through this file's own process plumbing, nine rounds, leg order reversed on alternate rounds, one
 warm-up sweep discarded, both legs on the same machine in the same run: **1.17 ms for the whole
-probe set against 96.85 ms for one `git` spawn — 1.2 %**. The measurement is case B37 of
-`tests/stop_behaviour.ps1` and is re-taken on every run of that suite.
+probe set against 96.85 ms for one `git` spawn — 1.2 %**. **That percentage is one machine's, and
+saying it plainly is #337's correction:** the same measurement on a GitHub `windows-latest` runner is
+**2.15 ms against 37.67 ms — 5.7 %**, because a hosted runner creates processes far faster than a
+dev box paying a per-spawn tax to its security software, while its in-process file checks are
+slower. Both figures are dated readings and neither is a property of this code. Case B37 of
+`tests/stop_behaviour.ps1` no longer compares against a spawn for that reason; what it re-takes on
+every run is the probe set's cost against **one `Test-Path` miss on the machine running it**, which
+is the same class of work and therefore portable.
 The worst case remains the `gh` call, ~980 ms of network:
 reachable only with unpushed work on a non-default branch, **at most once per branch head per
 session**, removed entirely by `use_gh: false`, capped at `gh_timeout_ms` (2 500 ms) and killed on
