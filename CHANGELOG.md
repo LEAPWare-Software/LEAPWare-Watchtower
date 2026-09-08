@@ -17,6 +17,86 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > the manifest. **No tag existed before `v0.3.0`** — `0.1.0` and `0.2.0` were declared and worked
 > under, never published, which is why neither carries a link at the foot of this file.
 
+## [0.4.1] — 2026-09-08
+
+A patch on `v0.4.0`, cut from the tag rather than from `main`, because `v0.4.0` is the version the
+owner had installed when they reported the defect.
+
+### Fixed
+
+- **`/lw-watchtower:uninstall` did not uninstall, and its own command page said so.** The owner
+  reported it directly: the command ran, printed 83 lines, exited `0`, and left the plugin
+  installed. The page read *"'Uninstall the plugin' is a request to see the plan"*, and even
+  `-Apply -All` never removed the plugin — it only touched the `statusLine` key and
+  `permissions.deny`. The diagnosis is narrower and worse than a missing feature: everything needed
+  was already computed. `bin/lwg-uninstall.ps1` derives the `<plugin>@<marketplace>` id from its own
+  path and PRINTED both CLI commands — in three places, every one of them **below** the footprint,
+  under headings that mean "things that are staying" (a `LEFT BEHIND` paragraph, the state-data
+  paragraph, and eleven lines into `AND WHAT THIS SCRIPT CANNOT SEE`). A report that buries the act
+  under the inventory reads as *there is nothing to do*.
+
+  The fix is order, not more words. **The first block of the report is now
+  `TO REMOVE THIS PLUGIN`**, above the footprint, carrying the commands for the machine in front of
+  you with the id and marketplace already interpolated; on a junction install it carries the bare
+  `cmd /c rmdir` line for the link and **invents no CLI id**, because a junction install has none.
+  `commands/uninstall.md` now tells the model to run the removal through Bash, verify, and then
+  report — the footprint is the second half of the answer. Nothing was deleted to make room: the
+  three paragraphs still say what they said, because a warning attached to the row it is about is
+  worth keeping.
+
+- **A new `-VerifyRemoved` mode, because an uninstall that trusts exit `0` is a shape this
+  repository already has a scar for.** `lib/supervisor.ps1` records a check that read a roster file
+  nothing ever wrote and reported `0 orphans` unconditionally for its entire life.
+  `-VerifyRemoved` opens `<config root>/plugins/installed_plugins.json`, looks for this plugin's
+  key, and answers from what is in it: exit `2` **still registered**, `0` **removed**, `3` the
+  registry could not be read *or there is no file at that path* — which is not a pass, because a
+  file that was never read is not a file that was read and found empty. It reads one file, writes
+  nothing, and is refused with exit `1` alongside `-Apply` or any removal flag.
+
+- **Deregistered is not deleted, and nothing said so.** Measured on 2026-09-08 under CLI `2.1.263`:
+  a successful `claude plugin uninstall` removed the registry key and left the whole unpacked copy
+  at `plugins/cache/<marketplace>/<plugin>/<version>` on disk. The report now names that directory
+  and gives `cmd /c rmdir /s /q "<path>"` for it. **`/s /q` there and NOT on the junction line**,
+  and the two are not interchangeable: measured on Windows PowerShell `5.1.26100.8875`, a bare
+  `rmdir` on a populated directory exits `145`, *"The directory is not empty"*, and removes nothing,
+  while `rmdir /s /q` removed a tree containing a junction and left the junction's **target**
+  untouched. `rmdir` rather than `Remove-Item -Recurse` remains the standing rule.
+
+- **The `--keep-data` advice was wrong wherever a legacy-named data directory exists.** The flag
+  preserves the CLI's own `plugins/data/{id}/` and nothing else — and the help does not spell
+  `{id}`, which this project has measured both ways (`docs/install.md` records
+  `<name>-<marketplace>` under CLI 2.1.260), so the report classifies what it FOUND rather than
+  naming a path. On the machine the defect was reported
+  from that directory **did not exist**, while 2.5 MB of real event log sat beside it under the
+  pre-rename name — which the CLI does not associate with this plugin at all. So the old warning
+  was dire about an absent directory while the files that mattered were uncovered by the flag it
+  recommended. The report now states what the flag covers, names the legacy directories **this run
+  found**, and keeps the advice that does not depend on a flag: copy the log files out first.
+
+- **A restart is named as needed, and what is not known is named as not known.** Commands, hooks,
+  agents and output styles are read at session start. Whether a *running* session drops a
+  deregistered plugin without a restart is **UNMEASURED** — recorded as unmeasured by name rather
+  than guessed either way.
+
+- **`-y` is described precisely rather than plausibly.** `claude plugin uninstall --help` on
+  `2.1.263` documents `-y, --yes` as skipping the **`--prune`** confirmation, *"required when stdin
+  or stdout is not a TTY"* — so the requirement is `--prune`'s, not the uninstall's, and the plain
+  form with no `-y` succeeded and exited `0` from a call with no TTY on either end. It is printed
+  anyway, as cheap insurance, and the report does not claim the command hangs without it.
+  `claude plugin marketplace remove` takes **no `-y`**: its only options are `-h` and `--scope`, so
+  a symmetrically-written flag there would be an unknown-option error printed in the first block of
+  the report.
+
+### Tests
+
+- `tests/uninstall_footprint.ps1` gains two cases, 40 → 42. Both were **RED at `7952992`**, the
+  `v0.4.0` tag: `TO REMOVE THIS PLUGIN` appeared nowhere in the output on either route, so every
+  ordering assertion failed, and `-VerifyRemoved` was not a parameter, so
+  `powershell -File … -VerifyRemoved` exited `1` with *"A parameter cannot be found"* and produced
+  none of the four exit codes. The ordering case asserts the block's offset against `FOOTPRINT`'s
+  and `LEFT BEHIND`'s, with the junction route as an in-case control that the block prints there
+  too and fabricates no id; the verify case drives all four registry states plus the refusal.
+
 ## [0.4.0] — 2026-09-04
 
 **Until the day this tag was cut, the manifests declared `0.4.0` and no tag carried it.** That gap

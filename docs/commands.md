@@ -73,7 +73,7 @@ second run with `-Apply` to write anything.
 | [`/lw-watchtower:setup`](#lw-watchtowersetup) | [`bin/lwg-setup.ps1`](../lw-watchtower/bin/lwg-setup.ps1) | Guided installer. Detects what is already present, asks in plain language, then writes `statusLine` and hooks **one section at a time, each behind its own diff and its own yes**. It has no `permissions` section any more — the function and the section that wrote `permissions.deny` rules are both deleted, and `-Section` accepts `statusline` and `hooks` only. | yes, on a step that could not be completed |
 | [`/lw-watchtower:config`](#lw-watchtowerconfig) | [`bin/lwg-config.ps1`](../lw-watchtower/bin/lwg-config.ps1) | Module switchboard: turn a governance module on or off, globally or for one repo, after being told exactly what the change does. | yes, on a bad key or an unwritable config |
 | [`/lw-watchtower:update`](#lw-watchtowerupdate) | [`bin/lwg-update.ps1`](../lw-watchtower/bin/lwg-update.ps1) | Fetches, then lists what would change and what needs re-approval afterwards. **Fast-forward only.** Re-runs the doctor after applying. | yes, if the fetch fails or a fast-forward is not possible |
-| [`/lw-watchtower:uninstall`](#lw-watchtoweruninstall) | [`bin/lwg-uninstall.ps1`](../lw-watchtower/bin/lwg-uninstall.ps1) | Reports the plugin's whole footprint and what removing it would take, and **names everything it cannot remove**. | yes, if part of the removal could not be completed |
+| [`/lw-watchtower:uninstall`](#lw-watchtoweruninstall) | [`bin/lwg-uninstall.ps1`](../lw-watchtower/bin/lwg-uninstall.ps1) | **Uninstalls the plugin through the Claude CLI, verifies by reading the registry**, then reports the whole footprint the uninstall leaves behind and **names everything it cannot remove**. | yes, if part of the removal could not be completed, or `-VerifyRemoved` found the plugin still registered |
 
 ## Preferences
 
@@ -244,9 +244,19 @@ this landed the recommended install route produced `[FAIL] repo … there is not
 
 ## `/lw-watchtower:uninstall`
 
-**A dry run by default**, and the dry run is the point: it reports this plugin's whole footprint —
+**The first block of its report is `TO REMOVE THIS PLUGIN`**, and it carries the two CLI commands
+that remove the plugin from this machine, with the id and marketplace already interpolated. The
+model runs the removal through its Bash tool, verifies with `-VerifyRemoved` — which reads
+`~/.claude/plugins/installed_plugins.json` and exits `2` if the key is still there, `0` if it is
+gone, `3` if it could not tell — and then reports. **This script has never been able to deregister
+the plugin itself and still cannot;** what changed in 0.4.1 is that the report leads with the act
+instead of burying the commands forty lines down under headings that mean *things that are staying*.
+Until then the command printed 83 lines, exited `0`, and left the plugin installed.
+
+The rest is a **dry run by default**, and that half is still the point: it reports this plugin's
+whole footprint —
 plugin root, data directories, the copied status line, the settings keys it was installed into — and
-what removing each would take.
+what removing each would take, none of which the CLI uninstall touches.
 
 It **names everything it cannot remove**, which on a normal install is most of the interesting part:
 `permissions.deny` entries you may want to keep, the `statusLine` key, and the historical data

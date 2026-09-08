@@ -189,7 +189,7 @@ tests/config_behaviour.ps1   bin/lwg-config.ps1's read/validate/write path,
                              invariant that the plugin root's config.json is not
                              moved by a byte
 tests/uninstall_footprint.ps1
-                             40 cases driving bin/lwg-uninstall.ps1 against
+                             42 cases driving bin/lwg-uninstall.ps1 against
                              throwaway data directories and throwaway
                              settings.json files, asserting on the FILESYSTEM as
                              well as on the report: what the footprint says it

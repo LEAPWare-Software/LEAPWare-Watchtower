@@ -556,11 +556,26 @@ their own behaviour and cannot describe the CLI's, so read this list and the nex
 
 ### Removing the load path itself
 
-The uninstaller deliberately does none of these.
+`/lw-watchtower:uninstall` does none of these itself. **Its first block, `TO REMOVE THIS PLUGIN`,
+prints the commands with your machine's ids filled in, and the model runs them for you through its
+Bash tool, then verifies with `-VerifyRemoved`, then reports.** The three things that block says
+which nothing on this page used to:
 
-- **Marketplace install:** `/plugin uninstall lw-watchtower@leapware-watchtower` in a session, or
-  `claude plugin uninstall lw-watchtower@leapware-watchtower` on the command line. That copy lives in
-  the CLI cache, which `/lw-watchtower:uninstall` cannot see.
+- **`-VerifyRemoved` reads `~\.claude\plugins\installed_plugins.json`** and answers from what is in
+  it: exit `2` still registered, `0` removed, `3` it could not tell — and `3` is not `0`. An exit
+  code from the uninstall is a claim by the thing being checked.
+- **Deregistered is not deleted.** Measured 8 September 2026, CLI 2.1.263: the unpacked copy under
+  `~\.claude\plugins\cache\...` survived a successful uninstall in full. The report gives
+  `cmd /c rmdir /s /q "<that path>"` for it. **`/s /q` there and *not* on the junction line below** —
+  a bare `rmdir` on a populated directory exits `145`, *"The directory is not empty"*, and removes
+  nothing, while `rmdir /s /q` removed a tree containing a junction and left the junction's target
+  untouched (Windows PowerShell 5.1.26100.8875).
+- **Restart the CLI.** Whether a running session drops a deregistered plugin without one is
+  **unmeasured**.
+
+- **Marketplace install:** `claude plugin uninstall lw-watchtower@leapware-watchtower --keep-data -y`
+  on the command line. That copy lives in
+  the CLI cache, which the rest of `/lw-watchtower:uninstall`'s report cannot see.
 
   **It deletes this plugin's state and log directory, and it does not warn you.** Measured on CLI
   2.1.260 against a clean profile: after the plain form,
@@ -587,8 +602,27 @@ The uninstaller deliberately does none of these.
   `lw-watchtower.jsonl` somewhere outside `~\.claude\plugins\data\` first. `--keep-data` is the CLI's
   flag, not this plugin's; `claude plugin uninstall --help` is where it is documented and where a
   later build would say if it had changed.
+
+  **THE FLAG IS ONE DIRECTORY, AND THE NAME OF THAT DIRECTORY IS THE CLI'S, NOT YOURS.**
+  `claude plugin uninstall --help` on 2.1.263 says it preserves `~/.claude/plugins/data/{id}/` and
+  does not spell `{id}`; the measurement above is `<name>-<marketplace>`, and a bare `<name>` has
+  been seen for other plugins on the same profile. So **do not reason from the name.** Run
+  `/lw-watchtower:uninstall`: its first block lists every state directory it found and marks each
+  *may be covered* or *NOT covered*. On the machine this defect was reported from, measured
+  8 September 2026, the directory the flag would protect **did not exist** while 2.5 MB of real
+  event log sat in the pre-rename `lw-gmhh` directory beside it — so the flag would have preserved
+  nothing and covered nothing. **Copying the log files out of the `plugins\data` tree first is the
+  answer that does not depend on a flag, on remembering it, or on which spelling it uses.**
+
+  **`-y` is not what it looks like either.** The help documents it as skipping the **`--prune`**
+  confirmation, *"required when stdin or stdout is not a TTY"* — so the requirement is `--prune`'s.
+  Measured 8 September 2026: the plain form with no `-y` succeeded and exited `0` from a call with
+  no TTY on either end. Pass it as cheap insurance; do not believe the command hangs without it, and
+  **never add `--prune`** — that removes other plugins.
 - **The marketplace itself, on the marketplace route:** `claude plugin marketplace remove
-  leapware-watchtower`. Uninstalling the plugin leaves the shallow clone of this whole repository
+  leapware-watchtower`. **It takes no `-y`** — its only options are `-h` and `--scope`, read off its
+  own help on 2.1.263, so passing one is an unknown-option error.
+  Uninstalling the plugin leaves the shallow clone of this whole repository
   under `~\.claude\plugins\marketplaces\leapware-watchtower\` exactly where it was; this is the
   command that deletes it, and it was measured doing so. It is the larger of the two trees Option A
   put on the machine. A state directory kept with `--keep-data` survives this step.

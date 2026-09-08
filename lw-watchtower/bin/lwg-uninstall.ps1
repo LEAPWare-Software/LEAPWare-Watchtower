@@ -5,9 +5,33 @@
       powershell -NoProfile -ExecutionPolicy Bypass -File bin\lwg-uninstall.ps1
       powershell -NoProfile -ExecutionPolicy Bypass -File bin\lwg-uninstall.ps1 -RemoveStatusLine -Apply
 
+      powershell -NoProfile -ExecutionPolicy Bypass -File bin\lwg-uninstall.ps1 -VerifyRemoved
+
   Backs /lw-watchtower:uninstall. DRY RUN IS THE DEFAULT. Without -Apply this reads
   and prints and changes nothing at all, which is the only mode an operator can
   safely be talked into running by a model.
+
+  THIS SCRIPT DOES NOT DEREGISTER THE PLUGIN, AND SAYING SO IS THE FIRST THING IT
+  PRINTS (#345). The owner reported the command "does not uninstall", and they
+  were right: every mode here edits settings.json, the copied status line and the
+  state data, and NOTHING here removes the plugin from the CLI's registry. That is
+  `claude plugin uninstall`, which is the CLI's and is run by whoever is driving
+  this - the model through its Bash tool, or the operator at a prompt. A script
+  that lives inside the directory being deregistered and shells out to deregister
+  it mid-run is fragile for no gain, and this plugin dispatches nothing by design.
+  So the two commands are PRINTED, first, with this machine's ids already filled
+  in, above the footprint rather than buried under it.
+
+  AND THE THIRD THING IS -VerifyRemoved, WHICH READS STATE RATHER THAN AN EXIT
+  CODE. `claude plugin uninstall` exiting 0 is not evidence the plugin is gone;
+  lib\supervisor.ps1 carries this repository's own scar for that shape - a check
+  that read a roster file nothing ever wrote and reported "0 orphans"
+  unconditionally for its entire life. -VerifyRemoved opens
+  <config root>\plugins\installed_plugins.json, looks for this plugin's key, and
+  says which of four things it found. It also states whether the UNPACKED COPY is
+  still on disk, because DEREGISTERED IS NOT DELETED: measured on 2026-09-08, CLI
+  2.1.263, a successful `claude plugin uninstall` removed the key from that file
+  and left plugins\cache\<marketplace>\<plugin>\<version> entirely intact.
 
   WHAT IT WILL NOT DO, EVER
 
@@ -41,7 +65,8 @@
       1  REFUSED - a guard was not satisfied; NOTHING AT ALL was written. This
          is the whole-run refusal: a wrong -ConfirmToken, an unreadable
          settings.json, a backup that does not parse, -RestoreSettings passed
-         together with a removal flag.
+         together with a removal flag, -VerifyRemoved passed together with
+         -Apply or any removal flag.
       2  something this script was ASKED to remove was not removed - either the
          removal failed, or this script DECLINED that one thing while doing the
          rest (a state-data directory that is a reparse point, a directory the
@@ -53,7 +78,11 @@
          request this script cannot answer, and answering it with exit 0 is how
          it once told an operator a deletion had succeeded while every file
          survived. That case exits 2 in the dry run too.
-      3  this script could not complete
+         -VerifyRemoved uses this code for its own answer: the plugin is STILL
+         REGISTERED, which is the answer the owner's machine gave after a run of
+         this command that printed 83 lines and exited 0.
+      3  this script could not complete - OR, under -VerifyRemoved, the registry
+         could not be read at all, so nothing was established. Not a pass.
 #>
 
 param(
@@ -67,6 +96,12 @@ param(
 
     # -RemoveStatusLine + -RemovePermissions. Deliberately does NOT include data.
     [switch]$All,
+
+    # READ THE REGISTRY AND SAY WHETHER THIS PLUGIN IS STILL REGISTERED. Reads
+    # one JSON file, writes nothing, and is refused alongside -Apply or any
+    # removal flag - it is the question you ask AFTER the CLI uninstall, and a
+    # mode that both verified and removed could never be run as a verification.
+    [switch]$VerifyRemoved,
 
     # Required, literally, alongside -RemoveData.
     [string]$ConfirmToken,
@@ -162,6 +197,93 @@ function Get-LwgCacheRouteInfo {
         $r.id          = "$($r.plugin)@$($r.marketplace)"
         return $r
     }
+    return $r
+}
+
+function Get-LwgRegistryVerdict {
+    <#
+      IS THIS PLUGIN STILL REGISTERED WITH THE CLI? Reads
+      <config root>\plugins\installed_plugins.json and answers by looking at what
+      is in it, never by trusting anybody's exit code.
+
+      THE SHAPE, read on 2026-09-08 from a real profile under CLI 2.1.263:
+
+          { "version": 2,
+            "plugins": {
+              "<plugin>@<marketplace>": [
+                { "scope": "user",
+                  "installPath": "...\\plugins\\cache\\<marketplace>\\<plugin>\\<version>",
+                  "version": "0.4.0", "gitCommitSha": "..." } ] } }
+
+      So the key is `<plugin>@<marketplace>` and the value is an ARRAY, because
+      one plugin can be installed at more than one scope. Every matching record
+      is returned, with its scope, so a report can say "gone from user, still
+      registered for this project" rather than a single yes or no.
+
+      MATCHED BY THE PLUGIN HALF OF THE KEY, not by the whole id, and that is
+      deliberate: the id this script can derive from its own path exists only on
+      the marketplace route, and a junction install has no id at all - yet a
+      machine can carry BOTH, and an operator who removed one and is looking at
+      the other needs to be told so. Any key whose part before the `@` equals the
+      declared plugin name counts.
+
+      FOUR STATES, AND ONLY ONE OF THEM IS A PASS. The distinction between the
+      last two is the one this repository keeps having to relearn: a file that was
+      never read is not a file that was read and found empty.
+
+        'registered'   the key is there. The plugin is NOT removed.
+        'clear'        the file parsed and holds no key for this plugin.
+        'no-file'      there is no registry file at that path. NOT a pass:
+                       whether the CLI deletes this file when its last plugin is
+                       removed, or leaves an empty object behind, is UNMEASURED
+                       here, so an absent file cannot be told apart from a
+                       configuration root this script is looking at by mistake.
+        'unreadable'   it is there and could not be read or parsed. Establishes
+                       nothing at all.
+    #>
+    param([string]$ClaudeHomePath, [string]$Name)
+
+    $path = ''
+    try { $path = Join-Path $ClaudeHomePath 'plugins\installed_plugins.json' } catch { }
+    $r = @{ state = 'unreadable'; path = $path; error = ''; records = @(); keys = @() }
+
+    if ([string]::IsNullOrWhiteSpace($path)) { $r.error = 'no configuration root to look under'; return $r }
+    if (-not [IO.File]::Exists($path)) { $r.state = 'no-file'; return $r }
+
+    $text = ''
+    try { $text = [IO.File]::ReadAllText($path) }
+    catch { $r.error = $_.Exception.Message; return $r }
+
+    $json = $null
+    try { $json = $text | ConvertFrom-Json }
+    catch { $r.error = "it did not parse as JSON: $($_.Exception.Message)"; return $r }
+    if ($null -eq $json -or $null -eq $json.plugins) {
+        $r.error = "it parsed but carries no 'plugins' object, so there was no roster to read"
+        return $r
+    }
+
+    $recs = New-Object System.Collections.ArrayList
+    $all  = New-Object System.Collections.ArrayList
+    foreach ($p in @($json.plugins.PSObject.Properties)) {
+        [void]$all.Add($p.Name)
+        $half = ($p.Name -split '@', 2)[0]
+        if ($half -ne $Name) { continue }
+        foreach ($inst in @($p.Value)) {
+            if ($null -eq $inst) { continue }
+            [void]$recs.Add([pscustomobject]@{
+                Id          = $p.Name
+                Scope       = [string]$inst.scope
+                Version     = [string]$inst.version
+                InstallPath = [string]$inst.installPath
+                Sha         = [string]$inst.gitCommitSha
+                ProjectPath = [string]$inst.projectPath
+            })
+        }
+    }
+
+    $r.keys    = @($all)
+    $r.records = @($recs)
+    $r.state   = if ($recs.Count -gt 0) { 'registered' } else { 'clear' }
     return $r
 }
 
@@ -583,6 +705,106 @@ try {
 
     $name = Get-LwgPluginName
     if ([string]::IsNullOrWhiteSpace($name)) { $name = 'lw-watchtower' }
+
+    # ---------------------------------------------------------------------
+    # -VerifyRemoved - the whole run, and it ends here
+    # ---------------------------------------------------------------------
+    # PLACED BEFORE EVERY OTHER SECTION because it must be answerable when
+    # nothing else is: it is the question asked AFTER `claude plugin uninstall`
+    # has run, at which point this file is a script sitting in a directory the
+    # CLI no longer loads. It needs the configuration root, the plugin name and
+    # its own path, all resolved above, and nothing else.
+    if ($VerifyRemoved) {
+        $alsoAsked = @()
+        if ($Apply)             { $alsoAsked += '-Apply' }
+        if ($RemoveStatusLine)  { $alsoAsked += '-RemoveStatusLine' }
+        if ($RemovePermissions) { $alsoAsked += '-RemovePermissions' }
+        if ($RemoveData)        { $alsoAsked += '-RemoveData' }
+        if ($All)               { $alsoAsked += '-All' }
+        if (-not [string]::IsNullOrWhiteSpace($RestoreSettings)) { $alsoAsked += '-RestoreSettings' }
+        if ($alsoAsked.Count -gt 0) {
+            # THE SAME REFUSAL SHAPE AS -RestoreSettings, and for the same
+            # reason: a mode that verified AND changed things could never be the
+            # thing you run to find out what the last command did.
+            Write-Output "LW-WATCHTOWER uninstall v$($script:LwgVersion) - VERIFY"
+            Write-Output ('  REFUSED - -VerifyRemoved was passed together with ' + ($alsoAsked -join ', ') + '.')
+            Write-Output '    -VerifyRemoved reads one file and answers one question. Run it on its own, after the'
+            Write-Output '    CLI uninstall. Nothing was read and nothing was written.'
+            exit 1
+        }
+
+        $reg = Get-LwgRegistryVerdict -ClaudeHomePath $ClaudeHome -Name $name
+        $cacheStillThere = $false
+        try { $cacheStillThere = [IO.Directory]::Exists($pluginRoot) } catch { }
+
+        Write-Output "LW-WATCHTOWER uninstall v$($script:LwgVersion) - VERIFY"
+        Write-Output "  registry:     $($reg.path)"
+        Write-Output "  plugin name:  $name"
+        Write-Output ("  this copy:    {0}{1}" -f $pluginRoot, $(if ($route.isCache) { " (a marketplace install, id '$($route.id)')" } else { ' (not a marketplace install - no CLI id to look for)' }))
+        Write-Output ''
+
+        switch ($reg.state) {
+            'registered' {
+                Write-Output ("  STILL REGISTERED - $($reg.records.Count) record(s) for '$name' in that file. The plugin is NOT removed.")
+                foreach ($rec in $reg.records) {
+                    Write-Output ("    {0}  scope '{1}'  version {2}{3}" -f $rec.Id, $rec.Scope, $rec.Version, $(if ($rec.ProjectPath) { "  project $($rec.ProjectPath)" } else { '' }))
+                    Write-Output ("      installPath: {0}" -f $rec.InstallPath)
+                }
+                Write-Output ''
+                Write-Output '  This is a reading of the registry, not of an exit code. A CLI uninstall that printed'
+                Write-Output '  success and left this key behind would look exactly like this, which is why the check'
+                Write-Output '  exists. Run the command the dry run prints under TO REMOVE THIS PLUGIN, then re-run this.'
+                exit 2
+            }
+            'clear' {
+                Write-Output ("  REMOVED - that file parsed and carries no key for '$name'. It lists $($reg.keys.Count) other plugin(s).")
+                Write-Output '  That is the registry read directly, so it is evidence rather than a report of one.'
+                Write-Output ''
+                if ($cacheStillThere) {
+                    Write-Output "  THE UNPACKED COPY IS STILL ON DISK, at $pluginRoot."
+                    Write-Output '    DEREGISTERED IS NOT DELETED, and this is measured, not inferred: on 2026-09-08 under'
+                    Write-Output '    CLI 2.1.263 a successful uninstall removed the registry key and left this whole'
+                    Write-Output '    directory intact. Nothing loads it any more. To take the disk back:'
+                    Write-Output ("      cmd /c rmdir /s /q `"$pluginRoot`"")
+                    Write-Output '    rmdir rather than Remove-Item -Recurse: that is this file''s standing rule for a'
+                    Write-Output '    tree that might contain a junction. THE SWITCHES DIFFER FROM THE JUNCTION LINE'
+                    Write-Output '    elsewhere in this report, and they have to. Measured on Windows PowerShell'
+                    Write-Output '    5.1.26100.8875 on 2026-09-08: a bare rmdir on a populated directory exits 145,'
+                    Write-Output '    "The directory is not empty", and removes nothing, while rmdir /s /q removed a'
+                    Write-Output '    tree that contained a junction and left the junction''s TARGET file untouched.'
+                    Write-Output '    A junction is removed with a BARE rmdir, because there /s /q is what must not be'
+                    Write-Output '    passed; a populated tree needs /s /q. They are different commands.'
+                } else {
+                    Write-Output "  The unpacked copy at $pluginRoot is gone as well, so nothing of this install"
+                    Write-Output '    remains where this script can see it. Note what that means about this run: you are'
+                    Write-Output '    reading the output of a script in a directory that no longer exists.'
+                }
+                Write-Output ''
+                Write-Output '  WHAT THIS DOES NOT ESTABLISH. The RUNNING session may still have the plugin loaded -'
+                Write-Output '    its commands, hooks and agents were read at session start. Restart the CLI. Whether a'
+                Write-Output '    running session drops a deregistered plugin without a restart is UNMEASURED and this'
+                Write-Output '    script will not guess at it. This mode also says nothing about the marketplace entry,'
+                Write-Output '    the state data, settings.json or ~/.claude.json - run the dry run for those.'
+                exit 0
+            }
+            'no-file' {
+                Write-Output "  CANNOT ESTABLISH - there is no file at $($reg.path)."
+                Write-Output '    THAT IS NOT THE SAME AS REMOVED, and reporting it as one is the exact defect this'
+                Write-Output '    mode exists to avoid. Whether the CLI deletes this file when its last plugin goes, or'
+                Write-Output '    leaves an empty object behind, is UNMEASURED here - so an absent file cannot be told'
+                Write-Output '    apart from this script being pointed at the wrong configuration root. Check the root'
+                Write-Output '    named above against what /lw-watchtower:doctor prints, pass -ClaudeHome if it differs,'
+                Write-Output '    and re-run. Exiting 3 rather than 0.'
+                exit 3
+            }
+            default {
+                Write-Output "  CANNOT ESTABLISH - $($reg.path) is there and could not be read: $($reg.error)"
+                Write-Output '    Nothing was established. A registry this script never read is not a registry that'
+                Write-Output '    holds no key for this plugin. Exiting 3 rather than 0.'
+                exit 3
+            }
+        }
+    }
 
     # EVERY NAME THIS PLUGIN HAS EVER SHIPPED ITS STATE UNDER, AND THIS LIST
     # LIVES HERE RATHER THAN IN lib\common.ps1 ON PURPOSE.
@@ -1106,7 +1328,7 @@ try {
             # command the operator is not going to run.
             $dataWhy = 'health.jsonl and lw-watchtower.jsonl are the record of every fault, gate trip and advisory this plugin saw, including whatever prompted the uninstall. Deleting them needs -RemoveData -ConfirmToken DELETE-MY-LWG-LOGS.'
             if ($route.isCache) {
-                $dataWhy += " KEPT HERE IS NOT KEPT AFTERWARDS: this is a marketplace install, and 'claude plugin uninstall $($route.id)' - the CLI command named further down this report, and the one the install page sends you to - deletes this directory whole, every file in it, without asking and without a confirmation token. Its '--keep-data' form is the one that keeps it. Whichever route you are on, copying health.jsonl and lw-watchtower.jsonl somewhere outside the plugins\data tree first is the answer that does not depend on a flag."
+                $dataWhy += " KEPT HERE IS NOT KEPT AFTERWARDS: this is a marketplace install, and 'claude plugin uninstall $($route.id)' - the CLI command named in the FIRST block of this report - deletes this directory whole, every file in it, without asking and without a confirmation token. Its '--keep-data' form is the one that keeps it, AND IT COVERS ONE DIRECTORY: the CLI's own plugins\data\{id}, measured as plugins\data\<name>-<marketplace> under CLI 2.1.260 - docs\install.md carries that measurement. A state directory under any other name - a LEGACY one from before the rename, or a redirected CLAUDE_PLUGIN_DATA - is not covered, because the CLI does not know it is this plugin's. See WHAT --keep-data COVERS in the first block, which classifies what this run actually found. Whichever route you are on, copying health.jsonl and lw-watchtower.jsonl somewhere outside the plugins\data tree first is the answer that does not depend on a flag."
             }
             Add-Left -What "$($dataDirs.Count) data directories ($(Format-LwgBytes $totalBytes))" `
                      -Why $dataWhy
@@ -1162,7 +1384,7 @@ try {
     Add-PlanRow -Id 'plugin-clone' -State 'PRESENT' -Action 'REPORT ONLY - never removed' -Detail "$pluginRoot ($gitReport)"
     if ($route.isCache) {
         Add-Left -What "the marketplace install at $pluginRoot" `
-                 -Why  "it is the CLI's own copy of this plugin, not a checkout: nothing of yours is in it and nothing here removes it. 'claude plugin uninstall $($route.id) --keep-data' is what removes it without taking the state data listed above with it - the same command WITHOUT --keep-data deletes that directory whole and unwarned (#280) - and 'claude plugin marketplace remove $($route.marketplace)' removes the marketplace clone beside it. Both are the CLI's, not this script's."
+                 -Why  "it is the CLI's own copy of this plugin, not a checkout: nothing of yours is in it and nothing here removes it. 'claude plugin uninstall $($route.id) --keep-data -y' is what DEREGISTERS it - and deregistering is not deleting: measured on 2026-09-08 under CLI 2.1.263, this whole directory was still on disk after a successful uninstall, and 'cmd /c rmdir /s /q' on it is what takes the disk back. The same command WITHOUT --keep-data deletes the CLI's plugins\data\{id} directory whole and unwarned (#280); WITH it, that one directory and no other is preserved. 'claude plugin marketplace remove $($route.marketplace)' removes the marketplace clone beside it. All of that is the CLI's, not this script's - the first block of this report carries the commands with the ids filled in."
     } else {
         Add-Left -What "the clone at $pluginRoot" -Why 'it is source code and possibly unpushed work. Removing the junction unloads the plugin; deleting the clone is a separate decision that is yours.'
     }
@@ -1182,6 +1404,187 @@ try {
     } else {
         Add-PlanRow -Id 'settings-backups' -State 'none' -Action 'n/a' -Detail "no $((Split-Path -Leaf $SettingsPath))*.bak next to the settings file"
     }
+
+    # ---------------------------------------------------------------------
+    # THE FIRST BLOCK OF THE REPORT: how to actually remove the plugin
+    # ---------------------------------------------------------------------
+    # THE OWNER REPORTED THIS COMMAND "DOES NOT UNINSTALL" AND THEY WERE RIGHT
+    # (#345). Everything this script computes about the CLI commands was already
+    # computed - the id, the marketplace, the flag - and it was printed in three
+    # places, all of them BELOW the footprint: inside a LEFT BEHIND `Why`
+    # paragraph, inside the state-data `Why` paragraph, and eleven lines into AND
+    # WHAT THIS SCRIPT CANNOT SEE. Under headings that mean "things that are
+    # staying". An operator who read the report top to bottom saw 83 lines of
+    # inventory, an exit 0, and no act; the plugin was still installed.
+    #
+    # ORDER IS THE FIX, and it is assertable in a way a paragraph is not: the
+    # heading below is the FIRST block in the report and a case in
+    # tests\uninstall_footprint.ps1 asserts that its index precedes FOOTPRINT's.
+    # Nothing was deleted to make room for it - the three paragraphs below still
+    # say what they said, because a warning attached to the row it is about is
+    # worth keeping. What changes is which one an operator reaches first.
+    #
+    # PRINTED HERE, AFTER THE PLAN IS BUILT AND BEFORE IT IS PRINTED, so this
+    # block can state what was MEASURED on this machine - whether a legacy data
+    # directory exists that `--keep-data` does not cover - rather than a warning
+    # that is generic on every machine. At the top of the file only the route is
+    # known; the data targets are not swept until section 5.
+    #
+    # AND THE EXACT NAME --keep-data USES IS NOT GUESSED HERE. The CLI's help
+    # says the flag preserves "~/.claude/plugins/data/{id}/" and does not spell
+    # {id}. This project has measured it BOTH ways: docs\install.md records
+    # plugins\data\<name>-<marketplace> under CLI 2.1.260, while the machine this
+    # defect was reported from carries a bare <name> spelling for another plugin
+    # and a bare legacy name for this one. So the block below reports which
+    # directories are THERE and classifies each, rather than printing one path
+    # and calling it the one the flag will protect - which is the same kind of
+    # unmeasured assertion as the 46 KB literal #299 was filed for.
+    $keepRoot = ''
+    try { $keepRoot = Join-Path $ClaudeHome 'plugins\data' } catch { }
+    $keepCovered   = New-Object System.Collections.ArrayList
+    $keepUncovered = New-Object System.Collections.ArrayList
+    foreach ($t in $script:DataTargets) {
+        if (-not $t.Exists) { continue }
+        $leaf   = ''
+        try { $leaf = Split-Path -Leaf $t.Path } catch { }
+        $inRoot = $false
+        if (-not [string]::IsNullOrWhiteSpace($keepRoot)) {
+            try { $inRoot = (Test-LwgPathUnder -Path $t.Path -Root $keepRoot) } catch { }
+        }
+        $nameShaped = ($leaf -eq $name) -or ($leaf -like ($name + '-*'))
+        if ($inRoot -and $nameShaped) { [void]$keepCovered.Add($t) } else { [void]$keepUncovered.Add($t) }
+    }
+    $legacyDirs = @($script:DataTargets | Where-Object { $_.Exists -and $_.Why -match 'LEGACY' })
+
+    Write-Output ''
+    Write-Output '  TO REMOVE THIS PLUGIN'
+    Write-Output ''
+    Write-Output '    THIS SCRIPT DOES NOT DO IT, and that is the whole of what it got wrong until now. It'
+    Write-Output '    reports the footprint below, and it edits settings.json and the state data when you ask'
+    Write-Output '    for those by name. DEREGISTERING THE PLUGIN IS THE CLI''S JOB. Run these:'
+    Write-Output ''
+    if ($route.isCache) {
+        # THE ID AND THE MARKETPLACE ARE DERIVED FROM THIS SCRIPT'S OWN PATH, not
+        # from a registry, and Get-LwgCacheRouteInfo's comment carries why. So
+        # both commands below are this machine's, already interpolated - a
+        # placeholder here would be one more thing for a reader to get wrong at
+        # the moment they are least able to check it.
+        # NO -y ON LINE 2, AND THAT IS READ FROM THE CLI'S OWN HELP RATHER THAN
+        # ASSUMED FROM LINE 1. `claude plugin marketplace remove --help` on 2.1.263
+        # lists exactly two options, -h and --scope. Passing -y to it is an
+        # unknown-option error, so a report that printed it symmetrically would be
+        # handing over a command that fails - in its first block, at the moment an
+        # operator is least able to check.
+        Write-Output ("      1.  claude plugin uninstall $($route.id) --keep-data -y")
+        Write-Output ("      2.  claude plugin marketplace remove $($route.marketplace)")
+        Write-Output ''
+        Write-Output '    (1) is the removal. (2) is separate and OPTIONAL: measured on 2026-09-08, CLI 2.1.263,'
+        Write-Output '    the marketplace entry SURVIVES a successful plugin uninstall, so leaving it means'
+        Write-Output '    ''claude plugin install'' can put the plugin back without re-adding a source. Remove it'
+        Write-Output '    only if you are done with the marketplace itself.'
+    } else {
+        # NO ID IS INVENTED ON THIS ROUTE. A junction install is not in the CLI's
+        # registry under a `<plugin>@<marketplace>` key, so printing a plausible
+        # one here would be a command that fails, in the first block of the
+        # report, at the moment an operator most needs it to work.
+        Write-Output '    THIS IS NOT A MARKETPLACE INSTALL, so there is no <plugin>@<marketplace> id to hand the'
+        Write-Output '    CLI, and this script will not invent one. The load path here is the junction, and removing'
+        Write-Output '    it deregisters every hook, command, agent and output style in one step:'
+        Write-Output ''
+        Write-Output ("      1.  cmd /c rmdir `"$(Join-Path $ClaudeHome ("skills\$name"))`"")
+        Write-Output ''
+        Write-Output '    A BARE rmdir, with no /s and no /q. That removes the LINK and only the link; the target'
+        Write-Output '    is your git clone. Never Remove-Item -Recurse on a junction - see the junction row below.'
+        Write-Output '    If this machine ALSO carries a marketplace install, this run cannot see it: for that one'
+        Write-Output '    the command is: claude plugin uninstall lw-watchtower@<marketplace> --keep-data -y'
+        Write-Output '    ''claude plugin list'' is what names the marketplace to put in it.'
+    }
+    Write-Output ''
+    # WHAT -y IS ACTUALLY FOR, READ OFF THE CLI'S OWN HELP RATHER THAN INFERRED.
+    # `claude plugin uninstall --help` on 2.1.263 says of it: "Skip the --prune
+    # confirmation prompt (required when stdin or stdout is not a TTY)". So the
+    # requirement is SCOPED TO --prune, not to the uninstall - and that matches
+    # what was measured: on 2026-09-08 the plain
+    # `claude plugin uninstall <id> --keep-data`, with no -y, run from a tool call
+    # with no TTY on either end, printed "Successfully uninstalled" and exited 0.
+    # It is printed above anyway because it is a documented option of this
+    # subcommand and costs nothing, and because a prompt appearing in a
+    # non-interactive run is the failure mode that is expensive rather than
+    # noisy. What this block will NOT say is that the command hangs without it,
+    # which is the claim the help text contradicts and the round trip disproved.
+    Write-Output '    ABOUT -y, precisely, because the imprecise version is easy to believe. The CLI documents it'
+    Write-Output '    as skipping the --prune confirmation prompt, "required when stdin or stdout is not a TTY" -'
+    Write-Output '    so it is --prune that needs it, not the uninstall. Measured on 2026-09-08: the command above'
+    Write-Output '    WITHOUT -y, run with no TTY on either end, succeeded and exited 0. It is printed because it'
+    Write-Output '    is documented, harmless and cheap insurance against a prompt in a run that cannot answer'
+    Write-Output '    one. Do not add --prune unless you mean it: that removes other plugins.'
+    Write-Output ''
+    Write-Output '    THEN VERIFY BY READING STATE, NEVER BY TRUSTING THE EXIT CODE:'
+    Write-Output ''
+    Write-Output ("      powershell -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -VerifyRemoved")
+    Write-Output ''
+    Write-Output '    That opens plugins\installed_plugins.json and says whether this plugin''s key is still in'
+    Write-Output '    it. Exit 2 means STILL REGISTERED, 0 means gone, 3 means the file could not be read - and'
+    Write-Output '    3 is not 0. Use the absolute path above rather than ${CLAUDE_PLUGIN_ROOT}: after a'
+    Write-Output '    successful uninstall that variable is gone and this file is not.'
+    Write-Output ''
+    Write-Output '    DEREGISTERED IS NOT DELETED. Measured on 2026-09-08 under CLI 2.1.263: a successful'
+    Write-Output '    CLI uninstall removed the registry key and left the whole unpacked copy at'
+    Write-Output ("      $pluginRoot")
+    Write-Output '    entirely on disk. Nothing loads it afterwards. To take the disk back, once the verify'
+    Write-Output '    above says the key is gone:'
+    Write-Output ''
+    Write-Output ("      cmd /c rmdir /s /q `"$pluginRoot`"")
+    Write-Output ''
+    Write-Output '    /s /q there and NOT on the junction line, and the two are not interchangeable. Measured on'
+    Write-Output '    Windows PowerShell 5.1.26100.8875 on 2026-09-08: a bare rmdir on a populated directory'
+    Write-Output '    exits 145, "The directory is not empty", and removes nothing; rmdir /s /q removed a tree'
+    Write-Output '    that contained a junction and left the junction''s TARGET file untouched. rmdir rather than'
+    Write-Output '    Remove-Item -Recurse is this file''s standing rule, for the reason the junction row states.'
+    Write-Output ''
+    Write-Output '    RESTART THE CLI AFTERWARDS. Commands, hooks, agents and output styles are read at session'
+    Write-Output '    start. Whether a RUNNING session drops a deregistered plugin without a restart is'
+    Write-Output '    UNMEASURED - it has not been tested here, and this script will not guess either way.'
+    Write-Output ''
+    # WHAT --keep-data ACTUALLY COVERS, AND THE ADVICE THAT DOES NOT DEPEND ON IT.
+    # The flag preserves plugins\data\<plugin name>\ and nothing else. On the
+    # owner's machine that directory DOES NOT EXIST while 2.5 MB of real event log
+    # sits beside it under the pre-rename name - which the CLI does not associate
+    # with this plugin at all. So a dire warning about the flag, printed at a
+    # machine in that state, warns about a directory that is not there while the
+    # files that matter are not covered by the flag it is recommending. The block
+    # states what was measured HERE instead.
+    Write-Output '    WHAT --keep-data COVERS. The CLI''s own help says the flag preserves ONE directory,'
+    Write-Output '    "~/.claude/plugins/data/{id}/", and does not spell {id}. This project has measured that name'
+    Write-Output '    BOTH ways - <name> and <name>-<marketplace> - so this run reports what is THERE and'
+    Write-Output '    classifies it, rather than naming one path and calling it the protected one:'
+    if ($keepCovered.Count -eq 0 -and $keepUncovered.Count -eq 0) {
+        Write-Output ("      no state directory of this plugin''s was found under $keepRoot or anywhere this run swept,")
+        Write-Output '      so there is nothing here for the flag to cover or to miss. Read the state-data row below'
+        Write-Output '      for whether that is a finding or an unresolved location - they are not the same thing.'
+    }
+    foreach ($kc in $keepCovered) {
+        Write-Output ("      MAY BE COVERED   $($kc.Path)")
+        Write-Output '                       under plugins\data and named for this plugin, so it is a candidate for'
+        Write-Output '                       {id}. Whether the CLI picks this exact spelling was not measured here.'
+    }
+    foreach ($ku in $keepUncovered) {
+        Write-Output ("      NOT COVERED      $($ku.Path)")
+        Write-Output ("                       [$($ku.Why)]")
+    }
+    if ($legacyDirs.Count -gt 0) {
+        Write-Output ("    $($legacyDirs.Count) of those is a LEGACY name from before the rename, and the CLI does not know it is this")
+        Write-Output '    plugin''s at all - so --keep-data cannot cover it whichever spelling {id} takes. On the'
+        Write-Output '    machine this defect was reported from, that was the ONLY directory with real data in it,'
+        Write-Output '    while the name the flag protects did not exist. A dire warning about the flag would have'
+        Write-Output '    been a warning about an absent directory.'
+    }
+    Write-Output '    SO: COPY health.jsonl AND lw-watchtower.jsonl (or lw-gmhh.jsonl) OUT OF THE plugins\data TREE'
+    Write-Output '    FIRST. That is the answer that does not depend on a flag, on remembering a flag, or on which'
+    Write-Output '    spelling the flag turns out to use.'
+    Write-Output ''
+    Write-Output '    EVERYTHING BELOW THIS LINE IS THE SECOND HALF OF THE ANSWER: what removing the plugin does'
+    Write-Output '    NOT take with it, which is what this script is for.'
 
     # --- the plan -----------------------------------------------------------
     Write-Output ''
@@ -1779,18 +2182,24 @@ try {
         # with no prompt and no token. The rows above say those files are kept,
         # and they are kept BY THIS SCRIPT; naming the CLI command without the
         # flag three lines under that promise is what #280 was filed for.
-        Write-Output ('    THE FLAG IS THE POINT. Without --keep-data that uninstall also deletes the state-data')
-        Write-Output ('    directory listed above - all of it, no prompt, no confirmation token - which is the opposite')
-        Write-Output ('    of what the LEFT BEHIND rows above promise about it. Copy those two files out first if the')
-        Write-Output ('    record matters to you; that answer does not depend on remembering a flag.')
+        Write-Output ('    THE FLAG IS THE POINT AND THE FLAG IS NOT ENOUGH. Without --keep-data that uninstall also')
+        Write-Output ('    deletes the CLI''s own plugins\data\{id} directory - all of it, no prompt, no token - which is the')
+        Write-Output ('    opposite of what the LEFT BEHIND rows above promise. WITH it, that ONE directory is kept and')
+        Write-Output ('    no other: a LEGACY-named directory from before the rename, or one a redirected')
+        Write-Output ('    CLAUDE_PLUGIN_DATA points at, is not covered, because the CLI does not know it is this')
+        Write-Output ('    plugin''s. The first block of this report names which of those exist on this machine. Copy')
+        Write-Output ('    the two log files out first if the record matters to you; that answer does not depend on')
+        Write-Output ('    remembering a flag and it is the only one that reaches a directory the flag cannot see.')
         Write-Output ('    A JUNCTION install, if this machine also has one, is a different copy with its own data dir and')
         Write-Output ('    is not visible from here.')
     } else {
         Write-Output '    A MARKETPLACE install (lw-watchtower@<marketplace>) is a separate copy in the CLI cache with its'
         Write-Output '    own data dir. This script only knows about the junction and the data dirs listed above.'
         Write-Output '    Removing that one is the CLI''s job, and the form to use is'
-        Write-Output '    "claude plugin uninstall lw-watchtower@<marketplace> --keep-data": the plain form deletes that'
-        Write-Output '    copy''s data directory with it, unwarned (#280).'
+        Write-Output '    "claude plugin uninstall lw-watchtower@<marketplace> --keep-data -y": the plain form deletes'
+        Write-Output '    that copy''s plugins\data\{id} directory with it, unwarned (#280), and --keep-data covers'
+        Write-Output '    that one directory only. -y skips the --prune confirmation and is cheap insurance in a'
+        Write-Output '    run with no TTY; it was not needed for the uninstall itself when that was measured.'
     }
     Write-Output '    Other machines, other clones, and any settings.json outside the path printed at the top.'
     Write-Output '    ~/.claude/health/ is the operator''s own health supervisor, not part of this plugin, and is'

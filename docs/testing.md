@@ -22,7 +22,7 @@ which is the one external binary any suite here depends on besides `powershell` 
 `tests/stop_behaviour.ps1` runs the two hooks that fire at every turn end —
 `lib/stop_advisories.ps1` and `lib/supervisor.ps1` — with 120 cases, and covers more
 **observing** modules than anything else here. `tests/uninstall_footprint.ps1` drives `bin/lwg-uninstall.ps1` against
-throwaway data directories and throwaway `settings.json` files with 40 cases, and is the only one
+throwaway data directories and throwaway `settings.json` files with 42 cases, and is the only one
 that covers a **deletion**.
 `tests/state_resolution.ps1` runs the `SessionStart` hook itself in a real child process: the
 `CLAUDE_CONFIG_DIR` precedence, the five self-check probes, every rung of the mode ladder, the banner

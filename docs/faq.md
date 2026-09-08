@@ -293,15 +293,31 @@ breakdown: [Turn-end cost](architecture.md#turn-end-cost).
 
 ## How do I uninstall it?
 
-`/lw-watchtower:uninstall` is a **dry run by default**, and the dry run is the point: it reports the whole
-footprint — plugin root, data directories, the copied status line, the settings keys it was installed
-into — and **names everything it cannot remove**.
+**Run `/lw-watchtower:uninstall` and do what its first block says.** That block is headed
+`TO REMOVE THIS PLUGIN` and carries the two commands with your machine's ids already filled in;
+the model runs the first one for you through its Bash tool, then verifies, then reports. The rest of
+the report is the **second** half of the answer — what removing the plugin does *not* take with it,
+including **everything it cannot remove**.
+
+Until 0.4.1 that command was a footprint reporter and nothing more: it printed the removal commands
+forty lines down, under headings that mean *things that are staying*, exited `0`, and left the
+plugin installed. If yours does that, you are on 0.4.0 or earlier.
 
 By hand:
 
-- Marketplace install: `/plugin uninstall lw-watchtower@leapware-watchtower`. **That deletes this
-  plugin's data directory with it**, measured on CLI 2.1.260;
-  `claude plugin uninstall lw-watchtower@leapware-watchtower --keep-data` is the form that keeps it.
+- Marketplace install:
+  `claude plugin uninstall lw-watchtower@leapware-watchtower --keep-data -y`. **The plain form,
+  without `--keep-data`, deletes the CLI's own data directory for this plugin**, measured on CLI
+  2.1.260. Then **verify by reading state rather than trusting the exit code**:
+  `/lw-watchtower:uninstall` with `-VerifyRemoved` reads
+  `~\.claude\plugins\installed_plugins.json` and exits `2` if the plugin is still registered, `0`
+  if it is gone, `3` if it could not tell — and `3` is not `0`.
+- **Deregistered is not deleted.** Measured on 8 September 2026 under CLI 2.1.263: a successful
+  uninstall removed the registry key and left the whole unpacked copy under
+  `~\.claude\plugins\cache\leapware-watchtower\lw-watchtower\<version>\` on disk. Nothing loads it
+  afterwards; the report prints the `cmd /c rmdir /s /q` line for it if you want the disk back.
+- **Restart the CLI afterwards** — commands, hooks and agents are read at session start. Whether a
+  *running* session drops a deregistered plugin without a restart is **unmeasured**.
 - The marketplace itself: `claude plugin marketplace remove leapware-watchtower`. Adding the
   marketplace clones this whole repository to `~\.claude\plugins\marketplaces\leapware-watchtower\`;
   uninstalling the plugin does not remove it and this does.

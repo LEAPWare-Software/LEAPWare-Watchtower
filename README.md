@@ -89,7 +89,7 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   `orphan_watch`; `tests/stop_behaviour.ps1` runs 120 against the two turn-end hooks and the
   advisory modules behind them; `tests/setup_merge.ps1` runs 203 against the installer's `statusline`
   and `hooks` merge and against the reporting surfaces that have no suite of their own;
-  `tests/uninstall_footprint.ps1` runs 40 against the uninstaller's footprint, attribution and
+  `tests/uninstall_footprint.ps1` runs 42 against the uninstaller's footprint, attribution and
   state-data deletions; `tests/config_behaviour.ps1` runs 57 and `tests/toggle_behaviour.ps1` runs 32
   against the two commands that write `config.override.json`; `tests/state_resolution.ps1` runs 37
   against the state-directory resolver; `tests/doctor_behaviour.ps1` runs 43 against the doctor's

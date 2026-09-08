@@ -1908,6 +1908,237 @@ function Test-MarketplaceRouteSaysTheCliUninstallTakesTheData {
                -Detail (($bad -join '; ') + " | marketplace exit $($r.code), control exit $($ctl.code) | paragraph: $($para.Trim())")
 }
 
+function Get-BlockIndex {
+    <#
+      Where a report block's heading starts in the run's stdout, or -1. Used to
+      assert ORDER, which is the one property of this report that a case can
+      check without reading prose: a heading is a string, and one string either
+      comes before another or it does not.
+    #>
+    param([string]$Out, [string]$Heading)
+    return $Out.IndexOf($Heading, [System.StringComparison]::Ordinal)
+}
+
+function Test-RemovalCommandsAreTheFirstBlock {
+    <#
+      THE COMMAND THAT REMOVES THE PLUGIN WAS IN THE REPORT AND UNDER THE WRONG
+      HEADINGS (#345). This is the defect the OWNER reported, in their words:
+      "The uninstall command does NOT work. It does not uninstall."
+
+      They were right, and the diagnosis is narrower and worse than "a missing
+      feature". Everything needed was already computed. `Get-LwgCacheRouteInfo`
+      derives the `<plugin>@<marketplace>` id from this script's own path, and
+      the run PRINTED the two CLI commands - in three places, every one of them
+      BELOW the footprint: inside a LEFT BEHIND `Why` paragraph, inside the
+      state-data `Why` paragraph, and eleven lines into AND WHAT THIS SCRIPT
+      CANNOT SEE. Under headings that mean "things that are staying". So an
+      operator read 83 lines of inventory, an exit 0, and no act; the plugin was
+      still installed. A report that buries the act under the inventory is a
+      report that reads as "there is nothing to do".
+
+      WHAT THE FIX HAS TO BE, AND WHY IT IS ASSERTABLE. Not more words - ORDER.
+      The first block of the report is now TO REMOVE THIS PLUGIN, and this case
+      asserts its index against FOOTPRINT's rather than asserting that some
+      sentence exists somewhere. Nothing was deleted to make room: the three
+      paragraphs still say what they said, because a warning attached to the row
+      it is about is worth keeping.
+
+      THE CONTROL IS THE JUNCTION ROUTE, IN THIS CASE RATHER THAN BESIDE IT, and
+      it is not the same control as the two cases above. There the question was
+      whether route-specific WORDING leaked; here it is whether the block invents
+      an id. A junction install is not in the CLI registry under any
+      `<plugin>@<marketplace>` key, so a plausible-looking id printed in the first
+      block would be a command that fails at the moment an operator most needs it
+      to work. The junction route must print the block, name the bare `rmdir` for
+      the link, and name no id.
+
+      BASELINE 7952992 (the v0.4.0 tag, the version the owner had installed):
+      the string 'TO REMOVE THIS PLUGIN' appeared nowhere in the output at all,
+      on either route, so Get-BlockIndex returned -1 and every ordering
+      assertion below fails. The two CLI commands were printed at output offsets
+      well past FOOTPRINT's.
+    #>
+    $t    = New-CaseTree 'removal-first-marketplace'
+    $mk   = New-CachedPluginCopy -Tree $t
+    # A LEGACY-named state directory, planted so the --keep-data branch that
+    # reports one EXECUTES. Without it the case would assert on the other branch
+    # and the sentence about what the flag does not cover would go unproven.
+    $legacy = New-SeededDataDir (Join-Path $t.dataRoot 'lw-gmhh')
+    $before = Get-TreeFingerprint $t.dir
+    $r    = Invoke-Uninstall -Tree $t -ScriptPath (Join-Path $mk 'bin\lwg-uninstall.ps1')
+
+    $t2   = New-CaseTree 'removal-first-junction-control'
+    $ctl  = Invoke-Uninstall -Tree $t2
+
+    $id    = "$PluginName@lwg-fixture-marketplace"
+    $iTo   = Get-BlockIndex $r.out '  TO REMOVE THIS PLUGIN'
+    $iFoot = Get-BlockIndex $r.out '  FOOTPRINT'
+    $iLeft = Get-BlockIndex $r.out '  LEFT BEHIND'
+    $cTo   = Get-BlockIndex $ctl.out '  TO REMOVE THIS PLUGIN'
+    $cFoot = Get-BlockIndex $ctl.out '  FOOTPRINT'
+
+    # The one line that carries the removal command, so the assertions below are
+    # about THAT line rather than about the whole report.
+    $cmdLine = @($r.out -split "`r?`n" | Where-Object { $_ -like "*claude plugin uninstall $id*" } | Select-Object -First 1)
+    $cmdLine = if ($cmdLine.Count -gt 0) { $cmdLine[0] } else { '' }
+    # `claude plugin marketplace remove` HAS NO -y. Read off the CLI's own help
+    # on 2.1.263: its only options are -h and --scope, so a symmetrically written
+    # `-y` there is an unknown-option error.
+    #
+    # ANCHORED IMMEDIATELY AFTER THE MARKETPLACE NAME, and the loose version of
+    # this was a measured FALSE POSITIVE rather than a precaution. `-like
+    # '*marketplace remove*' -and -match '\s-y\b'` flagged the plugin-clone LEFT
+    # BEHIND paragraph, which is one long line naming BOTH commands: the `-y`
+    # belonged to the uninstall thirty words earlier. A rule about which command
+    # a flag is attached to has to read the adjacency, not the line.
+    $mktLines = @($r.out -split "`r?`n" | Where-Object { $_ -match 'claude plugin marketplace remove\s+\S+\s+-y\b' })
+
+    $bad = @()
+    if ($r.code -ne 0) { $bad += "the marketplace run exited $($r.code), expected 0" }
+    if ($iTo -lt 0)    { $bad += 'THE BLOCK IS NOT THERE: the run never printed a TO REMOVE THIS PLUGIN heading, so the report still opens with an inventory' }
+    if ($iFoot -lt 0)  { $bad += 'the run printed no FOOTPRINT heading, so this case could not establish an ordering' }
+    if ($iTo -ge 0 -and $iFoot -ge 0 -and $iTo -gt $iFoot) { $bad += "THE ACT IS STILL UNDER THE INVENTORY: TO REMOVE THIS PLUGIN is at offset $iTo, FOOTPRINT at $iFoot" }
+    if ($iTo -ge 0 -and $iLeft -ge 0 -and $iTo -gt $iLeft)  { $bad += "TO REMOVE THIS PLUGIN is still below LEFT BEHIND (offsets $iTo and $iLeft)" }
+    if ($cmdLine -eq '') { $bad += "no line in the run carries 'claude plugin uninstall $id', so the id was never interpolated" }
+    if ($cmdLine -ne '' -and $iTo -ge 0 -and $r.out.IndexOf($cmdLine, [System.StringComparison]::Ordinal) -gt $iFoot) { $bad += 'the FIRST line naming the removal command still sits below FOOTPRINT' }
+    if ($cmdLine -notmatch [regex]::Escape('--keep-data')) { $bad += 'the removal command is printed without --keep-data, the only form that preserves the data directory' }
+    if ($cmdLine -notmatch '\s-y\b') { $bad += 'the removal command is printed without -y, which an agent-driven run with no TTY on either end is the case for' }
+    if ($mktLines.Count -gt 0) { $bad += "$($mktLines.Count) line(s) pass -y to 'claude plugin marketplace remove', which accepts only -h and --scope: " + (($mktLines | ForEach-Object { $_.Trim() }) -join ' || ') }
+    if ($r.out -notmatch [regex]::Escape('claude plugin marketplace remove lwg-fixture-marketplace')) { $bad += 'the marketplace removal is not named with the marketplace filled in' }
+    # THE FOUR THINGS THE BLOCK EXISTS TO SAY, each measured on the owner's
+    # machine and none of them stated by the report before this.
+    if ($r.out -notmatch [regex]::Escape('-VerifyRemoved')) { $bad += 'the block does not hand over -VerifyRemoved, so there is no command that answers "is it actually gone?"' }
+    if ($r.out -notmatch 'installed_plugins\.json') { $bad += 'the block never names installed_plugins.json, the file a verification has to read' }
+    if ($r.out -notmatch [regex]::Escape('rmdir /s /q')) { $bad += 'the block gives no removal line for the unpacked copy, which SURVIVES a successful uninstall - measured' }
+    if ($r.out -notmatch '(?i)UNMEASURED') { $bad += 'the block claims something about the running session instead of recording it as unmeasured' }
+    if ($r.out -notmatch '(?i)restart') { $bad += 'the block does not say a restart is needed' }
+    # THE --keep-data CORRECTION. The flag covers plugins\data\<name> and the
+    # LEGACY directory planted above is not covered by it; the block has to say
+    # which, on THIS machine, rather than warn generically.
+    if ($r.out -notmatch '(?i)WHAT --keep-data COVERS') { $bad += 'the block does not state what --keep-data actually covers' }
+    if ($r.out -notmatch [regex]::Escape($legacy)) { $bad += "the planted LEGACY directory $legacy is not named as one --keep-data does not cover" }
+    if ((Get-TreeFingerprint $t.dir) -ne $before) { $bad += 'the dry run changed the sandbox tree' }
+    # CONTROL - the block is on both routes, and invents no id on the one with
+    # no id to invent.
+    if ($cTo -lt 0) { $bad += 'CONTROL: the junction route printed no TO REMOVE THIS PLUGIN block at all' }
+    if ($cTo -ge 0 -and $cFoot -ge 0 -and $cTo -gt $cFoot) { $bad += 'CONTROL: on the junction route the block is below the footprint' }
+    if ($ctl.out -match [regex]::Escape("claude plugin uninstall $id")) { $bad += 'CONTROL: the junction route printed a marketplace id it cannot know' }
+    if ($ctl.out -notmatch [regex]::Escape('cmd /c rmdir "')) { $bad += 'CONTROL: the junction route does not give the bare rmdir line for the link, which IS the removal there' }
+    if ($ctl.code -ne 0) { $bad += "CONTROL: the junction run exited $($ctl.code)" }
+
+    Add-Result -Name 'the first block of the report is TO REMOVE THIS PLUGIN, carrying the commands that remove it (#345)' `
+               -Ok ($bad.Count -eq 0) `
+               -Detail (($bad -join '; ') + " | offsets TO-REMOVE $iTo FOOTPRINT $iFoot LEFT-BEHIND $iLeft | command: $($cmdLine.Trim())")
+}
+
+function Set-CaseRegistry {
+    <#
+      An installed_plugins.json in a case tree, at the path the CLI writes it to:
+      <ClaudeHome>\plugins\installed_plugins.json. Written verbatim rather than
+      through ConvertTo-Json, because one of the states this case drives is a
+      file that does NOT parse and a helper that round-tripped through the JSON
+      writer could not express it.
+    #>
+    param([hashtable]$Tree, [string]$Text)
+    $p = Join-Path $Tree.claudeHome 'plugins\installed_plugins.json'
+    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $p))
+    [IO.File]::WriteAllText($p, $Text, [Text.UTF8Encoding]::new($false))
+    return $p
+}
+
+function Test-VerifyRemovedReadsTheRegistry {
+    <#
+      AN UNINSTALL THAT TRUSTS EXIT 0 IS THE SHAPE THIS REPOSITORY ALREADY HAS A
+      SCAR FOR (#345). lib\supervisor.ps1 records a check that read a roster file
+      nothing ever wrote and "reported '0 orphans' unconditionally for its entire
+      life". `claude plugin uninstall` printing success and exiting 0 is a claim
+      by the thing being checked; the registry on disk is the evidence.
+
+      So -VerifyRemoved reads <ClaudeHome>\plugins\installed_plugins.json and
+      answers from what is in it. FOUR STATES, and the case drives all four
+      because the two that are not the happy path are the ones that decay: an
+      absent file and an unparseable one both produce "no key for this plugin"
+      if you are careless, and that is the empty-set pass this project keeps
+      finding in itself. Both must exit 3, not 0.
+
+      THE KEY SHAPE IS READ FROM A REAL PROFILE, not invented: on 2026-09-08
+      under CLI 2.1.263 the file is
+      { "version": 2, "plugins": { "<plugin>@<marketplace>": [ { "scope": ...,
+      "installPath": ..., "version": ..., "gitCommitSha": ... } ] } } - an ARRAY
+      per key, because one plugin can be installed at more than one scope. The
+      fixture below keeps that shape, including a second unrelated plugin, so a
+      matcher that read the first key it found would fail here.
+
+      AND THE REFUSAL, which is the same shape as -RestoreSettings': a mode that
+      both verified and removed could never be the thing you run to find out
+      what the last command did.
+
+      BASELINE 7952992: -VerifyRemoved was not a parameter of the script, so
+      `powershell -File ... -VerifyRemoved` exited 1 with "A parameter cannot be
+      found that matches parameter name 'VerifyRemoved'" and none of the four
+      exit codes below was ever produced.
+    #>
+    $t = New-CaseTree 'verify-removed'
+    $before = Get-TreeFingerprint $t.dir
+
+    $bad = @()
+
+    # 1. NO FILE - not a pass. The plugin's absence from a file that was never
+    #    read is not a finding, and it cannot be told apart from this script
+    #    being pointed at the wrong configuration root.
+    $r1 = Invoke-Uninstall -Tree $t -ScriptArgs @('-VerifyRemoved')
+    if ($r1.code -ne 3) { $bad += "with no registry file the run exited $($r1.code), expected 3 - an unread file is not an empty one" }
+    if ($r1.out -notmatch '(?i)CANNOT ESTABLISH') { $bad += 'the no-file run does not say it established nothing' }
+    if ($r1.out -match '(?i)\bREMOVED\b\s*-') { $bad += 'THE EMPTY-SET PASS: the no-file run reported the plugin as REMOVED' }
+
+    # 2. REGISTERED - the answer the owner's machine gave after a run of this
+    #    command that printed 83 lines and exited 0.
+    [void](Set-CaseRegistry -Tree $t -Text ('{"version":2,"plugins":{"' + $PluginName + '@lwg-fixture-marketplace":[{"scope":"user","installPath":"C:\\fixture\\cache","version":"9.9.9-fixture","gitCommitSha":"0fixture"}],"unrelated@other":[{"scope":"project","projectPath":"C:\\fixture\\proj"}]}}'))
+    $r2 = Invoke-Uninstall -Tree $t -ScriptArgs @('-VerifyRemoved')
+    if ($r2.code -ne 2) { $bad += "with the key present the run exited $($r2.code), expected 2" }
+    if ($r2.out -notmatch '(?i)STILL REGISTERED') { $bad += 'the registered run does not say the plugin is still registered' }
+    if ($r2.out -notmatch [regex]::Escape("$PluginName@lwg-fixture-marketplace")) { $bad += 'the registered run does not name the key it found' }
+    if ($r2.out -notmatch '9\.9\.9-fixture') { $bad += 'the registered run does not report the version in the record, so it is not reading the record' }
+
+    # 3. CLEAR - the only pass, and it must not be reached by ignoring the other
+    #    key in the file.
+    [void](Set-CaseRegistry -Tree $t -Text '{"version":2,"plugins":{"unrelated@other":[{"scope":"user"}]}}')
+    $r3 = Invoke-Uninstall -Tree $t -ScriptArgs @('-VerifyRemoved')
+    if ($r3.code -ne 0) { $bad += "with the key gone the run exited $($r3.code), expected 0" }
+    if ($r3.out -notmatch '(?i)REMOVED - that file parsed') { $bad += 'the clear run does not say the answer came from a file that parsed' }
+    if ($r3.out -notmatch '(?i)DEREGISTERED IS NOT DELETED') { $bad += 'the clear run does not say the unpacked copy survives, which is the half of this defect nothing reported' }
+    if ($r3.out -notmatch '(?i)UNMEASURED') { $bad += 'the clear run claims something about the running session rather than recording it as unmeasured' }
+
+    # 4. UNPARSEABLE - establishes nothing, and must not degrade to 'clear'.
+    [void](Set-CaseRegistry -Tree $t -Text '{ "plugins": ')
+    $r4 = Invoke-Uninstall -Tree $t -ScriptArgs @('-VerifyRemoved')
+    if ($r4.code -ne 3) { $bad += "with an unparseable registry the run exited $($r4.code), expected 3" }
+    if ($r4.out -notmatch '(?i)CANNOT ESTABLISH') { $bad += 'the unparseable run does not say it established nothing' }
+
+    # 5. THE REFUSAL. -VerifyRemoved is a question, and a question that also
+    #    changes things is not one.
+    $r5 = Invoke-Uninstall -Tree $t -ScriptArgs @('-VerifyRemoved', '-Apply', '-All')
+    if ($r5.code -ne 1) { $bad += "-VerifyRemoved with -Apply -All exited $($r5.code), expected the whole-run refusal, 1" }
+    if ($r5.out -notmatch '(?i)REFUSED') { $bad += 'the refusal does not say REFUSED' }
+
+    # THE READ-ONLY CLAIM, AND THE BASELINE IT IS TAKEN AGAINST. The four
+    # registries above were planted by this case, so a fingerprint from before
+    # them would differ for a reason that is not the script's. It is taken HERE,
+    # after the last plant, and a sixth run is made against it - so what is
+    # asserted is that a -VerifyRemoved run changes nothing, which is the claim.
+    # $before is still read, as a control: if it equalled $expected this case
+    # never planted anything and would have proved nothing at all.
+    $expected = Get-TreeFingerprint $t.dir
+    $r6 = Invoke-Uninstall -Tree $t -ScriptArgs @('-VerifyRemoved')
+    if ((Get-TreeFingerprint $t.dir) -ne $expected) { $bad += 'a -VerifyRemoved run changed the tree; it is supposed to read one file' }
+    if ($r6.code -ne 3) { $bad += "the repeat run exited $($r6.code) rather than the 3 the run before it gave, so the mode is not deterministic" }
+    if ($before -eq $expected) { $bad += 'the fingerprint control established nothing - the case never planted a registry' }
+
+    Add-Result -Name '-VerifyRemoved answers from the registry, and an unread registry is not a removal (#345)' `
+               -Ok ($bad.Count -eq 0) `
+               -Detail (($bad -join '; ') + " | exits: no-file $($r1.code), registered $($r2.code), clear $($r3.code), unparseable $($r4.code), refusal $($r5.code)")
+}
+
 function Test-ClaudeJsonSizeIsMeasuredAndNotAsserted {
     <#
       A HARD-CODED NUMBER IN THE BLOCK HEADED "AND WHAT THIS SCRIPT CANNOT SEE"
@@ -2505,6 +2736,8 @@ try {
     Test-NoFileHashStillProducesAFootprint
     Test-MarketplaceRouteDoesNotPrintJunctionSentences
     Test-MarketplaceRouteSaysTheCliUninstallTakesTheData
+    Test-RemovalCommandsAreTheFirstBlock
+    Test-VerifyRemovedReadsTheRegistry
     Test-ClaudeJsonSizeIsMeasuredAndNotAsserted
     Test-ReparseStateDirIsRefused
     Test-PartialDeletionNamesWhatWent
