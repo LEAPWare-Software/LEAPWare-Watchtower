@@ -445,11 +445,12 @@ land here as they merge.
   delegation offer #326 added — and the issue that filed this measured four, because it was written
   before that fifth landed. The heading is corrected from the script rather than from the issue.
 
-- **`tests/payload_guard.ps1` gains an eighth detection rule, `denied-dispatch-record` (#332).** The
+- **`tests/payload_guard.ps1` gains a detection rule, `denied-dispatch-record` (#332).** The
   inverse of `deleted-script` and `gated-tool`: a shipped file *denying* a capability this tree has,
   where those two catch a shipped file promising one it does not. Red-first at `010a550` on three
   lines across two payload files, green with them corrected. **Case count 28 → 29**, restated in the
-  four pages that carry it.
+  five pages that carry it — the fifth, `docs/testing.md:45`, was found by `doc_claims` and not by
+  the sweep that found the other four.
 - **`tests/doc_claims.ps1` gains `setup-question-count` (#313).** The expected number is derived by
   parsing `Write-Questions` out of `bin/lwg-setup.ps1` and counting its `Q<n>` labels, with an abort
   if they do not run `1..N` — the block's own prose promises that removed questions are not

@@ -42,6 +42,9 @@
                            nothing, so it is not one)
     doctor checks          bin\lwg-doctor.ps1 is run and its header parsed
     command count          git ls-files -- commands/*.md, same disk filter
+    setup questions        the Q<n> labels Write-Questions prints in
+                           bin\lwg-setup.ps1, with the numbering asserted to
+                           run 1..N rather than merely counted
     suite output contract  the RESULT: and EXIT: lines each sibling suite
                            prints are read off the run above, not asserted
                            from a list of which suites are supposed to have
