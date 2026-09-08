@@ -53,13 +53,41 @@ lw-watchtower/output-styles/lw-orchestrator.md
                              force-for-plugin is deliberately absent and is an
                              owner decision - see docs/output-styles.md
 lw-watchtower/skills/<name>/SKILL.md
-                             the skills the plugin ships - lw-handoff today.
-                             Discovered from this directory name, like
-                             commands/ and agents/, and for the same reason it
-                             is NOT named in plugin.json. A skill is a
-                             DIRECTORY whose name is the skill name, holding
+                             the skills the plugin ships - FIVE directories
+                             since 7 September 2026 (#179). ONE is original
+                             work: lw-handoff. FOUR are vendored third-party
+                             bodies: grill-me, grilling, task-observer and
+                             vibesec, each attributed in
+                             lw-watchtower/THIRD-PARTY-NOTICES.md. Five
+                             directories and one original skill are different
+                             numbers and this line states both, because a page
+                             saying only "five skills" would read as five
+                             things this project wrote. task-observer also
+                             ships seven references/*.md, which its own body
+                             names 31 times. Discovered from this directory
+                             name, like commands/ and agents/, and for the same
+                             reason it is NOT named in plugin.json. A skill is
+                             a DIRECTORY whose name is the skill name, holding
                              SKILL.md, and /lw-watchtower:<name> resolves here
-                             exactly as it resolves to a commands/ page
+                             exactly as it resolves to a commands/ page. EVERY
+                             SKILL.md HERE IS REGISTERED BY THE CLI whether or
+                             not anything in this plugin points at it, and the
+                             model may start it on a description match unless
+                             the file opts out with
+                             disable-model-invocation: true - which grill-me
+                             does and the other four do not. That is why the
+                             two bodies meant to be loaded as context rather
+                             than started as skills live under context/stack/
+                             instead
+lw-watchtower/THIRD-PARTY-NOTICES.md
+                             the attribution and licence text for every
+                             vendored body under skills/ and context/stack/.
+                             INSIDE the payload, on the same argument that put
+                             LICENSE there: a notices file above the marketplace
+                             boundary reaches nobody who installs. Held to the
+                             tree by tests/payload_guard.ps1 S17, which derives
+                             the vendored set from the absence of the house
+                             header rather than from a list
 lw-watchtower/bin/lwg-doctor.ps1
                              ten checks for what is NOT working. Exits 0/1/2/3
                              and is meant to be able to exit non-zero
@@ -97,6 +125,20 @@ lw-watchtower/context/worker_facts.md
                              the block context_injection hands to every subagent.
                              Data, not code - edit it and the next dispatch picks
                              it up. '#' lines are comments and are not injected
+lw-watchtower/context/stack/*.md
+                             vendored third-party bodies that are NOT skills:
+                             ponytail.md and unlazy.md. They are here rather
+                             than under skills/ for one reason - the CLI
+                             auto-registers every skills/*/SKILL.md as
+                             model-invocable, and these two are meant to be
+                             pointed AT by a module rather than started by the
+                             model on a description match. NOTHING READS THIS
+                             DIRECTORY YET. The module that will (#179 slice 2)
+                             is not in this release, and that is stated here
+                             rather than left for a reader to discover from the
+                             absence of a caller. Attributed in
+                             lw-watchtower/THIRD-PARTY-NOTICES.md and held to
+                             it by tests/payload_guard.ps1 S17
 lw-watchtower/lib/common.ps1 module registry (implemented vs planned vs blocked -
                              source of truth for the banner), config load, module
                              resolution, the session-mode ladder (shared by the
@@ -243,7 +285,7 @@ tests/subagent_scan.ps1      20 cases piping payloads into lib/subagent_start.ps
                              The only coverage context_injection has. It asserts
                              on answers, not on the milliseconds the fast path
                              exists to save
-tests/payload_guard.ps1      28 cases over every file git ls-files reports under
+tests/payload_guard.ps1      29 cases over every file git ls-files reports under
                              lw-watchtower/, which is the whole shipped payload
                              because marketplace.json declares
                              "source": "./lw-watchtower". The only
