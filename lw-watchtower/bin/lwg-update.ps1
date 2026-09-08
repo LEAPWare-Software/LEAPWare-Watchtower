@@ -141,12 +141,25 @@ function Get-LwgCacheRouteInfo {
       rather than being one, and a wrong id printed with confidence is worse
       than no id.
 
-      WHY NOT ASK lib\common.ps1's Get-LwgMarketplaceInfo INSTEAD: it answers
-      "is there a marketplace install on this machine", which is a different
-      question and is TRUE on a junction-route machine that also has one. This
-      asks whether THIS root is one, which is what decides what to print. It
-      also records no `<plugin>@<marketplace>` id, and the id is the whole point
-      of the row.
+      WHY NOT ASK lib\common.ps1's Get-LwgMarketplaceInstall INSTEAD: called
+      bare it answers "is there a marketplace install on this machine", which is
+      a different question and is TRUE on a junction-route machine that also has
+      one. This asks whether THIS root is one, which is what decides what to
+      print. It also records no `<plugin>@<marketplace>` id, and the id is the
+      whole point of the row.
+
+      THE NAME IN THIS PARAGRAPH USED TO BE Get-LwgMarketplaceInfo, which is no
+      function at all - it is a `Get-` stuck in front of the memo variable
+      $script:LwgMarketplaceInfo that the real one caches into. Corrected under
+      #297, the issue that went looking for the function this sentence named
+      and did not find it.
+
+      THE OBJECTION IS ABOUT THE BARE CALL AND NOT ABOUT THE RESOLVER, and #297
+      is where that distinction got used: bin\lwg-doctor.ps1's plugin-manifest
+      row compares its own root to `paths[i]` for EQUALITY and reads the
+      recorded sha off the same entry, so it asks "is THIS root THAT install"
+      and the junction-route machine above cannot fool it. What that route still
+      cannot supply is the `<plugin>@<marketplace>` id, so this function stays.
     #>
     param([string]$Path)
 
