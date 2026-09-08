@@ -25,6 +25,141 @@ land here as they merge.
 
 ### Added
 
+- **`stack_mode` — one working discipline per session, and it is the thing that reads
+  `context/stack/` (2026-09-08, #179, slice 2).** Slice 1 vendored `ponytail` and `unlazy` and said
+  outright that nothing in the tree opened either file. This is that reader.
+  `lw-watchtower/lib/stack_mode.ps1` resolves **PROTO or SHIP, once per session**, and injects a
+  **pointer** to the ruleset for it — not the ruleset, by owner ruling of 2026-09-06, because a full
+  `SKILL.md` does not fit inside the ceiling injected context is held to and a session that reads
+  the file off disk reads the current one rather than a copy frozen into a hook.
+  **IT SHIPS SWITCHED OFF - `modules.stack_mode` is `false`**, by CTO call of 2026-09-08, and the
+  ruling is the one this release already took against #165: a new module ships off until it has run
+  against real sessions, and the exception is not argued. Three things make it decisive here rather
+  than merely consistent. **Rule 18 means it has never run in a live session at all**, which is the
+  exact condition the rule names - nothing in this repository has observed the CLI merging what it
+  injects. **`ship_roots` and `proto_roots` both ship EMPTY**, so switched on it resolves to the
+  `proto` default and injects a pointer no operator asked for: cost with no function until someone
+  says where their release trees are. And it is a **second `powershell` process on
+  `SubagentStart`**, beside `lib/subagent_start.ps1`, so a dispatch that pays for both pays a whole
+  interpreter start again. `bin/lwg-setup.ps1` gains **Q6**, which OFFERS the flag and the roots in
+  one breath and writes neither - Q5's shape, for Q5's reason plus one of its own: the flag lives in
+  `config.override.json`, which `/lw-watchtower:config` owns and the installer has never written.
+  Questions therefore go **5 → 6** and `commands/setup.md`'s heading with them.
+  **AND THE COST IS STATED RATHER THAN ABSORBED, which is ruling G2 applied to a bigger number.**
+  Slice 0's 18 ms got a written ruling on condition the figure appeared in the file and in
+  `docs/limitations.md`; ~464 ms of a second process gets no less. That page gains a section of its
+  own beside the dispatch record's: **the marginal cost of this module is ~170 ms over the floor, and
+  the cost a consumer pays is the whole ~464 ms, because the ~296 ms interpreter start is paid
+  again.** Whether the CLI runs the two `SubagentStart` registrations in PARALLEL or in SERIES is
+  **not measured here**, and the section says so - in series a dispatch's hooks cost roughly the sum,
+  in parallel roughly the slower of the two with the rest paid in CPU rather than latency, and this
+  repository does not know which. Not softened, and not argued away: **the flag shipping `false` is
+  what makes the cost opt-in**, and that is the resolution rather than a smaller number.
+  **The module registry goes 10 → 11 and its observing entries 7 → 8**, re-derived from
+  `$LwgModuleRegistry` rather than from any plan: `.github/notes/harness-hosting-plan.md` says
+  `13 → 14` and `10 → 11` and is **wrong on both**, because #168 had already spent an entry
+  deleting `context_pressure`. **`hooks/hooks.json` goes 13 → 15 registrations over the same eight
+  events**, both new ones on **matcher-less** events — `SessionStart` and `SubagentStart` — with a
+  new script leaf, so neither can collide with `$LwgSupersededMatchers` and no existing matcher was
+  widened. `tests/` goes 15 → 16 files and 12 → 13 behavioural suites under the F5 waiver, and the
+  banner literals, the CI step count, the two manifest descriptions and every prose site stating any
+  of those numbers move in this commit. **`modules` keys set true stays at SIX**, because the new one
+  ships false, and the banner therefore reads `6/11 modules enabled (5 off)` - re-derived rather than
+  adjusted, and the byte-pinned literals at `tests/state_resolution.ps1` moved twice in this lane
+  because of it, which is why F5 now asserts the parenthetical rather than trusting it.
+  **The two registrations are not interchangeable.** `SessionStart` tells the parent;
+  `SubagentStart` tells every worker at dispatch, because `CLAUDE.md` is snapshotted at
+  **parent-session start** and a worker dispatched later would read a mode that has since changed —
+  the same argument `context_injection` was built on. The envelope's `hookEventName` is mandatory
+  and event-specific, so one leaf serving two events takes `-HookEvent`, and a case pins that each
+  registration emits its own.
+  **Precedence, resolved once:** `CLAUDE_STACK_MODE` → a `.stackmode` marker in the working
+  directory → `module_config.stack_mode`'s `ship_roots` then `proto_roots` → its `default` → the
+  built-in `proto`. One source answering stands the rest down, which is what makes `ponytail` and
+  `unlazy` structurally unable to be in force at once. Both root lists ship **empty** and the
+  default ships `proto`, so nothing here changes anything until an operator says where their release
+  trees are. Roots match on **whole path segments** — `C:\work\api` is not inside `C:\work\ap` — and
+  SHIP wins where the two lists overlap.
+  **The SHIP pointer says what its own ruleset is missing, and that was an obligation rather than a
+  courtesy.** `unlazy`'s body instructs `node <skill-dir>/scripts/gate-check.mjs` and reads
+  `templates/gates-leaf.md`; neither is in this payload and this plugin ships no Node runtime. The
+  injected SHIP text names those files as absent and tells the reader to treat the body as a method
+  rather than as commands, because the reader is a model that would otherwise try to run them.
+  **It is the one module that does not fail open on a config it cannot read, and the departure is
+  deliberate.** Every other observer injects invariant text; this one injects an assertion about the
+  operator's environment, and a mode announced out of a `config.json` nothing could read is a guess
+  wearing a verdict's clothes — the shape `lib/supervisor.ps1` records this tree shipping once
+  already, in a check that reported "0 orphans" unconditionally for its whole life. So an absent,
+  unparseable or `modules`-less `config.json` produces **silence**, while inside a config that
+  parses that far a **missing `stack_mode` key still reads as on**, exactly like everything else.
+  One case pins both halves, because the pair is the evidence and neither half is.
+  **Everything else about it is a silence or a refusal.** No `decision`, `continue` or `stopReason`
+  field is emitted at all, so it cannot interfere with a session or a dispatch by construction
+  rather than by intent; every path exits 0; and a ruleset file the payload does not contain produces
+  silence rather than a pointer to something that is not there. **It writes nothing anywhere on any
+  path but one, and the exception is named rather than glossed:** a throw is caught and recorded as a
+  `StackModeError` row in `lw-watchtower.jsonl` through `Write-LwgEvent`, which resolves the state
+  directory through `Get-LwgStateDir` and therefore creates it if absent - the same shape
+  `context_injection` documents for its own catch. The override read deliberately goes through
+  `Get-LwgConfigOverridePath`, which exists because a read must not have that side effect. S14 pins
+  the happy path alone and says so.
+  **Cost, measured rather than asserted.** One machine's medians, 25 interleaved rounds, leg order
+  reversed on alternate iterations, one warm-up sweep discarded, against a floor script whose whole
+  body is `exit 0`: floor **296 ms**, this hook **471 ms** on `SessionStart` and **464 ms** on
+  `SubagentStart`, `lib/subagent_start.ps1` **435 ms** for comparison. The per-stage breakdown is in
+  `docs/modules.md`. **One line of it was a defect:** `New-Object System.Collections.ArrayList` in
+  the array reader cost ~60 ms of the total, because `New-Object` is a cmdlet whose first use loads
+  `Microsoft.PowerShell.Utility`; `[System.Collections.ArrayList]::new()` costs nothing. The header
+  of the script is deliberately short for the same family of reason — PowerShell 5.1 tokenises the
+  whole file before running a statement, so prose in a per-dispatch hook is charged per dispatch —
+  and the long account lives in `docs/modules.md`.
+  **`tests/stack_mode.ps1`, 15 cases, all RED at `315c461`** — `RESULT: 0 of 15 case(s) passed`,
+  each on its own assertion rather than on one shared setup failure. **One of the fifteen exists
+  because of a limit found by reading the port rather than by a failure**, and it pins which side of
+  degraded-versus-wrong that limit falls on: `Get-LwgJsonMemberStart` does not step over an array
+  value, so a payload shaped `{"tools":["cwd"],"cwd":"…"}` stops on the array element, finds no
+  colon and answers "no cwd" - the mode then falls through to the configured default and the decoy's
+  text is **never** returned as a working directory. Measured in the four shapes that matter,
+  including a same-named member nested one level deeper, which the depth rule correctly ignores in
+  favour of the depth-1 one. **Two of them passed on the
+  first baseline run and were wrong to:** they asked only whether the child had produced any output,
+  and at the baseline the interpreter's own "the argument to -File does not exist" text arrived as
+  164 characters of it. Both now assert on the envelope, and the harness keeps the child's error
+  stream out of the capture — which then needed `$ErrorActionPreference` lowered for the child call
+  alone, because under `Stop` a native command whose error stream is redirected raises a terminating
+  error in the caller and turned the first case that hit it into an abort reading `0 of 0 case(s)`.
+  **Deferred to `v0.6.0` by owner ruling H1, with the reason stated rather than left silent:**
+  `.mcp.json`, `bin/lwg-harness.ps1`, `bin/lwg-harness-sync.ps1` and the six-binary bootstrap, and
+  with them the update-channel question, which only exists once a bootstrap does. **#179 does not
+  close at this tag** — its acceptance criteria include a fresh Windows 11 UAT through that
+  bootstrap, and the bootstrap half is out of scope for this release.
+  **Three name-based enumerations this move exposed, and one of them was already wrong.**
+  `bin/lwg-doctor.ps1` printed *"EVERY ONE of the EIGHT observing modules"* and then named
+  **seven** - the number was wrong and the list was right, in one sentence, and
+  `tests/doc_claims.ps1`'s `observing-module-count` rule reads no pattern that phrasing matches, so
+  nothing had ever seen it. Adding `stack_mode` made the word true by accident and the list short by
+  one; both are corrected, and the derivation comment above that paragraph now records the third
+  staleness alongside the two it already recorded. `docs/configuration.md` said the `modules` block
+  holds *"Seven keys"*; it holds eight. `docs/testing.md`'s CI-step table called the delegate-gate
+  step *"one of the twelve steps that test behaviour"* in a shape no rule reads. Every list that
+  names modules, suites, registrations or CI steps by NAME rather than by count was walked by hand
+  for this commit - the registration table and file layout in `docs/architecture.md`, the
+  per-suite and per-module tables in `docs/limitations.md` and `docs/testing.md`, the module tables
+  in `README.md` and `docs/modules.md`, the `modules` and `module_config` sections of
+  `docs/configuration.md`, the invocation list and suite prose in the pull-request template, the
+  bug-report area dropdown, and the suite enumerations in `lw-watchtower/commands/update.md` and
+  `docs/troubleshooting.md`. **Left as found and reported rather than fixed here:**
+  `docs/testing.md`'s CI-step table is missing three steps that predate this change - the metrics
+  suite, commit identity and the pull-request issue reference - and `docs/configuration.md` still
+  describes a `/lw-watchtower:config` refusal for `context_injection` that `bin/lwg-config.ps1`
+  deleted on 4 September 2026. Neither is this lane's, and inventing a fix for a page #195 is
+  consolidating would be worse than naming it.
+  **Not measured, and named rather than implied:** no live Claude Code session was started for any
+  of this. Every run is the hook in a child process with the environment the CLI sets and a fixture
+  payload on real stdin, so **whether the CLI merges this `additionalContext` into a parent session
+  or a worker is unverified here**, as is the `hookEventName` the running build accepts on either
+  event. The payload goes **54 → 55 files** with `lib/stack_mode.ps1`.
+
 - **Six third-party skill bodies are vendored into the payload, with `lw-watchtower/THIRD-PARTY-NOTICES.md`
   beside them (2026-09-07, #179, slice 1).** Four land as skills — `grill-me`, `grilling`,
   `task-observer` (with its seven `references/*.md`) and `vibesec` — and two, `ponytail` and

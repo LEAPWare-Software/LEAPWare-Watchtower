@@ -6,7 +6,7 @@ name: CI
 # matrix, and every step runs under Windows PowerShell 5.1 rather than the `pwsh`
 # (PowerShell 7) that GitHub's Windows runners default to.
 #
-# THERE IS ONE JOB, AND TWELVE OF ITS 21 CHECK STEPS TEST BEHAVIOUR. The
+# THERE IS ONE JOB, AND THIRTEEN OF ITS 22 CHECK STEPS TEST BEHAVIOUR. The
 # `gate-regression` job and tests\gate_regression.ps1 went on 30 July 2026 with
 # the destructive command gate; the `permissions.deny parity` step and
 # tests\deny_parity.ps1 went the same day with the secret gate. Neither is coming
@@ -154,7 +154,7 @@ defaults:
 
 jobs:
   # The whole workflow. It was one of two jobs until the gate regression suite
-  # was removed on 30 July 2026, and it stays one job now that TWELVE
+  # was removed on 30 July 2026, and it stays one job now that THIRTEEN
   # behavioural suites are in it: a second job would buy parallelism this
   # workflow does not need at the cost of a second required check to configure.
   #
@@ -247,6 +247,22 @@ jobs:
   # so raising it now would be raising a cap against no measurement. If the
   # parallel wall clock ever approaches the 600 s wait the documentation-claim
   # step passes, RAISE BOTH - see the rule below.
+  #
+  # THE STACK MODE SUITE IS NOT IN THAT TOTAL EITHER, and the paragraphs above
+  # are left as the dated records they are. It adds ONE step, measured at 14 s
+  # on the machine it was written on, and nothing to the parallel wall clock,
+  # because setup_merge is still the slowest sibling by a wide margin - 216 s
+  # against 14 s. What it DOES add is one more child process to the parallel
+  # fan-out, and that is worth recording rather than assuming away: on the
+  # machine this was measured on, ONE run of the documentation-claim step out of
+  # FOUR had tests\stop_behaviour.ps1 exit 1 under that fan-out while the same
+  # suite exited 0 on its own immediately afterwards, and the other three runs
+  # of the step were green. That is one observation on one busy developer machine,
+  # not a reproduction, and it is written down here rather than retried away -
+  # this file's own rule is that a suite failing intermittently is a defect in
+  # that suite and re-running it until it passes is the control this repository
+  # exists to refuse. If it recurs on a runner, the fan-out width is the first
+  # thing to look at.
   #
   # DO NOT make the documentation-claim step trust a number typed into it. The
   # -SuiteTimeoutSec it is given is held BELOW this budget by a rule inside
@@ -548,7 +564,7 @@ jobs:
       - name: Delegate gate regression suite
         shell: powershell
         run: |
-          # One of the twelve tests of behaviour in this repository, and the only
+          # One of the thirteen tests of behaviour in this repository, and the only
           # one that tests a GATE. The parse and scan steps ask whether files are
           # well formed; this asks whether the one gate this plugin ships refuses
           # what it says it refuses. The installer merge suite, the stop-hook
@@ -1110,6 +1126,82 @@ jobs:
           }
           if ($env:GITHUB_STEP_SUMMARY) {
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**SubagentStart fast-scan suite:** $label"
+          }
+          exit $code
+
+      - name: Stack mode suite
+        shell: powershell
+        run: |
+          # The step that exercises lib\stack_mode.ps1 - the module that decides
+          # which of the two vendored working disciplines a session is under and
+          # hands every worker in it a POINTER to that ruleset.
+          #
+          # WHY IT NEEDS ITS OWN STEP. It is registered on TWO matcher-less
+          # events from ONE leaf, SessionStart and SubagentStart, and the two are
+          # not interchangeable: hookEventName is mandatory and event-specific,
+          # so a registration emitting the other event's name has its whole
+          # envelope discarded by the CLI and the injection silently does
+          # nothing. Nothing else in this job runs that file.
+          #
+          # NO BARE NEGATIVE STANDS ALONE, the same rule the fast-scan step
+          # follows. Every case whose subject is a SILENCE - the mode resolved to
+          # off, the module switched off in config.json, the module switched off
+          # in the operator's config.override.json, a config.json that cannot be
+          # read, a ruleset the payload does not contain - runs the identical
+          # fixture a second time with one bit changed and requires the injection
+          # to appear. The pair is the evidence; neither half is.
+          #
+          # Each case pipes a payload into a real child process against the real
+          # hook, with CLAUDE_PLUGIN_ROOT pointed at a throwaway root and
+          # CLAUDE_PLUGIN_DATA redirected for EVERY child without exception: the
+          # hook's catch path dot-sources lib\common.ps1, so a case that forgot
+          # the redirect would write into the runner's own state directory.
+          #
+          # WHAT IT DOES NOT COVER, from the suite header: the PERFORMANCE
+          # BUDGET, which is why the hook has a fast path at all - these cases
+          # assert on ANSWERS, not on milliseconds; the CONTENT of the two
+          # vendored rulesets, which is upstream's and is pinned by the payload
+          # guard and the notices file; and A LIVE SESSION - every run here is a
+          # simulation, so whether the CLI merges the injected context is NOT
+          # measured by this step.
+          #
+          # Same capture pattern as the steps around it: a nonzero native exit
+          # code does NOT fail a PowerShell step on its own, so it is re-raised
+          # explicitly, and stderr is deliberately not merged with 2>&1 - in
+          # Windows PowerShell 5.1 that wraps native stderr in NativeCommandError
+          # records and corrupts the result.
+          $ErrorActionPreference = 'Continue'
+          $suite = 'tests\stack_mode.ps1'
+
+          if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
+            Write-Host "::error::$suite is missing - stack_mode was never exercised, which is not the same as passing"
+            exit 1
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $suite
+          $code = if ($null -eq $LASTEXITCODE) { 255 } else { $LASTEXITCODE }
+
+          # Exit-code contract of tests\stack_mode.ps1, the same three this
+          # repo's other suites use. An abort is never reported as a pass.
+          #   0  every case passed
+          #   1  at least one case failed
+          #   2  the suite aborted; the module was NOT exercised. Zero cases run
+          #      is an abort, never an empty-set pass.
+          $label = switch ($code) {
+            0       { 'PASS - one source answers the mode and the rest stand down, every off is silent, the pointer refuses to name a ruleset this payload does not hold, and the SHIP pointer says outright that the node scripts its own ruleset names are absent. No live session was started, so whether the CLI merges the injected context is not established by this run.' }
+            1       { 'FAIL (exit 1) - read the per-case lines above. A case that injected where a switch is off means the hook runs in every session and every dispatch while the banner, the doctor and the config command all report it off.' }
+            2       { 'ABORT (exit 2) - the suite did not complete, so nothing about stack_mode was established by this run.' }
+            255     { 'NOT RUN (exit 255) - tests\stack_mode.ps1 could not be invoked.' }
+            default { "UNKNOWN (exit $code) - outside the documented 0/1/2 contract." }
+          }
+
+          if ($code -eq 0) {
+            Write-Host "stack mode suite: $label"
+          } else {
+            Write-Host "::error title=Stack mode suite::$label"
+          }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "**Stack mode suite:** $label"
           }
           exit $code
 

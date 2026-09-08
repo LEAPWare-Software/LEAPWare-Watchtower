@@ -113,7 +113,7 @@ lw-watchtower/bin/lwg-cmdlib.ps1
 lw-watchtower/hooks/hooks.json
                              hook registrations (SessionStart, PreToolUse,
                              PostToolUse, PostToolUseFailure, SubagentStart,
-                             SubagentStop, Stop, StopFailure). 13 registrations
+                             SubagentStop, Stop, StopFailure). 15 registrations
                              across those 8 events, and THREE of them carry a
                              channel that can refuse something: the two
                              PreToolUse gates, and completion_audit's Stop and
@@ -132,11 +132,12 @@ lw-watchtower/context/stack/*.md
                              auto-registers every skills/*/SKILL.md as
                              model-invocable, and these two are meant to be
                              pointed AT by a module rather than started by the
-                             model on a description match. NOTHING READS THIS
-                             DIRECTORY YET. The module that will (#179 slice 2)
-                             is not in this release, and that is stated here
-                             rather than left for a reader to discover from the
-                             absence of a caller. Attributed in
+                             model on a description match. READ BY stack_mode
+                             SINCE 8 SEPTEMBER 2026 (#179 slice 2), and by
+                             nothing else in this tree - lib/stack_mode.ps1
+                             resolves one of the two per session and injects a
+                             POINTER to it. It reads them by PATH and never
+                             loads either as a skill. Attributed in
                              lw-watchtower/THIRD-PARTY-NOTICES.md and held to
                              it by tests/payload_guard.ps1 S17
 lw-watchtower/lib/common.ps1 module registry (implemented vs planned vs blocked -
@@ -220,6 +221,18 @@ lw-watchtower/lib/subagent_start.ps1
                              in one process and neither switches the other.
                              Deliberately dot-sources NOTHING and uses no cmdlet,
                              no character loop and no JSON engine on its fast path
+lw-watchtower/lib/stack_mode.ps1
+                             stack_mode - SessionStart AND SubagentStart from
+                             one leaf, taking -HookEvent because the envelope's
+                             hookEventName is mandatory and event-specific.
+                             Resolves PROTO or SHIP once per session and injects
+                             a POINTER to context/stack/ponytail.md or
+                             context/stack/unlazy.md. Same fast-path discipline
+                             as subagent_start.ps1 - no dot-source, no cmdlet, no
+                             JSON engine - and the ONE module here that does not
+                             fail open on a config it cannot read: it goes
+                             silent instead, because the thing it would inject
+                             is an assertion about the operator's environment
 lw-watchtower/lib/supervisor.ps1
                              failure_capture - five of its SIX events (the sixth
                              is subagent_start.ps1's, above), the health handler,
@@ -234,7 +247,7 @@ lw-watchtower/statusline/statusline.ps1
                              the two can drift - see docs/install.md
 tests/gate_delegate.ps1      100 cases against lib/gate_delegate.ps1, each run
                              through a real pipe into a real child process. One
-                             of TWELVE behavioural suites, and the only one that
+                             of THIRTEEN behavioural suites, and the only one that
                              covers a PreToolUse gate - see docs/testing.md
 tests/stop_behaviour.ps1     144 cases against the Stop-hook handlers:
                              helpers in process, lib/stop_advisories.ps1 and
@@ -286,6 +299,15 @@ tests/subagent_scan.ps1      20 cases piping payloads into lib/subagent_start.ps
                              The only coverage context_injection has. It asserts
                              on answers, not on the milliseconds the fast path
                              exists to save
+tests/stack_mode.ps1         15 cases piping payloads into lib/stack_mode.ps1
+                             against a throwaway plugin root: the precedence
+                             ladder that resolves one working discipline per
+                             session, every way of switching it off, and the
+                             refusal to point a reader at a ruleset the payload
+                             does not hold. The only coverage stack_mode has,
+                             and a SIMULATION - no live session is started, so
+                             whether the CLI merges the injected context is not
+                             established here
 tests/payload_guard.ps1      30 cases over every file git ls-files reports under
                              lw-watchtower/, which is the whole shipped payload
                              because marketplace.json declares
@@ -306,19 +328,19 @@ tests/doc_claims.ps1         every tracked .md/.json/.yml, against counts DERIVE
                              suites, per-suite cases, CI check steps, doctor
                              checks, commands, modules. Asserts nothing about
                              behaviour either; it checks the pages, not the code
-.github/workflows/ci.yml     CI - one job, 21 check steps: JSON validity,
+.github/workflows/ci.yml     CI - one job, 22 check steps: JSON validity,
                              PowerShell parse, workflow guard, delegate gate
                              suite, installer merge suite, stop-hook behaviour
                              suite, supervision suite, uninstaller footprint
                              suite, state-resolution suite, config write-path
                              suite, doctor behaviour suite, toggle write-path
-                             suite, SubagentStart fast-scan suite, payload
-                             disclosure guard, portability scan, documentation
+                             suite, SubagentStart fast-scan suite, stack mode
+                             suite, payload disclosure guard, portability scan, documentation
                              claims, pull-request issue reference,
                              commit identity, version declarations, metrics
                              behaviour suite and red-first
-                             annotations. Twelve
-                             of the 21 test BEHAVIOUR; the other nine ask
+                             annotations. Thirteen
+                             of the 22 test BEHAVIOUR; the other nine ask
                              whether files are well formed or whether the docs
                              agree with the tree. The job's DISPLAY
                              NAME is deliberately unchanged and now understates
@@ -369,7 +391,7 @@ and `StopFailure` fire only on a failure and were not induced; they are covered 
 count, which was unchanged by that fix.
 
 **That observation is dated.** It was made while both of the old `PreToolUse` gates were registered,
-which is why the count reads 11. The tree registers **13** hooks now — the two old gate
+which is why the count reads 11. The tree registers **15** hooks now — the two old gate
 registrations went with the gates on 30 July 2026, one came back with `delegate_gate` later the same
 day, and `send_liveness_gate` and `completion_audit` added three more on 1 August 2026 — and the
 `--plugin-dir` run above has not been repeated since. Read the line as a record of what was seen
@@ -390,11 +412,13 @@ mangles Windows paths. `${CLAUDE_PLUGIN_ROOT}` is substituted inside the `args` 
 | --- | --- | --- | --- | --- |
 | `SessionStart` | — | `lib/session_start.ps1` | 15 s | banner + self-check |
 | `SessionStart` | — | `lib/supervisor.ps1 -HookEvent SessionStart` | 15 s | opens the health log |
+| `SessionStart` | — | `lib/stack_mode.ps1 -HookEvent SessionStart` | 5 s | `stack_mode` tells the parent session which working discipline is in force; cannot block. **Ships switched off** — with the flag false this exits 0 without injecting |
 | `PreToolUse` | `Edit\|Write\|NotebookEdit\|Bash\|PowerShell` | `lib/gate_delegate.ps1` | 10 s | `delegate_gate`. Off unless `interaction.delegate` is on |
 | `PreToolUse` | `SendMessage` | `lib/gate_send.ps1` | 10 s | `send_liveness_gate`. Off unless `supervision.send_liveness` is on |
 | `PostToolUse` | `Write\|Edit\|NotebookEdit` | `lib/post_edit.ps1` | 5 s | records edited paths |
 | `PostToolUseFailure` | `Agent` | `lib/supervisor.ps1 -HookEvent PostToolUseFailure` | 15 s | `asyncRewake` |
 | `SubagentStart` | — | `lib/subagent_start.ps1` | 5 s | `context_injection` injects, and `failure_capture` appends the dispatch record's START half; cannot block |
+| `SubagentStart` | — | `lib/stack_mode.ps1 -HookEvent SubagentStart` | 5 s | `stack_mode` again, per dispatch, because `CLAUDE.md` is snapshotted at parent-session start; cannot block. **Ships switched off**, and this is the registration that makes turning it on cost a whole second interpreter per dispatch — see [Limitations](limitations.md#switching-stack_mode-on-costs-a-whole-second-interpreter-on-every-dispatch) |
 | `SubagentStop` | — | `lib/supervisor.ps1 -HookEvent SubagentStop` | 15 s | `asyncRewake` |
 | `SubagentStop` | — | `lib/gate_stop.ps1 -HookEvent SubagentStop` | 10 s | `completion_audit`, **no** `asyncRewake`, so its exit 2 blocks |
 | `Stop` | — | `lib/supervisor.ps1 -HookEvent Stop` | 20 s | `asyncRewake` |
@@ -1154,7 +1178,7 @@ the model-visible context as built-but-off rather than left unaccounted for. So 
 the banner reads
 
 ```
-LW-WATCHTOWER v0.4.0 · 6/10 modules enabled (4 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.5.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
 ```
 
 and the `(4 off)` is those four being accounted for rather than dropped from the count. This

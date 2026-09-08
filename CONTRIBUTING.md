@@ -222,7 +222,7 @@ because no suite reaches those three — see below.
 
 ## There is a test suite, and it is narrower than it sounds
 
-`tests/` holds **fifteen files, and twelve of them test behaviour**, and every one of them runs in
+`tests/` holds **sixteen files, and thirteen of them test behaviour**, and every one of them runs in
 the `fast-checks` CI job on every push and every PR:
 
 ```powershell
@@ -262,7 +262,7 @@ files and the third checks that the documentation's numbers match the tree. They
 contract: `0` passed, `1` a check failed, `2` the harness aborted and **nothing was checked**. There
 is no "passed with a caveat" code, and a suite that ran zero cases exits `2`, never `0`.
 
-**"Twelve of them test behaviour" is a classification, not a compliment, and one of the twelve is a
+**"Thirteen of them test behaviour" is a classification, not a compliment, and one of the thirteen is a
 borderline case worth naming.** `tests/doc_claims.ps1` decides which suites are behavioural by
 RUNNING each of them and reading what each says about itself: a suite that tallies `N of M case(s)`
 is counted behavioural, one that tallies violations is a scan. `tests/payload_guard.ps1` reads
@@ -354,7 +354,7 @@ because the code it tests did not exist there — is still a legitimate case, bu
 rather than implying a red run you did not get; `.github/scripts/redfirst_annotations.ps1` holds the
 annotation's shape, and it cannot tell those two apart for you.
 
-**If your fix is inside what one of the twelve behavioural suites covers, add the case to that
+**If your fix is inside what one of the thirteen behavioural suites covers, add the case to that
 suite** — `delegate_gate`, the two supervision gates, the installer's `statusline` and `hooks` merge,
 either turn-end hook, the uninstaller's state-data deletions, the state-directory resolver, the
 doctor's driven checks, either command's write to `config.override.json`, the `SubagentStart` fast
@@ -572,7 +572,7 @@ That applies to your PR description and to any documentation you touch:
 - **Never document a command, flag or behaviour that does not exist.** If you are unsure, check, and
   if it does not exist, leave it out.
 - **Every number in the docs must come from a file you read or a measurement you took.** Say which.
-- **Do not claim coverage you do not have.** Exactly twelve behavioural suites exist in this
+- **Do not claim coverage you do not have.** Exactly thirteen behavioural suites exist in this
   repository, and between them they reach three gates, three writers, one deleter, one resolver, the
   doctor's driven checks, one hook's fast path, the shipped payload, and some but not all of what
   observes — so unless your change lands inside one of those, "tested" means an assertion you wrote
