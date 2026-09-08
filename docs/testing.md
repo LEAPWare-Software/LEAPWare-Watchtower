@@ -34,7 +34,7 @@ that covers a **deletion**.
 `CLAUDE_CONFIG_DIR` precedence, the five self-check probes, every rung of the mode ladder, the banner
 and the model-visible `additionalContext` envelope.
 `tests/doctor_behaviour.ps1` runs `bin/lwg-doctor.ps1` against seeded configs and seeded
-`settings.json` files with 43 cases, on **two of its ten checks and no others**.
+`settings.json` files with 48 cases, on **eight of its ten checks and no others**.
 `tests/toggle_behaviour.ps1` drives `bin/lwg-toggle.ps1`'s write to the override file with 32 cases,
 and `tests/config_behaviour.ps1` does the same for `bin/lwg-config.ps1`, each closing with an
 invariant that the plugin root's tracked `config.json` was not moved by a byte. They are the only
@@ -625,7 +625,11 @@ than the one it claims to answer.
 | `config-registry` | tested a declared switch for **presence** and stopped | `"delegate": "true"` — quoted — passed, while `Test-LwgFlag` requires a real `[bool]`, ignored the string, and left the only gate this plugin ships on its built-in default of `$false`. The `modules` block had the same hole with the opposite polarity: the check read `.PSObject.Properties.Name` and never a value, and an ignored `modules` value leaves the module **on**. |
 | `statusline` | took the first token ending in `.ps1` out of `statusLine.command` and hash-compared it against this repo's copy | with **no test of whose file it is**. A third party's status line was diagnosed as a stale copy of this plugin's, with the printed remedy being to overwrite it. The inverse was quieter and also wrong: an identical file attested an install that never happened. |
 
-**16 cases.** The whole plugin tree is copied once into a scratch directory, minus `.git` and
+**How many cases there are is deliberately not written here** — it is the `RESULT: N of N case(s)`
+line the suite prints, which is where `tests/doc_claims.ps1` reads it from and where the table above
+gets it. A second copy in this paragraph is a number nobody maintains: it stood at **16** while the
+suite grew past forty, spelled in a position the guard's window does not reach. The whole plugin tree
+is copied once into a scratch directory, minus `.git` and
 `.claude`, and every case runs the copy's own `bin/lwg-doctor.ps1` in a real child process — the
 doctor derives its root from its own `$PSScriptRoot`, so the copy is what it reads. `USERPROFILE`
 and `CLAUDE_PLUGIN_DATA` are redirected per case and both plugin-root variables are cleared.
@@ -634,17 +638,19 @@ unmodified against the pre-fix commit. The last case measures every `<plugin>*/*
 operator's *real* state directory before the first child process and again after the last, and fails
 if any length changed or any file appeared.
 
-**Seven of the sixteen pass at the pre-fix baseline too**, and every one of them is labelled
-`CONTROL` in its name and in its comment. None is offered as evidence that anything was fixed. They
-exist because the cheapest way to pass the other nine is to answer "not ours" to everything and
-`FAIL` to every config, and the controls are what make that not work.
+**Seven cases passed at the pre-fix baseline**, measured on the day it was taken and left as a record
+of that day rather than restated as a ratio against a total that keeps moving — the same treatment
+the toggle section below argues for, and for the same reason. Every one of the seven is labelled
+`CONTROL` in its name and in its comment, as is every control added since. None is offered as
+evidence that anything was fixed. They exist because the cheapest way to pass the rest is to answer
+"not ours" to everything and `FAIL` to every config, and the controls are what make that not work.
 
 Exit codes: `0` every case passed, `1` at least one failed, `2` the suite aborted — and zero cases
 run is an abort, never a pass.
 
-**What a green run does not mean.** It **drives two of the ten checks and no others**, so it says
-nothing about the other seven — in particular nothing about `sessionstart`, which is owned by a
-separate issue and deliberately untouched. Beyond that, the suite's header names three limits and
+**What a green run does not mean.** It **drives eight of the ten checks and no others**, so it says
+nothing about `marketplace` or `hooks-declared` beyond the one case establishing that they ran.
+Beyond that, the suite's header names three limits and
 this page carries them rather than advertising past them:
 
 - **a foreign status line that is byte-identical to the repo copy cannot be detected**, and no case
@@ -1256,7 +1262,7 @@ Rename it only together with the branch-protection setting.
 | Installer merge suite | `tests\setup_merge.ps1` — the only step that tests a **write to settings.json**. It drives `bin\lwg-setup.ps1` against throwaway settings files under the temp directory. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Stop-hook behaviour suite | `tests\stop_behaviour.ps1` — the step that reaches **four of the seven observing modules**, more than anything else here. It runs `lib\stop_advisories.ps1` and `lib\supervisor.ps1` in real child processes against throwaway plugin roots under the temp directory. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Uninstaller footprint suite | `tests\uninstall_footprint.ps1` — the only step that tests a **deletion**. It drives `bin\lwg-uninstall.ps1` against throwaway data directories under the temp directory, with `$env:USERPROFILE` and `$env:CLAUDE_PLUGIN_DATA` redirected around every call, and asserts on the filesystem as well as on the report. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
-| Doctor behaviour suite | `tests\doctor_behaviour.ps1` — the step that runs the component whose job is to notice a switch wired to nothing. It copies the plugin tree to a scratch directory and drives the copy's own `bin\lwg-doctor.ps1` against seeded configs and seeded `settings.json` files, on **two of its ten checks and no others**. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
+| Doctor behaviour suite | `tests\doctor_behaviour.ps1` — the step that runs the component whose job is to notice a switch wired to nothing. It copies the plugin tree to a scratch directory and drives the copy's own `bin\lwg-doctor.ps1` against seeded configs and seeded `settings.json` files, on **eight of its ten checks and no others**. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Toggle write-path suite | `tests\toggle_behaviour.ps1` — one of the steps that test a **write to a file an operator owns**. It drives `bin\lwg-toggle.ps1` against a byte copy of `bin\` and `lib\` under a scratch plugin root with the config seeded per case, and closes with an invariant that the plugin root's tracked `config.json` was not moved by a byte. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Config write-path suite | `tests\config_behaviour.ps1` — the same job for `bin\lwg-config.ps1`: the module switchboard's read, validate, write and report path, the `config.override.json` it writes under the state directory, and the same untouched-`config.json` invariant. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |
 | Supervision suite | `tests\supervision.ps1` — the step that covers `send_liveness_gate`, `completion_audit` and `orphan_watch`, against seeded transcripts and seeded health logs, each case run through a real pipe into a real child process. Its anchor cases reproduce the measured failure all three were built from. A missing suite file fails the build; an abort (exit 2) is reported as an abort. |

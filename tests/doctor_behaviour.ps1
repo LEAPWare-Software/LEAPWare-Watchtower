@@ -14,7 +14,30 @@
   it had never been driven at all, and both were wrong in the same direction:
   they answered a question that is cheaper than the one they claim to answer.
 
-  This file drives SIX of the doctor's ten checks and no others:
+  This file drives EIGHT of the doctor's ten checks and no others:
+
+    plugin-manifest  #297. The row named the plugin and its version and could
+                     say nothing about WHICH BUILD was installed. On the
+                     marketplace route the plugin root is a copied tree with no
+                     .git in it, so `git rev-parse` answers nothing and two
+                     installs of the same version taken a week apart are
+                     indistinguishable in the one report an operator is told to
+                     paste into an issue. Claude Code recorded the answer all
+                     along, in installed_plugins.json beside the installPath.
+                     The row now reads it by PATH-EQUALITY against its own
+                     root, prints it as a RECORD rather than a verification,
+                     and degrades to today's exact row whenever there is
+                     nothing to read - which the case's control asserts to the
+                     byte.
+    state-dir        #270 and #307. Two cases, and they are different halves.
+                     Case 15 is the split itself: two state directories on disk
+                     and a run that reported "override: none - these are the
+                     shipped defaults" over a live config.override.json in the
+                     one it had not read. Case 31 is the listing beside it
+                     asking [IO.File]::Exists and nothing else, so a DIRECTORY
+                     named config.override.json was reported as an absence -
+                     in the same report whose config-registry row had already
+                     called that path DISCARDED for not being a file.
 
     config-registry  #41. It tested a declared switch for PRESENCE and stopped,
                      so `"delegate": "true"` - quoted - passed while
@@ -76,9 +99,9 @@
                      on both sides of that line, because it is the exit code
                      that #218 was about.
 
-  It does NOT drive the other four checks. Case 25 establishes that they RAN and
-  nothing else, and a green run here says nothing about what any of them
-  answered.
+  It does NOT drive the other two - marketplace and hooks-declared. Case 25
+  establishes that they RAN and nothing else, and a green run here says nothing
+  about what either of them answered.
 
   IT ALSO DRIVES ONE THING THAT IS NOT A CHECK AT ALL: the informational roster
   at the foot of the report - the per-gate paragraphs and the module table that
@@ -94,8 +117,8 @@
   the doctor printed against the literal list at $script:ExpectedCheckIds, for
   the reason written above that list: until it existed, a doctor with a whole
   Invoke-Check block deleted reported 19 of 19 and exit 0 here. It is the only
-  thing in this file that says anything about the other four checks, and what it
-  says is that they RAN - never what they answered.
+  thing in this file that says anything about marketplace and hooks-declared,
+  and what it says is that they RAN - never what they answered.
 
   ---------------------------------------------------------------------------
   HOW A CASE IS RUN, AND WHY IT CANNOT REACH THE OPERATOR'S OWN STATE
@@ -909,7 +932,7 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 try {
     Write-Output 'LW-WATCHTOWER doctor behaviour regression suite'
     Write-Output "  repo    : $Root"
-    Write-Output '  under   : bin\lwg-doctor.ps1, checks config-registry, statusline, sessionstart, commands, platform and claude-version only'
+    Write-Output '  under   : bin\lwg-doctor.ps1, checks plugin-manifest, config-registry, state-dir, statusline, sessionstart, commands, platform and claude-version only'
     Write-Output ''
 
     foreach ($p in @((Join-Path $Root 'bin\lwg-doctor.ps1'),
@@ -2315,7 +2338,216 @@ try {
          "USERPROFILE and health-checked a file the CLI does not read. Full output:`n$($r.out)")
 
     # -------------------------------------------------------------------
-    # 31. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
+    # 31. AN OVERRIDE THAT IS A DIRECTORY IS NOT "no config.override.json"
+    #     (#307).
+    #
+    #     THE DEFECT IS A SELF-CONTRADICTING REPORT, and that is the whole of
+    #     it. Plant a DIRECTORY named config.override.json in the state
+    #     directory this run resolves and one doctor run says both of these
+    #     about the same path:
+    #
+    #       [FAIL] config-registry  the operator override <dir> exists but it
+    #              is not a file, so it was DISCARDED ...
+    #       [WARN] state-dir        ...
+    #              <dir's parent>   no config.override.json   <== this run read this one
+    #
+    #     The config-registry row is right - #300 taught Get-LwgConfig to test
+    #     [IO.Directory]::Exists BEFORE [IO.File]::Exists for exactly this
+    #     shape. The state-dir listing beside it still asks
+    #     [IO.File]::Exists alone (lib\common.ps1 and bin\lwg-doctor.ps1 each
+    #     hold their own copy of that question), and [IO.File]::Exists answers
+    #     $false for a directory, so the listing reports an ABSENCE over a
+    #     thing that is sitting there. A monitor denying what it just named is
+    #     the class this plugin exists to catch.
+    #
+    #     THE FIXTURE PUTS THE DIRECTORY IN THE CANDIDATE THE RANKING PICKS,
+    #     which is the opposite of case 15 above and is deliberate. The
+    #     config-registry row can only name the override under the directory
+    #     this run RESOLVED, so the control below has nothing to assert unless
+    #     the planted candidate is the one that wins. Get-LwgStateDirInfo ranks
+    #     on the newest write seen anywhere in a candidate - its own mtime or
+    #     any file it holds - and creating an ENTRY inside a directory stamps
+    #     that directory, so the override directory is created LAST and after a
+    #     sleep, and dirB wins. If that ever stops holding, assertion 3 goes
+    #     red rather than assertion 1 going quietly green.
+    #
+    #     'MORE THAN ONE of them already holds a config.override.json' IS NOT
+    #     ASSERTED HERE and cannot be: that sentence lives in
+    #     lib\common.ps1's Get-LwgStateDirSplit, which the doctor does not call
+    #     - bin\lwg-doctor.ps1:230-235 argues at length why the presentation
+    #     stays in the doctor. The false-plural guard against the naive
+    #     Test-Path widen is tests\config_behaviour.ps1's J4, over the site
+    #     that actually prints it. Assertion 2 here is this file's half of the
+    #     same guard.
+    #
+    #     BASELINE 010a550: RED at assertion 1. The listing line for the
+    #     planted candidate read
+    #     '<scratch>\...\lw-watchtower-inline   no config.override.json   <== this run read this one'
+    #     in the same report whose config-registry row had already called that
+    #     path DISCARDED for not being a file. Assertions 2 and 3 pass there,
+    #     which is what makes them controls.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'state-split-dirov'
+    $dataRoot = Join-Path $t.profile '.claude\plugins\data'
+    $dirA = Join-Path $dataRoot 'lw-watchtower-lwg-fixture-marketplace'
+    $dirB = Join-Path $dataRoot 'lw-watchtower-inline'
+    $rec  = [ordered]@{
+        event     = 'SessionStart'
+        ts        = (Get-Date).ToUniversalTime().ToString('o')
+        mode      = 'lwg-doctor-behaviour-fixture'
+        selfcheck = [ordered]@{ ran = $true; ok = $true }
+    }
+    foreach ($d in @($dirA, $dirB)) {
+        [void][IO.Directory]::CreateDirectory($d)
+        [IO.File]::WriteAllText((Join-Path $d $LogLeaf),
+            ((ConvertTo-Json -InputObject ([pscustomobject]$rec) -Depth 10 -Compress) + "`r`n"),
+            (New-Object Text.UTF8Encoding($false)))
+    }
+    # The sleep is what makes the ranking deterministic rather than a race: NTFS
+    # stamps dirB when this entry is created, and that stamp has to land clear
+    # of the log write both candidates just took.
+    Start-Sleep -Milliseconds 1100
+    $ovDir = Join-Path $dirB 'config.override.json'
+    [void][IO.Directory]::CreateDirectory($ovDir)
+    $installed = Join-Path $t.profile '.claude\statusline.ps1'
+    [IO.File]::Copy($PlugStatusLine, $installed, $true)
+    [void](Set-CaseSettings -ProfileDir $t.profile -Command (New-StatusLineCommand $installed))
+    # -StateDir '' puts this on the DISCOVERY branch, the only branch that
+    # ranks and therefore the only one that prints the listing under test.
+    $r = Invoke-Doctor -ProfileDir $t.profile -StateDir ''
+    # The listing lines are `      <path>   <phrase>`; the WARN row's own detail
+    # opens with the same path but is prefixed by `[WARN] state-dir  `, so
+    # anchoring the path at the start of the line picks the listing line and not
+    # the row.
+    $ovLine = ''
+    foreach ($ln in ($r.out -split "`r?`n")) {
+        if ($ln -match ('^\s+' + [regex]::Escape($dirB) + '\s')) { $ovLine = $ln; break }
+    }
+    $ovRow = Get-DoctorRow -Text $r.out -Id 'config-registry'
+
+    Add-Result 'the state-dir listing stops reporting an absence over a config.override.json that is a DIRECTORY (#307)' `
+        ($ovLine -ne '' -and $ovLine -notmatch 'no config\.override\.json') `
+        ("the listing line for the resolved candidate read [$ovLine]. A directory named $ovDir is sitting there and the " +
+         "config-registry row in this same report has already called it DISCARDED for not being a file, so 'no " +
+         "config.override.json' is one run of the doctor contradicting itself about one path. Full output:`n$($r.out)")
+
+    Add-Result 'CONTROL: nor does it call that directory a HELD config.override.json - the naive Test-Path widen' `
+        ($ovLine -ne '' -and $ovLine -notmatch 'HOLDS a config\.override\.json') `
+        ("the listing line read [$ovLine]. Widening [IO.File]::Exists to Test-Path makes this line say the candidate " +
+         "HOLDS an override, which is the opposite lie: a directory is not a recorded set of operator choices, and the " +
+         "config-registry row two lines up is simultaneously reporting that nothing in it was read. Full output:`n$($r.out)")
+
+    Add-Result 'CONTROL: the config-registry row still names that path and still says it was DISCARDED' `
+        ($ovRow.found -and $ovRow.detail -match [regex]::Escape($ovDir) -and $ovRow.detail -match 'DISCARDED') `
+        ("got [$($ovRow.status)] $($ovRow.detail). This is the row that establishes the fixture: it can only name the " +
+         "override under the directory this run RESOLVED, so a red here means the ranking picked $dirA and assertion 1 " +
+         "was asserting about a candidate nothing had read. It is also what stops the cheapest wrong fix - deleting the " +
+         "listing line, which passes assertions 1 and 2 and destroys the report. Full output:`n$($r.out)")
+
+    # -------------------------------------------------------------------
+    # 32. THE plugin-manifest ROW NAMES THE COMMIT THE CLI RECORDED FOR THIS
+    #     INSTALL (#297).
+    #
+    #     WHAT IS MISSING. On the marketplace route there is no clone under the
+    #     plugin root - the cache holds a copied tree with no .git - so `git
+    #     rev-parse` answers nothing and the doctor's report cannot say WHICH
+    #     BUILD is installed beyond the version string in plugin.json. Two
+    #     installs of 0.5.0 taken a week apart are indistinguishable in the one
+    #     report an operator is told to paste into an issue.
+    #
+    #     WHERE THE ANSWER ALREADY IS. Claude Code records it:
+    #     ~\.claude\plugins\installed_plugins.json carries `gitCommitSha`
+    #     beside `installPath` for every install. lib\common.ps1's
+    #     Get-LwgMarketplaceInstall ALREADY opens that file, already walks
+    #     `plugins`, already splits `<plugin>@<marketplace>` and already
+    #     captures installPath and scope per entry, so the sha is two lines in
+    #     a loop that is running anyway - not a third copy of
+    #     Get-LwgCacheRouteInfo, which bin\lwg-doctor.ps1:152-157 rules out for
+    #     lib\common.ps1 in terms that cover it exactly.
+    #
+    #     PATH-EQUALITY, NOT SEGMENT PARSING, and that is the point of the
+    #     fixture. bin\lwg-update.ps1 objects that "is there a marketplace
+    #     install on this machine" is TRUE on a junction-route machine that
+    #     also has one. The row does not ask that: it compares the doctor's own
+    #     $pluginRoot to installPath, normalised, and takes the sha off THE SAME
+    #     RECORD ENTRY AS THE PATH THAT MATCHED. A sha can therefore never be
+    #     attributed to a different install, which segment parsing cannot
+    #     promise.
+    #
+    #     THE JSON IS WRITTEN BY HAND, in the nested shape read off the
+    #     .github\notes\uat records of the v0.4.0 round trip - `{ "version": 2,
+    #     "plugins": { "<plugin>@<marketplace>": [ { scope, installPath,
+    #     version, gitCommitSha } ] } }`. A flat top-level map would pass a
+    #     resolver that is wrong on every real machine, which
+    #     tests\state_resolution.ps1:727-731 has already written down. It is
+    #     concatenated rather than run through ConvertTo-Json because Windows
+    #     PowerShell 5.1 renders a one-element array as a bare object and the
+    #     ARRAY is part of the shape under test.
+    #
+    #     THE SHA IS FABRICATED - 40 hex digits that are no commit of this
+    #     repository. A real one would be a version claim in a test fixture and
+    #     would put this file in front of .github\scripts\identity_scan.ps1 and
+    #     redfirst_annotations.ps1 for a reason that has nothing to do with
+    #     this case.
+    #
+    #     RULE 18: NO CREDENTIAL AND NO LIVE SESSION. There is no marketplace
+    #     install of this plugin on the machine this suite runs on and none is
+    #     created; the fixture IS the measurement, and what it measures is the
+    #     doctor's reading of a record, never a verification of it. Nothing
+    #     here re-runs rev-parse and the row says so in its own words.
+    #
+    #     BASELINE 010a550: RED by construction at assertion 1 - the row read
+    #     "parses; name 'lw-watchtower', version 0.5.0" and nothing in
+    #     lw-watchtower\ could print a gitCommitSha at all. Assertion 2 passes
+    #     there, because both runs printed that same detail.
+    # -------------------------------------------------------------------
+    $t = New-CaseTree -Tag 'manifest-sha'
+    $mkName    = 'lwg-fixture-marketplace'
+    $verText   = [string]$manifest.version
+    $cacheRoot = Join-Path $t.profile (".claude\plugins\cache\$mkName\$PluginName\$verText")
+    Copy-PluginTree -From $Root -To $cacheRoot
+    $cacheDoctor = Join-Path $cacheRoot 'bin\lwg-doctor.ps1'
+    if (-not [IO.File]::Exists($cacheDoctor)) { throw "the cache-route plugin copy is incomplete: $cacheDoctor is missing" }
+    $fakeSha = '0123456789abcdef0123456789abcdef01234567'
+    $regFile = Join-Path $t.profile '.claude\plugins\installed_plugins.json'
+    $regJson = '{"version":2,"plugins":{"' + $PluginName + '@' + $mkName + '":[{"scope":"user","installPath":"' +
+               $cacheRoot.Replace('\', '\\') + '","version":"' + $verText + '","gitCommitSha":"' + $fakeSha + '"}]}}'
+    [IO.File]::WriteAllText($regFile, $regJson, (New-Object Text.UTF8Encoding($false)))
+
+    $rSha   = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -DoctorPath $cacheDoctor
+    $rowSha = Get-DoctorRow -Text $rSha.out -Id 'plugin-manifest'
+
+    Add-Result 'the plugin-manifest row names the commit the CLI recorded for THIS install root (#297)' `
+        ($rowSha.found -and $rowSha.status -eq 'PASS' -and $rowSha.detail -match $fakeSha) `
+        ("got [$($rowSha.status)] $($rowSha.detail). installed_plugins.json records installPath $cacheRoot - byte for " +
+         "byte the doctor's own plugin root on this run - with gitCommitSha $fakeSha beside it. Without it the report " +
+         "an operator pastes into an issue cannot distinguish two marketplace installs of $verText taken a week apart, " +
+         "because the cache route carries no .git for rev-parse to read. Full output:`n$($rSha.out)")
+
+    # THE CONTROL IS THE DEGRADE, and it is the half that costs most to get
+    # wrong: every machine with no record, an unreadable one, a moved layout or
+    # a blank sha must get the row it gets today, to the byte. The reference is
+    # CAPTURED from a run of the shared tree rather than spelled as a literal -
+    # a literal here is a second copy of the detail string that goes stale in
+    # the direction of a passing case. Deleting the record also puts
+    # Get-LwgMarketplaceInstall on its CACHE fallback, which finds this same
+    # root and records no sha for it, so the blank-sha branch is driven too.
+    [IO.File]::Delete($regFile)
+    $rNo    = Invoke-Doctor -ProfileDir $t.profile -StateDir $t.state -DoctorPath $cacheDoctor
+    $rowNo  = Get-DoctorRow -Text $rNo.out -Id 'plugin-manifest'
+    $tRef   = New-CaseTree -Tag 'manifest-sha-ref'
+    $rRef   = Invoke-Doctor -ProfileDir $tRef.profile -StateDir $tRef.state
+    $rowRef = Get-DoctorRow -Text $rRef.out -Id 'plugin-manifest'
+
+    Add-Result 'CONTROL: with no record to read the row is byte-identical to the one every other tree gets' `
+        ($rowNo.found -and $rowRef.found -and $rowNo.status -eq $rowRef.status -and $rowNo.detail -eq $rowRef.detail) `
+        ("the cache-route run with installed_plugins.json deleted printed [$($rowNo.status)] $($rowNo.detail); the " +
+         "shared tree printed [$($rowRef.status)] $($rowRef.detail). A row that starts saying something new when there " +
+         "is nothing to read - 'commit unknown', an empty field, a probed path - is a new fault claim over the ordinary " +
+         "state of every dev-route machine, which is the failure this whole plugin exists to prevent.")
+
+    # -------------------------------------------------------------------
+    # 33. THE SANDBOX ITSELF. Every child above ran with CLAUDE_PLUGIN_DATA
     #     pointed into the scratch tree; this asserts what that was supposed to
     #     buy rather than assuming it. Nothing under the operator's own
     #     ~\.claude\plugins\data\<plugin>* may have grown a byte or gained a
@@ -2388,7 +2620,7 @@ Write-Output 'question of a value that Test-LwgFlag and Test-LwgModule ask, the'
 Write-Output 'statusline check establishes whose file it is looking at before it diagnoses'
 Write-Output 'drift, sessionstart tells a log it could not read to the end from a hook'
 Write-Output 'that is not firing, and commands measures the tracked tree and says so" - not as'
-Write-Output '"the doctor is correct". Four of its ten checks are driven by nothing here'
+Write-Output '"the doctor is correct". Marketplace and hooks-declared are driven by nothing here'
 Write-Output 'beyond the one case that establishes they RAN, no case executes the status line, and a file byte-identical'
 Write-Output 'to the repo copy is indistinguishable from an install by any content marker'
 Write-Output 'and is named in the header as not covered.'

@@ -577,7 +577,7 @@ function Get-LwgMarketplaceInstall {
       Is this plugin installed from a marketplace, and where? Returns a
       HASHTABLE:
 
-        @{ installed; source; paths; scopes; probed; home }
+        @{ installed; source; paths; scopes; commits; probed; home }
 
         installed  $true only when a real install was IDENTIFIED
         source     'installed_plugins' | 'cache' | 'none' | 'unknown'
@@ -587,18 +587,28 @@ function Get-LwgMarketplaceInstall {
         paths      the resolved install root(s)
         scopes     the `scope` values installed_plugins.json recorded for them,
                    which distinguishes a project-scoped install from a user one
+        commits    the `gitCommitSha` the CLI RECORDED for each path, '' where
+                   it recorded none. INDEX-ALIGNED WITH `paths` - a caller
+                   reads commits[i] for paths[i] and for nothing else, which is
+                   the only thing that stops one install's sha being printed
+                   beside another's path. It is A RECORD, NOT A VERIFICATION:
+                   nothing here re-runs rev-parse, and the cache fallback below
+                   has no record to read at all, so every entry it contributes
+                   is ''.
         probed     the paths this function actually looked at
         home       the configuration root it looked under
 
       Memoised; -Refresh re-runs it. Never throws. NOT on any hook fast path -
-      its callers are the installer, the doctor and the status line - so a
-      ConvertFrom-Json here costs nothing a gate pays for.
+      bin\lwg-doctor.ps1's plugin-manifest row is its one payload caller today,
+      and bin\lwg-setup.ps1 and statusline\statusline.ps1 name it in comments as
+      the resolver they would use - so a ConvertFrom-Json here costs nothing a
+      gate pays for.
     #>
     param([switch]$Refresh)
 
     if (-not $Refresh -and $null -ne $script:LwgMarketplaceInfo) { return $script:LwgMarketplaceInfo }
 
-    $info = @{ installed = $false; source = 'unknown'; paths = @(); scopes = @(); probed = @(); home = $null }
+    $info = @{ installed = $false; source = 'unknown'; paths = @(); scopes = @(); commits = @(); probed = @(); home = $null }
     try {
         $home_ = Get-LwgClaudeHome
         $info.home = $home_
@@ -613,8 +623,9 @@ function Get-LwgMarketplaceInstall {
         # 1. the CLI's own record.
         $reg = [IO.Path]::Combine($home_, 'plugins\installed_plugins.json')
         $info.probed += $reg
-        $paths  = @()
-        $scopes = @()
+        $paths   = @()
+        $scopes  = @()
+        $commits = @()
         try {
             if ([IO.File]::Exists($reg)) {
                 $json = [IO.File]::ReadAllText($reg) | ConvertFrom-Json
@@ -638,6 +649,21 @@ function Get-LwgMarketplaceInstall {
                 # flat reading rather than to nothing.
                 $map = $json
                 try { if ($null -ne $json.PSObject.Properties['plugins']) { $map = $json.plugins } } catch { }
+                # THE SHA IS TAKEN HERE, IN THE LOOP THAT IS ALREADY RUNNING -
+                # #297. The marketplace route puts no .git under the plugin
+                # root, so `git rev-parse` answers nothing and a report cannot
+                # say WHICH BUILD is installed beyond plugin.json's version
+                # string. The CLI already recorded the answer in this file,
+                # beside the installPath being read two lines below.
+                #
+                # NOT A THIRD COPY OF Get-LwgCacheRouteInfo. That helper lives
+                # in bin\lwg-update.ps1 and bin\lwg-uninstall.ps1, and its only
+                # callers are lifecycle scripts; bin\lwg-doctor.ps1:152-157
+                # rules out promoting exactly that class of helper into this
+                # file, which SessionStart and PreToolUse dot-source on every
+                # turn. This function is already here, already opens this file
+                # and already matches this plugin's entries, so the sha costs
+                # one member read per entry and no new parse on the hook path.
                 foreach ($p in $map.PSObject.Properties) {
                     # `<plugin>@<marketplace>`. Split on the LAST '@' so a
                     # plugin name that carries one does not lose its tail.
@@ -647,15 +673,25 @@ function Get-LwgMarketplaceInstall {
                     foreach ($e in @($p.Value)) {
                         $ip = [string]$e.installPath
                         if ([string]::IsNullOrWhiteSpace($ip)) { continue }
-                        $paths  += $ip
-                        $scopes += [string]$e.scope
+                        # PUSHED ON EVERY ITERATION THAT PUSHES A PATH, and
+                        # never conditionally: the three lists are read by
+                        # index, so one skipped push would slide every later
+                        # sha onto the wrong install's path. The member is
+                        # looked up through PSObject rather than dereferenced,
+                        # because an older CLI's record has no gitCommitSha at
+                        # all and '' is the honest answer for it.
+                        $sha = ''
+                        try { if ($null -ne $e.PSObject.Properties['gitCommitSha']) { $sha = [string]$e.gitCommitSha } } catch { }
+                        $paths   += $ip
+                        $scopes  += [string]$e.scope
+                        $commits += $sha
                     }
                 }
             }
         } catch { }
         if ($paths.Count -gt 0) {
             $info.installed = $true; $info.source = 'installed_plugins'
-            $info.paths = $paths; $info.scopes = $scopes
+            $info.paths = $paths; $info.scopes = $scopes; $info.commits = $commits
             $script:LwgMarketplaceInfo = $info
             return $info
         }
@@ -680,6 +716,12 @@ function Get-LwgMarketplaceInstall {
         } catch { }
         if ($found.Count -gt 0) {
             $info.installed = $true; $info.source = 'cache'; $info.paths = $found
+            # PADDED, so `commits` stays index-aligned with `paths` on this
+            # branch too. This branch is a directory walk: there is no record
+            # here to read a sha out of, and a SHORT list would let a caller
+            # index past its end or - worse, once a second branch ever fills
+            # it - read a sha that belongs to a different path.
+            $info.commits = @($found | ForEach-Object { '' })
         } else {
             $info.source = 'none'
         }
@@ -987,7 +1029,10 @@ function Get-LwgStateDirSplit {
         ambiguous      $true when more than one suffixed candidate was ranked
         chosen         the directory the ranking picked
         paths          every ranked candidate, full paths
-        with_override  those of them that hold a config.override.json
+        with_override  those of them that hold a config.override.json THAT IS A
+                       FILE, and only those. A candidate holding a DIRECTORY of
+                       that name is deliberately not in here - see the three
+                       states below.
         lines          ready-to-print report lines, '' when not ambiguous
 
       FOR THE CONFIGURING COMMANDS, AND FOR NOTHING ON A HOOK PATH. A hook takes
@@ -1025,15 +1070,48 @@ function Get-LwgStateDirSplit {
             'this command with no operator action in between.',
             ''
         )
+        # THREE STATES, NOT A BOOLEAN - #307. [IO.File]::Exists answers $false
+        # for a DIRECTORY as well as for nothing at all, so one boolean made
+        # this listing print `override: absent` about a directory sitting at
+        # that exact path - while Get-LwgConfig, in the same process, reported
+        # the same path as an override that EXISTS and was DISCARDED for not
+        # being a file (#300 taught it to ask [IO.Directory]::Exists first).
+        # One command, one path, two answers.
+        #
+        # WIDENING THE BOOLEAN TO Test-Path IS THE WRONG FIX and is what the
+        # third state exists to stop. `$has` also decides `with_override`, and
+        # `with_override` decides the MORE THAN ONE paragraph below, which
+        # tells the operator that "two recorded sets of operator choices
+        # exist". A DIRECTORY IS NOT A RECORDED SET OF OPERATOR CHOICES -
+        # nothing was read out of it - so a widened boolean sends an operator
+        # off to reconcile a second set of choices that does not exist, on a
+        # command that has just refused to write. ONLY `present` JOINS
+        # with_override.
+        #
+        # [IO.Directory]::Exists rather than Test-Path: this file is
+        # dot-sourced by the blocking PreToolUse gate and the cmdlets pull in
+        # the Management module on first use.
+        #
+        # The third string is worded to AGREE with the sentence the config
+        # header prints for the same condition - `override: IGNORED - <path> it
+        # is not a file` - rather than to invent a second vocabulary for one
+        # state.
         foreach ($d in $ranked) {
-            $ov   = [IO.Path]::Combine($d, $script:LwgConfigOverrideName)
-            $has  = $false
-            try { $has = [IO.File]::Exists($ov) } catch { }
-            if ($has) { $r.with_override += $ov }
+            $ov    = [IO.Path]::Combine($d, $script:LwgConfigOverrideName)
+            $state = 'absent'
+            try {
+                if ([IO.File]::Exists($ov))           { $state = 'present' }
+                elseif ([IO.Directory]::Exists($ov))  { $state = 'not-a-file' }
+            } catch { }
+            if ($state -eq 'present') { $r.with_override += $ov }
             $lines += ("  {0}{1}   override: {2}" -f `
                 $d,
                 $(if ($d -eq $info.path) { '   <- this run would use it' } else { '' }),
-                $(if ($has) { 'PRESENT' } else { 'absent' }))
+                $(switch ($state) {
+                    'present'   { 'PRESENT' }
+                    'not-a-file' { 'EXISTS BUT IS NOT A FILE - nothing in it is read' }
+                    default     { 'absent' }
+                }))
         }
         $lines += ''
         if (@($r.with_override).Count -gt 1) {

@@ -1630,6 +1630,61 @@ try {
         ("exit was {0} and the override now reads [{1}]. The refusal above must be about not knowing WHICH file, not about the variable being unset - a command that refused whenever CLAUDE_PLUGIN_DATA is absent would refuse on every ordinary install. stdout: {2}" -f `
             $j3.code, $j3text, (Get-FirstLines $j3.out 6))
 
+    # -----------------------------------------------------------------------
+    # J4 and J5 - #307. AN OVERRIDE THAT IS A DIRECTORY, IN THE OTHER
+    # CANDIDATE, AND THE FALSE PLURAL THAT THE OBVIOUS FIX WOULD FIRE.
+    #
+    # Get-LwgStateDirSplit asks [IO.File]::Exists per candidate and renders
+    # PRESENT or absent off that one boolean. [IO.File]::Exists is $false for a
+    # DIRECTORY, so a candidate holding a directory named config.override.json
+    # is listed as 'absent' - an assertion about a nothing, made over a thing
+    # that is sitting there. Get-LwgConfig has not read it that way since #300:
+    # it tests [IO.Directory]::Exists FIRST and reports the override as
+    # DISCARDED for not being a file, so the two readers in one process already
+    # disagree about one path.
+    #
+    # WHY THIS CANNOT BE THE DOCTOR'S CASE. tests\doctor_behaviour.ps1 covers
+    # the doctor's own copy of the question in bin\lwg-doctor.ps1's
+    # Get-DoctorStateSplit. THE DOCTOR NEVER CALLS Get-LwgStateDirSplit - the
+    # presentation is deliberately kept in each caller
+    # (bin\lwg-doctor.ps1:230-235) - so this site is unreachable from there and
+    # a doctor case cannot close it. It is not added to
+    # tests\toggle_behaviour.ps1 either: that suite holds the same fixture, and
+    # a second copy would move a third suite's tally for no coverage this does
+    # not already have.
+    #
+    # THE FIXTURE IS FILE-BESIDE-DIRECTORY, WHICH IS THE ONLY SHAPE THAT
+    # DISCRIMINATES. jMarket holds a real override file, written by J3 above.
+    # jInline is recreated holding a DIRECTORY of that name. Widening $has to
+    # Test-Path - the one-word fix - puts BOTH into $r.with_override, whose
+    # Count > 1 fires 'MORE THAN ONE of them already holds a
+    # config.override.json, so two recorded sets of operator choices exist'. A
+    # DIRECTORY IS NOT A RECORDED SET OF OPERATOR CHOICES. That sentence tells
+    # an operator to go and reconcile two files when there is one, over a
+    # command that has just refused to write. So J4 is red at the baseline and
+    # J5 is red under the wrong fix, and only three states pass both.
+    #
+    # RED-FIRST: J4 FAILS at 010a550, where the listing prints
+    # '<scratch>\...\lw-watchtower-inline   override: absent' about a
+    # directory that exists. J5 passes there - it is the guard, not the defect.
+    # -----------------------------------------------------------------------
+    [void](New-Item -ItemType Directory -Path (Join-Path $jInline 'config.override.json') -Force)
+    $j4 = Invoke-Config -Sand $sand -ScriptArgs '' -Tag 'j4' -NoPluginData
+    $j4line = ''
+    foreach ($ln in ($j4.out -split "`r?`n")) {
+        if ($ln -match ('^\s+' + [regex]::Escape($jInline) + '\s')) { $j4line = $ln; break }
+    }
+
+    Add-Result 'J4 a config.override.json that is a DIRECTORY is not listed as an absent override (#307)' `
+        ($j4.code -eq 0 -and $j4line -ne '' -and ($j4line -notmatch 'absent')) `
+        ("exit was {0} and the listing line for the candidate holding the directory read [{1}]. 'override: absent' is an assertion about an ABSENCE made over a directory that is sitting at that exact path, and Get-LwgConfig in this same process reports it as an override that EXISTS and was DISCARDED for not being a file - one command contradicting itself about one path. stdout: {2}" -f `
+            $j4.code, $j4line, (Get-FirstLines $j4.out 14))
+
+    Add-Result 'J5 CONTROL: one file and one directory are not TWO recorded sets of operator choices (#307)' `
+        ($j4.out -notlike '*MORE THAN ONE*') `
+        ("the listing printed the MORE THAN ONE paragraph over a fixture holding ONE config.override.json file (in {0}) and one DIRECTORY of that name (in {1}). That paragraph says 'two recorded sets of operator choices exist and no rule here can say which one is in force' - it sends the operator to reconcile a second set of choices that does not exist, on a command that has just refused to write. It is what the one-word Test-Path widen buys, which is why the fix has to be three states. stdout: {2}" -f `
+            $jMarket, $jInline, (Get-FirstLines $j4.out 14))
+
 } catch {
     $script:Aborted = $_.Exception.Message
 } finally {

@@ -457,6 +457,54 @@ land here as they merge.
   renumbered away silently, so the numbering is a claim it makes about itself. Red-first at `010a550`
   against the `six` in the heading above.
 
+- **One doctor run could name a `config.override.json` and deny it exists (2026-09-07, #307).** Plant
+  a **directory** called `config.override.json` in the state directory a run resolves and the report
+  said both of these about the same path: `[FAIL] config-registry  the operator override <path>
+  exists but it is not a file, so it was **DISCARDED**` and, four lines below it, `<path's parent>
+  no config.override.json`. `Get-LwgConfig` has read that shape correctly since #300 —
+  `[IO.Directory]::Exists` is asked **before** `[IO.File]::Exists` — but the two state-directory
+  listings beside it, `lib/common.ps1`'s `Get-LwgStateDirSplit` and `bin/lwg-doctor.ps1`'s
+  `Get-DoctorStateSplit`, each asked `[IO.File]::Exists` alone, which is `$false` for a directory as
+  well as for nothing. A monitor denying what it has just named is the class this plugin exists to
+  catch, pointed at itself.
+  **Fixed as three states, not as a widened boolean, and that is the whole design.** `present` /
+  `absent` / `not-a-file`, and **only `present`** joins `with_override` — the list whose `Count > 1`
+  prints *"MORE THAN ONE of them already holds a `config.override.json`, so two recorded sets of
+  operator choices exist"*. **A directory is not a recorded set of operator choices**, so the
+  one-word `Test-Path` widen would send an operator off to reconcile a second set of choices that
+  does not exist, on a command that has just refused to write. The two renderings stay separately
+  worded, as `bin/lwg-doctor.ps1` already argued: the doctor's lines sit in a row, the commands' sit
+  in a refusal.
+  `tests/config_behaviour.ps1` **57 → 59 cases** (J4, red at `010a550`, and J5, the false-plural
+  control that is green there and red under the widen), and case 31 is **three of the five** new
+  cases in `tests/doctor_behaviour.ps1`, whose total moves **43 → 48** across this entry and the one
+  below it. **Both suites are needed**: the `lib/common.ps1` site
+  is unreachable from the doctor, so a doctor case could not close it.
+
+- **The `plugin-manifest` row could not say which build was installed (2026-09-07, #297).** On the
+  marketplace route the plugin root is a copied tree with no `.git` in it, so `git rev-parse` answers
+  nothing and two installs of the same version taken a week apart are indistinguishable in the one
+  report an operator is told to paste into an issue. Claude Code recorded the answer all along:
+  `~/.claude/plugins/installed_plugins.json` carries `gitCommitSha` beside `installPath`. The row now
+  prints it, **as a record and not as a verification** — nothing re-runs `rev-parse`.
+  **No third copy of `Get-LwgCacheRouteInfo`, and it was not promoted either.**
+  `bin/lwg-doctor.ps1`'s `Get-LwgFileSha256` block already ruled that class of helper out of
+  `lib/common.ps1` — *"`lib\common.ps1` is the HOOK path … so a helper only the lifecycle scripts
+  need does not belong there"* — and that route reader's three callers are update, uninstall and the
+  doctor, all lifecycle. Instead `Get-LwgMarketplaceInstall`, which is already in `lib/common.ps1`,
+  already opens that file and already matches this plugin's `<plugin>@<marketplace>` entries, gained
+  a `commits` list off the loop that was reading `installPath` anyway — **index-aligned with
+  `paths`**, and padded on the cache branch so it stays aligned there too.
+  **Path-equality, not segment parsing.** `bin/lwg-update.ps1` objects that the resolver answers *"is
+  there a marketplace install on this machine"*, which is true on a junction-route machine that also
+  has one. The row does not ask that: it compares its own `$pluginRoot` to `installPath`, normalised,
+  and takes the sha off **the same record entry as the path that matched**, so a sha can never be
+  attributed to a different install. With no record, an unreadable one, a moved layout or a blank
+  sha the row is **byte-identical to the one it printed before**, which a control asserts against a
+  captured run rather than a literal. `tests/doctor_behaviour.ps1` **43 → 48 cases** overall, and the
+  suite now drives **eight of the doctor's ten checks**, not six. The doctor's own check count did
+  **not** move: no `Invoke-Check` was added and `$script:ExpectedCheckIds` is still ten ids.
+
 ## [0.4.0] — 2026-09-04
 
 **Until the day this tag was cut, the manifests declared `0.4.0` and no tag carried it.** That gap

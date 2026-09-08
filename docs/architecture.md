@@ -270,12 +270,13 @@ tests/uninstall_footprint.ps1
                              to this plugin really is this plugin's, and what it
                              refuses to touch it names. The only suite that
                              tests a DELETION
-tests/doctor_behaviour.ps1   43 cases driving bin/lwg-doctor.ps1 from a scratch
+tests/doctor_behaviour.ps1   48 cases driving bin/lwg-doctor.ps1 from a scratch
                              copy of the whole plugin tree, against seeded
                              configs and seeded settings.json files. It drives
-                             TWO of the doctor's ten checks - config-registry
-                             and statusline - and no others. Fourteen of its cases
-                             are labelled CONTROL and pass before the fix too
+                             EIGHT of the doctor's ten checks - every one but
+                             marketplace and hooks-declared - and no others.
+                             Seventeen of its cases are labelled CONTROL and
+                             pass before the fix too
 tests/toggle_behaviour.ps1   32 cases driving bin/lwg-toggle.ps1's WRITE to
                              the override file, against a byte copy of bin/ and
                              lib/ under a scratch plugin root

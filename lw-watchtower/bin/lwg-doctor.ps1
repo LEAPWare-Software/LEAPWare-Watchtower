@@ -1,4 +1,4 @@
-﻿#requires -version 5
+#requires -version 5
 <#
   LW-WATCHTOWER doctor - what is NOT working.
 
@@ -254,11 +254,32 @@ function Get-DoctorStateSplit {
 
     $r.ambiguous = $true
     $r.ranked    = $ranked
+    # THREE STATES, NOT TWO - #307. [IO.File]::Exists is $false for a DIRECTORY
+    # as well as for nothing, so this listing said `no config.override.json`
+    # about a directory of that name - IN THE SAME REPORT whose config-registry
+    # row above had already said `the operator override <path> exists but it is
+    # not a file, so it was DISCARDED`. One run of the doctor naming a path and
+    # denying it exists is the self-contradicting monitor this whole plugin
+    # exists to catch, pointed at itself.
+    #
+    # NOT WIDENED TO Test-Path. `HOLDS a config.override.json` about a
+    # directory is the opposite lie and reads as "your choices are in there" -
+    # which is precisely what the config-registry row is simultaneously saying
+    # was not read. lib\common.ps1's Get-LwgStateDirSplit carries the same
+    # three states for the configuring commands' wording, and a stronger reason
+    # to: its boolean also feeds a MORE THAN ONE paragraph.
+    #
+    # The third string points at the row that explains the consequence rather
+    # than restating it here, because that row is where the DISCARDED sentence
+    # and the remedy already live.
     foreach ($c in ($ranked | Sort-Object)) {
-        $held = $false
-        try { $held = [IO.File]::Exists([IO.Path]::Combine($c, 'config.override.json')) } catch { }
-        $r.lines += ("      {0}   {1}{2}" -f $c,
-                     $(if ($held) { 'HOLDS a config.override.json' } else { 'no config.override.json' }),
+        $ov   = [IO.Path]::Combine($c, 'config.override.json')
+        $said = 'no config.override.json'
+        try {
+            if ([IO.File]::Exists($ov))          { $said = 'HOLDS a config.override.json' }
+            elseif ([IO.Directory]::Exists($ov)) { $said = 'a config.override.json that is NOT A FILE - see the config-registry row' }
+        } catch { }
+        $r.lines += ("      {0}   {1}{2}" -f $c, $said,
                      $(if ("$($Info.path)" -eq "$c") { '   <== this run read this one' } else { '' }))
     }
     return $r
@@ -293,7 +314,58 @@ try {
             Add-Row -Id 'plugin-manifest' -Status 'FAIL' -Detail "name mismatch: manifest says '$($m.name)' but Get-LwgPluginName reads '$resolvedName' - the state dir is resolved from the latter"
             return
         }
-        Add-Row -Id 'plugin-manifest' -Status 'PASS' -Detail "parses; name '$($m.name)', version $($m.version)"
+        # WHICH BUILD IS THIS - #297. On the marketplace route the plugin root
+        # is a copied tree with no .git in it, so `git rev-parse` answers
+        # nothing and this report - the one an operator is told to paste into an
+        # issue - cannot tell two installs of the same version apart. Claude
+        # Code already recorded the answer: installed_plugins.json carries
+        # gitCommitSha beside installPath for every install.
+        #
+        # NO THIRD COPY OF Get-LwgCacheRouteInfo. bin\lwg-update.ps1 and
+        # bin\lwg-uninstall.ps1 hold one each; promoting it into lib\common.ps1
+        # is ruled out by the block at :152-157 above, whose reasoning - a
+        # helper only the lifecycle scripts need does not belong on the hook
+        # path - covers that function exactly, its three callers being update,
+        # uninstall and this file. Instead this asks
+        # Get-LwgMarketplaceInstall, which lib\common.ps1 already carries,
+        # which already opens and parses that file, and which now carries the
+        # sha out of the loop that was reading installPath anyway.
+        #
+        # PATH-EQUALITY, NOT SEGMENT PARSING. bin\lwg-update.ps1:144-150
+        # objects that the resolver answers "is there a marketplace install on
+        # this machine", which is TRUE on a junction-route machine that also
+        # has one. That objection does not survive equality: this asks whether
+        # THIS root is THAT install, and the sha is taken off THE SAME RECORD
+        # ENTRY AS THE PATH THAT MATCHED, so it can never be attributed to a
+        # different install. Segment parsing cannot promise that.
+        #
+        # IT IS A RECORD, NOT A VERIFICATION, and the row says so in those
+        # words. Nothing here re-runs rev-parse or compares a tree against a
+        # commit; a machine whose cache was edited by hand still reports the
+        # sha the CLI wrote when it installed.
+        #
+        # IT DEGRADES TO PRINTING NOTHING - no record, unreadable record, moved
+        # layout, junction route, blank sha, or a throw - and the row is then
+        # byte-identical to the one every dev-route machine gets today. A row
+        # that started saying "commit unknown" would be a new fault claim over
+        # the ordinary state of a checkout.
+        $recorded = ''
+        try {
+            $mi = Get-LwgMarketplaceInstall
+            $me = [IO.Path]::GetFullPath($pluginRoot).TrimEnd('\', '/')
+            $mp = @($mi.paths)
+            $mc = @($mi.commits)
+            for ($i = 0; $i -lt $mp.Count; $i++) {
+                if ($i -ge $mc.Count -or [string]::IsNullOrWhiteSpace([string]$mc[$i])) { continue }
+                $cand = ''
+                try { $cand = [IO.Path]::GetFullPath([string]$mp[$i]).TrimEnd('\', '/') } catch { continue }
+                if ($cand -ieq $me) {
+                    $recorded = ", commit $($mc[$i]) as recorded by the CLI in installed_plugins.json (a RECORD of what was installed, not a verification of what is on disk)"
+                    break
+                }
+            }
+        } catch { $recorded = '' }
+        Add-Row -Id 'plugin-manifest' -Status 'PASS' -Detail "parses; name '$($m.name)', version $($m.version)$recorded"
     }
 
     # ---------------------------------------------------------------------
