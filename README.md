@@ -7,11 +7,11 @@
 name, said here because the name this replaced (`LW-GMHH`, until 3 August 2026) was an initialism
 whose last two letters were never expanded anywhere in the tree, including in its own manifest
 description. **A watchtower is not a wall**, and the word was chosen over a candidate that implied
-protection for exactly that reason: seven of the ten modules below can block nothing at all, and
+protection for exactly that reason: eight of the eleven modules below can block nothing at all, and
 every one of the three that can ships switched off.
 
 LW-WATCHTOWER is a Claude Code plugin that applies one governance layer to every session, in every repo,
-without per-project setup. Seven of its ten modules **observe** and warn and can block nothing. The
+without per-project setup. Eight of its eleven modules **observe** and warn and can block nothing. The
 other three — `delegate_gate`, `send_liveness_gate` and `completion_audit` — are the only things here
 that can refuse anything, and all three ship **switched off**. Two further modules were specified,
 found to be impossible — the data they need reaches no
@@ -81,13 +81,13 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   to delegate rather than to read and edit itself. It is a request too, it is not selected for you,
   and it is [documented as a request](docs/output-styles.md). Anyone describing a style as enforcing
   is repeating this project's founding defect.
-- **All ten declared modules are built. Six are enabled; `orphan_watch` and the three gates are not.**
+- **All eleven declared modules are built. Six are enabled; `stack_mode`, `orphan_watch` and the three gates are not.**
   `ratelimit_escalation` and `cost_tracking`
   were declared and are *blocked*, not merely unwritten: the data they need reaches no hook, and no
   further work on this plugin will change that, so on 30 July 2026 the placeholders were removed and
   the reasoning kept. See
   [Attempted and blocked](docs/modules.md#attempted-and-blocked-ratelimit_escalation-and-cost_tracking).
-- **Twelve suites test behaviour, and a green run of all of them is a narrower claim than the
+- **Thirteen suites test behaviour, and a green run of all of them is a narrower claim than the
   totals suggest.** `tests/gate_delegate.ps1` runs 100 cases against `delegate_gate`;
   `tests/supervision.ps1` runs 69 against `send_liveness_gate`, `completion_audit` and
   `orphan_watch`; `tests/stop_behaviour.ps1` runs 144 against the two turn-end hooks and the
@@ -98,7 +98,9 @@ is **[docs/limitations.md](docs/limitations.md)** — this section is the headli
   against the two commands that write `config.override.json`; `tests/state_resolution.ps1` runs 37
   against the state-directory resolver; `tests/doctor_behaviour.ps1` runs 48 against the doctor's
   driven checks; `tests/subagent_scan.ps1` runs 20 against the `SubagentStart` fast path — the only
-  coverage `context_injection` has — and `tests/payload_guard.ps1` runs 30 against what the shipped
+  coverage `context_injection` has; `tests/stack_mode.ps1` runs 15 against the working-discipline
+  injector, the only coverage `stack_mode` has, and every one of them a simulation rather than a live
+  session — and `tests/payload_guard.ps1` runs 30 against what the shipped
   payload discloses. They all go through a real pipe or a real child process. **Per-module coverage
   is much thinner than the case totals**: several observing modules are reached by one to three cases
   each, on at most two properties apiece, and `context_injection`'s `worker_facts.md` handling has no
@@ -203,7 +205,7 @@ It has one rule and no exceptions to it:
 ## 60-second quickstart
 
 Requires Windows and Windows PowerShell 5.1 (`powershell.exe`). The constraint is the literal binary
-name in the thirteen hook registrations in `lw-watchtower/hooks/hooks.json`, not a 5.1 language feature — every tracked
+name in the fifteen hook registrations in `lw-watchtower/hooks/hooks.json`, not a 5.1 language feature — every tracked
 script declares `#requires -version 5`, which PowerShell 7 satisfies, so running one under `pwsh` by
 hand is not refused by the interpreter — one was checked and produced byte-identical output, which is
 one script and not a guarantee about all of them. The hooks will still invoke `powershell`.
@@ -263,7 +265,7 @@ installed it from the marketplace and reported back, and not before.
 Start a new session. You should see:
 
 ```
-LW-WATCHTOWER v0.4.0 · 6/10 modules enabled (4 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.5.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
 ```
 
 The four that are off are `send_liveness_gate`, `completion_audit`, `orphan_watch` and
@@ -318,6 +320,7 @@ block anything.
 | `docs_coupling` | observe | implemented — flags source changes shipped without docs |
 | `git_hygiene` | observe | implemented — branch, commit and push discipline at turn end |
 | `context_injection` | observe | implemented — hands every subagent facts current at *dispatch* time |
+| `stack_mode` | observe | implemented — resolves one working discipline per session, PROTO or SHIP, and points the session and every worker at the ruleset for it |
 | `orphan_watch` | observe | implemented — reconciles subagent transcripts against their stop records and reports agents that were spawned, never stopped and have gone silent. **Ships OFF. The verdict is inferred from silence, and that inference has been measured calling a live agent dead** |
 | `delegate_gate` | **gate** | implemented — refuses `Edit`/`Write`/`NotebookEdit`/`Bash`/`PowerShell` on the main thread. **Ships OFF.** See [The three gates](#the-three-gates) |
 | `send_liveness_gate` | **gate** | implemented — refuses a `SendMessage` whose recipient it can prove is dead mid-flight; abstains wherever the evidence cannot support a verdict. **Ships OFF** |
@@ -406,7 +409,7 @@ Exit codes and reporting rules: [Commands](docs/commands.md).
 | [Commands](docs/commands.md) | All seven slash commands, their exit codes, and which preference commands are enforced |
 | [Roles](docs/roles.md) | The six agent roles the plugin ships, and when each is dispatched |
 | [Architecture](docs/architecture.md) | Layout, hooks, measured costs, state, failure policy |
-| [Testing and CI](docs/testing.md) | **Fifteen files in `tests/`, and twelve of them test behaviour** — what each one covers, and what is uncovered |
+| [Testing and CI](docs/testing.md) | **Sixteen files in `tests/`, and thirteen of them test behaviour** — what each one covers, and what is uncovered |
 | [Portability](docs/portability.md) | The no-local-environment-dependencies mandate, and the scan that enforces it |
 | [Troubleshooting](docs/troubleshooting.md) | Symptom-first index |
 
@@ -426,7 +429,7 @@ which is why that number was `0.4.0` and not `0.3.1`. See
 refs. See [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-releases) for the rule and for the part the
 guard cannot see.
 
-CI runs on `windows-latest` under Windows PowerShell 5.1, in **one job with 21 check steps**:
+CI runs on `windows-latest` under Windows PowerShell 5.1, in **one job with 22 check steps**:
 JSON validity, PowerShell parse, the workflow guard, the delegate gate suite, the installer merge
 suite, the stop-hook behaviour suite, the uninstaller footprint suite, the doctor behaviour suite,
 the toggle write-path suite, the `SubagentStart` fast-scan suite, the payload disclosure guard, the
@@ -454,7 +457,7 @@ for the same reason. The one requirable string is the surviving job's display na
 that page is held to the string by the documentation-claim guard, which derives it from `ci.yml`, and
 this page is not.
 
-There is no status badge here, deliberately: a green badge covering three gates and seven observing
+There is no status badge here, deliberately: a green badge covering three gates and eight observing
 modules would read as far broader assurance than it is. A second reason stood here until
 **2026-08-28** — that a badge would not render for most viewers of a repository they cannot read —
 and it went with the visibility flip on that date. It is recorded rather than quietly dropped,

@@ -36,6 +36,25 @@
             "statusMessage": "LW-WATCHTOWER: opening the health log"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell",
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "${CLAUDE_PLUGIN_ROOT}/lib/stack_mode.ps1",
+              "-HookEvent",
+              "SessionStart"
+            ],
+            "timeout": 5,
+            "statusMessage": "LW-WATCHTOWER: resolving this session's working discipline"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -132,6 +151,25 @@
             ],
             "timeout": 5,
             "statusMessage": "LW-WATCHTOWER: handing the worker current environment facts"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell",
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "${CLAUDE_PLUGIN_ROOT}/lib/stack_mode.ps1",
+              "-HookEvent",
+              "SubagentStart"
+            ],
+            "timeout": 5,
+            "statusMessage": "LW-WATCHTOWER: handing the worker this session's working discipline"
           }
         ]
       }

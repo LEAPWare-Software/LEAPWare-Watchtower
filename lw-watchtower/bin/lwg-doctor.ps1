@@ -1403,6 +1403,15 @@ Write-Output ("RESULT: {0} passed, {1} warning(s), {2} failure(s), {3} informati
 # ones, because a health report that omits its own blind spots is how "all
 # checks passed" comes to be read as "everything works".
 #
+# AND IT WENT STALE A THIRD TIME, FOUND ON 8 SEPTEMBER 2026 (#179 slice 2) AND
+# recorded here because the shape of the staleness is the useful part: the WORD
+# read EIGHT while the registry held seven observing modules and the LIST below
+# named the right seven. So the number was wrong and the enumeration was right,
+# in the same sentence, and tests\doc_claims.ps1's observing-module-count rule
+# did not read this phrasing at all - "EVERY ONE of the EIGHT observing modules"
+# matched no pattern it carries. Adding stack_mode made the word true by
+# accident and the list short by one; both are corrected below.
+#
 # THIS PARAGRAPH HAS NOW GONE STALE TWICE, IN THE SAME DIRECTION BOTH TIMES -
 # it understated coverage - and it is hand-written text no guard derives, so
 # the derivation for the current wording is recorded here rather than left to
@@ -1456,9 +1465,10 @@ Write-Output "this plugin ENABLED in the current session - a hook can be perfect
 Write-Output "still be switched off. EVERY ONE of the EIGHT observing modules - failure_capture,"
 Write-Output "docs_coupling, git_hygiene and log_rotation"
 Write-Output "(tests\stop_behaviour.ps1), orphan_watch (tests\supervision.ps1), context_injection"
-Write-Output "(tests\subagent_scan.ps1) and self_health (tests\state_resolution.ps1 sections B, C"
+Write-Output "(tests\subagent_scan.ps1), stack_mode (tests\stack_mode.ps1) and self_health"
+Write-Output "(tests\state_resolution.ps1 sections B, C"
 Write-Output "and F, written against its self-check) - is exercised by a suite CI runs on every"
-Write-Output "push and every PR, though for three of those seven - docs_coupling,"
+Write-Output "push and every PR, though for three of those eight - docs_coupling,"
 Write-Output "git_hygiene and log_rotation - that is one to three cases on at most two properties"
 Write-Output "and not end to end. Neither fact is established by this command: no test is run"
 Write-Output "here, and a green run above says nothing about whether any advisory would fire."

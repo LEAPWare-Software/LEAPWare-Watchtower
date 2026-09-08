@@ -33,7 +33,7 @@ split; say so plainly rather than moving past it.
 Exit `2` here means findings, not failure. Exit `3` means detection did not complete - stop and
 say so; do not guess at the machine's state from these instructions.
 
-### 2. Ask the five questions
+### 2. Ask the six questions
 
 Detection ends with a `QUESTIONS TO PUT TO THE OPERATOR` block. **Use those words.** They were
 written for someone non-technical and they carry the recommended answer. Ask them with

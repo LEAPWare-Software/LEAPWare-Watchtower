@@ -53,11 +53,12 @@ rule and why each part of it is that way round.
   "failure_capture": true,
   "docs_coupling": true,
   "context_injection": true,
+  "stack_mode": false,
   …
 }
 ```
 
-**Seven keys, all implemented, all `true`.** The `$status` block at the top of the file records what
+**Eight keys, all implemented. Seven ship `true`; `stack_mode` ships `false`** — it has never run in a live session, its two root lists ship empty, and it is a second interpreter on every dispatch; see [Limitations](limitations.md#switching-stack_mode-on-costs-a-whole-second-interpreter-on-every-dispatch). The `$status` block at the top of the file records what
 has been removed and why, and states the rules the `modules` block below it follows. It does not list
 which modules are implemented: `$LwgModuleRegistry` in `lib/common.ps1` is the one authoritative list,
 `bin/lwg-doctor.ps1`'s `config-registry` check holds the `modules` block to it, and an `implemented`
@@ -192,6 +193,19 @@ state. An entry left behind in an override file is read by nothing.
 | `gh_timeout_ms` | 2500 | Hard bound on the one optional `gh` call. |
 | `use_gh` | `true` | `false` removes the open-PR check, and with it the only network call this plugin makes. |
 | `default_branches` | `["main", "master", "trunk"]` | Fallback when `refs/remotes/origin/HEAD` is absent — normal in a repo that was created rather than cloned. |
+
+### `stack_mode`
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `ship_roots` | `[]` | Path prefixes whose trees get SHIP. Matched on whole path **segments**, case-insensitively, so `C:\work\api` is not inside `C:\work\ap`. Nothing is resolved or probed, so write them **absolute**: a relative root, or a junction pointing at the same tree, does not match. |
+| `proto_roots` | `[]` | The same, for PROTO. Where both lists match, **SHIP wins** — see [Modules](modules.md#stack_mode). |
+| `default` | `"proto"` | What a working directory under neither list gets. `off` here injects nothing while leaving the module switched on. |
+
+Both lists ship empty, so nothing here does anything until an operator says where their release
+trees are. A `.stackmode` file in the working directory outranks both lists, and the
+`CLAUDE_STACK_MODE` environment variable outranks that; the whole ladder is in
+[Modules](modules.md#stack_mode).
 
 ### `docs_coupling`
 

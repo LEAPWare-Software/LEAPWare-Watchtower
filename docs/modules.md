@@ -1,7 +1,7 @@
 # Modules
 
-Ten module names exist. **All ten are built.** There is no name here with no code behind it.
-**Six ship enabled; four — `send_liveness_gate`, `completion_audit`, `orphan_watch` and
+Eleven module names exist. **All eleven are built.** There is no name here with no code behind it.
+**Six ship enabled; five — `stack_mode`, `send_liveness_gate`, `completion_audit`, `orphan_watch` and
 `delegate_gate` — ship switched off**, and off is where each of them is meant to be.
 
 There were thirteen until 30 July 2026, and that day four went and one arrived, each by an explicit
@@ -36,12 +36,13 @@ counted as coverage** — a `true` flag is a forward-declaration, not evidence t
 | `docs_coupling` | observe | **implemented** | Flag source changes shipped without documentation. |
 | `git_hygiene` | observe | **implemented** | Branch, commit and push discipline at turn end. |
 | `context_injection` | observe | **implemented** | Hand every subagent facts that are current at *dispatch* time, because `CLAUDE.md` is snapshotted at session start. |
+| `stack_mode` | observe | **implemented** | Resolve **one** working discipline for a session — PROTO or SHIP — and hand the session and every worker in it a **pointer** to the vendored ruleset for it. `SessionStart` and `SubagentStart`. **Ships switched off**, and its flag is the `modules` key `stack_mode`: it has never run in a live session, its two root lists ship empty, and it is a second interpreter on every dispatch. |
 | `orphan_watch` | observe | **implemented** | Reconcile this session's subagent transcripts against its `SubagentStop` records and alert on one that was killed mid-flight, which otherwise produces no record anywhere. **Ships switched off**; its switch is `supervision.orphan_watch`, not a `modules` flag, and it is inert while `failure_capture` is off because those records are what `failure_capture` writes. |
 | `send_liveness_gate` | **gate** | **implemented** | Refuse a `SendMessage` whose recipient it can *prove* is dead mid-flight. `PreToolUse` on `SendMessage`. **Ships switched off**; its switch is `supervision.send_liveness`. It denies on positive evidence of death and abstains — allows, logged — wherever the evidence cannot support a verdict. |
 | `completion_audit` | **gate** | **implemented** | Refuse a turn end whose final assistant text claims completed work when the turn's **last** tool action was a `SendMessage`: queued for delivery is not delivery. Registered on `Stop` and `SubagentStop`. **Ships switched off**; its switch is `supervision.completion_audit`. |
 | `delegate_gate` | **gate** | **implemented** | Refuse `Edit`/`Write`/`NotebookEdit`/`Bash`/`PowerShell` for calls that did not come from a subagent, so the chat session is reserved for talking to the operator. **Ships OFF** — see [below](#delegate_gate). |
 
-## Caveats on the seven that only observe
+## Caveats on the eight that only observe
 
 Read these before treating any module as coverage. Every module named below **observes**; not one of
 them can stop anything. The three gates are the exception — [`delegate_gate`](#delegate_gate),
@@ -70,6 +71,12 @@ its own section below. All three ship switched off.
   from the same file and the same process, gated on its own flag. Either flag off leaves the other
   working. `context_injection` injects, it never blocks — `SubagentStart` has no blocking channel at
   all — and neither does the row. See [`failure_capture`](#failure_capture-and-healing).
+- `stack_mode` **ships switched off** - see [`stack_mode`](#stack_mode) for the three reasons and\n  [Limitations](limitations.md#switching-stack_mode-on-costs-a-whole-second-interpreter-on-every-dispatch)\n  for what turning it on costs. It runs on **both** `SessionStart` **and** `SubagentStart`, from one leaf, and resolves
+  the mode ONCE per session. It injects a **pointer** to a ruleset, never the ruleset, and never
+  verifies that the reader opened the file - so a session in SHIP mode is a session that was told,
+  not a session that complied. It is also the **one module here that does not fail open on a
+  `config.json` it cannot read**: it goes silent rather than announce a mode it could not resolve.
+  See [`stack_mode`](#stack_mode).
 - `orphan_watch` **ships switched off**, and its switch is `supervision.orphan_watch` rather than a
   `modules` flag. It runs inside [`lib/supervisor.ps1`](../lw-watchtower/lib/supervisor.ps1) *below*
   the `failure_capture` flag check, so `failure_capture` off means `orphan_watch` inert whatever its
@@ -554,7 +561,7 @@ opposite overstatement: it says a probe failed, and none did.
 The banner as shipped, verified by running the hook rather than transcribed from intent:
 
 ```
-LW-WATCHTOWER v0.4.0 · 6/10 modules enabled (4 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.5.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
 ```
 
 Seven of eleven, and **the four that are off are `send_liveness_gate`, `completion_audit`,
@@ -1017,6 +1024,186 @@ costs — of which most is paid whichever way the two flags are set, because it 
 compiling a longer file.
 
 Measured cost is in [Architecture § context_injection cost](architecture.md#context_injection-cost).
+
+---
+
+## `stack_mode`
+
+**The problem.** Two of the vendored rulesets are opposites. `ponytail` argues for the laziest
+solution that works; `unlazy` argues for acceptance gates written before execution and evidence
+re-verified before anything is called done. Both are right, in different weeks. A session that has
+both in front of it has neither, and a session that has whichever one a worker happened to load has
+no policy at all — it has an accident.
+
+**It ships switched off, and that is three arguments rather than caution.** It has never run in a
+live session, so nothing here has observed the CLI merging what it injects; `ship_roots` and
+`proto_roots` both ship **empty**, so switched on it would resolve to the `proto` default and inject
+a pointer no operator asked for — cost with no function; and it is a **second `powershell` process on**
+**`SubagentStart`**, beside the one already there, so a dispatch pays a whole interpreter start again.
+The number is in
+[Limitations](limitations.md#switching-stack_mode-on-costs-a-whole-second-interpreter-on-every-dispatch).
+The same rule was applied to `metrics` on #165 and the exception was not argued there either. Fill in
+the roots, then `/lw-watchtower:config stack_mode on`; `bin/lwg-setup.ps1` offers both in one breath
+and writes neither.
+
+**The fix.** [`lib/stack_mode.ps1`](../lw-watchtower/lib/stack_mode.ps1) resolves **one** mode per
+session and injects a **pointer** to the ruleset for it:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"..."},
+ "suppressOutput":true}
+```
+
+It is registered on **both** `SessionStart` and `SubagentStart`, from one leaf, and the two are not
+interchangeable. `SessionStart` tells the parent. `SubagentStart` tells every worker at the moment
+it is dispatched, for the reason [`context_injection`](#context_injection) exists: `CLAUDE.md` is
+snapshotted at **parent-session start**, so a worker dispatched twenty minutes later would read a
+mode that has since changed. The envelope's `hookEventName` is mandatory and event-specific, which
+is why the script takes `-HookEvent` rather than assuming one.
+
+**A pointer, not the page.** Owner ruling, 6 September 2026. A full `SKILL.md` does not fit inside
+the ceiling injected context is held to, and a session that reads the ruleset off disk reads the
+**current** one rather than a copy frozen into a hook. The injected text names the absolute path of
+the file and says outright that it is a pointer and not a summary to act on.
+
+**Where the rulesets live, and why not in `skills/`.** They are
+[`context/stack/ponytail.md`](../lw-watchtower/context/stack/ponytail.md) and
+[`context/stack/unlazy.md`](../lw-watchtower/context/stack/unlazy.md). The CLI auto-registers every
+`skills/*/SKILL.md` as model-invocable, and this module governs **injection**, not availability —
+putting them under `skills/` would make both loadable at once, which is the collision the module
+exists to make impossible. Nothing else in this tree reads those two files.
+
+**The SHIP pointer says what its own ruleset is missing.** Only `unlazy`'s `SKILL.md` is vendored:
+its `scripts/`, `templates/`, `references/` and `agents/` companions are not, and this plugin ships
+no Node runtime, so every `node <skill-dir>/scripts/…` line in that page is unrunnable here. The
+injected SHIP text names `gate-check.mjs`, `gate-lint.mjs`, `install-hooks.mjs`, `gates-leaf.md`,
+`PLAN.md`, `gates-node.md` and the `references` pages as absent and tells the reader to treat the
+body as a method rather than as commands. The reader is a model, and a pointer that hands it
+instructions it cannot follow is the same "a shipped file asserts something exists which does not"
+defect [`tests/payload_guard.ps1`](../tests/payload_guard.ps1) exists for. `ponytail` is
+self-contained and carries no equivalent warning, because it needs none.
+
+**Precedence, and it is resolved once.** The first source that answers wins and the rest are not
+consulted:
+
+| Rank | Source | Answers with |
+| --- | --- | --- |
+| 1 | the `CLAUDE_STACK_MODE` environment variable | `proto`, `ship` or `off` |
+| 2 | a `.stackmode` file in the session's working directory | the first line that is neither blank nor a `#` comment |
+| 3 | `module_config.stack_mode.ship_roots`, then `proto_roots` | whichever list contains the working directory |
+| 4 | `module_config.stack_mode.default` | `proto`, `ship` or `off` |
+| 5 | the built-in default | `proto` |
+
+**Ship wins where the lists overlap.** A ship root nested inside a proto root, or the same tree in
+both lists, resolves to SHIP — where an operator's own lists disagree, the stricter discipline is
+the safer thing to be wrong about, and a tie broken by list order would depend on which key came
+first in a file people hand-edit.
+
+**A value that is not one of the three words is not an error.** It falls through to the next source.
+A typo in an environment variable must not cost a session its mode, and it must certainly not stop
+a hook.
+
+**What a root does and does not match.** Comparison is on **whole path segments** and is
+case-insensitive, so `C:\work\api` is not inside `C:\work\ap`. Nothing is resolved or probed: a root
+written with a trailing slash or with forward slashes still matches, and a **relative** root, a UNC
+spelling of a mapped drive, or a junction pointing at the same tree **does not**. That is a stated
+limit rather than a bug — a path probe's worst case is its normal case, and this runs before
+anything is injected on every dispatch. Write roots as absolute paths.
+
+**The marker is read from the working directory only** and is never walked up for. A marker found
+three directories above the work would govern sibling trees that never opted in.
+
+**Off is silent, and there are four ways to be off.** The module's `modules.stack_mode` flag set
+false; the resolved mode being `off`; the ruleset file for the resolved mode not being present in
+the payload; and a `config.json` this hook cannot read. Silent means **silent**: no envelope, no
+`systemMessage`, no log line, and nothing written anywhere — not to the state directory and not into
+the plugin's own tree.
+
+**The one write this module can make, named rather than glossed.** A throw is caught and recorded as a
+`StackModeError` row in `lw-watchtower.jsonl`, through `Write-LwgEvent`, which resolves the state
+directory through `Get-LwgStateDir` and therefore **creates** it if absent. That is the same shape
+[`context_injection`](#context_injection) documents for its own catch. It is the error path and nothing
+else: the read of `config.override.json` goes through `Get-LwgConfigOverridePath`, which exists
+precisely because `Get-LwgStateDir` creates and a read must not. `tests/stack_mode.ps1`'s S14 pins the
+happy path alone — it hands every child an existing state directory, so it cannot see that branch and
+does not claim to.
+
+**It cannot block anything, by construction.** The envelope carries `additionalContext` and
+`suppressOutput` and no `decision`, `continue` or `stopReason` field at all, so there is nothing for
+it to say `deny` with. Every path exits 0.
+
+**Failure policy, and the one place this module does not fail open.** Every other observing module
+treats an unreadable `config.json` as "every module on", because the text they inject is invariant
+and a governance layer that switches itself off because it could not read its own settings is the
+failure mode. This module injects an **assertion about the operator's environment**, and a mode
+announced out of a config nothing could read is a guess wearing a verdict's clothes — the shape
+`lib/supervisor.ps1` records this tree shipping once already, in a check that reported "0 orphans"
+unconditionally for its entire life. So a `config.json` that is **absent, unparseable, or holds no
+root `modules` object** produces silence. Inside a config that parses that far, a **missing
+`stack_mode` key still reads as on**, exactly like every other module: absent is not false, and the
+departure above is about a document that could not be read rather than about a key nobody wrote.
+[`tests/stack_mode.ps1`](../tests/stack_mode.ps1) pins both halves in one case, because the pair is
+the evidence and neither half is.
+
+**The operator's own switch is honoured.** `config.override.json` under the state directory is read
+and merged over the shipped defaults, for the reason recorded on
+[`context_injection`](#context_injection): a hook that read `config.json` alone would go on injecting
+while the banner, the doctor and the config command all reported the module off. A per-repo `repos`
+block naming this module, and an override that tunes `module_config.stack_mode`, both send the hook
+to the exact resolver in `common.ps1` rather than being approximated by the fast text scan.
+
+**Cost.** The fast path dot-sources nothing and starts no JSON engine, for the reason
+[`context_injection`](#context_injection)'s header records: `ConvertFrom-Json` costs 141–182 ms in a
+fresh Windows PowerShell 5.1 process, and dot-sourcing `common.ps1` to ask one question measured
+634 ms against a ~275–300 ms interpreter floor. The header of the script itself is kept short for
+the same reason — Windows PowerShell 5.1 tokenises the whole file before it runs a statement, so
+prose in a per-dispatch hook is charged per dispatch, and the long account of this module is here
+rather than there.
+
+**And what it actually costs, measured rather than asserted.** One machine's medians, 25 interleaved
+rounds, leg order reversed on alternate iterations, one warm-up sweep discarded, against a floor
+script whose whole body is `exit 0`:
+
+| Leg | Median |
+| --- | --- |
+| the floor - interpreter start and nothing else | 296 ms |
+| lib/subagent_start.ps1, for comparison | 435 ms |
+| **lib/stack_mode.ps1 on SessionStart** | **471 ms** |
+| **lib/stack_mode.ps1 on SubagentStart** | **464 ms** |
+
+Broken down by stage, on the same machine, by running copies of the script that exit early:
+
+| Up to and including | Median | Added |
+| --- | --- | --- |
+| parse, drain stdin, read config.json | 345 ms | ~49 ms over the floor |
+| the modules span scan and the flag | 394 ms | ~49 ms |
+| the module_config.stack_mode span | 411 ms | ~17 ms |
+| the override and epos checks | 386 ms | inside the spread — no measurable cost on a machine with no override file |
+| mode resolution | 446 ms | ~60 ms |
+| the pointer and the envelope | 471 ms | ~25 ms |
+
+**AND THE FIGURE A CONSUMER ACTUALLY PAYS IS THE WHOLE 464 ms, NOT THE ~170 ms MARGINAL.** This is a
+**second registration on an event that already carries one**, and each registration is its own
+`powershell` process, so switching the module on does not add ~170 ms to a dispatch — it adds the
+whole run, **interpreter floor included, because the floor is paid again**. Whether the CLI runs the
+two `SubagentStart` hooks in parallel or in series is **not measured here**, and the difference is
+the difference between a dispatch getting twice as slow and a dispatch getting no slower while the
+machine does twice the work. That, and why the flag shipping **off** is the answer rather than a
+smaller number, is in
+[Limitations § Switching `stack_mode` on costs a whole second interpreter](limitations.md#switching-stack_mode-on-costs-a-whole-second-interpreter-on-every-dispatch).
+
+Read those as figures with a run-to-run spread of tens of milliseconds and not as three significant
+digits — one stage came out *cheaper* than the stage before it, which is what noise looks like.
+**One line of that was a defect and is worth recording.** New-Object System.Collections.ArrayList
+in the array reader cost ~60 ms of the total, because New-Object is a cmdlet and its first use in
+a fresh process loads Microsoft.PowerShell.Utility; [System.Collections.ArrayList]::new() costs
+nothing. Most of what the mode-resolution stage still costs is PowerShell compiling the seven
+functions that stage calls for the first time, which is a cost of *having* the functions rather than
+of calling them.
+
+**What is not covered.** `tests/stack_mode.ps1` asserts on **answers**, not on milliseconds, and
+every one of its runs is a simulation: no live session is started, so whether the CLI merges the
+injected context into a worker is **not measured** by this repository and is not claimed here.
 
 ---
 

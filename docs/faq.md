@@ -47,8 +47,8 @@ If you are here to find out what this plugin **cannot** do, the consolidated ans
 
 ## What does this actually do?
 
-It runs 10 governance modules over every Claude Code session on the machine, in every repo, with no
-per-project setup. **Seven of them observe** — they record, count or warn — and **three are gates that
+It runs 11 governance modules over every Claude Code session on the machine, in every repo, with no
+per-project setup. **Eight of them observe** — they record, count or warn — and **three are gates that
 can refuse or hold an action: `delegate_gate`, `send_liveness_gate` and `completion_audit`. All three
 ship switched off**, and so does the seventh observing module, `orphan_watch`.
 
@@ -144,10 +144,10 @@ and the rules it has to follow at
 No. That is the correct shipped state and it is what the banner is for. As shipped it reads:
 
 ```
-LW-WATCHTOWER v0.4.0 · 6/10 modules enabled (4 off) · 0 gates · observe-only
+LW-WATCHTOWER v0.5.0 · 7/11 modules enabled (4 off) · 0 gates · observe-only
 ```
 
-- **`6/10`** — ten modules are built; six are enabled. The four that are off are
+- **`7/11`** — eleven modules are built; seven are enabled. The four that are off are
   `send_liveness_gate`, `completion_audit`, `orphan_watch` and `delegate_gate` — all four built, all
   four shipped switched off. The parenthetical is the remainder being accounted for rather than a
   warning: everything not counted is named, so the total always adds up.

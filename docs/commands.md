@@ -36,7 +36,7 @@ that it exists is not a feature.
 **Four were deleted on 30 July 2026, and every deletion was deliberate.**
 
 - `lw-watchtower:verify` ran the gate regression suite and went with the destructive command gate that
-  suite mostly covered. **No command tests behaviour.** 12 suites test behaviour and only two of
+  suite mostly covered. **No command tests behaviour.** 13 suites test behaviour and only two of
   them cover a gate — see [Testing](testing.md).
 - `lw-watchtower:tripped` listed open gate trips and went with the trip ledger it read: both gates were
   already gone, so no trip could be recorded, and the ledger files it read were then backed up and
@@ -181,7 +181,7 @@ ships switched off, so on a default install nothing here blocks anything. The sc
 blind spots on every run, including the green ones.
 
 **No command tests behaviour.** The one that did — `lw-watchtower:verify`, over a 233-case suite — was
-removed with the destructive command gate. 12 behavioural test files survive it —
+removed with the destructive command gate. 13 behavioural test files survive it —
 [`tests/gate_delegate.ps1`](../tests/gate_delegate.ps1) for `delegate_gate`,
 [`tests/supervision.ps1`](../tests/supervision.ps1) for the other two gates and `orphan_watch`, and
 nine more covering the installer's `statusline` and hooks merge, the turn-end hooks, the

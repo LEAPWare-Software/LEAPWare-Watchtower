@@ -1280,6 +1280,39 @@ function Write-Questions {
     Write-Output '      -> nothing to pass. This installer writes NEITHER key, ever, in any step.'
     Write-Output '         Whether the two compose or one wins has NOT been measured - say so if asked.'
     Write-Output ''
+    # Q6 IS TEXT AND ONLY TEXT, FOR Q5'S REASON PLUS ONE OF ITS OWN. This
+    # installer merges settings.json; the flag below lives in
+    # config.override.json under the state directory, which /lw-watchtower:config
+    # owns and this file has never written. Writing it here would put a second
+    # writer on that document and a key into a footprint bin\lwg-uninstall.ps1
+    # reports, for a value the config command already owns. So this OFFERS and
+    # the writing stays theirs.
+    #
+    # IT IS OFFERED AT ALL because the module ships OFF and a switch nobody is
+    # told about is a switch nobody finds - which is one step from the switch
+    # wired to nothing that this plugin exists to catch. The two ROOT lists are
+    # named in the same breath as the flag, deliberately: switching it on with
+    # both lists empty resolves to the default and injects a PROTO pointer the
+    # operator never asked for, so "turn it on" without "and say where your
+    # release trees are" is advice that buys them cost and no function.
+    Write-Output '  Q6  ONE WORKING DISCIPLINE PER SESSION             recommended: mention, do not write'
+    Write-Output '      "This plugin can hand every session, and every background helper in it, ONE'
+    Write-Output '       working discipline - prototype or ship - as a pointer to a ruleset it carries.'
+    Write-Output '       It SHIPS SWITCHED OFF, it has never run in a live session, and I will not'
+    Write-Output '       switch it on for you. If you want it:'
+    Write-Output '         1. say which folders hold work you are RELEASING and which hold work you'
+    Write-Output '            are still EXPLORING, and put them in module_config.stack_mode as'
+    Write-Output '            ship_roots and proto_roots. Both ship EMPTY, and switching the module'
+    Write-Output '            on before you fill them in gets you the prototype pointer everywhere.'
+    Write-Output '         2. then run  /lw-watchtower:config stack_mode on'
+    Write-Output '       A .stackmode file in a folder overrides the lists for that folder, and the'
+    Write-Output '       CLAUDE_STACK_MODE environment variable overrides everything for one session."'
+    Write-Output '      -> nothing to pass. This installer writes NEITHER the flag nor the roots.'
+    Write-Output '         COST, because it is an opt-in and the number belongs with the offer: it is'
+    Write-Output '         a SECOND PowerShell process on every helper dispatch, beside the one that'
+    Write-Output '         already runs there, so the interpreter start is paid again. See'
+    Write-Output '         docs\limitations.md.'
+    Write-Output ''
     Write-Output 'THEN, ONE SECTION AT A TIME AND ONE YES EACH:'
     Write-Output '  1. -Step diff -Section statusline    then apply, only if the operator agrees'
     Write-Output '  2. -Step diff -Section hooks         then apply, only if the operator agrees'
@@ -1780,6 +1813,7 @@ function New-HooksPlan {
         'session_start.ps1'   = 'always - the banner and the self-check'
         'supervisor.ps1'      = 'always - failure capture and log rotation'
         'subagent_start.ps1'  = 'always - hands current facts to every worker'
+        'stack_mode.ps1'      = 'always - points the session, and every worker in it, at one working discipline'
         'post_edit.ps1'       = 'records edited paths for the end-of-turn warnings'
         'stop_advisories.ps1' = 'the end-of-turn warnings'
         'gate_delegate.ps1'   = 'refuses Edit/Write/NotebookEdit/Bash/PowerShell off the main thread - SHIPS SWITCHED OFF'

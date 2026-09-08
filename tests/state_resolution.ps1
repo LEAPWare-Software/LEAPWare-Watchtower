@@ -1054,7 +1054,7 @@ function Test-E4-NoRegistryNoteContradictsTheRegistrysOwnGateCount {
 # was given. A fixture that inherited anything would make those numbers a
 # statement about config.json instead of about the ladder.
 #
-# THE COUNTS ARE CONCRETE - 6/10, 10/10, 0 gates, 3 gates - and not recomputed
+# THE COUNTS ARE CONCRETE - 6/11, 11/11, 0 gates, 3 gates - and not recomputed
 # from the registry inside the case. Deriving them here would mean the case and
 # the code under test share a mistake; a registry change that moves them is
 # meant to bring this file with it, and that is the test working rather than
@@ -1269,13 +1269,13 @@ function Test-F4-APayloadMissingSessionAndCwdFailsBothPayloadProbes {
 function Test-F5-TheShippedConfigIsObserveOnly {
     <#
       The word the shipped plugin actually reports, and the one an operator sees
-      most: seven of eleven modules run, no gate is armed, so nothing can block
-      anything. '(4 off)' is asserted with it because the parenthetical is what
-      stops 6/10 being read as coverage - the four are built and switched off,
+      most: six of eleven modules run, no gate is armed, so nothing can block
+      anything. '(5 off)' is asserted with it because the parenthetical is what
+      stops 6/11 being read as coverage - the five are built and switched off,
       not unwritten.
     #>
-    Invoke-ModeCase -Name 'f5' -CaseName 'F5 the shipped config.json reports mode observe-only, 6/10 modules and 0 gates' `
-        -ConfigJson '' -Mode 'observe-only' -Counts '6/10 modules' -Gates '0 gates' -Split '(4 off)'
+    Invoke-ModeCase -Name 'f5' -CaseName 'F5 the shipped config.json reports mode observe-only, 6/11 modules and 0 gates' `
+        -ConfigJson '' -Mode 'observe-only' -Counts '6/11 modules' -Gates '0 gates' -Split '(5 off)'
 }
 
 function Test-F6-SelfHealthOffIsUnverified {
@@ -1294,7 +1294,8 @@ function Test-F6-SelfHealthOffIsUnverified {
     "log_rotation": true,
     "docs_coupling": true,
     "git_hygiene": true,
-    "context_injection": true
+    "context_injection": true,
+    "stack_mode": true
   },
   "repos": {},
   "thresholds": {
@@ -1304,7 +1305,7 @@ function Test-F6-SelfHealthOffIsUnverified {
 }
 '@
     Invoke-ModeCase -Name 'f6' -CaseName 'F6 self_health off reports mode unverified, never a word that implies a check passed' `
-        -ConfigJson $cfg -Mode 'unverified' -Counts '5/10 modules' -Gates '0 gates' -Split '(5 off)'
+        -ConfigJson $cfg -Mode 'unverified' -Counts '6/11 modules' -Gates '0 gates' -Split '(5 off)'
 }
 
 function Test-F7-OneLiveGateIsPartial {
@@ -1327,7 +1328,8 @@ function Test-F7-OneLiveGateIsPartial {
     "log_rotation": true,
     "docs_coupling": true,
     "git_hygiene": true,
-    "context_injection": true
+    "context_injection": true,
+    "stack_mode": true
   },
   "interaction": { "delegate": true },
   "repos": {},
@@ -1338,7 +1340,7 @@ function Test-F7-OneLiveGateIsPartial {
 }
 '@
     Invoke-ModeCase -Name 'f7' -CaseName 'F7 one live gate with modules still off reports mode partial and 1 gate' `
-        -ConfigJson $cfg -Mode 'partial' -Counts '7/10 modules' -Gates '1 gate' -Split '(3 off)'
+        -ConfigJson $cfg -Mode 'partial' -Counts '8/11 modules' -Gates '1 gate' -Split '(3 off)'
 }
 
 function Test-F8-EverythingOnIsEnforcing {
@@ -1368,7 +1370,8 @@ function Test-F8-EverythingOnIsEnforcing {
     "log_rotation": true,
     "docs_coupling": true,
     "git_hygiene": true,
-    "context_injection": true
+    "context_injection": true,
+    "stack_mode": true
   },
   "interaction": { "delegate": true },
   "supervision": {
@@ -1393,7 +1396,7 @@ function Test-F8-EverythingOnIsEnforcing {
     $problems = @()
     if ([string]$c.record.mode -ne 'enforcing') { $problems += "the ledger record says mode '$($c.record.mode)', expected 'enforcing'. failures: [$($c.record.failures -join '; ')]" }
     if (-not (Test-BannerMode $banner 'enforcing')) { $problems += "the BANNER does not end on 'enforcing': [$banner]" }
-    if ($banner -notmatch '10/10 modules') { $problems += "the banner does not say '10/10 modules': [$banner]" }
+    if ($banner -notmatch '11/11 modules') { $problems += "the banner does not say '11/11 modules': [$banner]" }
     if ($banner -notmatch '3 gates')              { $problems += "the banner does not say '3 gates': [$banner]" }
     if ($banner -match '\d+/\d+ modules \w+\s*\(') { $problems += "the banner prints a parenthetical on a config with nothing planned and nothing off: [$banner]" }
     $f = Get-BannerFailure $banner
@@ -1420,7 +1423,8 @@ function Test-F9-NothingRunningIsInert {
     "log_rotation": false,
     "docs_coupling": false,
     "git_hygiene": false,
-    "context_injection": false
+    "context_injection": false,
+    "stack_mode": false
   },
   "repos": {},
   "thresholds": {
@@ -1429,8 +1433,8 @@ function Test-F9-NothingRunningIsInert {
   }
 }
 '@
-    Invoke-ModeCase -Name 'f9' -CaseName 'F9 nothing enabled at all reports mode inert, 0/10 modules and 0 gates' `
-        -ConfigJson $cfg -Mode 'inert' -Counts '0/10 modules' -Gates '0 gates' -Split '(10 off)'
+    Invoke-ModeCase -Name 'f9' -CaseName 'F9 nothing enabled at all reports mode inert, 0/11 modules and 0 gates' `
+        -ConfigJson $cfg -Mode 'inert' -Counts '0/11 modules' -Gates '0 gates' -Split '(11 off)'
 }
 
 # =========================================================================
@@ -1501,7 +1505,7 @@ function Test-G2-TheBannerNumbersAreTheOnesTheConfigImplies {
       this line goes on counting the module, so the word claimed an observation
       the plugin has never had, in the one line every session reads.
 
-      The other five mode cases assert the FRACTION and not the noun - '6/10
+      The other five mode cases assert the FRACTION and not the noun - '6/11
       modules' - deliberately. They are coverage and are green at that commit,
       and folding the wording defect into all six would have made five green
       cases look like five red ones and lost which change did what.
@@ -1513,7 +1517,7 @@ function Test-G2-TheBannerNumbersAreTheOnesTheConfigImplies {
     $c = Invoke-SessionStartCase -Name 'g2'
     $banner = [string]$c.envelope.systemMessage
     $problems = @()
-    foreach ($want in @('6/10 modules enabled', '(4 off)', '0 gates', 'observe-only')) {
+    foreach ($want in @('6/11 modules enabled', '(5 off)', '0 gates', 'observe-only')) {
         if ($banner -notmatch [regex]::Escape($want)) { $problems += "the banner does not say '$want'" }
     }
     if ($banner -match 'modules active') {
@@ -1573,7 +1577,7 @@ function Test-G4-TheEnvelopeIsTheSessionStartShape {
 function Test-G5-AdditionalContextDescribesWhatIsRunning {
     <#
       The roster and the gate sentence, on the shipped config. Every active
-      module is named because the sentence claims to name them; the four that
+      module is named because the sentence claims to name them; the five that
       are built and switched off are accounted for because an unexplained gap in
       a coverage report is the same defect as an overstated one; and the gate
       sentence must say no gate is LIVE rather than that none exists, since
@@ -1582,13 +1586,13 @@ function Test-G5-AdditionalContextDescribesWhatIsRunning {
     $c = Invoke-SessionStartCase -Name 'g5'
     $ctx = [string]$c.envelope.hookSpecificOutput.additionalContext
     $problems = @()
-    foreach ($want in @('mode observe-only', 'Running (6/10)', 'No gate is live')) {
+    foreach ($want in @('mode observe-only', 'Running (6/11)', 'No gate is live')) {
         if ($ctx -notmatch [regex]::Escape($want)) { $problems += "additionalContext does not say '$want'" }
     }
     foreach ($m in @('failure_capture', 'self_health', 'log_rotation', 'docs_coupling', 'git_hygiene', 'context_injection')) {
         if ($ctx -notmatch [regex]::Escape($m)) { $problems += "additionalContext does not name the active module '$m'" }
     }
-    foreach ($m in @('send_liveness_gate', 'completion_audit', 'orphan_watch', 'delegate_gate')) {
+    foreach ($m in @('stack_mode', 'send_liveness_gate', 'completion_audit', 'orphan_watch', 'delegate_gate')) {
         if ($ctx -notmatch [regex]::Escape($m)) { $problems += "additionalContext does not account for '$m', which is built and switched OFF - a reader totting up the names comes up short with no account of the remainder" }
     }
     if ($ctx -match 'can BLOCK a tool call') { $problems += 'additionalContext claims a gate can block on a config where none is armed' }
@@ -1612,7 +1616,8 @@ function Test-G6-AdditionalContextNamesALiveGate {
     "log_rotation": true,
     "docs_coupling": true,
     "git_hygiene": true,
-    "context_injection": true
+    "context_injection": true,
+    "stack_mode": true
   },
   "interaction": { "delegate": true },
   "repos": {},
@@ -1649,7 +1654,8 @@ function Test-G7-AdditionalContextSaysTheSelfCheckDidNotRun {
     "log_rotation": true,
     "docs_coupling": true,
     "git_hygiene": true,
-    "context_injection": true
+    "context_injection": true,
+    "stack_mode": true
   },
   "repos": {},
   "thresholds": {
@@ -1693,7 +1699,7 @@ function Test-G8-AdditionalContextDoesNotPrintItsRemainderCountTwice {
       THE ASSERTION IS ON THE SHAPE AND NOT ON A FIXED STRING. `The other N: N (`
       with the same N twice is the defect; a backreference says exactly that and
       keeps working when the counts move, which they do every time a module
-      lands. The second half - that all four are still named and the total is
+      lands. The second half - that all five are still named and the total is
       still right - is what stops a "fix" that simply deleted the numbers from
       passing.
 
@@ -1720,10 +1726,10 @@ function Test-G8-AdditionalContextDoesNotPrintItsRemainderCountTwice {
                       "for the whole remainder on the shipped configuration, so this is what every default install " +
                       "puts in front of the model on every session start.")
     }
-    if ($ctx -notmatch 'The other 4\b') {
-        $problems += "additionalContext does not account for the four remaining modules with the number 4 at all - the count must still be stated, just not twice"
+    if ($ctx -notmatch 'The other 5\b') {
+        $problems += "additionalContext does not account for the five remaining modules with the number 5 at all - the count must still be stated, just not twice"
     }
-    foreach ($mod in @('send_liveness_gate', 'completion_audit', 'orphan_watch', 'delegate_gate')) {
+    foreach ($mod in @('stack_mode', 'send_liveness_gate', 'completion_audit', 'orphan_watch', 'delegate_gate')) {
         if ($ctx -notmatch [regex]::Escape($mod)) { $problems += "additionalContext no longer names '$mod' among the modules that are built and switched off" }
     }
     if ($ctx -notmatch 'built but switched OFF in config\.json') {

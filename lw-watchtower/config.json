@@ -21,7 +21,8 @@
     "log_rotation": true,
     "docs_coupling": true,
     "git_hygiene": true,
-    "context_injection": true
+    "context_injection": true,
+    "stack_mode": false
   },
   "interaction": {
     "$comment": "INTERACTION PREFERENCES. The key here is `delegate`. It is absent from the `modules` block above for the same reason `output_style` is - a corrupt config must not be able to flip it, because Get-LwgConfig fails OPEN and would switch on a blocking gate nobody asked for - but it is NOT merely a preference any more. Since 30 July 2026 it is the switch on delegate_gate, a real PreToolUse gate, and $LwgModuleRegistry in lib/common.ps1 carries a `delegate_gate` entry whose `switch` field names this exact key. That is why there is no second flag for it in `modules`: a second switch over the same gate lets an operator turn it on with the command and have it silently do nothing, which is the founding defect this plugin exists to catch. bin/lwg-doctor.ps1's config-registry check asserts that this key is present here and that the registry entry points at it.",
@@ -72,6 +73,12 @@
         "master",
         "trunk"
       ]
+    },
+    "stack_mode": {
+      "$comment": "THE MODULE SHIPS SWITCHED OFF - see the `modules` block above, where its flag is false, and turn it on with /lw-watchtower:config once you have set the roots below. It is off for the reason this tree switches every new module off: it has never run in a live session, so nothing here has observed the CLI merging what it injects. Two further reasons are specific to it and are stated rather than left to be found - with both root lists empty it would resolve to the default and inject a PROTO pointer nobody asked for, which is cost with no function; and it is a SECOND PowerShell process on SubagentStart beside lib/subagent_start.ps1, so a dispatch pays a whole interpreter start again. docs/limitations.md carries that number. Which working discipline a session gets, and where. `ship_roots` and `proto_roots` are lists of path prefixes matched against the session's working directory on WHOLE PATH SEGMENTS, so a root does not capture a sibling directory that merely shares its opening characters; `default` is what a directory under neither list gets. Both lists ship EMPTY and the default ships proto, so nothing here changes anything until an operator says where their release trees are. THE ORDER THESE ARE CONSULTED IN IS NOT WRITTEN HERE and is not a matter of taste: the CLAUDE_STACK_MODE environment variable outranks a .stackmode marker in the working directory, which outranks these lists, which outrank `default`. That ladder is in $LwgModuleRegistry in lib/common.ps1 and in docs/modules.md, which is where a reader can also find why SHIP wins where the two lists overlap and what a root written relative, or through a junction, will and will not match. Setting `default` to off, or CLAUDE_STACK_MODE to off, injects nothing while leaving the module switched on.",
+      "ship_roots": [],
+      "proto_roots": [],
+      "default": "proto"
     },
     "send_liveness_gate": {
       "$comment": "stale_minutes divides 'presumed running' from 'dead mid-flight' for a recipient with no SubagentStop record. Default 15, floor 1, and the default sits ABOVE the 10-minute Bash tool ceiling on purpose: an agent inside one long tool call writes nothing to its transcript for the length of the call, and a threshold under that ceiling would refuse sends to agents that are merely busy. The measured dead recipient had been silent 28m45s.",

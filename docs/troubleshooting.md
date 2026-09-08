@@ -283,8 +283,8 @@ command gate. There is no replacement, and no command in this plugin tests behav
 is a sub-second **wiring** check — use it, while being clear that wiring is not behaviour. See
 [Testing](testing.md).
 
-The `permissions.deny` parity test went the same day with `secret_scan`. **15 test files remain**,
-and **12 of them test behaviour**: `tests/gate_delegate.ps1` (the delegate gate),
+The `permissions.deny` parity test went the same day with `secret_scan`. **16 test files remain**,
+and **13 of them test behaviour**: `tests/gate_delegate.ps1` (the delegate gate),
 `tests/supervision.ps1` (the other two gates and `orphan_watch`), `tests/setup_merge.ps1`
 (the installer's `statusline` merge, what its `hooks` section decides, and the status line itself),
 `tests/stop_behaviour.ps1` (the turn-end hooks),
@@ -295,7 +295,7 @@ and **12 of them test behaviour**: `tests/gate_delegate.ps1` (the delegate gate)
 `config.override.json`), `tests/subagent_scan.ps1` (the `SubagentStart` fast path) and
 `tests/payload_guard.ps1` (what the shipped payload discloses) and
 `tests/metrics_behaviour.ps1` (the transcript indexer and the scoreboard behind
-`/lw-watchtower:metrics`). The other three —
+`/lw-watchtower:metrics`) and `tests/stack_mode.ps1` (the working-discipline injector). The other three —
 `tests/workflow_guard.ps1`, `tests/portability_scan.ps1` and `tests/doc_claims.ps1` — check tracked
 files and their stated counts, and assert nothing about behaviour. **None of them is reachable from a
 command**; they are run by CI and by hand, which is why no command here can tell you whether this

@@ -26,7 +26,7 @@ from running it, it says so.
 | Does it install any `permissions.deny` rule? | **No.** The installer has no rule table any more — the function and the section that wrote it are both deleted. |
 | Can it block anything at all? | **Three things**, and it ships switched off — see [the gates](#the-three-gates-block-little-and-all-ship-off). |
 | Can it block assistant text? | **No.** There is no hook between the model and the transcript. |
-| How many of its ten modules are tested? | **All ten** — all three gates and all seven observing ones — but only in the cases somebody thought to write, and for several of them one or two properties apiece is the whole of it. See [What no test covers](#what-no-test-covers) before reading that as coverage. |
+| How many of its eleven modules are tested? | **All eleven** — all three gates and all eight observing ones — but only in the cases somebody thought to write, and for several of them one or two properties apiece is the whole of it. See [What no test covers](#what-no-test-covers) before reading that as coverage. |
 | Does it run anywhere but Windows PowerShell 5.1? | **No**, and it does not pretend to. |
 
 ---
@@ -39,6 +39,7 @@ from running it, it says so.
 - [The advisory modules advise; they do not enforce](#the-advisory-modules-advise-they-do-not-enforce)
 - [The gate costs ~330 ms on every edit and command, on or off](#the-gate-costs-330-ms-on-every-edit-and-command-on-or-off)
 - [The dispatch record costs ~18 ms and halves the status line's fault history](#the-dispatch-record-costs-18-ms-and-halves-the-status-lines-fault-history)
+- [Switching `stack_mode` on costs a whole second interpreter on every dispatch](#switching-stack_mode-on-costs-a-whole-second-interpreter-on-every-dispatch)
 - [What no test covers](#what-no-test-covers)
 - [Platform, install and state](#platform-install-and-state)
 - [The documentation is not checked against the tree](#the-documentation-is-not-checked-against-the-tree)
@@ -250,7 +251,7 @@ Full detail: [`send_liveness_gate`](modules.md#send_liveness_gate) and
 
 ## The advisory modules advise; they do not enforce
 
-Seven of the ten modules are kind `observe`. **Not one of them can stop, delay or alter anything** —
+Eight of the eleven modules are kind `observe`. **Not one of them can stop, delay or alter anything** —
 they warn at turn end, or write a log record, and the action happens regardless. The advisory handler
 exits 0 on every path and its only stdout is a `systemMessage` envelope with no `decision` field.
 *That was a property of the source, established by reading it, until 31 July 2026. It is now run:
@@ -271,6 +272,7 @@ runs a **heuristic**. Both are advisory; only the first is telling you something
 | `docs_coupling` | a fact — the paths edited, over a **narrow window** | `Write`/`Edit`/`NotebookEdit` only. **A file rewritten by a shell command is invisible to it.** Its doc/source/neither classification is a configurable word list, not an analysis. |
 | `git_hygiene` | a fact — git's own answer | The only module that spawns a subprocess, on `Stop` only. If git is missing, times out or exits nonzero it reports **UNKNOWN**, never "clean" — but the operator has to read that word. Its open-PR half needs `gh` and the network and is best-effort by construction. |
 | `context_injection` | a fact — it emits the current bytes of one file per dispatch | It injects; it cannot block, because `SubagentStart` has no blocking channel. **Nothing verifies the worker read it or acted on it.** That the escaper emits pure ASCII rests on inspection of the source **for this path**; the dispatch record's path through the same function is covered by a case. Since 6 September 2026 this is no longer the only module in that file — see [the dispatch record](#the-dispatch-record-costs-18-ms-and-halves-the-status-lines-fault-history). |
+| `stack_mode` (**ships off**) | a fact — which of a stated list of sources answered, and what it said | It injects a POINTER and **nothing verifies the reader opened the file**, so a session in SHIP mode was told, not observed to comply. Path roots are matched as **text**, on whole segments and case-insensitively, with nothing resolved: a relative root, or a junction pointing at the same tree, does not match. And it is the one observing module that does **not** fail open on a `config.json` it cannot read - it goes silent, because a mode announced out of an unreadable config would be a guess reported as a verdict. |
 
 Blind spots per module, in the modules' own words:
 [the per-module caveats in Modules](modules.md).
@@ -407,11 +409,74 @@ on `SubagentStop` alone.
   `Get-LwgRedacted`, but a credential pasted into an `agent_type` or a session id still reaches
   `health.jsonl` unmasked. The 200-character cap on each field bounds that and does not remove it.
 
+## Switching `stack_mode` on costs a whole second interpreter on every dispatch
+
+`stack_mode` **ships switched off**, and this section is why, stated as a cost rather than as a
+recommendation. It is the direct analogue of the ruling that made the dispatch record above state its
+18 ms in the file and on this page instead of absorbing it: 18 ms got a written ruling, so ~464 ms
+gets no less.
+
+### The number, and what it is a number *of*
+
+One machine's medians, 25 interleaved rounds, leg order reversed on alternate iterations, one warm-up
+sweep discarded, each leg a real child process fed a fixture payload on real stdin, against a floor
+script whose entire body is `exit 0`:
+
+| Leg | Median |
+| --- | --- |
+| the floor — Windows PowerShell 5.1 starting and exiting | 296 ms |
+| `lib/subagent_start.ps1` | 435 ms |
+| `lib/stack_mode.ps1` on `SessionStart` | 471 ms |
+| `lib/stack_mode.ps1` on `SubagentStart` | 464 ms |
+
+**Read the marginal figure and the added figure as two different numbers, because the second is the
+one a consumer pays.** `stack_mode`'s own work is ~170 ms — the difference between 464 ms and the
+296 ms floor. But it is a **second registration on an event that already carries one**, and each
+registration is its own `powershell` process, so switching it on does **not** add ~170 ms to a
+dispatch. **It adds the whole ~464 ms, floor included, because the interpreter start is paid again.**
+
+`SubagentStart` now declares two registrations — `lib/subagent_start.ps1` and `lib/stack_mode.ps1` —
+and with the flag on, a dispatch pays for both.
+
+### What is NOT measured about that, named rather than guessed
+
+- **Whether Claude Code runs the two `SubagentStart` hooks in PARALLEL or in SERIES is unmeasured
+  here.** In series the wall-clock cost of a dispatch's hooks is roughly the sum, about 900 ms; in
+  parallel it is roughly the slower of the two, about 435–464 ms, and the second process's cost is
+  paid in CPU and memory rather than in latency. **This repository does not know which**, and the
+  difference is the whole difference between "a dispatch got twice as slow" and "a dispatch got no
+  slower and the machine did twice the work." Nothing here asserts either.
+- **Nothing was measured inside a live session.** No lane holds a credential or starts one, so all of
+  the above is child-process wall clock on one development machine, and what two hooks cost inside a
+  real dispatch under real CLI load is not established.
+- **`SessionStart` carries the same shape and it matters far less**, because it happens once per
+  session rather than once per dispatch. It is not separately argued.
+
+### Why the flag is the answer and a smaller number is not
+
+The cost is **opt-in**, and that is the honest resolution rather than a rounding. With the flag off
+this file is not executed at all — the CLI reads the registration, starts the process, and the
+process exits 0 without injecting, which is the floor and nothing more. Three things make off the
+right shipped state and each one stands on its own:
+
+1. **It has never run in a live session.** This tree's rule is that a new module ships off until it
+   has run against real sessions, and rule 18 means this one has not run in one at all. The same
+   ruling was applied to `metrics` on #165 and the exception was not argued there either.
+2. **`ship_roots` and `proto_roots` both ship empty.** Switched on with empty lists it resolves to
+   the `proto` default and injects a PROTO pointer no operator asked for — cost with no function
+   until someone says where their release trees are. `bin/lwg-setup.ps1`'s Q6 therefore offers the
+   flag and the roots in the same breath, and writes neither.
+3. **It is the second process.** See above.
+
+An operator who wants it has one lever and it is the right one: fill in the roots, then
+`/lw-watchtower:config stack_mode on`. An operator who does not want the cost pays the floor for a
+registration that exits immediately, which is what every switched-off module in this plugin costs.
+
 ## What no test covers
 
-**Twelve suites in this repository establish a behaviour of this plugin, and between them they reach
+**Thirteen suites in this repository establish a behaviour of this plugin, and between them they reach
 all three gates, three writers, one deleter, the session-start hook, two of the doctor's ten checks,
-one hook's fast path, the shipped payload, and all seven observing modules.**
+one hook's fast path, the shipped payload, and all eight observing modules.**
 
 | Suite | What it establishes |
 | --- | --- |
@@ -422,6 +487,7 @@ one hook's fast path, the shipped payload, and all seven observing modules.**
 | `tests/doctor_behaviour.ps1` | 48 cases driving `bin/lwg-doctor.ps1` from a scratch copy of the whole plugin tree against seeded configs and seeded `settings.json` files: that `config-registry` refuses a switch whose value is not a real `[bool]` rather than passing it for being present, that `statusline` asks whose file a status line is before diagnosing it as a stale copy of this plugin's, and that it reads the `settings.json` the CLI actually reads rather than one composed from the profile. **Eight of the doctor's ten checks - every one but `marketplace` and `hooks-declared` - and no others**, and a substantial minority are `CONTROL` cases that pass before the fix too. A byte-identical or token-bearing foreign status line is a stated limit, not something these cases catch. |
 | `tests/toggle_behaviour.ps1` | 32 cases against `bin/lwg-toggle.ps1`'s write to `config.override.json`, in real child processes against a byte copy of `bin/` and `lib/`: that the write takes a backup, re-checks that the file on disk is still the one it read, keeps a BOM, refuses a config it cannot read back, never reports exit `3` for a run that changed the file, and closes with an invariant that no run moved a byte of the plugin root's `config.json`. The only suite besides the merge one that tests a **write to a file an operator owns**. |
 | `tests/subagent_scan.ps1` | 20 cases piping payloads into the real `lib/subagent_start.ps1`: that its raw-text fast path answers the **global** `modules` flag whatever order the top-level keys appear in, and agrees with the slow path it exists to avoid. The only coverage `context_injection` has. Every case asserting silence re-runs the same fixture with one bit changed and requires the injection to appear, because a bare negative is satisfied by a hook that crashed. It asserts on answers, **not on the milliseconds** the fast path exists to save. |
+| `tests/stack_mode.ps1` | 15 cases piping payloads into the real `lib/stack_mode.ps1` against a throwaway plugin root: that the precedence ladder resolves ONE mode per session, that every way of switching it off is silent, that a ruleset absent from the payload produces silence rather than a pointer to nothing, and that the SHIP pointer states its own node scripts are not here. **The only coverage `stack_mode` has.** A SIMULATION: no live session is started, so whether the CLI merges the injected context is not established. |
 | `tests/payload_guard.ps1` | 30 cases over two enumerations, and the split is the point: the **shipped payload**, which since the restructure is `lw-watchtower/` alone because `marketplace.json` declares `"source": "./lw-watchtower"`, and the rest of the tracked tree, which is never *loaded* as the plugin. **The split is about loading, not about reach:** adding the marketplace clones the whole repository onto a consumer's disk beside the cache, so a tracked file outside the payload is still a file a consumer has — see [Install § Option A](install.md#option-a--marketplace-install-recommended-for-consumers). That is why the second enumeration exists at all rather than being waved off. That no tracked file carries a pull-ref narrative, a former personal address, a plan file's name, a release-plan heading, a containment claim that inverts when visibility changes, or — inside the payload — a shipped file naming a script this branch deleted, a role allowlist naming a tool the model does not have, or a page denying a capability this tree has. That last one is the inverse of the two before it and is here for the same reason: understating what the plugin does is the same defect class as overstating it, and a model that reads the denial stops looking (#332). It reads files rather than running this plugin's code, and it is a statement about **the shapes it carries**, not about everything a reader would rather not ship. |
 | `tests/portability_scan.ps1` | That no tracked file names a machine. **Nothing about behaviour** — a file can be perfectly portable and completely broken. |
 | `tests/workflow_guard.ps1` | That no workflow definition reaches a runner GitHub does not host. A *file* check, not a behaviour. |
@@ -455,7 +521,8 @@ Uncovered, item by item, because an absence nobody writes down reads as coverage
   3 August 2026. `context_injection` is reached by `tests/subagent_scan.ps1` — which since
   6 September 2026 reaches `failure_capture` there as well, through the six cases on the dispatch
   record that second module writes from the same file — `orphan_watch` by
-  `tests/supervision.ps1`, and `self_health`'s probes by `tests/state_resolution.ps1`.
+  `tests/supervision.ps1`, `self_health`'s probes by `tests/state_resolution.ps1`, and `stack_mode` by
+  `tests/stack_mode.ps1`.
   **This list said seven modules were exercised by nothing until the second set landed and named four
   of them — it was the coverage claim itself going stale, which is the failure this page exists to
   prevent, and nothing in `tests/` checks it.** What the four amount to, counted on 3 August 2026:
@@ -468,7 +535,9 @@ Uncovered, item by item, because an absence nobody writes down reads as coverage
   state is repeated at every turn end rather than once. None of them establishes that its module
   advises the right thing. `context_injection` has ONE, that the fast scan answers the global flag
   whatever order the top-level keys are written in; what the hook does with `worker_facts.md` has no
-  case at all.
+  case at all. `stack_mode` arrived with FIFTEEN, which is the other part of this paragraph that is
+  not thin - and they are the cases of a module written yesterday, so none of them has ever caught a
+  regression, because there was no earlier version to regress from.
 - **The installer's WRITER outside `statusline`.** `tests/setup_merge.ps1` establishes, for the
   `statusline` section, that `/lw-watchtower:setup` leaves unrelated settings byte-identical and in order,
   takes exactly one backup holding the original bytes, refuses `apply` without a matching `BaseHash`,
@@ -570,7 +639,7 @@ for still renders that row `DONE`. See [Branch protection](testing.md#branch-pro
 
 ## Platform, install and state
 
-- **Windows only, Windows PowerShell 5.1 only.** All thirteen hook registrations name the binary
+- **Windows only, Windows PowerShell 5.1 only.** All fifteen hook registrations name the binary
   `powershell`, so `pwsh` is **not** a substitute *for a hook* — but the constraint is the
   registration and not the language level. Every tracked script declares `#requires -version 5`,
   which PowerShell 7 satisfies, so running one by hand under `pwsh` is not refused by the interpreter
