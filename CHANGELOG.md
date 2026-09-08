@@ -476,8 +476,9 @@ land here as they merge.
   worded, as `bin/lwg-doctor.ps1` already argued: the doctor's lines sit in a row, the commands' sit
   in a refusal.
   `tests/config_behaviour.ps1` **57 → 59 cases** (J4, red at `010a550`, and J5, the false-plural
-  control that is green there and red under the widen) and `tests/doctor_behaviour.ps1` **43 → 46**
-  of its new total (case 31, three assertions). **Both suites are needed**: the `lib/common.ps1` site
+  control that is green there and red under the widen), and case 31 is **three of the five** new
+  cases in `tests/doctor_behaviour.ps1`, whose total moves **43 → 48** across this entry and the one
+  below it. **Both suites are needed**: the `lib/common.ps1` site
   is unreachable from the doctor, so a doctor case could not close it.
 
 - **The `plugin-manifest` row could not say which build was installed (2026-09-07, #297).** On the
