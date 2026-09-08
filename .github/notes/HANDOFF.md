@@ -69,9 +69,17 @@ worktrees were removed after their PRs were confirmed merged.
    **#345 stays open until this lands** — it is the one `sev:high` and the whole gate.
    `main`'s `bin/lwg-uninstall.ps1` references no module flags (verified), so #166's rename does not
    complicate the port. Source of truth is `release/0.4.1`'s diff against `v0.4.0`.
-3. **Ask the owner what a separate `0.6.0` uninstall means.** `0.6.0` does not exist; `main` declares
-   `0.5.0`. On the obvious reading it inherits from `main` and there is nothing extra to do. **This
-   was asked and not answered — do not guess it.**
+3. **ANSWERED, and the milestone now exists.** The owner ruled: *"0.6.0 is the next release and it
+   must have an uninstall."* The `v0.6.0` milestone was created and carries three issues:
+   **#347** the uninstall as a release requirement checked **at the tag**, not inherited by accident
+   — it names the two gaps `v0.4.1` left, the junction route never exercised for real and the
+   state-directory defect nobody has filed; **#346** the `PreCompact` handoff, because compaction
+   eats every context this plugin injects while leaving the style and the role intact, and
+   `PreCompact` is the only moment fixable from a hook — **its output contract is unmeasured and must
+   be probed before any code**; **#348** the harness stack deferred by ruling H1 — `.mcp.json` inside
+   the payload boundary, the six-binary bootstrap, `lwg-harness-sync`, and the herdr channel question.
+   **#348 also ends step 7's total footprint coverage**: six binaries outside the payload means the
+   sweep gains a stated blind spot.
 4. **Decide #336.** `Stop-LwgProcessTree`'s `WaitForExit(1000)` at `lib/stop_advisories.ps1:306`
    runs **747-928 ms** under load; past it only the direct child dies and the grandchild survives,
    which is the pre-fix behaviour of #98. Three options: raise the bound, make the fallback walk the
