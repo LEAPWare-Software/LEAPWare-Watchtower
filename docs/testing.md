@@ -417,9 +417,14 @@ Five sections:
   **linked worktree** whose merge marker and whose stash live in two different git directories, an
   unresolved conflict named rather than folded into the change count, and the **control** that a
   repository with none of them reports none of them. B37 is the budget: a difference of medians
-  between the probe set and one real subprocess round trip through the module's own process
-  plumbing, both taken on the same machine in the same run, because the claim being checked is that
-  these probes are free *next to the `git status` this module already pays for*.
+  between the probe set and **one `Test-Path` miss**, both taken on the same machine in the same run,
+  with the probe set required to cost under forty of them. It used to divide by one real `git`
+  subprocess instead — the claim being checked is that these probes are free *next to the `git
+  status` this module already pays for* — and **#337 is why it no longer does**: that quotient
+  measured 1:82 on a dev box and 1:17.5 on a hosted runner with neither leg regressing, so it failed
+  on `main` for the machine it ran on rather than for the code. The replacement was measured on both
+  kinds of machine before its bar was set — **11.99 on the dev box, 10.22 on a `windows-latest`
+  runner, a spread of 1.17x** against the old comparator's 4.7x on the same pair.
 - **C — `failure_capture` and `log_rotation`, end to end.** Registration in `hooks.json` including
   the `asyncRewake` that makes exit 2 an *alert* rather than a *block*; the two shipped-bug
   regressions below; the interrupt that must not alert **and must still be recorded**; that the
@@ -435,9 +440,12 @@ Five sections:
   section that does — B37 measures the interrupted-work probe cost the same way. Both assert a
   *difference* between two medians taken back to back in the same run, never an absolute duration —
   an absolute threshold is a case that fails on a slow laptop for reasons that have nothing to do
-  with the code. **D4 skips under `LWG_SUITE_PARALLEL` and B37 does not**, because B37's reference
-  leg is a subprocess: sibling load makes a spawn *slower*, which makes its assertion strictly
-  easier, and a guard load can only help has no reason to skip under it.
+  with the code. **Escaping an absolute duration is not enough, and #337 is the proof**: a *ratio* is
+  just as machine-dependent when its two legs are different classes of work, so both measuring cases
+  now compare like with like — B37 a file check against the file checks it is made of, D4 a render
+  against a render. **D4 skips under `LWG_SUITE_PARALLEL` and B37 does not**, because B37's two legs
+  are the same in-process work taken back to back and sibling load moves them together, while D4's
+  two whole-render medians move differently under it.
 - **E — this suite itself, in process.** One case, and the only one here that asserts on the suite
   rather than on something the suite tests: that the operator's live event log is the same size in
   bytes after the run as it was before it. Section A's in-process calls used to append a record to

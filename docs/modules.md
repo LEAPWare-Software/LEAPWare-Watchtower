@@ -831,9 +831,13 @@ A rebase, a merge, a cherry-pick, a bisect and a stash are each a file or a dire
 creates and removes, so they are read with `Test-Path` and no subprocess — which means they are
 still reported on a machine where git is missing, hanging or refusing, the machine where every
 other condition here can only be **UNKNOWN**. Measured against one real subprocess round trip on the
-same machine in the same run, the whole probe set costs about **1.2 %** of one `git` spawn
-(`tests/stop_behaviour.ps1` case B37); it is a measurement, not an assertion, and it is re-taken on
-every run of that suite. The sixth, `conflict`, has no such file — an unresolved conflict is
+same machine in the same run, the whole probe set costs about **1.2 %** of one `git` spawn on a dev
+box and about **5.7 %** on a GitHub `windows-latest` runner — **a dated reading on each machine and
+not a property of this code**, which is #337: the two costs it divides belong to different parts of
+a host and do not move together. What `tests/stop_behaviour.ps1` case B37 asserts and re-takes on
+every run is the portable form of the same claim — the probe set costs under forty **`Test-Path`
+misses** on whatever machine is running it, which is what "answered with file checks and nothing
+else" actually means. The sixth, `conflict`, has no such file — an unresolved conflict is
 stage-1/2/3 entries in the **index** — so it is read from the `u` lines of the `git status` this
 module was already paying for. Unmerged paths are still counted in `dirty` as they always were;
 what changed is that they are now also named.

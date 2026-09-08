@@ -66,6 +66,12 @@
      builds a .git DIRECTORY by hand and runs with git REMOVED from the child's
      PATH, which is how they prove those probes cost no subprocess.
 
+     THAT CLAIM WAS FALSE FOR A DAY, and it is stated rather than quietly
+     repaired: between 6 and 7 September 2026 B37's reference leg spawned
+     `git --version` in THIS process, so a machine without git failed a case
+     about how little the probes cost. #337 replaced that leg with an
+     in-process one and the claim is true again.
+
   C. failure_capture, END TO END, in a child process, the same way -
      lib\supervisor.ps1 -HookEvent <Event>.
 
@@ -82,12 +88,28 @@
      a case that fails on a slow laptop and passes on a fast one for reasons
      that have nothing to do with the code.
 
-     THE TWO MEASURING CASES DIFFER ON ONE POINT, AND IT IS DELIBERATE: D4
-     skips under LWG_SUITE_PARALLEL and B37 does not. D4 compares two
-     WHOLE-RENDER medians, which sibling load moves differently. B37's
-     reference leg is a SUBPROCESS: load makes a spawn slower, which makes the
-     reference bigger, which makes its assertion strictly easier. A guard that
-     load can only make more likely to pass has no reason to skip under it.
+     ESCAPING AN ABSOLUTE THRESHOLD IS NOT ENOUGH, AND THIS FILE LEARNED THAT
+     BY GOING RED ON main - #337. B37 was written against one real `git`
+     subprocess and asserted the probe set cost under a twentieth of it. That
+     is a ratio, not a duration, and it is still machine-dependent: the same
+     content measured 1:82 on a dev box and 1:17.5 on a GitHub windows-latest
+     runner, because process-creation cost and in-process filesystem cost are
+     properties of different parts of a host and do not move together. Neither
+     leg had regressed. A COMPARATOR MUST BE THE SAME CLASS OF WORK AS THE
+     THING IT MEASURES, which is the rule the two measuring cases now follow:
+     B37's reference leg is one Test-Path miss - one of the very checks the
+     probe set is built from - and section D's is a whole render. Measured
+     across the same two machines the new quotient spreads 1.17x rather than
+     4.7x: 11.99 on the dev box, 10.22 on the runner.
+
+     THE TWO MEASURING CASES STILL DIFFER ON ONE POINT, AND IT IS DELIBERATE:
+     D4 skips under LWG_SUITE_PARALLEL and B37 does not. D4 compares two
+     WHOLE-RENDER medians, which sibling load moves differently. B37's two legs
+     are the same in-process work taken back to back, so sibling load moves
+     them together and cannot change the quotient. The reason the old B37 gave
+     for not skipping - that load makes a spawn slower and so makes its
+     assertion easier - was true, and was beside the point: it never failed
+     under load, it failed on another machine.
 
      THAT ONE CASE - D4's duration verdict, and only that one - REPORTS SKIPPED
      WHEN LWG_SUITE_PARALLEL IS SET, which tests\doc_claims.ps1 sets in the
@@ -1784,36 +1806,95 @@ try {
         ($b36armed -and $b36ev -like '*"conflicts":1*') `
         ("the sentence is what the operator reads and the record is what anything else reads; a fix that only wrote the sentence leaves every reader of lw-watchtower.jsonl unable to tell a conflicted turn end from a merely dirty one. lw-watchtower.jsonl held:`n$b36ev")
 
-    # --- B37: the six probes cost a fraction of the subprocess already paid --
-    # THE BUDGET CASE, and it is a DIFFERENCE OF MEDIANS taken back to back on
-    # the same machine in the same run - section D's method, for section D's
+    # --- B37: the probes cost what the file checks they are made of cost -----
+    # THE BUDGET CASE. It is a DIFFERENCE OF MEDIANS taken back to back on the
+    # same machine in the same run - section D's method, for section D's
     # reason: an absolute millisecond threshold is a case that fails on a slow
     # laptop and passes on a fast one for reasons that have nothing to do with
-    # the code.
+    # the code. It is on its SECOND comparator, because the first one was
+    # machine-dependent in exactly the way an absolute threshold is, and this
+    # suite found that out the expensive way.
     #
-    # THE COMPARATOR IS THE THING THE CLAIM IS ABOUT. #167's triage says these
-    # probes are "free next to the `git status` this module already pays for",
-    # so the reference leg is one real subprocess round trip through the
-    # module's OWN process plumbing - Start-LwgProcess plus Complete-LwgProcess,
-    # lifted from the shipped file by AST exactly as B26 lifts them, so this
-    # cannot pass against a copy that has drifted from the file it is testing.
+    # WHAT THE FIRST COMPARATOR WAS, AND HOW IT FAILED - #337. Until 7
+    # September 2026 this case asserted that the probe set cost under a
+    # TWENTIETH of one real `git` subprocess round trip, on the reasoning that
+    # #167's triage calls these probes free next to the `git status` this
+    # module already pays for. That escaped an absolute duration and landed on
+    # a RATIO that is no more portable:
     #
-    # IT DOES NOT SKIP UNDER LWG_SUITE_PARALLEL, and that is reasoned rather
-    # than overlooked. D4's verdict is a difference between two whole-render
-    # medians, where twelve sibling suites spawning a process per case move the
-    # two legs differently. Here the loaded leg is the SUBPROCESS one: load
-    # makes a process spawn slower, which makes the reference leg bigger, which
-    # makes this assertion strictly easier. A guard that can only be made to
-    # pass by load is not a guard that needs to skip under it.
+    #   dev box <hostname>, 6 Sept   probes 1.17 ms   one git spawn 96.85 ms   1:82
+    #   GitHub windows-latest        probes 2.15 ms   one git spawn 37.67 ms   1:17.5
+    #
+    # NEITHER LEG REGRESSED. The hosted runner creates a process about 2.6x
+    # faster than this dev box, which pays a large per-spawn tax to its
+    # security software, while the runner's in-process file checks are about
+    # 1.8x SLOWER. Process-creation cost and in-process filesystem cost are
+    # properties of different parts of a host and do not scale together, so the
+    # quotient of the two moved by roughly 4.7x between two machines and
+    # crossed the line. `main` went RED on the #330 merge, on content that had
+    # passed on its own branch sixteen minutes before.
+    #
+    # THE COMPARATOR NOW IS ONE Test-Path MISS, and it is machine-stable
+    # because it is THE SAME CLASS OF WORK as the thing being measured. The
+    # probe set is seven Test-Path calls against paths that are absent on a
+    # clean tree plus the Join-Path calls that build them; the reference leg is
+    # one of those same calls against one of those same absent paths. Whatever
+    # a host charges for a cmdlet dispatch and a failed file stat it charges
+    # both legs alike, so the quotient is a property of the FUNCTION rather
+    # than of the machine - bounded below by the seven checks the function must
+    # make and above by the dozen or so dispatches it makes in all.
+    #
+    # MEASURED ON BOTH KINDS OF MACHINE BEFORE THE BAR WAS SET, which is the
+    # part the first comparator skipped. Dev box <hostname> under four
+    # concurrent build lanes, three separate sweeps: 11.86, 12.00, 11.99. A
+    # GitHub windows-latest runner, from a deliberately failing CI run whose
+    # only purpose was to make it print: 10.22 (probe set 1.3072 ms, one check
+    # 0.1279 ms). A SPREAD OF 1.17x ACROSS THE TWO MACHINES, against the old
+    # comparator's 4.7x on the same pair. No idle reading was taken on either
+    # machine and none is claimed; what can be said is that the machine the bar
+    # was calibrated on read the HIGHER of the two, so the bar is the
+    # conservative one for the runner.
+    #
+    # THE BAR IS FORTY AND IT IS DELIBERATELY LOOSE. What is being guarded is
+    # "this answers with file checks and nothing else", not a target - and the
+    # distance to the thing it catches is enormous ON BOTH MACHINES, which is
+    # the point of stating it twice: one `git` spawn costs about a THOUSAND of
+    # these checks on the dev box (93.86 ms against 0.093 ms) and about THREE
+    # HUNDRED on the runner (37.67 ms against 0.128 ms), so a probe set that
+    # grew a process spawn, a directory enumeration or a file read would miss
+    # this bar by orders of magnitude and not by inches. A bar set close to its
+    # own measurement is how the first comparator failed.
+    #
+    # IT SPAWNS NOTHING NOW, which is what makes this file's header claim -
+    # that B36 is the only case here needing `git` on PATH - true. The old
+    # reference leg ran `git --version`, so on a machine without git this case
+    # failed for a reason that had nothing to do with what it asserts.
+    #
+    # IT DOES NOT SKIP UNDER LWG_SUITE_PARALLEL, and the reason is now better
+    # than the one it replaced. The old reason was that load makes a spawn
+    # slower and so makes the assertion strictly easier - true, and beside the
+    # point, since this failed across machines and not under load. The reason
+    # now is that both legs are the same class of in-process work taken back to
+    # back in one run, so sibling load moves them TOGETHER. That is also why D4
+    # still skips and this does not: D4's two legs are whole renders, which
+    # load moves differently.
     #
     # LEG ORDER IS REVERSED ON ALTERNATE ROUNDS and one warm-up sweep is
     # discarded - lib\subagent_start.ps1's measurement standard, cited by #311.
-    $b37 = @{ ok = $false; detail = ''; probe = -1.0; git = -1.0 }
+    #
+    # RED-FIRST, BASELINE 010a550. At that commit this case carried the ratio
+    # above, and the runner figures recorded on #337 fail it: 2.15 ms is not
+    # under 37.67 / 20 = 1.88 ms, while the same content passes on the dev box.
+    # A verdict that depends on which machine ran it is the defect. The
+    # comparator below passes on both, and was confirmed to go red by putting a
+    # single subprocess inside Get-LwgInterruptedOps - the regression this case
+    # exists to catch - which reads 410.67 file checks against the bar of 40.
+    $b37 = @{ ok = $false; detail = ''; probe = -1.0; check = -1.0 }
     try {
         $b37tok = $null; $b37perr = $null
         $b37ast = [System.Management.Automation.Language.Parser]::ParseFile(
             $AdvisoryPath, [ref]$b37tok, [ref]$b37perr)
-        $b37want = @('Get-LwgInterruptedOps', 'Start-LwgProcess', 'Complete-LwgProcess')
+        $b37want = @('Get-LwgInterruptedOps')
         $b37defs = @($b37ast.FindAll({
             param($n)
             $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -1836,9 +1917,13 @@ try {
         # THE CLEAN TREE IS THE CASE THAT MATTERS. Every probe misses, so every
         # one of the seven Test-Path calls runs - the most expensive shape this
         # function has, and the one every turn end on a tidy repository pays.
+        # The reference leg is ONE of those same seven, against the same absent
+        # path, so what separates the two legs is exactly the work this function
+        # does around its file checks.
         $b37K = 100
+        $b37ref = Join-Path $b37git 'MERGE_HEAD'
         $b37probeTimes = New-Object 'System.Collections.Generic.List[double]'
-        $b37gitTimes   = New-Object 'System.Collections.Generic.List[double]'
+        $b37checkTimes = New-Object 'System.Collections.Generic.List[double]'
 
         $b37probeLeg = {
             $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -1849,45 +1934,47 @@ try {
             return ($sw.Elapsed.TotalMilliseconds / $b37K)
         }
 
-        $b37gitLeg = {
+        $b37checkLeg = {
             $sw = [Diagnostics.Stopwatch]::StartNew()
-            $h  = Start-LwgProcess -File 'git' -ProcArgs @('--no-pager', '--version') -WorkDir $b37dir
-            $null = Complete-LwgProcess -Handle $h -TimeoutMs 5000
+            for ($i = 0; $i -lt $b37K; $i++) {
+                $null = Test-Path -LiteralPath $b37ref -PathType Leaf
+            }
             $sw.Stop()
-            return $sw.Elapsed.TotalMilliseconds
+            return ($sw.Elapsed.TotalMilliseconds / $b37K)
         }
 
         $null = & $b37probeLeg      # warm-up, discarded
-        $null = & $b37gitLeg        # warm-up, discarded
+        $null = & $b37checkLeg      # warm-up, discarded
 
         for ($b37r = 0; $b37r -lt 9; $b37r++) {
             if ($b37r % 2 -eq 0) {
                 [void]$b37probeTimes.Add([double](& $b37probeLeg))
-                [void]$b37gitTimes.Add([double](& $b37gitLeg))
+                [void]$b37checkTimes.Add([double](& $b37checkLeg))
             } else {
-                [void]$b37gitTimes.Add([double](& $b37gitLeg))
+                [void]$b37checkTimes.Add([double](& $b37checkLeg))
                 [void]$b37probeTimes.Add([double](& $b37probeLeg))
             }
         }
 
         $b37ps = @($b37probeTimes | Sort-Object)
-        $b37gs = @($b37gitTimes   | Sort-Object)
+        $b37cs = @($b37checkTimes | Sort-Object)
         $b37.probe = [double]$b37ps[[int][Math]::Floor($b37ps.Count / 2)]
-        $b37.git   = [double]$b37gs[[int][Math]::Floor($b37gs.Count / 2)]
+        $b37.check = [double]$b37cs[[int][Math]::Floor($b37cs.Count / 2)]
 
-        # One call of the whole probe set must cost under a twentieth of one
-        # subprocess round trip. Measured on this machine it is far under; the
-        # threshold is deliberately loose because the CLAIM is "negligible next
-        # to the process this module already spawns", not a target.
-        $b37.ok = ($b37.git -gt 0) -and ($b37.probe -lt ($b37.git / 20.0))
-        $b37.detail = ("probe median $([Math]::Round($b37.probe, 4)) ms/call [$((@($b37probeTimes | ForEach-Object { [Math]::Round($_, 4) })) -join ',')], one git subprocess median $([Math]::Round($b37.git, 2)) ms [$((@($b37gitTimes | ForEach-Object { [Math]::Round($_, 2) })) -join ',')], ratio 1:$([Math]::Round($(if ($b37.probe -gt 0) { $b37.git / $b37.probe } else { 0 }), 1))")
+        # One call of the whole probe set must cost under forty of the file
+        # checks it is built out of, measured on the machine running it. The
+        # bar is deliberately loose: the CLAIM is "this answers with file checks
+        # and nothing else", and anything that broke it - a spawn, a directory
+        # walk, a file read - costs hundreds of these checks, not forty.
+        $b37.ok = ($b37.check -gt 0) -and ($b37.probe -lt ($b37.check * 40.0))
+        $b37.detail = ("probe median $([Math]::Round($b37.probe, 4)) ms/call [$((@($b37probeTimes | ForEach-Object { [Math]::Round($_, 4) })) -join ',')], one Test-Path miss median $([Math]::Round($b37.check, 4)) ms [$((@($b37checkTimes | ForEach-Object { [Math]::Round($_, 4) })) -join ',')], the probe set costs $([Math]::Round($(if ($b37.check -gt 0) { $b37.probe / $b37.check } else { 0 }), 2)) file checks against a bar of 40")
     } catch {
         $b37.ok = $false
         $b37.detail = 'the measurement did not run: ' + $_.Exception.Message
     }
-    Add-Result 'B37: the class-2 probes cost under a twentieth of the subprocess this module already spawns' `
+    Add-Result 'B37: the class-2 probes cost under forty of the file checks they are made of' `
         $b37.ok `
-        ("#167's triage claims these probes are free next to the git status git_hygiene already pays for, and this is the measurement rather than the assertion. Difference of medians, nine rounds, leg order reversed on alternate rounds, one warm-up sweep discarded, both legs on this machine in this run. $($b37.detail)")
+        ("#167's triage claims these probes are free next to the git status git_hygiene already pays for, and this is the measurement rather than the assertion. Difference of medians, nine rounds, leg order reversed on alternate rounds, one warm-up sweep discarded, both legs on this machine in this run. THE COMPARATOR IS A FILE CHECK AND NOT A SUBPROCESS BECAUSE A SUBPROCESS MADE THIS VERDICT DEPEND ON THE MACHINE (#337): against one git spawn the same probe set measured 1:82 on a dev box (1.17 ms against 96.85 ms) and 1:17.5 on a GitHub windows-latest runner (2.15 ms against 37.67 ms), which is a 4.7x spread with neither leg regressing, and the twentieth-of-a-spawn bar it used to carry failed on the runner alone. Against its own file checks the same probe set measures 11.99 on that dev box and 10.22 on that runner - a spread of 1.17x rather than 4.7x, which is the whole reason this bar is counted in file checks. $($b37.detail)")
 
     # =====================================================================
     # SECTION C - failure_capture and log_rotation, END TO END

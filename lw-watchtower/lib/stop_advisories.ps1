@@ -479,9 +479,14 @@ function Get-LwgInterruptedOps {
       NO SUBPROCESS, AND THAT IS THE WHOLE POINT OF PUTTING THIS CLASS FIRST.
       Every one of these states is a file or a directory that git itself
       creates and removes, so the module can answer for them at a cost that
-      does not register beside the `git status` it already pays for - measured
-      by case B37 of tests\stop_behaviour.ps1 as a ratio against one real
-      subprocess round trip, not asserted. It also means these conditions are
+      does not register beside the `git status` it already pays for - held to
+      that by case B37 of tests\stop_behaviour.ps1, which measures this whole
+      function against ONE Test-Path miss on the machine running it and
+      requires it to cost under forty. It used to divide by one real git
+      subprocess; #337 is why it does not, and the short version is that a
+      spawn costs 96.85 ms on one machine and 37.67 ms on another while these
+      probes move the other way, so that quotient measured the host and not
+      this code. It also means these conditions are
       still reported on a machine where git is missing, hanging or refusing,
       which is precisely where the rest of this module can say only UNKNOWN.
 
