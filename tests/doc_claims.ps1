@@ -655,7 +655,7 @@ if ($commandFiles.Count -eq 0) { Abort 'no tracked files under commands/ are pre
 # three, correct as a total and wrong as the thing the page's reader is told.
 $setupPath = Join-Path $script:RepoRoot ($script:PayloadRel + '\bin\lwg-setup.ps1')
 if (-not (Test-Path -LiteralPath $setupPath -PathType Leaf)) { Abort "missing $setupPath" }
-$setupText = Get-Content -Raw -LiteralPath $setupPath
+$setupText = Get-Content -Raw -Encoding UTF8 -LiteralPath $setupPath
 $qFunc = [regex]::Match($setupText, '(?ms)^function\s+Write-Questions\s*\{.*?^\}')
 if (-not $qFunc.Success) { Abort 'bin\lwg-setup.ps1 declares no Write-Questions function - the parse is broken.' }
 $qIds = @([regex]::Matches($qFunc.Value, '(?m)^\s*Write-Output\s+\(?["'']\s{2}Q(\d+)\s{2}') |
