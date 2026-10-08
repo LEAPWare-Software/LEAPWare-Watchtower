@@ -515,3 +515,16 @@ plugin's own logs, or the plugin damaging your `settings.json`. See [SECURITY.md
 ## Licence
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+## The LEAP in LEAPWare
+
+**LEAP = Listen. Explain. Act. Prove.**
+
+It's a philosophy statement describing how the products work, not what they are:
+
+- **Listen:** read the data and ground in what's actually true before saying anything
+- **Explain:** show what was found, what it means, and why, with no black boxes
+- **Act:** execute within the boundaries, approvals, and safety layers you set
+- **Prove:** everything is on the record and traceable back to its source
+
+"LEAP" on its own refers to the philosophy, never to a specific product.
